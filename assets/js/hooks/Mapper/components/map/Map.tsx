@@ -268,7 +268,8 @@ const MapComp = ({
           //  if system is not visible edge not drawing (and any render in Custom node is not happening)
           // onlyRenderVisibleElements
           selectionMode={SelectionMode.Partial}
-        >
+          selectionOnDrag={true}
+          >
           {isShowMinimap && <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} />}
           {isShowBackgroundPattern && <Background />}
         </ReactFlow>

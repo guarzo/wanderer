@@ -67,23 +67,46 @@ export const MapWrapper = () => {
     runCommand(event);
   });
 
+
   const onSelectionChange: OnMapSelectionChange = useCallback(
     ({ systems, connections }) => {
-      const { selectedConnections, selectedSystems } = ref.current;
+      const { selectedSystems, selectedConnections } = ref.current;
 
-      const newData: Partial<Pick<MapRootData, 'selectedSystems' | 'selectedConnections'>> = {};
-
-      if (!isEqual(systems, selectedSystems)) {
-        newData.selectedSystems = systems;
+      // Decide what the new "selectedSystems" should be
+      let newSelectedSystems = selectedSystems;
+      if (systems && systems.length > 0 && !isEqual(systems, selectedSystems)) {
+        newSelectedSystems = systems;
       }
 
-      if (!isEqual(connections, selectedConnections)) {
-        newData.selectedConnections = connections;
+      // Decide what the new "selectedConnections" should be
+      let newSelectedConnections = selectedConnections;
+      if (
+        connections &&
+        connections.length > 0 &&
+        !isEqual(connections, selectedConnections)
+      ) {
+        newSelectedConnections = connections;
       }
 
-      update(newData);
+      // Compare old vs. new
+      const hasSystemChanged = !isEqual(newSelectedSystems, selectedSystems);
+      const hasConnectionChanged = !isEqual(newSelectedConnections, selectedConnections);
+
+      // If anything changed, build a partial "newData" and update
+      if (hasSystemChanged || hasConnectionChanged) {
+        const newData: Partial<MapRootData> = {};
+
+        if (hasSystemChanged) {
+          newData.selectedSystems = newSelectedSystems;
+        }
+        if (hasConnectionChanged) {
+          newData.selectedConnections = newSelectedConnections;
+        }
+
+        update(newData);
+      }
     },
-    [update],
+    [update]
   );
 
   const handleCommand: OutCommandHandler = useCallback(
