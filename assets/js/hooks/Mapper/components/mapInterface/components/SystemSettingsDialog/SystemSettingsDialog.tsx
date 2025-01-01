@@ -89,8 +89,10 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     inputRef.current?.focus();
   }, []);
 
-  const handleInput = useCallback((e: any) => {
-    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9\-[\](){}]/g, '');
+  const handleInput = useCallback((e: any)=> {
+    e.target.value = e.target.value
+      .toUpperCase()
+      .replace(/[^A-Z0-9\s\-\*\[\](){}]/g, '');
   }, []);
 
   return (
@@ -131,7 +133,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   id="name"
                   aria-describedby="name"
                   autoComplete="off"
-                  value={name}
+                  value={name !== system?.system_static_info.solar_system_name ? name : ''}
                   // @ts-expect-error
                   ref={inputRef}
                   onChange={e => setName(e.target.value)}
@@ -160,7 +162,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   aria-describedby="label"
                   autoComplete="off"
                   value={label}
-                  maxLength={5}
+                  maxLength={10}
                   onChange={e => setLabel(e.target.value)}
                   onInput={handleInput}
                 />
