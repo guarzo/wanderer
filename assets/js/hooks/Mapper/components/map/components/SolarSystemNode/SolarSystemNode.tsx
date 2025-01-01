@@ -16,7 +16,10 @@ import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormhol
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
 import { useMapState } from '@/hooks/Mapper/components/map/MapProvider.tsx';
-import { getSystemClassStyles, prepareUnsplashedChunks } from '@/hooks/Mapper/components/map/helpers';
+import {
+  getSystemClassStyles,
+  prepareUnsplashedChunks,
+} from '@/hooks/Mapper/components/map/helpers';
 import { sortWHClasses } from '@/hooks/Mapper/helpers';
 import { PrimeIcons } from 'primereact/api';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager.ts';
@@ -66,9 +69,7 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
   } = data.system_static_info;
 
   const signatures = data.system_signatures;
-
   const { locked, name, tag, status, labels, id } = data || {};
-
   const customName = solar_system_name !== name ? name : undefined;
 
   const {
