@@ -659,7 +659,7 @@ defmodule WandererAppWeb.MapsLive do
       ) do
     options =
       options_form
-      |> Map.take(["layout", "store_custom_labels", "restrict_offline_showing"])
+      |> Map.take(["layout", "store_custom_labels", "show_label_focused_nodes" ,"restrict_offline_showing"])
 
     {:ok, updated_map} = WandererApp.MapRepo.update_options(map, options)
 
