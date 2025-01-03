@@ -88,7 +88,11 @@ export const useContextMenuSystemHandlers = ({ systems, hubs, outCommand }: UseC
     setSystem(undefined);
   }, []);
 
+<<<<<<< HEAD
   const onSystemTemporaryName = useCallback((temporaryName?: string) => {
+=======
+  const onSystemTemporaryName = useCallback((temporary_name?: string) => {
+>>>>>>> 9f17f84 (feat(map): add temporary system names toggle)
     const { system, outCommand } = ref.current;
     if (!system) {
       return;
@@ -98,7 +102,11 @@ export const useContextMenuSystemHandlers = ({ systems, hubs, outCommand }: UseC
       type: OutCommand.updateSystemTemporaryName,
       data: {
         system_id: system,
+<<<<<<< HEAD
         value: temporaryName ?? '',
+=======
+        value: temporary_name ?? '',
+>>>>>>> 9f17f84 (feat(map): add temporary system names toggle)
       },
     });
     setSystem(undefined);

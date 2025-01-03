@@ -25,7 +25,6 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
 
   const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
 
-
   const system = getSystemById(systems, systemId);
 
 
