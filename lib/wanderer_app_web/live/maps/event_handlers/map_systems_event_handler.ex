@@ -204,6 +204,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           }
         } = socket
       ) do
+        Logger.info("Updating system positions: #{inspect(positions)}")
     map_id
     |> update_system_positions(positions)
 

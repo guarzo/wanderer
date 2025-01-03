@@ -126,9 +126,40 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
       <form onSubmit={handleSave}>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-1">
-              <label htmlFor="username">Custom name</label>
 
+              {isTempSystemNameEnabled &&
+              <div className="flex flex-col gap-1">
+                <label htmlFor="username">Bookmark Name</label>
+
+                <IconField>
+                  {temporary_name !== '' && (
+                    <WdImgButton
+                      className="pi pi-trash text-red-400"
+                      textSize={WdImageSize.large}
+                      tooltip={{
+                        content: 'Remove temporary name',
+                        className: 'pi p-input-icon',
+                        position: TooltipPosition.top,
+                      }}
+                      onClick={() => setTemporaryName('')}
+                    />
+                  )}
+                  <InputText
+                    id="temporary_name"
+                    aria-describedby="temporaryName"
+                    autoComplete="off"
+                    // @ts-expect-error
+                    ref={inputRef}
+                    value={temporary_name}
+                    maxLength={10}
+                    onChange={e => setTemporaryName(e.target.value)}
+                  />
+                </IconField>
+              </div>
+            }
+
+            <div className="flex flex-col gap-1">
+            <label htmlFor="username">Ticker</label>
               <IconField>
                 {name !== system?.system_static_info.solar_system_name && (
                   <WdImgButton
@@ -146,16 +177,15 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   id="name"
                   aria-describedby="name"
                   autoComplete="off"
-                  value={name}
-                  // @ts-expect-error
-                  ref={inputRef}
+                  value={name !== system?.system_static_info.solar_system_name ?  name : '' }
+
                   onChange={e => setName(e.target.value)}
                 />
               </IconField>
             </div>
 
             <div className="flex flex-col gap-1">
-              <label htmlFor="label">Custom label</label>
+              <label htmlFor="label">Deprecated</label>
 
               <IconField>
                 {label !== '' && (
@@ -182,37 +212,8 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
               </IconField>
             </div>
 
-            {isTempSystemNameEnabled &&
-              <div className="flex flex-col gap-1">
-                <label htmlFor="username">Temporary Name</label>
-
-                <IconField>
-                  {temporary_name !== '' && (
-                    <WdImgButton
-                      className="pi pi-trash text-red-400"
-                      textSize={WdImageSize.large}
-                      tooltip={{
-                        content: 'Remove temporary name',
-                        className: 'pi p-input-icon',
-                        position: TooltipPosition.top,
-                      }}
-                      onClick={() => setTemporaryName('')}
-                    />
-                  )}
-                  <InputText
-                    id="temporary_name"
-                    aria-describedby="temporaryName"
-                    autoComplete="off"
-                    value={temporary_name}
-                    maxLength={10}
-                    onChange={e => setTemporaryName(e.target.value)}
-                  />
-                </IconField>
-              </div>
-            }
-
             <div className="flex flex-col gap-1">
-              <label htmlFor="username">Description</label>
+              <label htmlFor="username">Notes</label>
               <InputTextarea
                 autoResize
                 rows={5}

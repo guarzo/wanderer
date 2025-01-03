@@ -23,6 +23,9 @@ module.exports = {
         gradient: 'gradient 8s linear infinite',
         rotate: 'rotate 10s linear infinite',
       },
+      fontFamily: {
+          sans: ['Oxygen', 'sans-serif'],
+      },
       colors: {
         brand: '#FD4F00',
         primary: colors.rose,
@@ -30,6 +33,8 @@ module.exports = {
         info: colors.blue,
         success: colors.green,
         danger: colors.red,
+       'pf-gray': '#313335',
+       'pf-dark-gray': '#282829'
       },
       transitionProperty: ['visibility'],
       transitionDuration: {

@@ -67,21 +67,87 @@ export const MapWrapper = () => {
     runCommand(event);
   });
 
+
   const onSelectionChange: OnMapSelectionChange = useCallback(
     ({ systems, connections }) => {
-      const { selectedConnections, selectedSystems } = ref.current;
+      console.log("=== onSelectionChange triggered ===");
+      console.log("New incoming:", { systems, connections });
 
-      const newData: Partial<Pick<MapRootData, 'selectedSystems' | 'selectedConnections'>> = {};
+      const { selectedSystems, selectedConnections } = ref.current;
+      console.log("Old existing (ref):", {
+        selectedSystems,
+        selectedConnections,
+      });
+
+      //
+      // 1) Figure out the *new* systems array we intend to store
+      //
+      let newSystems = selectedSystems;
 
       if (!isEqual(systems, selectedSystems)) {
-        newData.selectedSystems = systems;
+        // If 'systems' is non-empty, we adopt it directly
+        if (systems && systems.length > 0) {
+          console.log("Systems are non-empty and changed -> adopting them.");
+          newSystems = systems;
+        } else {
+          // If new systems is empty:
+          //  - If the old array had multiple items, force clear to empty
+          //  - Otherwise, keep old array (or you can decide to forcibly empty it)
+          if (selectedSystems.length > 1) {
+            console.log(
+              "New systems is empty but old had multiple -> forcibly clearing to []."
+            );
+            newSystems = [];
+          } else {
+            console.log(
+              "New systems is empty; old had <= 1 item -> not changing it."
+            );
+          }
+        }
       }
+
+      //
+      // 2) Figure out the *new* connections array we intend to store
+      //
+      let newConnections = selectedConnections;
 
       if (!isEqual(connections, selectedConnections)) {
-        newData.selectedConnections = connections;
+        // If 'connections' is non-empty, adopt it
+        if (connections && connections.length > 0) {
+          console.log("Connections are non-empty and changed -> adopting them.");
+          newConnections = connections;
+        } else {
+          // If new connections is empty:
+          if (selectedConnections.length > 0) {
+            console.log(
+              "New connections empty but old had items -> clearing to []."
+            );
+            newConnections = [];
+          } else {
+            console.log(
+              "New connections empty; old was also empty -> not changing it."
+            );
+          }
+        }
       }
 
-      update(newData);
+      //
+      // 3) Compare final newSystems/newConnections to what we had
+      //
+      const systemsDidChange = !isEqual(newSystems, selectedSystems);
+      const connectionsDidChange = !isEqual(newConnections, selectedConnections);
+
+      if (systemsDidChange || connectionsDidChange) {
+        console.log("Changes detected -> calling update().");
+        update({
+          selectedSystems: newSystems,
+          selectedConnections: newConnections,
+        });
+      } else {
+        console.log(
+          "No final changes in systems or connections -> skipping update()."
+        );
+      }
     },
     [update],
   );

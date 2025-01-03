@@ -3,7 +3,6 @@ import ReactFlow, {
   Background,
   ConnectionMode,
   Edge,
-  MiniMap,
   Node,
   NodeChange,
   NodeDragHandler,
@@ -106,16 +105,13 @@ interface MapCompProps {
 const MapComp = ({
   refn,
   onCommand,
-  minimapClasses,
   onSelectionChange,
   onSystemContextMenu,
   onConnectionInfoClick,
   onSelectionContextMenu,
   onManualDelete,
-  isShowMinimap,
   showKSpaceBG,
   isThickConnections,
-  isShowBackgroundPattern,
   isSoftBackground,
   onAddSystem,
 }: MapCompProps) => {
@@ -142,12 +138,14 @@ const MapComp = ({
   );
 
   const handleDragStop: NodeDragHandler = useCallback(
-    (_, node) => [
+    (_, node, nodes) => [
       // eslint-disable-next-line no-console
       setTimeout(() => {
+        console.log("=== handleDragStop triggered ===");
+        console.log("stopped draging: ", { node });
         onCommand({
-          type: OutCommand.updateSystemPosition,
-          data: { solar_system_id: node.id, position: node.position },
+          type: OutCommand.updateSystemPositions,
+          data: nodes.map(x => ({ solar_system_id: x.id, position: x.position })),
         });
       }, 500),
     ],
@@ -186,6 +184,12 @@ const MapComp = ({
     (changes: NodeChange[]) => {
       const systemsIdsToRemove: string[] = [];
 
+      if (changes.length == 1) {
+        if (changes[0].type == 'select' && changes[0].selected == false) {
+          changes[0].selected = true;
+        }
+      }
+
       const nextChanges = changes.reduce((acc, change) => {
         if (change.type !== 'remove') {
           return [...acc, change];
@@ -223,7 +227,7 @@ const MapComp = ({
 
   return (
     <>
-      <div className={clsx(classes.MapRoot, { ['bg-neutral-900']: isSoftBackground })}>
+      <div className={clsx(classes.MapRoot, { ['bg-pf-dark-gray']: isSoftBackground })}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -268,9 +272,10 @@ const MapComp = ({
           //  if system is not visible edge not drawing (and any render in Custom node is not happening)
           // onlyRenderVisibleElements
           selectionMode={SelectionMode.Partial}
-        >
-          {isShowMinimap && <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} />}
-          {isShowBackgroundPattern && <Background />}
+          panOnDrag={[2]} // 2 = right moues button
+          selectionOnDrag={true}
+          >
+          <Background variant="lines" gap={32} color="#353535"/>
         </ReactFlow>
         {/* <button className="z-auto btn btn-primary absolute top-20 right-20" onClick={handleGetPassages}>
           Test // DON NOT REMOVE

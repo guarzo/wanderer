@@ -1,7 +1,10 @@
+
+
 @layer tailwind-base, primereact, tailwind-utilities;
 
 @import 'primereact/resources/themes/arya-blue/theme.css' layer(primereact);
 /*@import 'primereact/resources/themes/bootstrap4-dark-blue/theme.css' layer(primereact);*/
+@import url('https://fonts.googleapis.com/css2?family=Oxygen:wght@300;400;700&display=swap');
 
 @layer tailwind-base {
   @tailwind base;
@@ -17,7 +20,7 @@
 }
 
 body {
-  font-family: 'Shentox', 'Rogan', sans-serif !important;
+  font-family: 'Oxygen', 'Rogan', sans-serif;
   min-width: 400px; /* Suppose you want minimum width of 400px */
   width: auto !important; /* Firefox will set width as auto */
   width: 400px; /* As IE6 ignores !important it will set width as 400px; */
