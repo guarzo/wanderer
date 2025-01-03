@@ -186,6 +186,12 @@ const MapComp = ({
     (changes: NodeChange[]) => {
       const systemsIdsToRemove: string[] = [];
 
+      if (changes.length == 1) {
+        if (changes[0].type == 'select' && changes[0].selected == false) {
+          changes[0].selected = true;
+        }
+      }
+
       const nextChanges = changes.reduce((acc, change) => {
         if (change.type !== 'remove') {
           return [...acc, change];
@@ -268,7 +274,9 @@ const MapComp = ({
           //  if system is not visible edge not drawing (and any render in Custom node is not happening)
           // onlyRenderVisibleElements
           selectionMode={SelectionMode.Partial}
-        >
+          panOnDrag={[2]} // 2 = right moues button
+          selectionOnDrag={true}
+          >
           {isShowMinimap && <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} />}
           {isShowBackgroundPattern && <Background />}
         </ReactFlow>

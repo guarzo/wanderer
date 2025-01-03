@@ -23,6 +23,9 @@ module.exports = {
         gradient: 'gradient 8s linear infinite',
         rotate: 'rotate 10s linear infinite',
       },
+      fontFamily: {
+          sans: ['Oxygen', 'sans-serif'], // Replace the default sans
+      },
       colors: {
         brand: '#FD4F00',
         primary: colors.rose,

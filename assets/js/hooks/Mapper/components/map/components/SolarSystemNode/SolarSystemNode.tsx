@@ -4,6 +4,7 @@ import { MapSolarSystemType } from '../../map.types';
 import classes from './SolarSystemNode.module.scss';
 import clsx from 'clsx';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { useMapGetOption } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 
 import {
   EFFECT_BACKGROUND_STYLES,
