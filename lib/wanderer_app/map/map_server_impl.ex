@@ -320,6 +320,8 @@ defmodule WandererApp.Map.Server.Impl do
       layout: options |> Map.get("layout", "left_to_right"),
       store_custom_labels:
         options |> Map.get("store_custom_labels", "false") |> String.to_existing_atom(),
+      show_label_focused_nodes:
+        options |> Map.get("show_label_focused_nodes", "false") |> String.to_existing_atom(),
       restrict_offline_showing:
         options |> Map.get("restrict_offline_showing", "false") |> String.to_existing_atom()
     ]

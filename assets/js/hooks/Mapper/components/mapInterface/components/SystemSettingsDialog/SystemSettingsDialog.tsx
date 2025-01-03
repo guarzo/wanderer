@@ -89,8 +89,10 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     inputRef.current?.focus();
   }, []);
 
-  const handleInput = useCallback((e: any) => {
-    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9\-[\](){}]/g, '');
+  const handleInput = useCallback((e: any)=> {
+    e.target.value = e.target.value
+      .toUpperCase()
+      .replace(/[^A-Z0-9\s\-\*\[\](){}\.]/g, '');
   }, []);
 
   return (
@@ -112,7 +114,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-1">
-              <label htmlFor="username">Custom name</label>
+              <label htmlFor="username">System Alias</label>
 
               <IconField>
                 {name !== system?.system_static_info.solar_system_name && (
@@ -131,7 +133,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   id="name"
                   aria-describedby="name"
                   autoComplete="off"
-                  value={name}
+                  value={name !== system?.system_static_info.solar_system_name ? name : ''}
                   // @ts-expect-error
                   ref={inputRef}
                   onChange={e => setName(e.target.value)}
@@ -140,7 +142,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
             </div>
 
             <div className="flex flex-col gap-1">
-              <label htmlFor="label">Custom label</label>
+              <label htmlFor="label">Ticker</label>
 
               <IconField>
                 {label !== '' && (
@@ -160,7 +162,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   aria-describedby="label"
                   autoComplete="off"
                   value={label}
-                  maxLength={5}
+                  maxLength={10}
                   onChange={e => setLabel(e.target.value)}
                   onInput={handleInput}
                 />
@@ -168,7 +170,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
             </div>
 
             <div className="flex flex-col gap-1">
-              <label htmlFor="username">Description</label>
+              <label htmlFor="username">Notes</label>
               <InputTextarea
                 autoResize
                 rows={5}

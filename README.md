@@ -54,10 +54,13 @@ Now you can visit [`localhost:8000`](http://localhost:8000) from your browser.
 #### Using .devcontainer
 
 - Run devcontainer
+- Update the callback URL for the eve application to be http://localhost:4444/auth/eve/callback
+- Update .env to have WEB_APP_URL="http://localhost:4444"
 - Install additional dependencies inside Dev container
 - `root@0d0a785313b6:/app# apt update`
 - `root@0d0a785313b6:/app# curl -sL https://deb.nodesource.com/setup_18.x  | bash -`
 - `root@0d0a785313b6:/app# apt-get install nodejs inotify-tools -y`
+- `root@0d0a785313b6:/app# npm install -g yarn`
 - `root@0d0a785313b6:/app# mix setup`
 
 - See how to run server in #Run section

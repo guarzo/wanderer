@@ -16,5 +16,6 @@ defmodule WandererApp.Env do
   def corp_wallet, do: get_key(:corp_wallet, "")
   def corp_eve_id, do: get_key(:corp_id, -1)
   def subscription_settings, do: get_key(:subscription_settings)
+  def public_api_key, do: get_key(:public_api_key)
   def get_key(key, default \\ nil), do: Application.get_env(@app, key, default)
 end
