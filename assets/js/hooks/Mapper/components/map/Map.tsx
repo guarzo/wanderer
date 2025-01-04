@@ -229,7 +229,7 @@ const MapComp = ({
 
   return (
     <>
-      <div className={clsx(classes.MapRoot, { ['bg-neutral-900']: isSoftBackground })}>
+      <div className={clsx(classes.MapRoot, { ['bg-pf-dark-gray']: isSoftBackground })}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -276,7 +276,7 @@ const MapComp = ({
           selectionMode={SelectionMode.Partial}
         >
           {isShowMinimap && <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} />}
-          {isShowBackgroundPattern && <Background />}
+          <Background variant="lines" gap={32} color="#353535"/>
         </ReactFlow>
         {/* <button className="z-auto btn btn-primary absolute top-20 right-20" onClick={handleGetPassages}>
           Test // DON NOT REMOVE
