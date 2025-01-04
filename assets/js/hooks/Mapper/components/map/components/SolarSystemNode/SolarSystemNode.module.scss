@@ -1,373 +1,401 @@
-@import '@/hooks/Mapper/components/map/styles/eve-common-variables';
+   /* Original import from your project */
+   @import '@/hooks/Mapper/components/map/styles/eve-common-variables';
 
-$pastel-blue: #5a7d9a;
-$pastel-pink: #d291bc;
-$pastel-green: #88b04b;
-$pastel-yellow: #ffdd59;
-$dark-bg: #2d2d2d;
-$text-color: #ffffff;
-$tooltip-bg: #202020; // Dark background for tooltips
+   $pastel-blue: #5a7d9a;
+   $pastel-pink: #d291bc;
+   $pastel-green: #88b04b;
+   $pastel-yellow: #ffdd59;
+   $dark-bg: #2d2d2d;
+   $text-color: #adadad;
+   $tooltip-bg: #202020;
 
-.RootCustomNode {
-  display: flex;
-  width: 130px;
-  height: 34px;
+   .RootCustomNode {
+     display: flex;
+     width: 130px;
+     height: 34px;
+     flex-direction: column;
+     padding: 2px 6px;
+     /* Increased slightly for readability: */
+     font-size: 10px;
+     font-weight: 600;
+     line-height: normal;
 
-  flex-direction: column;
-  padding: 2px 6px;
-  font-size: 10px;
+     background-color: #313335;
+     box-shadow: 0 0 5px rgba($dark-bg, 0.5);
+     border: 1px solid darken($pastel-blue, 10%);
+     border-radius: 5px;
+     position: relative;
+     z-index: 1;
+     overflow: hidden;
+     -webkit-font-smoothing: antialiased;
+     -moz-osx-font-smoothing: grayscale;
 
-  background-color: $tooltip-bg;
-  box-shadow: 0 0 5px rgba($dark-bg, 0.5);
-  border: 1px solid darken($pastel-blue, 10%);
-  border-radius: 5px;
-  position: relative;
-  z-index: 1;
-  overflow: hidden;
+     &.Mataria,
+     &.Amarria,
+     &.Gallente,
+     &.Caldaria {
+       &::before {
+         content: '';
+         position: absolute;
+         top: 0;
+         left: 0;
+         right: 0;
+         bottom: 0;
+         background-size: cover;
+         background-position: 50% 50%;
+         z-index: -1;
+         background-repeat: no-repeat;
+         border-radius: 3px;
+         /* Lowered for better text contrast: */
+         opacity: 0.3;
+       }
+     }
 
-  &.Mataria,
-  &.Amarria,
-  &.Gallente,
-  &.Caldaria {
-    &::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-size: cover;
-      background-position: 50% 50%;
-      z-index: -1;
-      background-repeat: no-repeat;
-      border-radius: 3px;
-    }
-  }
+     &.Mataria {
+       &::before {
+         background-image: url('/images/mataria-180.png');
+         background-position-x: 1px;
+         background-position-y: -14px;
+       }
+     }
 
-  &.Mataria {
-    &::before {
-      background-image: url('/images/mataria-180.png');
-      opacity: 0.6;
-      background-position-x: 1px;
-      background-position-y: -14px;
-    }
-  }
+     &.Caldaria {
+       &::before {
+         background-image: url('/images/caldaria-180.png');
+         background-position-x: 1px;
+         background-position-y: -10px;
+       }
+     }
 
-  &.Caldaria {
-    &::before {
-      background-image: url('/images/caldaria-180.png');
-      opacity: 0.6;
-      background-position-x: 1px;
-      background-position-y: -10px;
-    }
-  }
+     &.Amarria {
+       &::before {
+         background-image: url('/images/amarr-180.png');
+         background-position-x: 0;
+         background-position-y: -13px;
+       }
+     }
 
-  &.Amarria {
-    &::before {
-      opacity: 0.45;
-      background-image: url('/images/amarr-180.png');
-      background-position-x: 0;
-      background-position-y: -13px;
-    }
-  }
+     &.Gallente {
+       &::before {
+         background-image: url('/images/gallente-180.png');
+         background-position-x: 1px;
+         background-position-y: 0;
+       }
+     }
 
-  &.Gallente {
-    &::before {
-      opacity: 0.5;
-      background-image: url('/images/gallente-180.png');
-      background-position-x: 1px;
-      background-position-y: 0;
-    }
-  }
+     &.selected {
+       border-color: $pastel-pink;
+       box-shadow: 0 0 10px #9a1af1c2;
+     }
 
-  &.selected {
-    border-color: $pastel-pink;
-    box-shadow: 0 0 10px #9a1af1c2;
-  }
+     .tooltip {
+       background-color: $tooltip-bg;
+       color: $text-color;
+       padding: 5px 10px;
+       border-radius: 3px;
+       border: 1px solid $pastel-pink;
+     }
 
-  .tooltip {
-    background-color: $tooltip-bg;
-    color: $text-color;
-    padding: 5px 10px;
-    border-radius: 3px;
-    border: 1px solid $pastel-pink;
-  }
+     &.eve-system-status-home {
+       border: 1px solid darken($eve-solar-system-status-color-home, 30%);
+       background-image: linear-gradient(
+         275deg,
+         $eve-solar-system-status-friendly,
+         transparent
+       );
 
-  &.eve-system-status-home {
-    border: 1px solid darken($eve-solar-system-status-color-home, 30%);
-    background-image: linear-gradient(275deg, $eve-solar-system-status-friendly, transparent);
+       &.selected {
+         border-color: $eve-solar-system-status-color-home;
+       }
+     }
 
-    &.selected {
-      border-color: $eve-solar-system-status-color-home;
-    }
-  }
+     &.eve-system-status-friendly {
+       border: 1px solid darken($eve-solar-system-status-color-friendly, 20%);
+       background-image: linear-gradient(
+         275deg,
+         darken($eve-solar-system-status-friendly, 30%),
+         transparent
+       );
 
-  &.eve-system-status-friendly {
-    border: 1px solid darken($eve-solar-system-status-color-friendly, 20%);
-    background-image: linear-gradient(275deg, darken($eve-solar-system-status-friendly, 30%), transparent);
+       &.selected {
+         border-color: darken($eve-solar-system-status-friendly, 5%);
+       }
+     }
 
-    &.selected {
-      border-color: darken($eve-solar-system-status-color-friendly, 5%);
-    }
-  }
+     &.eve-system-status-lookingFor {
+       border: 1px solid darken($eve-solar-system-status-color-lookingFor, 15%);
+       background-image: linear-gradient(275deg, #45ff8f2f, #457fff2f);
 
-  &.eve-system-status-lookingFor {
-    border: 1px solid darken($eve-solar-system-status-color-lookingFor, 15%);
-    background-image: linear-gradient(275deg, #45ff8f2f, #457fff2f);
+       &.selected {
+         border-color: $pastel-pink;
+       }
+     }
 
-    &.selected {
-      border-color: $pastel-pink;
-    }
-  }
+     &.eve-system-status-warning {
+       background-image: linear-gradient(
+         275deg,
+         $eve-solar-system-status-warning,
+         transparent
+       );
+     }
 
-  &.eve-system-status-warning {
-    background-image: linear-gradient(275deg, $eve-solar-system-status-warning, transparent);
-  }
+     &.eve-system-status-dangerous {
+       background-image: linear-gradient(
+         275deg,
+         $eve-solar-system-status-dangerous,
+         transparent
+       );
+     }
 
-  &.eve-system-status-dangerous {
-    background-image: linear-gradient(275deg, $eve-solar-system-status-dangerous, transparent);
-  }
+     &.eve-system-status-target {
+       background-image: linear-gradient(
+         275deg,
+         $eve-solar-system-status-target,
+         transparent
+       );
+     }
+   }
 
-  &.eve-system-status-target {
-    background-image: linear-gradient(275deg, $eve-solar-system-status-target, transparent);
-  }
-}
+   .Bookmarks {
+     position: absolute;
+     width: 100%;
+     z-index: 1;
+     display: flex;
+     left: 4px;
 
-.Bookmarks {
-  position: absolute;
-  width: 100%;
-  z-index: 1;
-  display: flex;
-  left: 4px;
+     & > .Bookmark {
+       min-width: 13px;
+       height: 22px;
+       position: relative;
+       top: -13px;
+       border-radius: 5px;
+       color: #ffffff;
+       font-size: 8px;
+       text-align: center;
+       padding-top: 2px;
+       font-weight: bold;
+       padding-left: 3px;
+       padding-right: 3px;
 
-  & > .Bookmark {
-    min-width: 13px;
-    height: 22px;
-    position: relative;
-    top: -13px;
-    border-radius: 5px;
-    color: #ffffff;
-    font-size: 8px;
-    text-align: center;
-    padding-top: 2px;
-    font-weight: bolder;
-    padding-left: 3px;
-    padding-right: 3px;
+       &:not(:first-child) {
+         box-shadow: inset 4px -3px 4px rgba(0, 0, 0, 0.3);
+       }
+     }
 
-    //background-color: #833ca4;
+     .BookmarkWithIcon {
+       display: flex;
+       justify-content: center;
+       align-items: center;
+       margin-top: -2px;
+       text-shadow: 0 0 3px rgba(0, 0, 0, 1);
+       padding-right: 2px;
 
-    &:not(:first-child) {
-      box-shadow: inset 4px -3px 4px rgba(0, 0, 0, 0.3);
-    }
-  }
+       & > .icon {
+         width: 8px;
+         height: 8px;
+         font-size: 8px;
+       }
 
-  .BookmarkWithIcon {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-top: -2px;
-    text-shadow: 0 0 3px rgba(0, 0, 0, 1);
-    padding-right: 2px;
+       & > .text {
+         margin-top: 1px;
+         font-size: 9px;
+       }
+     }
+   }
 
-    & > .icon {
-      width: 8px;
-      height: 8px;
-      font-size: 8px;
-    }
+   .Unsplashed {
+     position: absolute;
+     width: calc(50% - 4px);
+     z-index: -1;
+     display: flex;
+     flex-wrap: wrap;
+     gap: 2px;
+     left: 2px;
 
-    & > .text {
-      margin-top: 1px;
-      font-size: 9px;
-    }
-  }
-}
+     &--right {
+       left: calc(50% + 6px);
+     }
 
-.Unsplashed {
-  position: absolute;
-  width: calc(50% - 4px);
-  z-index: -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  left: 2px;
+     & > .Signature {
+       width: 13px;
+       height: 4px;
+       position: relative;
+       top: 3px;
+       border-radius: 5px;
+       color: #ffffff;
+       font-size: 8px;
+       text-align: center;
+       padding-top: 2px;
+       font-weight: bold;
+       padding-left: 3px;
+       padding-right: 3px;
+       display: block;
+       background-color: #833ca4;
 
-  &--right {
-    left: calc(50% + 6px);
-  }
+       &:not(:first-child) {
+         box-shadow: inset 4px -3px 4px rgba(0, 0, 0, 0.3);
+       }
+     }
+   }
 
-  & > .Signature {
-    width: 13px;
-    height: 4px;
-    position: relative;
-    top: 3px;
-    border-radius: 5px;
-    color: #ffffff;
-    font-size: 8px;
-    text-align: center;
-    padding-top: 2px;
-    font-weight: bolder;
-    padding-left: 3px;
-    padding-right: 3px;
-    display: block;
+   .icon {
+     width: 8px;
+     height: 8px;
+     font-size: 8px;
+   }
 
-    background-color: #833ca4;
+   .HeadRow {
+     display: flex;
+     align-items: center;
+     gap: 3px;
+     font-size: 11px;
+     line-height: 14px;
+     font-weight: 500;
+     position: relative;
+     top: 1px;
 
-    &:not(:first-child) {
-      box-shadow: inset 4px -3px 4px rgba(0, 0, 0, 0.3);
-    }
-  }
-}
+     .classTitle {
+       font-size: 11px;
+       font-weight: bold;
+       /* Lightened shadow for crisp text: */
+       text-shadow: 0 0 1px rgba(0, 0, 0, 0.7);
+     }
 
-.icon {
-  width: 8px;
-  height: 8px;
-  font-size: 8px;
-}
+     @-moz-document url-prefix() {
+       .classSystemName {
+         font-family: inherit !important;
+         font-weight: bold;
+         mix-blend-mode: screen;
 
-.HeadRow {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  line-height: 14px;
-  font-weight: 500;
-  position: relative;
-  top: 1px;
+       }
+     }
 
-  .classTitle {
-    font-size: 11px;
-    font-weight: bold;
-    text-shadow: 0 0 2px rgb(0 0 0 / 73%);
-  }
+     .classSystemName {
+       font-family: inherit !important;
+       font-weight: bold;
+       color: #adadad;
+       mix-blend-mode: screen;
+       text-shadow: rgba(0, 0, 0, 0.4) 1px 1px;
+     }
+   }
 
-  .TagTitle {
-    font-size: 11px;
-    font-weight: bold;
-    text-shadow: 0 0 2px rgba(231, 146, 52, 0.73);
+   .BottomRow {
+     display: flex;
+     justify-content: space-between;
+     align-items: center;
+     height: 19px;
 
-    color: #ffb01d;
-  }
-
-  /* Firefox kostyl */
-  @-moz-document url-prefix() {
-    .classSystemName {
+     .customName {
       font-family: inherit !important;
       font-weight: bold;
-    }
-  }
+      color: #adadad;
+      mix-blend-mode: screen;
+      text-shadow: rgba(0, 0, 0, 0.4) 1px 1px;
+     }
 
-  .classSystemName {
-    //font-weight: bold;
-  }
-
-  .solarSystemName {
-  }
-}
-
-.BottomRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 19px;
-
-  .localCounter {
-    display: flex;
-    //align-items: center;
-    gap: 2px;
-
-    & > i {
-      position: relative;
-      top: 1px;
+     .TagTitle {
+      font-size: 11px;
+      font-family: inherit !important;
+      font-weight: bold;
+      color: #a348a3 !important;
     }
 
-    & > span {
-      font-size: 9px;
-      line-height: 9px;
-      font-weight: 500;
-      //margin-top: 1px;
-    }
-  }
-}
+     .localCounter {
+       display: flex;
+       gap: 2px;
 
-.effect {
-  width: 8px;
-  height: 8px;
-  margin-top: -2px;
-  box-sizing: border-box;
-  border-radius: 2px;
-  margin-left: 1px;
-}
+       & > i {
+         position: relative;
+         top: 1px;
+       }
 
-.statics {
-  display: flex;
-  gap: 2px;
-  font-size: 8px;
+       & > span {
+         font-size: 9px;
+         line-height: 9px;
+         font-weight: 700;
+         color: #5cb85c
+       }
+     }
+   }
 
-  & > * {
-    line-height: 10px;
-  }
+   .effect {
+     width: 8px;
+     height: 8px;
+     margin-top: -2px;
+     box-sizing: border-box;
+     border-radius: 2px;
+     margin-left: 1px;
+   }
 
-  /* Firefox kostyl */
-  @-moz-document url-prefix() {
-    position: relative;
-    top: -1px;
-  }
-}
+   .statics {
+     display: flex;
+     gap: 2px;
+     font-size: 10px;
 
-.Handlers {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
+     & > * {
+       line-height: 10px;
+     }
 
-.Handle {
-  min-width: initial;
-  min-height: initial;
-  border: 1px solid $pastel-blue;
-  width: 5px;
-  height: 5px;
+     @-moz-document url-prefix() {
+       position: relative;
+       top: -1px;
+     }
+   }
 
-  &.selected {
-    border-color: $pastel-pink;
-  }
+   .Handlers {
+     position: absolute;
+     z-index: 2;
+     top: 0;
+     left: 0;
+     width: 100%;
+     height: 100%;
+   }
 
-  &.HandleTop {
-    top: -2px;
-  }
+   .Handle {
+     min-width: initial;
+     min-height: initial;
+     border: 1px solid $pastel-blue;
+     width: 5px;
+     height: 5px;
 
-  &.HandleRight {
-    right: -2px;
-  }
+     &.selected {
+       border-color: $pastel-pink;
+     }
 
-  &.HandleBottom {
-    bottom: -2px;
-  }
+     &.HandleTop {
+       top: -2px;
+     }
 
-  &.HandleLeft {
-    left: -2px;
-  }
+     &.HandleRight {
+       right: -2px;
+     }
 
-  &.Tick {
-    width: 7px;
-    height: 7px;
+     &.HandleBottom {
+       bottom: -2px;
+     }
 
-    &.HandleTop {
-      top: -3px;
-    }
+     &.HandleLeft {
+       left: -2px;
+     }
 
-    &.HandleRight {
-      right: -3px;
-    }
+     &.Tick {
+       width: 7px;
+       height: 7px;
 
-    &.HandleBottom {
-      bottom: -3px;
-    }
+       &.HandleTop {
+         top: -3px;
+       }
 
-    &.HandleLeft {
-      left: -3px;
-    }
-  }
-}
+       &.HandleRight {
+         right: -3px;
+       }
+
+       &.HandleBottom {
+         bottom: -3px;
+       }
+
+       &.HandleLeft {
+         left: -3px;
+       }
+     }
+   }
