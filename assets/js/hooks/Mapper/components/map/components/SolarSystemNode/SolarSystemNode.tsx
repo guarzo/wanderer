@@ -128,8 +128,20 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
     });
   });
 
-  const showHandlers = isConnecting || hoverNodeId === id;
-  const dropHandler = isConnecting ? 'all' : 'none';
+  function getShowHandlers(isConnecting, hoverNodeId, id) {
+    const result = isConnecting || hoverNodeId === id;
+    console.log('showHandlers computed as:', result);
+    return result;
+  }
+  
+  function getDropHandler(isConnecting) {
+    const result = isConnecting ? 'all' : 'none';
+    console.log('dropHandler computed as:', result);
+    return result;
+  }
+
+  const showHandlers = getShowHandlers(isConnecting, hoverNodeId, id);
+  const dropHandler = getDropHandler(isConnecting);
 
   const space = showKSpaceBG ? REGIONS_MAP[region_id] : '';
   const regionClass = showKSpaceBG ? SpaceToClass[space] : null;
@@ -306,7 +318,7 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
             [classes.selected]: selected,
             [classes.Tick]: isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell' }}
+          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell',  zIndex: 10  }}
           position={Position.Right}
           id="b"
         />
@@ -326,7 +338,7 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
             [classes.selected]: selected,
             [classes.Tick]: isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell' }}
+          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell',  zIndex: 10  }}
           position={Position.Left}
           id="d"
         />

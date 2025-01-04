@@ -1,7 +1,7 @@
 import { Map } from '@/hooks/Mapper/components/map/Map.tsx';
 import { useCallback, useRef, useState } from 'react';
 import { OutCommand, OutCommandHandler, SolarSystemConnection } from '@/hooks/Mapper/types';
-import { MapRootData, useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { OnMapAddSystemCallback, OnMapSelectionChange } from '@/hooks/Mapper/components/map/map.types.ts';
 import isEqual from 'lodash.isequal';
 import { ContextMenuSystem, useContextMenuSystemHandlers } from '@/hooks/Mapper/components/contexts';
@@ -131,9 +131,7 @@ export const MapWrapper = () => {
         }
       }
 
-      //
-      // 3) Compare final newSystems/newConnections to what we had
-      //
+
       const systemsDidChange = !isEqual(newSystems, selectedSystems);
       const connectionsDidChange = !isEqual(newConnections, selectedConnections);
 

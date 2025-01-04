@@ -138,11 +138,11 @@ const MapComp = ({
   );
 
   const handleDragStop: NodeDragHandler = useCallback(
-    (_, node, nodes) => [
+    (_, _node, nodes) => [
       // eslint-disable-next-line no-console
       setTimeout(() => {
         console.log("=== handleDragStop triggered ===");
-        console.log("stopped draging: ", { node });
+        console.log("stopped draging: ", { nodes });
         onCommand({
           type: OutCommand.updateSystemPositions,
           data: nodes.map(x => ({ solar_system_id: x.id, position: x.position })),
@@ -155,6 +155,8 @@ const MapComp = ({
   const handleSelectionDragStop: SelectionDragHandler = useCallback(
     (_, nodes) => {
       setTimeout(() => {
+        console.log("=== handleSelectionDragStop triggered ===");
+        console.log("stopped draging: ", { nodes });
         onCommand({
           type: OutCommand.updateSystemPositions,
           data: nodes.map(x => ({ solar_system_id: x.id, position: x.position })),
@@ -168,6 +170,8 @@ const MapComp = ({
 
   const handleSelectionChange: OnSelectionChangeFunc = useCallback(
     ({ edges, nodes }) => {
+      console.log("=== handleSelectionChange triggered ===");
+      console.log("edges, nodes: ", { edges, nodes });
       onSelectionChange({
         connections: edges.map(({ source, target }) => ({ source, target })),
         systems: nodes.map(x => x.id),
@@ -183,6 +187,8 @@ const MapComp = ({
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const systemsIdsToRemove: string[] = [];
+      console.log("=== handle nodesChange triggered ===");
+      console.log("changes: ", { changes });
 
       if (changes.length == 1) {
         if (changes[0].type == 'select' && changes[0].selected == false) {
