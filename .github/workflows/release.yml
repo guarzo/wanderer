@@ -30,7 +30,7 @@ jobs:
       - name: Extract version from created tag
         id: get_version
         run: |
-          VERSION="${{ steps.create_tag.outputs.TAG#v }}"
+          VERSION="${{ steps.create_tag.outputs.TAG }}"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Log in to Docker Hub
