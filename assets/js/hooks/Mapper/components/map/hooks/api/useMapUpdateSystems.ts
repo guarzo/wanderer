@@ -31,6 +31,8 @@ export const useMapUpdateSystems = () => {
         }
       });
 
+      console.log("in map update systems, calling setNodes - ", nodes)
+
       rf.setNodes(prepared);
 
       const out = ref.current.systems.map(current => {

@@ -7,6 +7,7 @@ import { EdgeChange, NodeChange, Node, Edge } from 'reactflow';
 function applyChanges(changes: any[], elements: any[]): any[] {
   // we need this hack to handle the setNodes and setEdges function of the useReactFlow hook for controlled flows
   if (changes.some(c => c.type === 'reset')) {
+    console.log('Reset changes detected:', changes);
     return changes.filter(c => c.type === 'reset').map(c => c.item);
   }
 
@@ -146,6 +147,7 @@ function applyChange(change: any, element: any): any {
     );
  */
 export function applyNodeChanges<NodeType extends Node = Node>(changes: NodeChange[], nodes: NodeType[]): NodeType[] {
+  console.log("applying changes - changes, nodes", changes, nodes)
   return applyChanges(changes, nodes) as NodeType[];
 }
 
