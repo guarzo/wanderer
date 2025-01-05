@@ -1,22 +1,36 @@
-name: Buid and Deploy (Tagged)
+name: Zoo Build and Deploy
 
 on:
   push:
-    tags:
-      - '*'  # triggers for all tag pushes
+    branches:
+      - guarzo/release
 
 jobs:
-  build-and-deploy:
+  tag-build-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out code
         uses: actions/checkout@v3
 
-      - name: Extract version from tag
+      - name: Create a tag
+        id: create_tag
+        run: |
+          TAG="v$(date +%Y%m%d%H%M%S)"
+          echo "Creating new tag: $TAG"
+          
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          
+          git tag -a "$TAG" -m "Tag from GitHub Actions"
+          git push origin "$TAG"
+
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Extract version from created tag
         id: get_version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ steps.create_tag.outputs.TAG#v }}"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Log in to Docker Hub
@@ -51,12 +65,10 @@ jobs:
             EOF
 
             cd /app/wanderer
-            
-            docker compose --env-file .compose.env -f docker-compose.yml \
-            -f reverse-proxy/docker-compose.caddy-gen.yml pull wanderer
 
             docker compose --env-file .compose.env -f docker-compose.yml \
-            -f reverse-proxy/docker-compose.caddy-gen.yml \
-            up -d --force-recreate --no-deps wanderer
+              -f reverse-proxy/docker-compose.caddy-gen.yml pull wanderer
 
-
+            docker compose --env-file .compose.env -f docker-compose.yml \
+              -f reverse-proxy/docker-compose.caddy-gen.yml \
+              up -d --force-recreate --no-deps wanderer
