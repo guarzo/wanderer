@@ -3,7 +3,6 @@ import ReactFlow, {
   Background,
   ConnectionMode,
   Edge,
-  MiniMap,
   Node,
   NodeChange,
   NodeDragHandler,
@@ -107,16 +106,13 @@ interface MapCompProps {
 const MapComp = ({
   refn,
   onCommand,
-  minimapClasses,
   onSelectionChange,
   onSystemContextMenu,
   onConnectionInfoClick,
   onSelectionContextMenu,
   onManualDelete,
-  isShowMinimap,
   showKSpaceBG,
   isThickConnections,
-  isShowBackgroundPattern,
   isSoftBackground,
   isRightPanDrag,
   onAddSystem,
@@ -243,7 +239,7 @@ const MapComp = ({
           defaultViewport={getViewPortFromStore()}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
-          connectionMode={ConnectionMode.Loose}
+          connectionMode={ConnectionMode.Strict}
           snapToGrid
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}
@@ -279,12 +275,8 @@ const MapComp = ({
           // onlyRenderVisibleElements
           selectionMode={SelectionMode.Partial}
         >
-          {isShowMinimap && <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} />}
-          <Background variant="lines" gap={32} color="#353535"/>
+          <Background variant="lines" gap={32} color='bg-pf-dark-gray'/>
         </ReactFlow>
-        {/* <button className="z-auto btn btn-primary absolute top-20 right-20" onClick={handleGetPassages}>
-          Test // DON NOT REMOVE
-        </button> */}
       </div>
 
       <ContextMenuRoot {...rootCtxProps} />
