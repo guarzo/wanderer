@@ -145,6 +145,7 @@ const MapComp = ({
     (_, node) => [
       // eslint-disable-next-line no-console
       setTimeout(() => {
+        console.log('Handle Drag Stop - Selected node:', node);
         onCommand({
           type: OutCommand.updateSystemPosition,
           data: { solar_system_id: node.id, position: node.position },
@@ -157,6 +158,7 @@ const MapComp = ({
   const handleSelectionDragStop: SelectionDragHandler = useCallback(
     (_, nodes) => {
       setTimeout(() => {
+        console.log('Handle Selection Drag Stop - Selected nodes:', nodes.map((n) => n.id));
         onCommand({
           type: OutCommand.updateSystemPositions,
           data: nodes.map(x => ({ solar_system_id: x.id, position: x.position })),
@@ -170,6 +172,8 @@ const MapComp = ({
 
   const handleSelectionChange: OnSelectionChangeFunc = useCallback(
     ({ edges, nodes }) => {
+      console.log('Handle Selection Change - Selected nodes:', nodes.map((n) => n.id));
+
       onSelectionChange({
         connections: edges.map(({ source, target }) => ({ source, target })),
         systems: nodes.map(x => x.id),
@@ -186,13 +190,17 @@ const MapComp = ({
     (changes: NodeChange[]) => {
       const systemsIdsToRemove: string[] = [];
 
+      console.log('Node changes:', changes);
+
       // prevents single node deselection on background / same node click
       // allows deseletion of all nodes if multiple are currently selected
       if (changes.length === 1 && changes[0].type == 'select' && changes[0].selected === false) {
         changes[0].selected = getNodes().filter(node => node.selected).length === 1;
       }
 
+
       const nextChanges = changes.reduce((acc, change) => {
+        console.log(change.type, change)
         if (change.type !== 'remove') {
           return [...acc, change];
         }
