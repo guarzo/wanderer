@@ -101,6 +101,7 @@ interface MapCompProps {
   isThickConnections?: boolean;
   isShowBackgroundPattern?: boolean;
   isSoftBackground?: boolean;
+  isRightPanDrag?: boolean;
 }
 
 const MapComp = ({
@@ -117,6 +118,7 @@ const MapComp = ({
   isThickConnections,
   isShowBackgroundPattern,
   isSoftBackground,
+  isRightPanDrag,
   onAddSystem,
 }: MapCompProps) => {
   const { getNode, getNodes } = useReactFlow();
@@ -270,6 +272,8 @@ const MapComp = ({
           maxZoom={1.5}
           elevateNodesOnSelect
           deleteKeyCode={['Delete']}
+          selectionOnDrag={isRightPanDrag}
+          panOnDrag={isRightPanDrag ? [2] : [0, 1, 2]}
           // TODO need create clear example with problem with that flag
           //  if system is not visible edge not drawing (and any render in Custom node is not happening)
           // onlyRenderVisibleElements

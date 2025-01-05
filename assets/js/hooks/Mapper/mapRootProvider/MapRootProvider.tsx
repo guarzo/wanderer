@@ -37,6 +37,7 @@ export enum InterfaceStoredSettingsProps {
   isShowUnsplashedSignatures = 'isShowUnsplashedSignatures',
   isShowBackgroundPattern = 'isShowBackgroundPattern',
   isSoftBackground = 'isSoftBackground',
+  isRightPanDrag = 'isRightPanDrag',
 }
 
 export type InterfaceStoredSettings = {
@@ -47,6 +48,7 @@ export type InterfaceStoredSettings = {
   isShowUnsplashedSignatures: boolean;
   isShowBackgroundPattern: boolean;
   isSoftBackground: boolean;
+  isRightPanDrag: boolean;
 };
 
 export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
@@ -57,6 +59,7 @@ export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
   isShowUnsplashedSignatures: false,
   isShowBackgroundPattern: true,
   isSoftBackground: false,
+  isRightPanDrag: false,
 };
 
 export interface MapRootContextProps {
