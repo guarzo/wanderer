@@ -65,6 +65,7 @@ const UI_CHECKBOXES_PROPS: CheckboxesList = [
   { prop: InterfaceStoredSettingsProps.isShowMenu, label: 'Enable compact map menu bar' },
   { prop: InterfaceStoredSettingsProps.isShowBackgroundPattern, label: 'Show background pattern' },
   { prop: InterfaceStoredSettingsProps.isSoftBackground, label: 'Enable soft background' },
+  { prop: InterfaceStoredSettingsProps.isRightPanDrag, label: 'Enable left click select / right click pan' },
 ];
 
 export const MapSettings = ({ show, onHide }: MapSettingsProps) => {
