@@ -142,13 +142,13 @@ const MapComp = ({
   );
 
   const handleDragStop: NodeDragHandler = useCallback(
-    (_, node) => [
+    (_, node, nodes) => [
       // eslint-disable-next-line no-console
       setTimeout(() => {
-        console.log('Handle Drag Stop - Selected node:', node);
+        console.log('Handle Drag Stop - Selected node, nodes', node, nodes);
         onCommand({
-          type: OutCommand.updateSystemPosition,
-          data: { solar_system_id: node.id, position: node.position },
+          type: OutCommand.updateSystemPositions,
+          data: nodes.map(x => ({ solar_system_id: x.id, position: x.position })),
         });
       }, 500),
     ],
