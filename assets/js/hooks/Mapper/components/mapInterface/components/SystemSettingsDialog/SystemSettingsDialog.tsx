@@ -21,7 +21,7 @@ const CHECKBOX_ITEMS = [
   { code: 'PW',  label: 'Prewarp Sites' },
   { code: 'PT',  label: 'POS Trash' },
   { code: 'DNP', label: 'Do Not Pod' },
-  // Add more if needed...
+  { code: 'CF',  label: 'Coward Finder' },
 ];
 
 /** Convert a string like "*B *MB *PT" → ["B", "MB", "PT"] */
