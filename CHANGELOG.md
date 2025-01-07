@@ -2,6 +2,19 @@
 
 <!-- changelog -->
 
+## [v1.37.0](https://github.com/wanderer-industries/wanderer/compare/v1.36.0...v1.37.0) (2025-01-07)
+
+
+
+
+### Features:
+
+* added static system info to api (#101)
+
+* added static system info to api
+
+* Map: add "temporary system names" toggle  (#86)
+
 ## [v1.36.0](https://github.com/wanderer-industries/wanderer/compare/v1.35.0...v1.36.0) (2025-01-07)
 
 
