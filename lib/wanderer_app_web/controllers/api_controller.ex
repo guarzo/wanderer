@@ -255,6 +255,7 @@ end
       :labels,
       :locked,
       :visible,
+      :temporary_name,
       :status,
       :position_x,
       :position_y,
