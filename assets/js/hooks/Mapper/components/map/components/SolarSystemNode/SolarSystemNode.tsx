@@ -136,13 +136,29 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
   const space = showKSpaceBG ? REGIONS_MAP[region_id] : '';
   const regionClass = showKSpaceBG ? SpaceToClass[space] : null;
 
-  const systemName = isTempSystemNameEnabled && temporaryName || solar_system_name;
-  const customLabel = solar_system_name || labelCustom
+  const systemName = isTempSystemNameEnabled && temporaryName
+  ? temporaryName
+  : solar_system_name;
 
-  const whCustomName = (name !== solar_system_name && name)
-  const hsCustomName = (name !== solar_system_name) ? `${name} - ${region_name}` : region_name
-  const customName = isWormhole ? whCustomName : hsCustomName
+  const hsCustomLabel = (isTempSystemNameEnabled && temporaryName)
+    ? region_name
+    : '';
 
+  const whCustomLabel = solar_system_name || labelCustom;
+
+  const customLabel = isWormhole
+    ? whCustomLabel
+    : hsCustomLabel;
+
+  const whCustomName = (name !== solar_system_name && name);
+
+  const hsCustomName = (name !== solar_system_name)
+    ? `${solar_system_name} - ${name}`
+    : region_name;
+
+  const customName = isWormhole
+    ? whCustomName
+    : hsCustomName;
   const [unsplashedLeft, unsplashedRight] = useMemo(() => {
     if (!isShowUnsplashedSignatures) {
       return [[], []];
@@ -230,11 +246,6 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
                 {tag != null && tag !== '' && (
                   <div className={clsx(classes.TagTitle, 'font-medium')}>{`[${tag}]`}</div>
                 )}
-
-                {/*
-                  Add a 'title' so user can hover to see the full text.
-                  Also, ensure .customName is set up to truncate in SCSS.
-                */}
                 <div
                   className={clsx(classes.customName)}
                   title={`${customName ?? ''} ${labelCustom ?? ''}`}
