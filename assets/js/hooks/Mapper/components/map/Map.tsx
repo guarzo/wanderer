@@ -1,9 +1,9 @@
 import { ForwardedRef, forwardRef, MouseEvent, useCallback, useEffect } from 'react';
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   ConnectionMode,
   Edge,
-  MiniMap,
   Node,
   NodeChange,
   NodeDragHandler,
@@ -107,17 +107,15 @@ interface MapCompProps {
 const MapComp = ({
   refn,
   onCommand,
-  minimapClasses,
   onSelectionChange,
   onSystemContextMenu,
   onConnectionInfoClick,
   onSelectionContextMenu,
   onManualDelete,
-  isShowMinimap,
   showKSpaceBG,
   isThickConnections,
-  isShowBackgroundPattern,
   isSoftBackground,
+  isShowBackgroundPattern,
   isRightPanDrag,
   onAddSystem,
 }: MapCompProps) => {
@@ -243,7 +241,7 @@ const MapComp = ({
           defaultViewport={getViewPortFromStore()}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
-          connectionMode={ConnectionMode.Loose}
+          connectionMode={ConnectionMode.Strict}
           snapToGrid
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}
@@ -279,12 +277,8 @@ const MapComp = ({
           // onlyRenderVisibleElements
           selectionMode={SelectionMode.Partial}
         >
-          {isShowMinimap && <MiniMap pannable zoomable ariaLabel="Mini map" className={minimapClasses} />}
-          <Background variant="lines" gap={32} color="#353535"/>
+         {isShowBackgroundPattern && <Background variant={BackgroundVariant.Lines} gap={32} size={1} color='#313131' />}
         </ReactFlow>
-        {/* <button className="z-auto btn btn-primary absolute top-20 right-20" onClick={handleGetPassages}>
-          Test // DON NOT REMOVE
-        </button> */}
       </div>
 
       <ContextMenuRoot {...rootCtxProps} />
