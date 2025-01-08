@@ -107,18 +107,18 @@ interface MapCompProps {
 const MapComp = ({
   refn,
   onCommand,
-  minimapClasses,
   onSelectionChange,
   onSystemContextMenu,
   onConnectionInfoClick,
   onSelectionContextMenu,
   onManualDelete,
-  isShowMinimap,
+  minimapClasses,
   showKSpaceBG,
+  isShowMinimap,
   isThickConnections,
-  isShowBackgroundPattern,
   isSoftBackground,
   theme,
+  isShowBackgroundPattern,
   isRightPanDrag,
   onAddSystem,
 }: MapCompProps) => {
@@ -245,7 +245,7 @@ const MapComp = ({
           defaultViewport={getViewPortFromStore()}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
-          connectionMode={ConnectionMode.Loose}
+          connectionMode={ConnectionMode.Strict}
           snapToGrid
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}

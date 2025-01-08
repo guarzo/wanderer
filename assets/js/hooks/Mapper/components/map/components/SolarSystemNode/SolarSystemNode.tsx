@@ -85,7 +85,6 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
       wormholesData,
       hubs,
       kills,
-      userCharacters,
       isConnecting,
       hoverNodeId,
       visibleNodes,
@@ -121,10 +120,6 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
     return systemKills;
   }, [kills, solar_system_id]);
 
-  const hasUserCharacters = useMemo(() => {
-    return charactersInSystem.some(x => userCharacters.includes(x.eve_id));
-  }, [charactersInSystem, userCharacters]);
-
   const dbClick = useDoubleClick(() => {
     outCommand({
       type: OutCommand.openSettings,
@@ -134,13 +129,53 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
     });
   });
 
+
   const showHandlers = isConnecting || hoverNodeId === id;
+  const dropHandler =  isConnecting ? 'all' : 'none';
 
   const space = showKSpaceBG ? REGIONS_MAP[region_id] : '';
   const regionClass = showKSpaceBG ? SpaceToClass[space] : null;
 
-  const systemName = (isTempSystemNameEnabled && temporaryName) || solar_system_name;
-  const customName = (isTempSystemNameEnabled && temporaryName && name) || (solar_system_name !== name && name);
+  const hasTempName = isTempSystemNameEnabled && temporaryName;
+
+  // systemName: if temporary name is enabled and present, use it; otherwise use solar_system_name
+  const systemName = hasTempName
+    ? temporaryName
+    : solar_system_name;
+
+  // hsCustomLabel: if temporary name is enabled and present, show region_name, otherwise labelCustom
+  const hsCustomLabel = hasTempName
+    ? region_name
+    : labelCustom;
+
+  // whCustomLabel: default to solar_system_name; if that's falsy, use labelCustom
+  const whCustomLabel = solar_system_name || labelCustom;
+
+  // customLabel: if wormhole, use whCustomLabel; otherwise hsCustomLabel
+  const customLabel = isWormhole
+    ? whCustomLabel
+    : hsCustomLabel;
+
+  // whCustomName: if name differs from solar_system_name, use name; otherwise blank
+  const whCustomName = (name !== solar_system_name)
+    ? name
+    : '';
+
+  // hsSuffix: if name differs from solar_system_name, append name; otherwise blank
+  const needsHsSuffix = (name !== solar_system_name);
+  const hsSuffix = needsHsSuffix
+    ? name
+    : '';
+
+  // hsCustomName: if there's a temp name, show "solar_system_name + suffix", otherwise "region_name + suffix"
+  const hsCustomName = hasTempName
+    ? `${solar_system_name} ${hsSuffix}`
+    : `${region_name} ${hsSuffix}`;
+
+  // customName: if wormhole, use whCustomName; otherwise hsCustomName
+  const customName = isWormhole
+    ? whCustomName
+    : hsCustomName;
 
   const [unsplashedLeft, unsplashedRight] = useMemo(() => {
     if (!isShowUnsplashedSignatures) {
@@ -161,9 +196,9 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
     <>
       {visible && (
         <div className={classes.Bookmarks}>
-          {labelCustom !== '' && (
+          {customLabel !== '' && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.custom)}>
-              <span className={classes.textShadowThin}>{labelCustom}</span>
+              <span className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] ">{customLabel}</span>
             </div>
           )}
 
@@ -210,12 +245,6 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
                 {class_title ?? '-'}
               </div>
 
-              {tag != null && tag !== '' && (
-                <div className={clsx(classes.TagTitle, classes.tagSkyFontMedium)}>
-                  {tag}
-                </div>
-              )}
-
               <div
                 className={clsx(
                   classes.classSystemName,
@@ -241,13 +270,17 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
             </div>
 
             <div className={clsx(classes.BottomRow, 'flex items-center gap-[3px]')}>
-              {customName && (
-                <div className={clsx('font-bold', classes.customName)}>
-                  {customName}
+              <div className="flex items-center gap-2">
+                {tag != null && tag !== '' && (
+                    <div className={clsx(classes.TagTitle, 'font-medium')}>{`[${tag}]`}</div>
+                )}
+                <div
+                  className={clsx(classes.customName)}
+                  title={`${customName ?? ''} ${labelCustom ?? ''}`}
+                >
+                  {customName} {labelCustom}
                 </div>
-              )}
-              {!isWormhole && !customName && <div className={clsx(classes.regionName)}>{region_name}</div>}
-              {isWormhole && !customName && <div />}
+              </div>
 
               <div className="flex items-center ml-auto gap-[2px]">
                 {locked && (
@@ -260,11 +293,9 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
                   <div
                     className={clsx(
                       classes.localCounter,
-                      { [classes.hasUserCharacters]: hasUserCharacters },
                       'flex gap-[2px]'
                     )}
                   >
-                    <i className="pi pi-users text-[0.50rem]" />
                     <span className="font-sans text-[0.65rem]">{charactersInSystem.length}</span>
                   </div>
                 )}
@@ -289,14 +320,34 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
         </div>
       )}
 
-      <div className={classes.Handlers}>
+      <div onMouseDownCapture={dbClick} className={classes.Handlers}>
+      <Handle
+          type="target"
+          position={Position.Bottom}
+          style={{
+            width: '100%',
+            height: '100%',
+            background: 'none',
+            cursor: 'cell',
+            pointerEvents: dropHandler,
+            opacity: 0,
+            borderRadius: 0 }}
+          id="whole-node-target"
+        />
         <Handle
           type="source"
           className={clsx(classes.Handle, classes.HandleTop, {
             [classes.selected]: selected,
             [classes.Tick]: isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden' }}
+          style={{
+            width: '100%',
+            height: '55%',
+            background: 'none',
+            cursor: 'cell',
+            opacity: 0,
+            borderRadius: 0,
+            visibility: showHandlers ? 'visible' : 'hidden',}}
           position={Position.Top}
           id="a"
         />
@@ -306,7 +357,7 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
             [classes.selected]: selected,
             [classes.Tick]: isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden' }}
+          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell',  zIndex: 10  }}
           position={Position.Right}
           id="b"
         />
@@ -316,7 +367,7 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
             [classes.selected]: selected,
             [classes.Tick]: isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden' }}
+          style={{ visibility: 'hidden', cursor: 'cell' }}
           position={Position.Bottom}
           id="c"
         />
@@ -326,7 +377,7 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
             [classes.selected]: selected,
             [classes.Tick]: isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden' }}
+          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell',  zIndex: 10  }}
           position={Position.Left}
           id="d"
         />
