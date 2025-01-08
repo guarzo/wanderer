@@ -156,6 +156,22 @@
     .classSystemName {
       font-family: inherit !important;
       font-weight: bold;
+      color: #adadad;
+      mix-blend-mode: screen;
+      text-shadow: rgba(0, 0, 0, 0.4) 1px 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: inline-block;
+      flex-shrink: 1;
+     }
+
+     .TagTitle {
+      font-size: 9px;
+      font-family: inherit !important;
+      font-weight: bold;
+      color: #fbbf24 !important;
+      mix-blend-mode: screen;
     }
   }
 }
@@ -166,6 +182,7 @@
   .localCounter {
     display: flex;
     gap: 2px;
+    color: #5cb85c;
   }
   .hasUserCharacters {
     color: #fbbf24;
