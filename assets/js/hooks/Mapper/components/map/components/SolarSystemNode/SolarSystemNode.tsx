@@ -136,29 +136,47 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
   const space = showKSpaceBG ? REGIONS_MAP[region_id] : '';
   const regionClass = showKSpaceBG ? SpaceToClass[space] : null;
 
-  const systemName = isTempSystemNameEnabled && temporaryName
-  ? temporaryName
-  : solar_system_name;
+  const hasTempName = isTempSystemNameEnabled && temporaryName;
 
-  const hsCustomLabel = (isTempSystemNameEnabled && temporaryName)
+  // systemName: if temporary name is enabled and present, use it; otherwise use solar_system_name
+  const systemName = hasTempName
+    ? temporaryName
+    : solar_system_name;
+  
+  // hsCustomLabel: if temporary name is enabled and present, show region_name, otherwise labelCustom
+  const hsCustomLabel = hasTempName
     ? region_name
-    : '';
-
+    : labelCustom;
+  
+  // whCustomLabel: default to solar_system_name; if that's falsy, use labelCustom
   const whCustomLabel = solar_system_name || labelCustom;
-
+  
+  // customLabel: if wormhole, use whCustomLabel; otherwise hsCustomLabel
   const customLabel = isWormhole
     ? whCustomLabel
     : hsCustomLabel;
-
-  const whCustomName = (name !== solar_system_name && name);
-
-  const hsCustomName = (name !== solar_system_name)
-    ? `${solar_system_name} - ${name}`
-    : region_name;
-
+  
+  // whCustomName: if name differs from solar_system_name, use name; otherwise blank
+  const whCustomName = (name !== solar_system_name)
+    ? name
+    : '';
+  
+  // hsSuffix: if name differs from solar_system_name, append name; otherwise blank
+  const needsHsSuffix = (name !== solar_system_name);
+  const hsSuffix = needsHsSuffix
+    ? name
+    : '';
+  
+  // hsCustomName: if there's a temp name, show "solar_system_name + suffix", otherwise "region_name + suffix"
+  const hsCustomName = hasTempName
+    ? `${solar_system_name} ${hsSuffix}`
+    : `${region_name} ${hsSuffix}`;
+  
+  // customName: if wormhole, use whCustomName; otherwise hsCustomName
   const customName = isWormhole
     ? whCustomName
     : hsCustomName;
+
   const [unsplashedLeft, unsplashedRight] = useMemo(() => {
     if (!isShowUnsplashedSignatures) {
       return [[], []];
