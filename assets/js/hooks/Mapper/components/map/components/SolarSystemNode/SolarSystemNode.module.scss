@@ -151,10 +151,11 @@
 
 
 .TagTitle {
-  font-size: 11px;
-  font-weight: bold;
+  font-size: 9px;
+  font-weight: medium;
   text-shadow: 0 0 2px rgba(231, 146, 52, 0.73);
   color: var(--rf-tag-color, #ffb01d);
+  mix-blend-mode: screen;
 }
 
 /* The top row (HeadRow). */
@@ -163,7 +164,7 @@
   top: 1px;
 
   .classTitle {
-    font-weight: bold;
+    font-weight: medium;
     text-shadow: 0 0 2px rgba(0, 0, 0, 0.73);
     font-size: 11px;
   }
@@ -172,7 +173,15 @@
     .classSystemName {
       font-family: var(--rf-node-font, inherit);
       font-weight: bold;
-    }
+      color: #adadad;
+      mix-blend-mode: screen;
+      text-shadow: rgba(0, 0, 0, 0.4) 1px 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: inline-block;
+      flex-shrink: 1;
+     }
   }
 }
 
@@ -185,7 +194,7 @@
     gap: 2px;
   }
   .hasUserCharacters {
-    color: var(--rf-has-user-characters, #fbbf24);
+    color: var(--rf-has-user-characters, #5cb85c);
   }
 }
 
