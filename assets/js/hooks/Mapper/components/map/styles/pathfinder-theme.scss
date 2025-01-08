@@ -49,10 +49,19 @@
 
   .RootCustomNode {
     background-color: #313335 !important;
-    font-weight: 600;
+    font-weight: bold;
     line-height: normal;
     color: var(--pf-text-color);
     font-family: 'Oxygen', sans-serif !important;
+    background-color: #313335;
+  }
+
+  .tagTitle {
+    font-size: 9px;
+    font-family: inherit !important;
+    font-weight: bold;
+    color: #fbbf24 !important;
+    mix-blend-mode: screen;
   }
 
   .HeadRow {
@@ -121,13 +130,7 @@
       flex-shrink: 1;
     }
 
-    .tagTitle {
-      font-size: 9px;
-      font-family: inherit !important;
-      font-weight: bold;
-      color: #fbbf24 !important;
-      mix-blend-mode: screen;
-    }
+
   }
 
   .Handlers {
