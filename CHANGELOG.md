@@ -2,6 +2,25 @@
 
 <!-- changelog -->
 
+## [v1.38.0](https://github.com/wanderer-industries/wanderer/compare/v1.37.1...v1.38.0) (2025-01-08)
+
+
+
+
+### Features:
+
+* add theme selection and pathfinder theme
+
+### Bug Fixes:
+
+* add back pathfinder theme font
+
+* Map: Fixed pasting into Name, Custom Label and Description
+
+* Map: Removed unnecessary comment
+
+* Map: Add support RU signatures and fix filtering
+
 ## [v1.37.1](https://github.com/wanderer-industries/wanderer/compare/v1.37.0...v1.37.1) (2025-01-08)
 
 
