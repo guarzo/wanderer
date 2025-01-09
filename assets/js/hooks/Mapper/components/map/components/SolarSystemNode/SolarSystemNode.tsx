@@ -199,7 +199,7 @@ export const SolarSystemNode = memo(({ data, selected }: WrapNodeProps<MapSolarS
           'flex flex-col w-[130px] h-[34px]',
           'px-[6px] pt-[2px] pb-[3px] text-[10px]',
           'leading-[1] space-y-[1px]',
-          'bg-[var(--tooltip-bg)] shadow-[0_0_5px_rgba(45,45,45,0.5)]',
+          'shadow-[0_0_5px_rgba(45,45,45,0.5)]',
           'border border-[var(--pastel-blue-darken10)] rounded-[5px]'
         )}
       >

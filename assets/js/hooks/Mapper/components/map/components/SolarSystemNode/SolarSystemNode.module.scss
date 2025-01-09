@@ -1,6 +1,7 @@
 @import '@/hooks/Mapper/components/map/styles/eve-common-variables';
 
 .RootCustomNode {
+  background-color: var(--rf-node-bg-color) !important;
   position: relative;
   z-index: 1;
   overflow: hidden;
