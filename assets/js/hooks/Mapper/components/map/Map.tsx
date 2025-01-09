@@ -25,6 +25,7 @@ import {
   SolarSystemEdge,
   SolarSystemNodeDefault,
   SolarSystemNodeTheme,
+  SolarSystemNodeZoo,
   useContextMenuConnectionHandlers,
   useContextMenuRootHandlers,
 } from './components';
@@ -106,18 +107,18 @@ interface MapCompProps {
 const MapComp = ({
   refn,
   onCommand,
-  minimapClasses,
   onSelectionChange,
   onSystemContextMenu,
   onConnectionInfoClick,
   onSelectionContextMenu,
   onManualDelete,
-  isShowMinimap,
+  minimapClasses,
   showKSpaceBG,
+  isShowMinimap,
   isThickConnections,
-  isShowBackgroundPattern,
   isSoftBackground,
   theme,
+  isShowBackgroundPattern,
   isRightPanDrag,
   onAddSystem,
 }: MapCompProps) => {
@@ -127,12 +128,17 @@ const MapComp = ({
 
 
   const nodeTypes = useMemo(() => {
-    return {
-      custom:
-        theme !== '' && theme !== 'default'
-          ? wrapNode(SolarSystemNodeTheme)
-          : wrapNode(SolarSystemNodeDefault),
-    };
+    let node;
+    
+    if (theme === 'zoo') {
+      node = wrapNode(SolarSystemNodeZoo);
+    } else if (theme !== '' && theme !== 'default') {
+      node = wrapNode(SolarSystemNodeTheme);
+    } else {
+      node = wrapNode(SolarSystemNodeDefault);
+    }
+
+    return { custom: node };
   }, [theme]);
   
 
@@ -255,7 +261,7 @@ const MapComp = ({
           defaultViewport={getViewPortFromStore()}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
-          connectionMode={ConnectionMode.Loose}
+          connectionMode={ConnectionMode.Strict}
           snapToGrid
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}
