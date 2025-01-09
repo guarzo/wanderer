@@ -2,6 +2,17 @@
 
 <!-- changelog -->
 
+## [v1.37.6](https://github.com/wanderer-industries/wanderer/compare/v1.37.5...v1.37.6) (2025-01-09)
+
+
+
+
+### Bug Fixes:
+
+* restore node styling, simplify framework for new themes
+
+* Map: Fixed dbclick behaviour
+
 ## [v1.37.5](https://github.com/wanderer-industries/wanderer/compare/v1.37.4...v1.37.5) (2025-01-09)
 
 
