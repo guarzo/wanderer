@@ -258,38 +258,81 @@ defmodule WandererApp.Map.Server.CharactersImpl do
   end
 
   defp update_location(
-         character_id,
-         location,
-         old_location,
-         %{map: map, map_id: map_id, rtree_name: rtree_name, map_opts: map_opts} = _state
-       ) do
+    character_id,
+    location,
+    old_location,
+    %{map: map, map_id: map_id, rtree_name: rtree_name, map_opts: map_opts} = _state
+  ) do
     case is_nil(old_location.solar_system_id) and
-           ConnectionsImpl.can_add_location(map.scope, location.solar_system_id) do
-      true ->
-        :ok = SystemsImpl.maybe_add_system(map_id, location, nil, rtree_name, map_opts)
+          ConnectionsImpl.can_add_location(map.scope, location.solar_system_id) do
+    true ->
+      case SystemsImpl.maybe_add_system(map_id, location, nil, rtree_name, map_opts) do
+        :ok ->
+          :ok
 
-      _ ->
-        ConnectionsImpl.is_connection_valid(
-          map.scope,
-          old_location.solar_system_id,
-          location.solar_system_id
-        )
-        |> case do
-          true ->
-            :ok =
-              SystemsImpl.maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
+        {:error, :already_exists} ->
+          Logger.debug("[update_location] System already exists, ignoring.")
+          :ok
 
-            :ok =
-              SystemsImpl.maybe_add_system(map_id, old_location, location, rtree_name, map_opts)
+        {:error, reason} ->
+          Logger.error("[update_location] maybe_add_system failed: #{inspect(reason)}")
+          :ok
 
-            :ok =
-              ConnectionsImpl.maybe_add_connection(map_id, location, old_location, character_id)
+        other ->
+          Logger.error("[update_location] Unexpected return: #{inspect(other)}")
+          :ok
+      end
 
-          _ ->
-            :ok
-        end
+    _ ->
+      ConnectionsImpl.is_connection_valid(
+        map.scope,
+        old_location.solar_system_id,
+        location.solar_system_id
+      )
+      |> case do
+        true ->
+          case SystemsImpl.maybe_add_system(map_id, location, old_location, rtree_name, map_opts) do
+            :ok ->
+              :ok
+
+            {:error, :already_exists} ->
+              Logger.debug("[update_location] System already exists, ignoring.")
+              :ok
+
+            {:error, reason} ->
+              Logger.error("[update_location] maybe_add_system failed: #{inspect(reason)}")
+              :ok
+
+            other ->
+              Logger.error("[update_location] Unexpected return: #{inspect(other)}")
+              :ok
+          end
+
+          case SystemsImpl.maybe_add_system(map_id, old_location, location, rtree_name, map_opts) do
+            :ok ->
+              :ok
+
+            {:error, :already_exists} ->
+              Logger.debug("[update_location] System already exists, ignoring.")
+              :ok
+
+            {:error, reason} ->
+              Logger.error("[update_location] maybe_add_system failed: #{inspect(reason)}")
+              :ok
+
+            other ->
+              Logger.error("[update_location] Unexpected return: #{inspect(other)}")
+              :ok
+          end
+
+          :ok = ConnectionsImpl.maybe_add_connection(map_id, location, old_location, character_id)
+
+        _ ->
+          :ok
+      end
     end
   end
+
 
   defp track_character(map_id, character_id),
     do:
