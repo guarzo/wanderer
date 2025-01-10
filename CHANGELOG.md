@@ -2,6 +2,21 @@
 
 <!-- changelog -->
 
+## [v1.37.10](https://github.com/wanderer-industries/wanderer/compare/v1.37.9...v1.37.10) (2025-01-10)
+
+
+
+
+### Bug Fixes:
+
+* restore system status colors (#112)
+
+* restore system status colors
+
+* fix issue with newly added systems not adding a connection (#114)
+
+* resolve issue with newly added systems not connecting
+
 ## [v1.37.9](https://github.com/wanderer-industries/wanderer/compare/v1.37.8...v1.37.9) (2025-01-10)
 
 
