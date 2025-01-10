@@ -273,66 +273,89 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     state
   end
 
-  def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
+def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
       when not is_nil(location) do
+
+    Logger.info("""
+    [maybe_add_system] Called with:
+      map_id=#{map_id}
+      location=#{inspect(location)}
+      old_location=#{inspect(old_location)}
+      rtree_name=#{rtree_name}
+      map_opts=#{inspect(map_opts)}
+    """)
+
+    Logger.info("[maybe_add_system] Checking location with WandererApp.Map.check_location...")
+
     case WandererApp.Map.check_location(map_id, location) do
-      {:ok, location} ->
+      {:ok, loc} ->
+        Logger.info("[maybe_add_system] Location check succeeded for #{inspect(loc)}. Calculating system position...")
+
         {:ok, position} = calc_new_system_position(map_id, old_location, rtree_name, map_opts)
+        Logger.info("[maybe_add_system] Calculated new system position: #{inspect(position)}")
 
-        case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
-               map_id,
-               location.solar_system_id
-             ) do
+        Logger.info("[maybe_add_system] Fetching system from WandererApp.MapSystemRepo...")
+
+        case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, loc.solar_system_id) do
           {:ok, existing_system} when not is_nil(existing_system) ->
-            {:ok, updated_system} =
-              existing_system
-              |> WandererApp.MapSystemRepo.update_position!(%{
-                position_x: position.x,
-                position_y: position.y
-              })
-              |> WandererApp.MapSystemRepo.cleanup_labels!(map_opts)
-              |> WandererApp.MapSystemRepo.update_visible!(%{visible: true})
-              |> WandererApp.MapSystemRepo.cleanup_tags()
-              |> WandererApp.MapSystemRepo.cleanup_temporary_name()
+            Logger.info("[maybe_add_system] System already exists in map. Updating existing system...")
 
-            @ddrt.insert(
-              {existing_system.solar_system_id,
-               WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
-                 position_x: position.x,
-                 position_y: position.y
-               })},
-              rtree_name
-            )
+            # -- Improved error handling/resilience approach --
+            # Rather than piping directly with "!" calls (which can raise or return error tuples),
+            # you can break each step into a `case` or chain them with pattern matching.
+            case do_update_existing_system(existing_system, position, map_opts) do
+              {:ok, updated_system} ->
+                # Insert into Rtree
+                insert_into_rtree!(updated_system, rtree_name)
 
-            WandererApp.Cache.put(
-              "map_#{map_id}:system_#{updated_system.id}:last_activity",
-              DateTime.utc_now(),
-              ttl: @system_inactive_timeout
-            )
+                # Update cache
+                WandererApp.Cache.put(
+                  "map_#{map_id}:system_#{updated_system.id}:last_activity",
+                  DateTime.utc_now(),
+                  ttl: @system_inactive_timeout
+                )
 
-            WandererApp.Map.add_system(map_id, updated_system)
+                # Add system to map
+                WandererApp.Map.add_system(map_id, updated_system)
 
-            Impl.broadcast!(map_id, :add_system, updated_system)
-            :ok
+                Logger.info("""
+                [maybe_add_system] Updated existing system (ID=#{updated_system.id}) \
+                and broadcast to clients.
+                """)
+
+                Impl.broadcast!(map_id, :add_system, updated_system)
+                :ok
+
+              {:error, reason} ->
+                # Log the error, but don’t crash the entire function.
+                Logger.error("""
+                [maybe_add_system] Failed to update existing system due to: #{inspect(reason, pretty: true)}.
+                Skipping subsequent actions.
+                """)
+
+                # Optionally, you could still do partial cleanup, broadcast error info, etc.
+                :ok
+            end
 
           _ ->
-            {:ok, solar_system_info} =
-              WandererApp.CachedInfo.get_system_static_info(location.solar_system_id)
+            Logger.info("[maybe_add_system] System does not exist in map. Creating new system...")
 
+            {:ok, solar_system_info} =
+              WandererApp.CachedInfo.get_system_static_info(loc.solar_system_id)
+
+            # Create the new system
             WandererApp.MapSystemRepo.create(%{
               map_id: map_id,
-              solar_system_id: location.solar_system_id,
+              solar_system_id: loc.solar_system_id,
               name: solar_system_info.solar_system_name,
               position_x: position.x,
               position_y: position.y
             })
             |> case do
               {:ok, new_system} ->
-                @ddrt.insert(
-                  {new_system.solar_system_id,
-                   WandererApp.Map.PositionCalculator.get_system_bounding_rect(new_system)},
-                  rtree_name
-                )
+                Logger.info("[maybe_add_system] Successfully created a new system: #{inspect(new_system)}")
+
+                insert_into_rtree!(new_system, rtree_name)
 
                 WandererApp.Cache.put(
                   "map_#{map_id}:system_#{new_system.id}:last_activity",
@@ -346,15 +369,67 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                 :ok
 
               error ->
-                Logger.warning("Failed to create system: #{inspect(error, pretty: true)}")
+                Logger.warning("""
+                [maybe_add_system] Failed to create system: #{inspect(error, pretty: true)}
+                """)
                 :ok
             end
         end
 
       error ->
-        Logger.debug("Skip adding system: #{inspect(error, pretty: true)}")
+        Logger.info("[maybe_add_system] Skipping system addition. Reason: #{inspect(error, pretty: true)}")
         :ok
     end
+  end
+
+  @doc """
+  Performs each step of updating an existing system.
+  Returns either {:ok, updated_system} or {:error, reason}.
+  """
+  defp do_update_existing_system(system, position, map_opts) do
+    # Example approach: break down each Ash operation in a case, logging carefully.
+    with {:ok, sys_pos} <-
+           WandererApp.MapSystemRepo.update_position(system, %{
+             position_x: position.x,
+             position_y: position.y
+           }),
+         {:ok, sys_clean_labels} <-
+           WandererApp.MapSystemRepo.cleanup_labels(sys_pos, map_opts),
+         {:ok, sys_visible} <-
+           WandererApp.MapSystemRepo.update_visible(sys_clean_labels, %{visible: true}),
+         {:ok, sys_clean_tags} <-
+           WandererApp.MapSystemRepo.cleanup_tags(sys_visible),
+         {:ok, sys_clean_temp} <-
+           WandererApp.MapSystemRepo.cleanup_temporary_name(sys_clean_tags)
+    do
+      {:ok, sys_clean_temp}
+    else
+      {:error, e} ->
+        Logger.error("[do_update_existing_system] Failed in update pipeline: #{inspect(e, pretty: true)}")
+        {:error, e}
+
+      other ->
+        # Catch any unexpected return that doesn't match {:ok, system} or {:error, reason}.
+        Logger.error("[do_update_existing_system] Unexpected return: #{inspect(other, pretty: true)}")
+        {:error, other}
+    end
+  end
+
+  @doc """
+  Inserts a system into the Rtree, raising on error (as before).
+  If you want to be more defensive, you could wrap this with a try/catch or case check.
+  """
+  defp insert_into_rtree!(system, rtree_name) do
+    bounding_rect =
+      WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
+        position_x: system.position_x,
+        position_y: system.position_y
+      })
+
+    @ddrt.insert(
+      {system.solar_system_id, bounding_rect},
+      rtree_name
+    )
   end
 
   def maybe_add_system(_map_id, _location, _old_location, _rtree_name, _map_opts), do: :ok
