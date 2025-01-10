@@ -144,8 +144,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   def update_system_position(
         %{rtree_name: rtree_name} = state,
         update
-      ),
-      do:
+      ) do
+      Logger.info("update_system_position called with update=#{inspect(update)} and rtree_name=#{rtree_name}")
         state
         |> update_system(
           :update_position,
@@ -159,6 +159,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
             )
           end
         )
+  end
 
   def add_hub(
         %{map_id: map_id} = state,

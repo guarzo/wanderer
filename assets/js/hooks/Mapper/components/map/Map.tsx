@@ -162,20 +162,24 @@ const MapComp = ({
   );
 
   const handleDragStop: NodeDragHandler = useCallback(
-    (_, node) => [
-      // eslint-disable-next-line no-console
+    (_, node, nodes) => {
+      console.log("handleDragStop called with node, nodes:", node, nodes);
+
       setTimeout(() => {
         onCommand({
           type: OutCommand.updateSystemPosition,
           data: { solar_system_id: node.id, position: node.position },
         });
-      }, 500),
-    ],
+      }, 500);
+    },
     [onCommand],
   );
 
+
   const handleSelectionDragStop: SelectionDragHandler = useCallback(
     (_, nodes) => {
+      console.log("handleSelectionDragStop called with nodes:", nodes);
+
       setTimeout(() => {
         onCommand({
           type: OutCommand.updateSystemPositions,
