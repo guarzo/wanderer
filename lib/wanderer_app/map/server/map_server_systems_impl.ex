@@ -283,13 +283,9 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
       case WandererApp.Map.check_location(map_id, location) do
         {:ok, loc} ->
-          # Calculate position
           {:ok, position} = calc_new_system_position(map_id, old_location, rtree_name, map_opts)
 
           case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, loc.solar_system_id) do
-            # ----------------------------------------------------------------------
-            # If the system already exists, update it (with a try/rescue for bang calls).
-            # ----------------------------------------------------------------------
             {:ok, existing_system} when not is_nil(existing_system) ->
               try do
                 updated_system =
@@ -303,7 +299,6 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                   |> WandererApp.MapSystemRepo.cleanup_tags()
                   |> WandererApp.MapSystemRepo.cleanup_temporary_name()
 
-                # Insert into the Rtree
                 @ddrt.insert(
                   {existing_system.solar_system_id,
                   WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
@@ -313,14 +308,12 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                   rtree_name
                 )
 
-                # Update cache
                 WandererApp.Cache.put(
                   "map_#{map_id}:system_#{updated_system.id}:last_activity",
                   DateTime.utc_now(),
                   ttl: @system_inactive_timeout
                 )
 
-                # Add system to map and broadcast
                 WandererApp.Map.add_system(map_id, updated_system)
                 Impl.broadcast!(map_id, :add_system, updated_system)
 
@@ -335,6 +328,14 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
                   :ok
               end
+
+              {:error, :already_exists} ->
+                Logger.debug("[maybe_add_system] System check returned {:error, :already_exists}. Skipping.")
+                :ok
+
+              {:error, reason} ->
+                Logger.error("[maybe_add_system] Repo call returned an error: #{inspect(reason)}")
+                :ok
 
             _ ->
               {:ok, solar_system_info} =
@@ -373,7 +374,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                   """)
                   :ok
               end
-              
+
         error ->
           Logger.debug("Skip adding system: #{inspect(error, pretty: true)}")
           :ok
