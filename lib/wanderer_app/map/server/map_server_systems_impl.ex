@@ -275,15 +275,34 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
   def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
       when not is_nil(location) do
+
+    Logger.info("""
+    [maybe_add_system] Called with:
+      map_id=#{map_id}
+      location=#{inspect(location)}
+      old_location=#{inspect(old_location)}
+      rtree_name=#{rtree_name}
+      map_opts=#{inspect(map_opts)}
+    """)
+
+    Logger.info("[maybe_add_system] Checking location with WandererApp.Map.check_location...")
+
     case WandererApp.Map.check_location(map_id, location) do
-      {:ok, location} ->
+      {:ok, loc} ->
+        Logger.info("[maybe_add_system] Location check succeeded for #{inspect(loc)}. Calculating system position...")
+
         {:ok, position} = calc_new_system_position(map_id, old_location, rtree_name, map_opts)
+        Logger.info("[maybe_add_system] Calculated new system position: #{inspect(position)}")
+
+        Logger.info("[maybe_add_system] Fetching system from WandererApp.MapSystemRepo...")
 
         case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
                map_id,
-               location.solar_system_id
+               loc.solar_system_id
              ) do
           {:ok, existing_system} when not is_nil(existing_system) ->
+            Logger.info("[maybe_add_system] System already exists in map. Updating existing system...")
+
             {:ok, updated_system} =
               existing_system
               |> WandererApp.MapSystemRepo.update_position!(%{
@@ -304,30 +323,37 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               rtree_name
             )
 
+            # Cache
             WandererApp.Cache.put(
               "map_#{map_id}:system_#{updated_system.id}:last_activity",
               DateTime.utc_now(),
               ttl: @system_inactive_timeout
             )
 
+            # Add system to map
             WandererApp.Map.add_system(map_id, updated_system)
+            Logger.info("[maybe_add_system] Updated system stored and broadcast to clients.")
 
             Impl.broadcast!(map_id, :add_system, updated_system)
             :ok
 
           _ ->
+            Logger.info("[maybe_add_system] System does not exist in map. Creating new system...")
+
             {:ok, solar_system_info} =
-              WandererApp.CachedInfo.get_system_static_info(location.solar_system_id)
+              WandererApp.CachedInfo.get_system_static_info(loc.solar_system_id)
 
             WandererApp.MapSystemRepo.create(%{
               map_id: map_id,
-              solar_system_id: location.solar_system_id,
+              solar_system_id: loc.solar_system_id,
               name: solar_system_info.solar_system_name,
               position_x: position.x,
               position_y: position.y
             })
             |> case do
               {:ok, new_system} ->
+                Logger.info("[maybe_add_system] Successfully created a new system: #{inspect(new_system)}")
+
                 @ddrt.insert(
                   {new_system.solar_system_id,
                    WandererApp.Map.PositionCalculator.get_system_bounding_rect(new_system)},
@@ -346,13 +372,13 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                 :ok
 
               error ->
-                Logger.warning("Failed to create system: #{inspect(error, pretty: true)}")
+                Logger.warning("[maybe_add_system] Failed to create system: #{inspect(error, pretty: true)}")
                 :ok
             end
         end
 
       error ->
-        Logger.debug("Skip adding system: #{inspect(error, pretty: true)}")
+        Logger.info("[maybe_add_system] Skipping system addition. Reason: #{inspect(error, pretty: true)}")
         :ok
     end
   end

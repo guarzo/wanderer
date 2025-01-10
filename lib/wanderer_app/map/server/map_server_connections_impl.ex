@@ -281,86 +281,131 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
     state
   end
 
+   @doc """
+  Attempts to add a connection if the old and new locations differ and are valid.
+  Logs detailed information about the steps taken, the character, and
+  any creation or broadcast steps.
+
+  Note that we only proceed when:
+    1. `location`, `old_location`, and `old_location.solar_system_id` are not `nil`.
+    2. `location.solar_system_id != old_location.solar_system_id`
+  """
   def maybe_add_connection(map_id, location, old_location, character_id)
-      when not is_nil(location) and not is_nil(old_location) and
-             not is_nil(old_location.solar_system_id) and
-             location.solar_system_id != old_location.solar_system_id do
-    character_id
-    |> WandererApp.Character.get_character!()
-    |> case do
-      nil ->
-        :ok
+    when not is_nil(location) and not is_nil(old_location) and
+          not is_nil(old_location.solar_system_id) and
+          location.solar_system_id != old_location.solar_system_id do
 
-      character ->
-        :telemetry.execute([:wanderer_app, :map, :character, :jump], %{count: 1}, %{})
+      Logger.info("""
+      [maybe_add_connection] Called with:
+        map_id=#{map_id},
+        location=#{inspect(location)},
+        old_location=#{inspect(old_location)},
+        character_id=#{character_id}
+      """)
 
-        {:ok, _} =
-          WandererApp.Api.MapChainPassages.new(%{
-            map_id: map_id,
-            character_id: character_id,
-            ship_type_id: character.ship,
-            ship_name: character.ship_name,
-            solar_system_source_id: old_location.solar_system_id,
-            solar_system_target_id: location.solar_system_id
-          })
-    end
+      character =
+        character_id
+        |> WandererApp.Character.get_character!()
 
-    case WandererApp.Map.check_connection(map_id, location, old_location) do
-      :ok ->
-        connection_type =
-          is_connection_valid(
-            :stargates,
-            old_location.solar_system_id,
-            location.solar_system_id
-          )
-          |> case do
-            true ->
-              @connection_type_stargate
+      Logger.info("[maybe_add_connection] Fetched character: #{inspect(character)}")
 
-            _ ->
-              @connection_type_wormhole
-          end
+      case character do
+        nil ->
+          Logger.info("[maybe_add_connection] Character not found (nil), skipping connection addition.")
+          :ok
 
-        {:ok, connection} =
-          WandererApp.MapConnectionRepo.create(%{
-            map_id: map_id,
-            solar_system_source: old_location.solar_system_id,
-            solar_system_target: location.solar_system_id,
-            type: connection_type
-          })
+        _character ->
+          # Telemetry
+          Logger.info("[maybe_add_connection] Executing telemetry for character jump.")
+          :telemetry.execute([:wanderer_app, :map, :character, :jump], %{count: 1}, %{})
 
-        WandererApp.Map.add_connection(map_id, connection)
+          # Log the chain passage creation
+          Logger.info("""
+          [maybe_add_connection] Creating map chain passage with:
+            map_id=#{map_id},
+            character_id=#{character_id},
+            ship_type_id=#{character.ship},
+            ship_name=#{character.ship_name},
+            solar_system_source_id=#{old_location.solar_system_id},
+            solar_system_target_id=#{location.solar_system_id}
+          """)
 
-        Impl.broadcast!(map_id, :maybe_select_system, %{
-          character_id: character_id,
-          solar_system_id: location.solar_system_id,
-        })
+          {:ok, _} =
+            WandererApp.Api.MapChainPassages.new(%{
+              map_id: map_id,
+              character_id: character_id,
+              ship_type_id: character.ship,
+              ship_name: character.ship_name,
+              solar_system_source_id: old_location.solar_system_id,
+              solar_system_target_id: location.solar_system_id
+            })
 
-        Impl.broadcast!(map_id, :add_connection, connection)
+      end
 
-        Impl.broadcast!(map_id, :maybe_link_signature, %{
-          character_id: character_id,
-          solar_system_source: old_location.solar_system_id,
-          solar_system_target: location.solar_system_id
-        })
+      # Check if the connection already exists (or can be created)
+      Logger.info("[maybe_add_connection] Checking connection existence via WandererApp.Map.check_connection/3")
 
-        :ok
+      case WandererApp.Map.check_connection(map_id, location, old_location) do
+        :ok ->
+          Logger.info("[maybe_add_connection] check_connection returned :ok. Proceeding to create a new connection.")
 
-        {:error, :already_exists} ->
-          # Still broadcast location change in case of followed character
+          connection_type =
+            is_connection_valid(:stargates, old_location.solar_system_id, location.solar_system_id)
+            |> case do
+              true ->
+                Logger.info("[maybe_add_connection] Connection type determined to be stargate.")
+                @connection_type_stargate
+
+              _ ->
+                Logger.info("[maybe_add_connection] Connection type determined to be wormhole.")
+                @connection_type_wormhole
+            end
+
+          {:ok, connection} =
+            WandererApp.MapConnectionRepo.create(%{
+              map_id: map_id,
+              solar_system_source: old_location.solar_system_id,
+              solar_system_target: location.solar_system_id,
+              type: connection_type
+            })
+
+          Logger.info("[maybe_add_connection] Successfully created a connection: #{inspect(connection)}")
+
+          # Add it to the map
+          WandererApp.Map.add_connection(map_id, connection)
+          Logger.info("[maybe_add_connection] Connection added to the map.")
+
+          # Broadcast relevant events
+          Logger.info("[maybe_add_connection] Broadcasting maybe_select_system event.")
           Impl.broadcast!(map_id, :maybe_select_system, %{
             character_id: character_id,
             solar_system_id: location.solar_system_id
           })
 
+          Logger.info("[maybe_add_connection] Broadcasting add_connection event.")
+          Impl.broadcast!(map_id, :add_connection, connection)
+
+          Logger.info("[maybe_add_connection] Broadcasting maybe_link_signature event.")
+          Impl.broadcast!(map_id, :maybe_link_signature, %{
+            character_id: character_id,
+            solar_system_source: old_location.solar_system_id,
+            solar_system_target: location.solar_system_id
+          })
+
+          :ok
+
+        {:error, :already_exists} ->
+          Logger.info("[maybe_add_connection] Connection already exists. Broadcasting location change in case of followed character.")
+          Impl.broadcast!(map_id, :maybe_select_system, %{
+            character_id: character_id,
+            solar_system_id: location.solar_system_id
+          })
           :ok
 
         {:error, error} ->
-          Logger.debug(fn -> "Failed to add connection: #{inspect(error, pretty: true)}" end)
-
+          Logger.info("[maybe_add_connection] Failed to add connection: #{inspect(error, pretty: true)}")
           :ok
-
-    end
+      end
   end
 
   def maybe_add_connection(_map_id, _location, _old_location, _character_id), do: :ok
