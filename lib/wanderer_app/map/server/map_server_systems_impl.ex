@@ -273,6 +273,20 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     state
   end
 
+  defp raise_on_error!(result) do
+    case result do
+      {:ok, val} ->
+        val
+
+      {:error, reason} ->
+        raise "Ash (or Ecto) returned {:error, #{inspect(reason)}} instead of raising!"
+
+      val ->
+        val
+    end
+  end
+
+
   def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
     when not is_nil(location) do
 
@@ -290,15 +304,17 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               try do
                 updated_system =
                   existing_system
-                  |> WandererApp.MapSystemRepo.update_position!(%{
-                    position_x: position.x,
-                    position_y: position.y
-                  })
+                  |> WandererApp.MapSystemRepo.update_position!(%{position_x: position.x, position_y: position.y})
+                  |> raise_on_error!()
                   |> WandererApp.MapSystemRepo.cleanup_labels!(map_opts)
+                  |> raise_on_error!()
                   |> WandererApp.MapSystemRepo.update_visible!(%{visible: true})
+                  |> raise_on_error!()
                   |> WandererApp.MapSystemRepo.cleanup_tags()
+                  |> raise_on_error!()
                   |> WandererApp.MapSystemRepo.cleanup_temporary_name()
-
+                  |> raise_on_error!()
+                  
                 @ddrt.insert(
                   {existing_system.solar_system_id,
                   WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
