@@ -284,7 +284,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                location.solar_system_id
              ) do
           {:ok, existing_system} when not is_nil(existing_system) ->
-            {:ok, updated_system} =
+            updated_system =
               existing_system
               |> WandererApp.MapSystemRepo.update_position!(%{
                 position_x: position.x,
