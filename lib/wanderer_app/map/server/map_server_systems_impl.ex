@@ -273,7 +273,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     state
   end
 
-def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
+  def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
       when not is_nil(location) do
 
     Logger.info("""
@@ -394,7 +394,7 @@ def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
              position_y: position.y
            }),
          {:ok, sys_clean_labels} <-
-           WandererApp.MapSystemRepo.cleanup_labels(sys_pos, map_opts),
+           WandererApp.MapSystemRepo.cleanup_labels!(sys_pos, map_opts),
          {:ok, sys_visible} <-
            WandererApp.MapSystemRepo.update_visible(sys_clean_labels, %{visible: true}),
          {:ok, sys_clean_tags} <-
@@ -431,6 +431,8 @@ def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
       rtree_name
     )
   end
+
+
 
   def maybe_add_system(_map_id, _location, _old_location, _rtree_name, _map_opts), do: :ok
 
