@@ -309,8 +309,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                   })
                   |> WandererApp.MapSystemRepo.cleanup_labels!(map_opts)
                   |> WandererApp.MapSystemRepo.update_visible!(%{visible: true})
-                  |> WandererApp.MapSystemRepo.cleanup_tags()
-                  |> WandererApp.MapSystemRepo.cleanup_temporary_name()
+                  |> WandererApp.MapSystemRepo.cleanup_tags!()
+                  |> WandererApp.MapSystemRepo.cleanup_temporary_name!()
 
                 @ddrt.insert(
                   {existing_system.solar_system_id,
