@@ -289,7 +289,6 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
   def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
     when not is_nil(location) do
-
       Logger.debug("""
       [maybe_add_system] Checking location with WandererApp.Map.check_location...
       map_id=#{map_id}, location=#{inspect(location)}, old_location=#{inspect(old_location)}
@@ -304,23 +303,21 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               try do
                 updated_system =
                   existing_system
-                  |> WandererApp.MapSystemRepo.update_position!(%{position_x: position.x, position_y: position.y})
-                  |> raise_on_error!()
-                  |> WandererApp.MapSystemRepo.cleanup_labels!(map_opts)
-                  |> raise_on_error!()
-                  |> WandererApp.MapSystemRepo.update_visible!(%{visible: true})
-                  |> raise_on_error!()
-                  |> WandererApp.MapSystemRepo.cleanup_tags()
-                  |> raise_on_error!()
-                  |> WandererApp.MapSystemRepo.cleanup_temporary_name()
-                  |> raise_on_error!()
-                  
-                @ddrt.insert(
-                  {existing_system.solar_system_id,
-                  WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
+                  |> WandererApp.MapSystemRepo.update_position!(%{
                     position_x: position.x,
                     position_y: position.y
-                  })},
+                  })
+                  |> WandererApp.MapSystemRepo.cleanup_labels!(map_opts)
+                  |> WandererApp.MapSystemRepo.update_visible!(%{visible: true})
+                  |> WandererApp.MapSystemRepo.cleanup_tags()
+                  |> WandererApp.MapSystemRepo.cleanup_temporary_name()
+
+                @ddrt.insert(
+                  {existing_system.solar_system_id,
+                   WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
+                     position_x: position.x,
+                     position_y: position.y
+                   })},
                   rtree_name
                 )
 
@@ -341,17 +338,16 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                   #{inspect(exception, pretty: true)}
                   Skipping subsequent actions.
                   """)
-
                   :ok
               end
 
-              {:error, :already_exists} ->
-                Logger.debug("[maybe_add_system] System check returned {:error, :already_exists}. Skipping.")
-                :ok
+            {:error, :already_exists} ->
+              Logger.debug("[maybe_add_system] System check returned {:error, :already_exists}. Skipping.")
+              :ok
 
-              {:error, reason} ->
-                Logger.error("[maybe_add_system] Repo call returned an error: #{inspect(reason)}")
-                :ok
+            {:error, reason} ->
+              Logger.error("[maybe_add_system] Repo call returned an error: #{inspect(reason)}")
+              :ok
 
             _ ->
               {:ok, solar_system_info} =
@@ -368,7 +364,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                 {:ok, new_system} ->
                   @ddrt.insert(
                     {new_system.solar_system_id,
-                    WandererApp.Map.PositionCalculator.get_system_bounding_rect(new_system)},
+                     WandererApp.Map.PositionCalculator.get_system_bounding_rect(new_system)},
                     rtree_name
                   )
 
