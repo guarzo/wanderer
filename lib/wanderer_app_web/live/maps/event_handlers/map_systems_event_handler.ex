@@ -187,6 +187,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           }
         } = socket
       ) do
+    Logger.info("handle_ui_event 'update_system_position' called with position=#{inspect(position)} and map_id=#{map_id}")
     map_id
     |> update_system_position(position)
 
@@ -204,6 +205,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           }
         } = socket
       ) do
+    Logger.info("handle_ui_event 'update_system_positions' called with positions=#{inspect(positions)} and map_id=#{map_id}")
     map_id
     |> update_system_positions(positions)
 

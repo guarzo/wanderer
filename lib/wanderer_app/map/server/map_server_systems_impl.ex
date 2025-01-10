@@ -144,8 +144,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   def update_system_position(
         %{rtree_name: rtree_name} = state,
         update
-      ),
-      do:
+      ) do
+      Logger.info("update_system_position called with update=#{inspect(update)} and rtree_name=#{rtree_name}")
         state
         |> update_system(
           :update_position,
@@ -159,6 +159,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
             )
           end
         )
+  end
 
   def add_hub(
         %{map_id: map_id} = state,
@@ -274,86 +275,107 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   end
 
   def maybe_add_system(map_id, location, old_location, rtree_name, map_opts)
-      when not is_nil(location) do
-    case WandererApp.Map.check_location(map_id, location) do
-      {:ok, location} ->
-        {:ok, position} = calc_new_system_position(map_id, old_location, rtree_name, map_opts)
+    when not is_nil(location) do
 
-        case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
-               map_id,
-               location.solar_system_id
-             ) do
-          {:ok, existing_system} when not is_nil(existing_system) ->
-            updated_system =
-              existing_system
-              |> WandererApp.MapSystemRepo.update_position!(%{
-                position_x: position.x,
-                position_y: position.y
-              })
-              |> WandererApp.MapSystemRepo.cleanup_labels!(map_opts)
-              |> WandererApp.MapSystemRepo.update_visible!(%{visible: true})
-              |> WandererApp.MapSystemRepo.cleanup_tags!()
-              |> WandererApp.MapSystemRepo.cleanup_temporary_name!()
+      Logger.debug("""
+      [maybe_add_system] Checking location with WandererApp.Map.check_location...
+      map_id=#{map_id}, location=#{inspect(location)}, old_location=#{inspect(old_location)}
+      """)
 
-            @ddrt.insert(
-              {existing_system.solar_system_id,
-               WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
-                 position_x: position.x,
-                 position_y: position.y
-               })},
-              rtree_name
-            )
+      case WandererApp.Map.check_location(map_id, location) do
+        {:ok, loc} ->
+          # Calculate position
+          {:ok, position} = calc_new_system_position(map_id, old_location, rtree_name, map_opts)
 
-            WandererApp.Cache.put(
-              "map_#{map_id}:system_#{updated_system.id}:last_activity",
-              DateTime.utc_now(),
-              ttl: @system_inactive_timeout
-            )
+          case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, loc.solar_system_id) do
+            {:ok, existing_system} when not is_nil(existing_system) ->
+              try do
+                updated_system =
+                  existing_system
+                  |> WandererApp.MapSystemRepo.update_position!(%{
+                    position_x: position.x,
+                    position_y: position.y
+                  })
+                  |> WandererApp.MapSystemRepo.cleanup_labels!(map_opts)
+                  |> WandererApp.MapSystemRepo.update_visible!(%{visible: true})
+                  |> WandererApp.MapSystemRepo.cleanup_tags()
+                  |> WandererApp.MapSystemRepo.cleanup_temporary_name()
 
-            WandererApp.Map.add_system(map_id, updated_system)
-
-            Impl.broadcast!(map_id, :add_system, updated_system)
-            :ok
-
-          _ ->
-            {:ok, solar_system_info} =
-              WandererApp.CachedInfo.get_system_static_info(location.solar_system_id)
-
-            WandererApp.MapSystemRepo.create(%{
-              map_id: map_id,
-              solar_system_id: location.solar_system_id,
-              name: solar_system_info.solar_system_name,
-              position_x: position.x,
-              position_y: position.y
-            })
-            |> case do
-              {:ok, new_system} ->
+                # Insert into the Rtree
                 @ddrt.insert(
-                  {new_system.solar_system_id,
-                   WandererApp.Map.PositionCalculator.get_system_bounding_rect(new_system)},
+                  {existing_system.solar_system_id,
+                  WandererApp.Map.PositionCalculator.get_system_bounding_rect(%{
+                    position_x: position.x,
+                    position_y: position.y
+                  })},
                   rtree_name
                 )
 
+                # Update cache
                 WandererApp.Cache.put(
-                  "map_#{map_id}:system_#{new_system.id}:last_activity",
+                  "map_#{map_id}:system_#{updated_system.id}:last_activity",
                   DateTime.utc_now(),
                   ttl: @system_inactive_timeout
                 )
 
-                WandererApp.Map.add_system(map_id, new_system)
-                Impl.broadcast!(map_id, :add_system, new_system)
+                # Add system to map and broadcast
+                WandererApp.Map.add_system(map_id, updated_system)
+                Impl.broadcast!(map_id, :add_system, updated_system)
 
                 :ok
+              rescue
+                exception ->
+                  Logger.error("""
+                  [maybe_add_system] Failed to update existing system (ID=#{existing_system.id}) due to:
+                  #{inspect(exception, pretty: true)}
+                  Skipping subsequent actions.
+                  """)
 
-              error ->
-                Logger.warning("Failed to create system: #{inspect(error, pretty: true)}")
-                :ok
-            end
-        end
+                  :ok
+              end
 
-      error ->
-        Logger.debug("Skip adding system: #{inspect(error, pretty: true)}")
-        :ok
+            _ ->
+              {:ok, solar_system_info} =
+                WandererApp.CachedInfo.get_system_static_info(loc.solar_system_id)
+
+              WandererApp.MapSystemRepo.create(%{
+                map_id: map_id,
+                solar_system_id: loc.solar_system_id,
+                name: solar_system_info.solar_system_name,
+                position_x: position.x,
+                position_y: position.y
+              })
+              |> case do
+                {:ok, new_system} ->
+                  @ddrt.insert(
+                    {new_system.solar_system_id,
+                    WandererApp.Map.PositionCalculator.get_system_bounding_rect(new_system)},
+                    rtree_name
+                  )
+
+                  WandererApp.Cache.put(
+                    "map_#{map_id}:system_#{new_system.id}:last_activity",
+                    DateTime.utc_now(),
+                    ttl: @system_inactive_timeout
+                  )
+
+                  WandererApp.Map.add_system(map_id, new_system)
+                  Impl.broadcast!(map_id, :add_system, new_system)
+
+                  :ok
+
+                error ->
+                  Logger.warning("""
+                  [maybe_add_system] Failed to create system:
+                  #{inspect(error, pretty: true)}
+                  """)
+                  :ok
+              end
+
+        error ->
+          Logger.debug("Skip adding system: #{inspect(error, pretty: true)}")
+          :ok
+      end
     end
   end
 
