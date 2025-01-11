@@ -166,6 +166,8 @@ const MapComp = ({
     (_, node) => [
       // eslint-disable-next-line no-console
       setTimeout(() => {
+        const {x, y} = node.position ?? {};
+        console.log(`drag stop ${node.id} - (${x}, ${y})`);
         onCommand({
           type: OutCommand.updateSystemPosition,
           data: { solar_system_id: node.id, position: node.position },
@@ -178,6 +180,15 @@ const MapComp = ({
   const handleSelectionDragStop: SelectionDragHandler = useCallback(
     (_, nodes) => {
       setTimeout(() => {
+        const logLines = nodes
+        .map((node) => {
+          const { x, y } = node?.position ?? {};
+          return `${node.id} (${x}, ${y})`
+        })
+        .filter(Boolean) as string[];
+      if (logLines.length > 0) {
+        console.debug(`handle node change -> ${logLines.join('; ')}`);
+      }
         onCommand({
           type: OutCommand.updateSystemPositions,
           data: nodes.map(x => ({ solar_system_id: x.id, position: x.position })),
