@@ -1,4 +1,4 @@
-import { ForwardedRef, forwardRef, MouseEvent, useCallback, useEffect, useMemo } from 'react';
+import { ForwardedRef, forwardRef, MouseEvent, useCallback, useEffect } from 'react';
 import { MapSolarSystemType } from './map.types';
 import { useMapGetOption } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import ReactFlow, {
