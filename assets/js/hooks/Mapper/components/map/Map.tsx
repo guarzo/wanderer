@@ -39,7 +39,7 @@ import { ctxManager } from '@/hooks/Mapper/utils/contextManager.ts';
 import { NodeSelectionMouseHandler } from '@/hooks/Mapper/components/contexts/types.ts';
 import clsx from 'clsx';
 import { useBackgroundVars } from './hooks/useBackgroundVars';
-const { interfaceSettings } = useMapRootState();
+
 
 const DEFAULT_VIEW_PORT = { zoom: 1, x: 0, y: 0 };
 
@@ -171,6 +171,8 @@ const MapComp = ({
     (_, node) => [
       // eslint-disable-next-line no-console
       setTimeout(() => {
+        const { x, y } = node?.position ?? {};
+        return `handle drag stop: ${node.id} (${x}, ${y})`;
         onCommand({
           type: OutCommand.updateSystemPosition,
           data: { solar_system_id: node.id, position: node.position },
@@ -183,6 +185,16 @@ const MapComp = ({
   const handleSelectionDragStop: SelectionDragHandler = useCallback(
     (_, nodes) => {
       setTimeout(() => {
+        const minimalLines = nodes
+        .map((node) => {
+            const { x, y } = node?.position ?? {};
+            return `${node.id} (${x}, ${y})`;
+        })
+        .filter(Boolean) as string[];
+    
+      if (minimalLines.length > 0) {
+        console.debug(`handle selection drag stop -> ${minimalLines.join('; ')}`);
+      }
         onCommand({
           type: OutCommand.updateSystemPositions,
           data: nodes.map(x => ({ solar_system_id: x.id, position: x.position })),
@@ -211,6 +223,33 @@ const MapComp = ({
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const systemsIdsToRemove: string[] = [];
+
+      const loggingChanges = changes.filter((ch) => ch.type !== 'select');
+  
+      if (loggingChanges.length === 0) {
+        return;
+      }
+    
+      const minimalLines = loggingChanges
+        .map((ch) => {
+          switch (ch.type) {
+            case 'reset': {
+              const { x, y } = ch.item?.position ?? {};
+              return `reset ${ch.item?.id} (${x}, ${y})`;
+            }
+            case 'position': {
+              const { x, y } = ch.position ?? {};
+              return `pos - ${ch.id} (${x}, ${y})`;
+            }
+            default:
+              return undefined;
+          }
+        })
+        .filter(Boolean) as string[];
+    
+      if (minimalLines.length > 0) {
+        console.debug(`handle node change -> ${minimalLines.join('; ')}`);
+      }
 
       // prevents single node deselection on background / same node click
       // allows deseletion of all nodes if multiple are currently selected
