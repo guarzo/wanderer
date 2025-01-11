@@ -1,7 +1,6 @@
 import { ForwardedRef, forwardRef, MouseEvent, useCallback, useEffect, useMemo } from 'react';
 import ReactFlow, {
   Background,
-  ConnectionMode,
   Edge,
   MiniMap,
   Node,
@@ -228,7 +227,7 @@ const MapComp = ({
 
       onNodesChange(nextChanges);
     },
-    [getNode, onManualDelete, onNodesChange],
+    [getNode, getNodes, onManualDelete, onNodesChange],
   );
 
   useEffect(() => {

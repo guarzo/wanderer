@@ -1,12 +1,10 @@
 import { memo } from 'react';
-import { Handle, Position } from 'reactflow';
+import { MapSolarSystemType } from '../../map.types';
+import { Handle, Position, NodeProps } from 'reactflow';
 import clsx from 'clsx';
-
-import classes from './SolarSystemNodeDefault.module.scss'; 
+import classes from './SolarSystemNodeDefault.module.scss';
 import { PrimeIcons } from 'primereact/api';
-
 import { useSolarSystemNode } from '../../hooks/useSolarSystemNode';
-
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
@@ -15,8 +13,8 @@ import {
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
 
-
-export const SolarSystemNodeDefault = memo((props) => {
+// eslint-disable-next-line react/display-name
+export const SolarSystemNodeDefault = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
 
   return (
@@ -25,9 +23,7 @@ export const SolarSystemNodeDefault = memo((props) => {
         <div className={classes.Bookmarks}>
           {nodeVars.labelCustom !== '' && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.custom)}>
-              <span className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] ">
-                {nodeVars.labelCustom}
-              </span>
+              <span className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] ">{nodeVars.labelCustom}</span>
             </div>
           )}
 
@@ -38,12 +34,7 @@ export const SolarSystemNodeDefault = memo((props) => {
           )}
 
           {nodeVars.killsCount && (
-            <div
-              className={clsx(
-                classes.Bookmark,
-                MARKER_BOOKMARK_BG_STYLES[nodeVars.killsActivityType!]
-              )}
-            >
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[nodeVars.killsActivityType!])}>
               <div className={clsx(classes.BookmarkWithIcon)}>
                 <span className={clsx(PrimeIcons.BOLT, classes.icon)} />
                 <span className={clsx(classes.text)}>{nodeVars.killsCount}</span>
@@ -52,10 +43,7 @@ export const SolarSystemNodeDefault = memo((props) => {
           )}
 
           {nodeVars.labelsInfo.map(x => (
-            <div
-              key={x.id}
-              className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}
-            >
+            <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
               {x.shortName}
             </div>
           ))}
@@ -84,9 +72,7 @@ export const SolarSystemNodeDefault = memo((props) => {
               </div>
 
               {nodeVars.tag != null && nodeVars.tag !== '' && (
-                <div className={clsx(classes.TagTitle, 'text-sky-400 font-medium')}>
-                  {nodeVars.tag}
-                </div>
+                <div className={clsx(classes.TagTitle, 'text-sky-400 font-medium')}>{nodeVars.tag}</div>
               )}
 
               <div
@@ -107,12 +93,7 @@ export const SolarSystemNodeDefault = memo((props) => {
               )}
 
               {nodeVars.effectName !== null && nodeVars.isWormhole && (
-                <div
-                  className={clsx(
-                    classes.effect,
-                    EFFECT_BACKGROUND_STYLES[nodeVars.effectName],
-                  )}
-                />
+                <div className={clsx(classes.effect, EFFECT_BACKGROUND_STYLES[nodeVars.effectName])} />
               )}
             </div>
 
@@ -124,9 +105,7 @@ export const SolarSystemNodeDefault = memo((props) => {
               )}
 
               {!nodeVars.isWormhole && !nodeVars.customName && (
-                <div
-                  className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] text-stone-300 whitespace-nowrap overflow-hidden text-ellipsis mr-0.5"
-                >
+                <div className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] text-stone-300 whitespace-nowrap overflow-hidden text-ellipsis mr-0.5">
                   {nodeVars.regionName}
                 </div>
               )}
@@ -136,17 +115,11 @@ export const SolarSystemNodeDefault = memo((props) => {
               <div className="flex items-center justify-end">
                 <div className="flex gap-1 items-center">
                   {nodeVars.locked && (
-                    <i
-                      className={PrimeIcons.LOCK}
-                      style={{ fontSize: '0.45rem', fontWeight: 'bold' }}
-                    />
+                    <i className={PrimeIcons.LOCK} style={{ fontSize: '0.45rem', fontWeight: 'bold' }} />
                   )}
 
                   {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
-                    <i
-                      className={PrimeIcons.MAP_MARKER}
-                      style={{ fontSize: '0.45rem', fontWeight: 'bold' }}
-                    />
+                    <i className={PrimeIcons.MAP_MARKER} style={{ fontSize: '0.45rem', fontWeight: 'bold' }} />
                   )}
 
                   {nodeVars.charactersInSystem.length > 0 && (
@@ -156,9 +129,7 @@ export const SolarSystemNodeDefault = memo((props) => {
                       })}
                     >
                       <i className="pi pi-users" style={{ fontSize: '0.50rem' }} />
-                      <span className="font-sans">
-                        {nodeVars.charactersInSystem.length}
-                      </span>
+                      <span className="font-sans">{nodeVars.charactersInSystem.length}</span>
                     </div>
                   )}
                 </div>
