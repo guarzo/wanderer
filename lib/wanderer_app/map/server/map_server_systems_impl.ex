@@ -241,7 +241,6 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     |> Enum.each(fn s ->
       {:ok, %{system: system}} = s |> Ash.load([:system])
       Ash.destroy!(s)
-      Logger.info("Broadcasting signatures updated: #{inspect(solar_system_id, pretty: true)}")
 
       Impl.broadcast!(map_id, :signatures_updated, system.solar_system_id)
     end)
