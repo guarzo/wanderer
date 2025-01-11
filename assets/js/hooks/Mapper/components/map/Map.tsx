@@ -22,12 +22,10 @@ import {
   ContextMenuConnection,
   ContextMenuRoot,
   SolarSystemEdge,
-  SolarSystemNodeDefault,
-  SolarSystemNodeTheme,
   useContextMenuConnectionHandlers,
   useContextMenuRootHandlers,
 } from './components';
-import { wrapNode } from './utils/wrapNode';
+import { getBehaviorForTheme } from './helpers/getThemeBehavior';
 import { OnMapAddSystemCallback, OnMapSelectionChange } from './map.types';
 import { SESSION_KEY } from '@/hooks/Mapper/constants.ts';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
@@ -76,9 +74,6 @@ const initialEdges = [
   },
 ];
 
-
-
-
 const edgeTypes = {
   floating: SolarSystemEdge,
 };
@@ -122,23 +117,20 @@ const MapComp = ({
   const [nodes, , onNodesChange] = useNodesState<Node<SolarSystemRawType>>(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState<Edge<SolarSystemConnection>>(initialEdges);
 
-
-  const nodeTypes = useMemo(() => {
-    return {
-      custom:
-        theme !== '' && theme !== 'default'
-          ? wrapNode(SolarSystemNodeTheme)
-          : wrapNode(SolarSystemNodeDefault),
-    };
-  }, [theme]);
-  
-
   useMapHandlers(refn, onSelectionChange);
   useUpdateNodes(nodes);
   const { handleRootContext, ...rootCtxProps } = useContextMenuRootHandlers({ onAddSystem });
   const { handleConnectionContext, ...connectionCtxProps } = useContextMenuConnectionHandlers();
   const { update } = useMapState();
   const { variant, gap, size, color } = useBackgroundVars(theme);
+  const { isPanAndDrag, nodeComponent, connectionMode } = getBehaviorForTheme(theme || 'default');
+
+  // You can create nodeTypes dynamically based on the node component
+  const nodeTypes = useMemo(() => {
+    return {
+      custom: nodeComponent,
+    };
+  }, [nodeComponent]);
 
   const onConnect: OnConnect = useCallback(
     params => {
@@ -252,7 +244,7 @@ const MapComp = ({
           defaultViewport={getViewPortFromStore()}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
-          connectionMode={ConnectionMode.Loose}
+          connectionMode={connectionMode}
           snapToGrid
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}
@@ -281,6 +273,12 @@ const MapComp = ({
           maxZoom={1.5}
           elevateNodesOnSelect
           deleteKeyCode={['Delete']}
+          {...(isPanAndDrag
+            ? {
+                selectionOnDrag: true,
+                panOnDrag: [2],
+              }
+            : {})}
           // TODO need create clear example with problem with that flag
           //  if system is not visible edge not drawing (and any render in Custom node is not happening)
           // onlyRenderVisibleElements
