@@ -2,6 +2,21 @@
 
 <!-- changelog -->
 
+## [v1.39.0](https://github.com/wanderer-industries/wanderer/compare/v1.38.1...v1.39.0) (2025-01-11)
+
+
+
+
+### Features:
+
+* Map: Ability to store/view audit logs up to 3 months
+
+* Map: Inroduced Env settings for connection auto EOL/remove timeouts
+
+### Bug Fixes:
+
+* restored default theme colors (#115)
+
 ## [v1.38.1](https://github.com/wanderer-industries/wanderer/compare/v1.38.0...v1.38.1) (2025-01-10)
 
 
