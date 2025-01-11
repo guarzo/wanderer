@@ -206,7 +206,7 @@ const MapComp = ({
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const systemsIdsToRemove: string[] = [];
-      // logChanges(changes);
+      logChanges(changes);
 
       // prevents single node deselection on background / same node click
       // allows deseletion of all nodes if multiple are currently selected
@@ -215,9 +215,9 @@ const MapComp = ({
       }
 
       // filter out "invalid position"
-      const validChanges = validateChanges(changes);
+      //const validChanges = validateChanges(changes);
 
-      const nextChanges = validChanges.reduce((acc, change) => {
+      const nextChanges = changes.reduce((acc, change) => {
         if (change.type !== 'remove') {
           return [...acc, change];
         }
