@@ -210,6 +210,8 @@ const MapComp = ({
     (changes: NodeChange[]) => {
       const systemsIdsToRemove: string[] = [];
 
+      console.log("handle node change", changes)
+
       // prevents single node deselection on background / same node click
       // allows deseletion of all nodes if multiple are currently selected
       if (changes.length === 1 && changes[0].type == 'select' && changes[0].selected === false) {
