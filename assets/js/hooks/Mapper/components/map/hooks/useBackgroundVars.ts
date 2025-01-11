@@ -18,6 +18,7 @@ export function useBackgroundVars(themeName?: string) {
 
     const style = getComputedStyle(themeEl as HTMLElement);
 
+    // Read CSS variables (or fallback if missing)
     const rawVariant = style.getPropertyValue('--rf-bg-variant').replace(/['"]/g, '').trim().toLowerCase();
     let finalVariant: BackgroundVariant = BackgroundVariant.Dots;
 
