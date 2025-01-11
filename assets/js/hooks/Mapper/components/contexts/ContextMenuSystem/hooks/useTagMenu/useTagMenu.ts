@@ -7,7 +7,7 @@ import clsx from 'clsx';
 import { GRADIENT_MENU_ACTIVE_CLASSES } from '@/hooks/Mapper/constants.ts';
 
 // We only keep numbers for 'occupied'
-const AVAILABLE_NUMBERS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10+'];
+const AVAILABLE_NUMBERS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10+', '20+', 'Baiting'];
 
 export const useTagMenu = (
   systems: SolarSystemRawType[],
