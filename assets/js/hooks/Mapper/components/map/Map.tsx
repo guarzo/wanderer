@@ -1,4 +1,6 @@
 import { ForwardedRef, forwardRef, MouseEvent, useCallback, useEffect, useMemo } from 'react';
+import { MapSolarSystemType } from './map.types';
+import { useMapGetOption } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import ReactFlow, {
   Background,
   ConnectionMode,
@@ -13,6 +15,7 @@ import ReactFlow, {
   SelectionDragHandler,
   SelectionMode,
   useReactFlow,
+  NodeProps,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import classes from './Map.module.scss';
@@ -28,7 +31,6 @@ import {
   useContextMenuConnectionHandlers,
   useContextMenuRootHandlers,
 } from './components';
-import { wrapNode } from './utils/wrapNode';
 import { OnMapAddSystemCallback, OnMapSelectionChange } from './map.types';
 import { SESSION_KEY } from '@/hooks/Mapper/constants.ts';
 import { SolarSystemConnection, SolarSystemRawType } from '@/hooks/Mapper/types';
@@ -77,7 +79,18 @@ const initialEdges = [
   },
 ];
 
+function SolarSystemNodeWrapper(props: NodeProps<MapSolarSystemType>) {
+  const theme = useMapGetOption('theme');
 
+  if (theme !== 'default' && theme !== '') {
+    return <SolarSystemNodeTheme {...props} />;
+  }
+  return <SolarSystemNodeDefault {...props} />;
+}
+
+const nodeTypes = {
+  custom: SolarSystemNodeWrapper,
+};
 
 
 const edgeTypes = {
@@ -124,15 +137,7 @@ const MapComp = ({
   const [edges, , onEdgesChange] = useEdgesState<Edge<SolarSystemConnection>>(initialEdges);
 
 
-  const nodeTypes = useMemo(() => {
-    return {
-      custom:
-        theme !== '' && theme !== 'default'
-          ? wrapNode(SolarSystemNodeTheme)
-          : wrapNode(SolarSystemNodeDefault),
-    };
-  }, [theme]);
-  
+
 
   useMapHandlers(refn, onSelectionChange);
   useUpdateNodes(nodes);
@@ -140,6 +145,7 @@ const MapComp = ({
   const { handleConnectionContext, ...connectionCtxProps } = useContextMenuConnectionHandlers();
   const { update } = useMapState();
   const { variant, gap, size, color } = useBackgroundVars(theme);
+
 
   const onConnect: OnConnect = useCallback(
     params => {

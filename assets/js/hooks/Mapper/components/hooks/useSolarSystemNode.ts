@@ -1,15 +1,14 @@
-// feel free to rename these imports or the file path as you see fit
 import { useMemo } from 'react';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useMapGetOption } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { useMapState } from '@/hooks/Mapper/components/map/MapProvider.tsx';
 import { useDoubleClick } from '@/hooks/Mapper/hooks/useDoubleClick.ts';
 import { REGIONS_MAP, Spaces } from '@/hooks/Mapper/constants';
-import { MapSolarSystemType } from '../../map.types';
+import { MapSolarSystemType } from '../map/map.types';
+
 import {
   LABELS_INFO,
   LABELS_ORDER,
-  getActivityType,
 } from '@/hooks/Mapper/components/map/constants.ts';
 import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormholeSpace.ts';
 import { getSystemClassStyles, prepareUnsplashedChunks } from '@/hooks/Mapper/components/map/helpers';
@@ -57,11 +56,9 @@ export function useSolarSystemNode({ data, selected }: UseSolarSystemNodeParams)
     outCommand,
   } = useMapState();
 
-  // 2) Extract data from the node
   const {
     system_class,
     security,
-    class_title,
     solar_system_id,
     statics,
     effect_name,

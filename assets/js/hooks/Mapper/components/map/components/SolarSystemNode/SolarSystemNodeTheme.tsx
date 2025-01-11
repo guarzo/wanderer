@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Handle, Position } from 'reactflow';
+import { MapSolarSystemType } from '../../map.types';
+import { Handle, Position, NodeProps } from 'reactflow';
 import clsx from 'clsx';
 
 import classes from './SolarSystemNodeTheme.module.scss'; 
@@ -16,8 +17,8 @@ import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/Worm
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
 
 
-export const SolarSystemNodeTheme = memo((props) => {
-  const nodeVars = useSolarSystemNode(props);
+export const SolarSystemNodeTheme = memo(({ data, selected }: NodeProps<MapSolarSystemType>) => {
+  const nodeVars = useSolarSystemNode({data, selected});
 
   return (
     <>
