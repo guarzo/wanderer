@@ -28,6 +28,7 @@ import {
   SolarSystemEdge,
   SolarSystemNodeDefault,
   SolarSystemNodeTheme,
+  SolarSystemNodeZoo,
   useContextMenuConnectionHandlers,
   useContextMenuRootHandlers,
 } from './components';
@@ -38,6 +39,7 @@ import { ctxManager } from '@/hooks/Mapper/utils/contextManager.ts';
 import { NodeSelectionMouseHandler } from '@/hooks/Mapper/components/contexts/types.ts';
 import clsx from 'clsx';
 import { useBackgroundVars } from './hooks/useBackgroundVars';
+const { interfaceSettings } = useMapRootState();
 
 const DEFAULT_VIEW_PORT = { zoom: 1, x: 0, y: 0 };
 
@@ -82,7 +84,9 @@ const initialEdges = [
 function SolarSystemNodeWrapper(props: NodeProps<MapSolarSystemType>) {
   const { interfaceSettings } = useMapRootState();
   const { theme } = interfaceSettings;
-
+  if (theme === 'zoo') {
+    return <SolarSystemNodeZoo {...props} />;
+  }
   if (theme !== 'default' && theme !== '') {
     return <SolarSystemNodeTheme {...props} />;
   }
@@ -122,25 +126,24 @@ interface MapCompProps {
 const MapComp = ({
   refn,
   onCommand,
-  minimapClasses,
   onSelectionChange,
   onSystemContextMenu,
   onConnectionInfoClick,
   onSelectionContextMenu,
   onManualDelete,
-  isShowMinimap,
+  minimapClasses,
   showKSpaceBG,
+  isShowMinimap,
   isThickConnections,
-  isShowBackgroundPattern,
   isSoftBackground,
   theme,
+  isShowBackgroundPattern,
   isRightPanDrag,
   onAddSystem,
 }: MapCompProps) => {
   const { getNode, getNodes } = useReactFlow();
   const [nodes, , onNodesChange] = useNodesState<Node<SolarSystemRawType>>(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState<Edge<SolarSystemConnection>>(initialEdges);
-
 
 
 
@@ -264,7 +267,7 @@ const MapComp = ({
           defaultViewport={getViewPortFromStore()}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
-          connectionMode={ConnectionMode.Loose}
+          connectionMode={ConnectionMode.Strict}
           snapToGrid
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}
