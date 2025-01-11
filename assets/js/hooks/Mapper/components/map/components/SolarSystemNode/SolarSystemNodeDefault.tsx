@@ -16,9 +16,8 @@ import {
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
 
-
-export const SolarSystemNodeDefault = memo(({ data, selected }: NodeProps<MapSolarSystemType>) => {
-  const nodeVars = useSolarSystemNode({data, selected});
+export const SolarSystemNodeDefault = memo( (props: NodeProps<MapSolarSystemType>) => {
+  const nodeVars = useSolarSystemNode(props);
 
   return (
     <>

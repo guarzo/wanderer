@@ -1,6 +1,6 @@
 import { ForwardedRef, forwardRef, MouseEvent, useCallback, useEffect } from 'react';
 import { MapSolarSystemType } from './map.types';
-import { useMapGetOption } from '@/hooks/Mapper/mapRootProvider/hooks/api';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import ReactFlow, {
   Background,
   ConnectionMode,
@@ -80,13 +80,16 @@ const initialEdges = [
 ];
 
 function SolarSystemNodeWrapper(props: NodeProps<MapSolarSystemType>) {
-  const theme = useMapGetOption('theme');
+  const { interfaceSettings } = useMapRootState();
+  const { theme } = interfaceSettings;
 
   if (theme !== 'default' && theme !== '') {
     return <SolarSystemNodeTheme {...props} />;
   }
+
   return <SolarSystemNodeDefault {...props} />;
 }
+
 
 const nodeTypes = {
   custom: SolarSystemNodeWrapper,

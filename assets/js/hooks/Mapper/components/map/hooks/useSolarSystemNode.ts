@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-
+import { MapSolarSystemType } from '../map.types';
+import { NodeProps } from 'reactflow';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useMapGetOption } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { useMapState } from '@/hooks/Mapper/components/map/MapProvider';
@@ -30,8 +31,8 @@ function sortedLabels(labels: string[]) {
   return LABELS_ORDER.filter(x => labels.includes(x)).map(x => LABELS_INFO[x]);
 }
 
-export function useSolarSystemNode(props: any) {
-  const { data, selected, id } = props;
+export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>) {
+  const { id, data, selected } = props;
   const { system_static_info, system_signatures, locked, name, tag, status, labels, temporary_name } = data;
 
   const {
