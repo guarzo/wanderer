@@ -1,6 +1,6 @@
 defmodule WandererApp.Api.MapSystemStructures do
   @moduledoc false
-
+  
   use Ash.Resource,
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer
@@ -15,18 +15,19 @@ defmodule WandererApp.Api.MapSystemStructures do
     define(:create, action: :create)
     define(:update, action: :update)
     define(:update_type, action: :update_type)
-    define(:update_group, action: :update_group)
 
     define(:by_id,
       get_by: [:id],
       action: :read
     )
 
-    define(:by_system_id, action: :by_system_id, args: [:system_id])
+    define(:by_system_id,
+      action: :by_system_id,
+      args: [:system_id]
+    )
   end
 
   actions do
-    # Allow these fields by default if you like:
     default_accept [
       :system_id,
       :solar_system_name,
@@ -34,23 +35,26 @@ defmodule WandererApp.Api.MapSystemStructures do
       :type_id,
       :character_eve_id,
       :name,
-      :description,
-      :kind,
-      :group,
       :type,
       :owner,
+      :notes,
       :owner_ticker,
       :owner_id,
       :status,
       :end_time
     ]
 
-    # The usual read & destroy
     defaults [:read, :destroy]
 
     read :all_active do
       prepare build(sort: [updated_at: :desc])
     end
+
+    read :by_system_id do
+      argument :system_id, :string, allow_nil?: false
+      filter(expr(system_id == ^arg(:system_id)))
+    end
+
 
     create :create do
       primary? true
@@ -62,12 +66,9 @@ defmodule WandererApp.Api.MapSystemStructures do
         :type_id,
         :character_eve_id,
         :name,
-        :description,
-        :kind,
-        :group,
         :type,
-        :custom_info,
         :updated,
+        :notes,
         :owner,
         :owner_ticker,
         :owner_id,
@@ -84,6 +85,9 @@ defmodule WandererApp.Api.MapSystemStructures do
     end
 
     update :update do
+      primary? true
+      require_atomic? false
+
       accept [
         :system_id,
         :solar_system_name,
@@ -91,34 +95,19 @@ defmodule WandererApp.Api.MapSystemStructures do
         :type_id,
         :character_eve_id,
         :name,
-        :description,
-        :kind,
-        :group,
         :type,
-        :custom_info,
         :updated,
+        :notes,
         :owner,
         :owner_ticker,
         :owner_id,
         :status,
         :end_time
       ]
-
-      primary? true
-      require_atomic? false
     end
 
     update :update_type do
       accept [:type]
-    end
-
-    update :update_group do
-      accept [:group]
-    end
-
-    read :by_system_id do
-      argument :system_id, :string, allow_nil?: false
-      filter(expr(system_id == ^arg(:system_id)))
     end
   end
 
@@ -145,17 +134,11 @@ defmodule WandererApp.Api.MapSystemStructures do
       allow_nil? true
     end
 
-    attribute :description, :string do
+    attribute :notes, :string do
       allow_nil? true
     end
 
     attribute :type, :string
-    attribute :kind, :string
-    attribute :group, :string
-
-    attribute :custom_info, :string do
-      allow_nil? true
-    end
 
     attribute :updated, :integer
 
@@ -179,8 +162,8 @@ defmodule WandererApp.Api.MapSystemStructures do
       allow_nil? true
     end
 
-    create_timestamp(:inserted_at)
-    update_timestamp(:updated_at)
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
   end
 
   relationships do
@@ -188,5 +171,4 @@ defmodule WandererApp.Api.MapSystemStructures do
       attribute_writable? true
     end
   end
-
 end
