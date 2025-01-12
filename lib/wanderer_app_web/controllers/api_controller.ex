@@ -180,6 +180,92 @@ end
     end
   end
 
+  def show_structure_timers(conn, params) do
+    with {:ok, map_id} <- fetch_map_id(params) do
+      system_id_str = params["system_id"]
+
+      case system_id_str do
+        nil ->
+          handle_all_structure_timers(conn, map_id)
+
+        _ ->
+          case parse_int(system_id_str) do
+            {:ok, system_id} ->
+              handle_single_structure_timers(conn, map_id, system_id)
+
+            {:error, reason} ->
+              conn
+              |> put_status(:bad_request)
+              |> json(%{error: "system_id must be int: #{reason}"})
+          end
+      end
+    else
+      {:error, msg} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
+    end
+  end
+
+  defp handle_all_structure_timers(conn, map_id) do
+    case MapSystemRepo.get_visible_by_map(map_id) do
+      {:ok, systems} ->
+        all_timers =
+          systems
+          |> Enum.flat_map(&get_timers_for_system/1)
+
+        json(conn, %{data: all_timers})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Could not fetch visible systems for map_id=#{map_id}: #{inspect(reason)}"})
+    end
+  end
+
+  defp handle_single_structure_timers(conn, map_id, system_id) do
+    case MapSystemRepo.get_by_map_and_solar_system_id(map_id, system_id) do
+      {:ok, map_system} ->
+        timers = get_timers_for_system(map_system)
+        json(conn, %{data: timers})
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "No system with solar_system_id=#{system_id} in map=#{map_id}"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Failed to retrieve system: #{inspect(reason)}"})
+    end
+  end
+
+  defp get_timers_for_system(map_system) do
+    # This call retrieves structures based on map_system.id
+    structures = WandererApp.Api.MapSystemStructures.by_system_id!(map_system.id)
+
+    structures
+    |> Enum.filter(&timer_needed?/1)
+    |> Enum.map(&structure_to_timer_json/1)
+  end
+
+  defp timer_needed?(structure), do: not is_nil(structure.end_time)
+
+  defp structure_to_timer_json(s) do
+    %{
+      id: s.id,
+      system_id: s.system_id,
+      name: s.name,
+      owner: s.owner,
+      owner_id: s.owner_id,
+      type: s.type,
+      end_time: s.end_time,
+      status: s.status
+    }
+  end
+
+
   defp get_tracked_by_map_ids(map_id) do
     case MapCharacterSettingsRepo.get_tracked_by_map_all(map_id) do
       {:ok, settings_list} ->
