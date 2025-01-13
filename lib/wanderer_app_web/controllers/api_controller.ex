@@ -239,7 +239,9 @@ defmodule WandererAppWeb.APIController do
     |> Enum.map(&structure_to_timer_json/1)
   end
 
-  defp timer_needed?(structure), do: not is_nil(structure.end_time)
+  defp timer_needed?(structure) do
+    structure.status in ["Anchoring", "Reinforced"] and not is_nil(structure.end_time)
+  end
 
   defp structure_to_timer_json(s) do
     Map.take(s, [
