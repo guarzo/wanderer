@@ -8,7 +8,7 @@ defmodule WandererApp.Repo.Migrations.AddSystemStructures do
   use Ecto.Migration
 
   def up do
-    create table(:map_system_structures_v1, primary_key: false) do
+    create table(:map_system_structures_v1, primary_key: false, if_not_exists: true) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :structure_type_id, :text, null: false
       add :structure_type, :text, null: false
