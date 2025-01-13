@@ -6,6 +6,7 @@ import {
   RoutesWidget,
   SystemInfo,
   SystemSignatures,
+  SystemStructures,
 } from '@/hooks/Mapper/components/mapInterface/widgets';
 import { useState } from 'react';
 import { SESSION_KEY } from '@/hooks/Mapper/constants.ts';
@@ -35,6 +36,14 @@ const DEFAULT_WINDOWS = [
     width: 5,
     height: 6,
     item: () => <RoutesWidget />,
+  },
+  {
+    name: 'structures',
+    rightOffset: 0,
+    topOffset: 14,
+    width: 5,
+    height: 6,
+    item: () => <SystemStructures />,
   },
 ];
 
