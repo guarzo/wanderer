@@ -53,7 +53,7 @@ export const WindowWrapper = ({ onResize, onDrag, ...window }: WindowWrapperProp
       handleResizeBL,
       handleResizeBR,
     };
-  }, [window]);
+  }, [onResize, window.id]);
 
   return (
     <div
