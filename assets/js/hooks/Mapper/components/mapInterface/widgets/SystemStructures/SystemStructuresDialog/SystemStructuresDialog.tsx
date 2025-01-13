@@ -3,6 +3,7 @@ import { Dialog } from 'primereact/dialog';
 import { Button } from 'primereact/button';
 import { AutoComplete } from 'primereact/autocomplete';
 import clsx from 'clsx';
+
 import { StructureItem, StructureStatus } from '../helpers/types';
 import { statusesRequiringTimer } from '../helpers/parseHelpers';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
@@ -27,9 +28,12 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
   const [owner, setOwner] = useState('');
   const [ownerSuggestions, setOwnerSuggestions] = useState([]);
   const { outCommand } = useMapRootState();
+
+  // For caching corporation searches
   const [prevQuery, setPrevQuery] = useState('');
   const [prevResults, setPrevResults] = useState([]);
 
+  // Called whenever user types in the "owner" auto-complete
   const searchOwners = useCallback(
     async e => {
       const newQuery = e.query;
@@ -56,6 +60,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
     [prevQuery, prevResults, outCommand],
   );
 
+  // Sync local state with the dialog's `structure` prop
   useEffect(() => {
     setEditData(structure ?? null);
     if (structure) {
@@ -67,26 +72,33 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
 
   if (!editData) return null;
 
+  // Generic field handler
   const handleChange = (field: keyof StructureItem, val: string) => {
+    // read-only for "typeId" or "type"? If so, skip
     if (field === 'typeId' || field === 'type') return;
     setEditData(prev => (prev ? { ...prev, [field]: val } : null));
   };
 
+  // For the <select> status
   const handleStatusChange = (val: string) => {
     setEditData(prev => (prev ? { ...prev, status: val as StructureStatus } : null));
   };
 
+  // On Save, do final formatting of the endTime, fetch corporation ticker, etc.
   const handleSaveClick = async () => {
     if (!editData) return;
+
+    // If the user typed "2025-01-13T18:51" => we add ":00Z"
     if (editData.endTime && editData.endTime.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)) {
       editData.endTime = editData.endTime + ':00Z';
-      // => "2025-01-13T18:51:00Z"
     } else if (editData.endTime && editData.endTime.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)) {
-      // If user typed HH:MM:SS but missing the 'Z', add it
+      // If user typed HH:MM:SS but missing 'Z'
       if (!editData.endTime.endsWith('Z')) {
         editData.endTime += 'Z';
       }
     }
+
+    // Optionally fetch corporation ticker
     if (editData.ownerId) {
       try {
         const { ticker } = await outCommand({
@@ -103,6 +115,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
     onSave(editData);
   };
 
+  // On Delete, call parent
   const handleDeleteClick = () => {
     if (editData) {
       onDelete(editData.id);
@@ -118,11 +131,13 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
       className={clsx('myStructuresDialog', 'text-stone-200 w-full max-w-md')}
     >
       <div className="flex flex-col gap-2 text-[14px]">
+        {/* Type is read-only */}
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Type:</span>
           <input readOnly className="p-inputtext p-component cursor-not-allowed" value={editData.type ?? ''} />
         </label>
 
+        {/* Name */}
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Name:</span>
           <input
@@ -132,6 +147,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
           />
         </label>
 
+        {/* Owner auto-complete */}
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Owner:</span>
           <AutoComplete
@@ -160,6 +176,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
           />
         </label>
 
+        {/* Status */}
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Status:</span>
           <select
@@ -176,6 +193,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
           </select>
         </label>
 
+        {/* Show date/time input only if status is in statusesRequiringTimer */}
         {statusesRequiringTimer.includes(editData.status) && (
           <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
             <span>End Time:</span>
@@ -188,6 +206,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
           </label>
         )}
 
+        {/* Notes */}
         <label className="grid grid-cols-[100px_1fr] gap-2 items-start mt-2">
           <span className="mt-1">Notes:</span>
           <textarea
@@ -198,6 +217,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
         </label>
       </div>
 
+      {/* Footer actions */}
       <div className="flex justify-end items-center gap-2 mt-4">
         <Button label="Delete" severity="danger" className="p-button-sm" onClick={handleDeleteClick} />
         <Button label="Save" className="p-button-sm" onClick={handleSaveClick} />
