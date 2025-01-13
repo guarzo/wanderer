@@ -85,11 +85,14 @@ export const SystemStructures: React.FC = () => {
               content: (
                 <div className="flex flex-col gap-1">
                   <InfoDrawer title={<b className="text-slate-50">How to add/update structures?</b>}>
-                    In game, select one or more structures in D-Scan and press Ctrl+C, then click on this widget and
-                    press Ctrl+V
+                    In game, select one or more structures in D-Scan and press Ctrl+C,
+                    <br />
+                    then click on this widget and press Ctrl+V
                   </InfoDrawer>
                   <InfoDrawer title={<b className="text-slate-50">How to add a timer?</b>}>
-                    In game, select a structure with an active timer, right click to copy
+                    In game, select a structure with an active timer, right click to copy, and then use the
+                    <span className="text-blue-500"> blue </span>
+                    add timer button
                   </InfoDrawer>
                 </div>
               ),

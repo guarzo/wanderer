@@ -140,7 +140,7 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
     <Dialog
       visible={visible}
       onHide={onClose}
-      header="Edit Structure"
+      header={`Edit Structure - ${editData.name ?? ''}`}
       className={clsx('myStructuresDialog', 'text-stone-200 w-full max-w-md')}
     >
       <div className="flex flex-col gap-2 text-[14px]">
