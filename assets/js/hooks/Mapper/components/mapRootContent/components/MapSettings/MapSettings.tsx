@@ -7,6 +7,7 @@ import { InterfaceStoredSettingsProps, useMapRootState, InterfaceStoredSettings 
 import { OutCommand } from '@/hooks/Mapper/types';
 import { Dropdown } from 'primereact/dropdown';
 import { WidgetsSettings } from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/components/WidgetsSettings/WidgetsSettings.tsx';
+import { WidgetsIds } from '../../../mapInterface/constants';
 
 export enum UserSettingsRemoteProps {
   link_signature_on_splash = 'link_signature_on_splash',
@@ -37,6 +38,7 @@ export type UserSettings = UserSettingsRemote & InterfaceStoredSettings;
 export interface MapSettingsProps {
   show: boolean;
   onHide: () => void;
+  onAddWidget(widgetId: WidgetsIds): void;
 }
 
 type SettingsListItem = {
@@ -123,7 +125,7 @@ const THEME_SETTING: SettingsListItem = {
   options: THEME_OPTIONS,
 };
 
-export const MapSettings = ({ show, onHide }: MapSettingsProps) => {
+export const MapSettings = ({ show, onHide, onAddWidget }: MapSettingsProps) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const { outCommand, interfaceSettings, setInterfaceSettings } = useMapRootState();
   const [userRemoteSettings, setUserRemoteSettings] = useState<UserSettingsRemote>({
@@ -247,7 +249,7 @@ export const MapSettings = ({ show, onHide }: MapSettingsProps) => {
               </TabPanel>
 
               <TabPanel header="Widgets" headerClassName={styles.verticalTabHeader}>
-                <WidgetsSettings />
+                <WidgetsSettings onAddWidget={onAddWidget} />
               </TabPanel>
 
               <TabPanel header="Theme" headerClassName={styles.verticalTabHeader}>

@@ -1,13 +1,14 @@
 import Topbar from '@/hooks/Mapper/components/topbar/Topbar.tsx';
-import { MapInterface } from '@/hooks/Mapper/components/mapInterface/MapInterface.tsx';
+import { MapInterface, MapInterfaceHandle } from '@/hooks/Mapper/components/mapInterface/MapInterface.tsx';
 import Layout from '@/hooks/Mapper/components/layout/Layout.tsx';
 import { MapWrapper } from '@/hooks/Mapper/components/mapWrapper/MapWrapper.tsx';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import { OnTheMap, RightBar } from '@/hooks/Mapper/components/mapRootContent/components';
 import { MapContextMenu } from '@/hooks/Mapper/components/mapRootContent/components/MapContextMenu/MapContextMenu.tsx';
 import { useSkipContextMenu } from '@/hooks/Mapper/hooks/useSkipContextMenu';
 import { MapSettings } from '@/hooks/Mapper/components/mapRootContent/components/MapSettings';
+import { WidgetsIds } from '../mapInterface/constants';
 
 export interface MapRootContentProps {}
 
@@ -20,10 +21,18 @@ export const MapRootContent = ({}: MapRootContentProps) => {
 
   const [showOnTheMap, setShowOnTheMap] = useState(false);
   const [showMapSettings, setShowMapSettings] = useState(false);
-  const mapInterface = <MapInterface />;
 
   const handleShowOnTheMap = useCallback(() => setShowOnTheMap(true), []);
   const handleShowMapSettings = useCallback(() => setShowMapSettings(true), []);
+
+  const mapInterfaceRef = useRef<MapInterfaceHandle>(null);
+
+  const handleAddWidget = useCallback(
+    (widgetId: WidgetsIds) => mapInterfaceRef.current?.maybeAddWidgetToItems(widgetId),
+    [],
+  );
+
+  const mapInterface = <MapInterface ref={mapInterfaceRef} />;
 
   useSkipContextMenu();
 
@@ -49,7 +58,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
           </div>
         )}
         <OnTheMap show={showOnTheMap} onHide={() => setShowOnTheMap(false)} />
-        <MapSettings show={showMapSettings} onHide={() => setShowMapSettings(false)} />
+        <MapSettings show={showMapSettings} onHide={() => setShowMapSettings(false)} onAddWidget={handleAddWidget} />
       </Layout>
     </div>
   );

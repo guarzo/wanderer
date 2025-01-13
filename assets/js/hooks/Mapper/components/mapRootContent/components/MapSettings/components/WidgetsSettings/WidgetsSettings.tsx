@@ -3,23 +3,26 @@ import { WIDGETS_CHECKBOXES_PROPS, WidgetsIds } from '@/hooks/Mapper/components/
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useCallback } from 'react';
 
-export interface WidgetsSettingsProps {}
+export interface WidgetsSettingsProps {
+  onAddWidget(widgetId: WidgetsIds): void;
+}
 
 // eslint-disable-next-line no-empty-pattern
-export const WidgetsSettings = ({}: WidgetsSettingsProps) => {
+export const WidgetsSettings = ({ onAddWidget }: WidgetsSettingsProps) => {
   const { windowsVisible, setWindowsVisible } = useMapRootState();
 
   const handleWidgetSettingsChange = useCallback(
     (widget: WidgetsIds, checked: boolean) => {
       setWindowsVisible(prev => {
         if (checked) {
+          onAddWidget(widget);
           return [...prev, widget];
         }
 
         return prev.filter(x => x !== widget);
       });
     },
-    [setWindowsVisible],
+    [onAddWidget, setWindowsVisible],
   );
 
   return (
