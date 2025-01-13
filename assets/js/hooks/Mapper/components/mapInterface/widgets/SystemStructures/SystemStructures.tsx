@@ -16,6 +16,9 @@ import { parseFormatOneLine, parseThreeLineSnippet, matchesThreeLineSnippet } fr
 import { StructureItem } from './helpers/types';
 import { OutCommand } from '@/hooks/Mapper/types/mapHandlers';
 
+/**
+ * Compare newList vs oldList to find added, updated, removed.
+ */
 function getActualStructures(oldList: StructureItem[], newList: StructureItem[]) {
   const oldMap = new Map(oldList.map(s => [s.id, s]));
   const newMap = new Map(newList.map(s => [s.id, s]));
@@ -54,6 +57,7 @@ export const SystemStructures = () => {
   const labelRef = useRef<HTMLDivElement>(null);
   const compact = useMaxWidth(labelRef, 260);
 
+  // Fetch structures from the server
   const handleGetStructures = useCallback(async () => {
     if (!systemId) {
       setStructures([]);
@@ -65,15 +69,18 @@ export const SystemStructures = () => {
         data: { system_id: systemId },
       });
 
+      // Map server fields (snake_case) to our JS fields (camelCase)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mapped = fetched.map(({ owner_id, owner_ticker, type_id, ...rest }: any) => ({
+      const mapped = fetched.map(({ owner_id, owner_ticker, type_id, end_time, system_id, ...rest }: any) => ({
         ...rest,
         ownerId: owner_id,
         ownerTicker: owner_ticker,
         typeId: type_id,
+        endTime: end_time,
+        systemId: system_id,
       }));
-      console.log(`get Structures ---------- ${JSON.stringify(mapped)} end get Structures ----------------------`);
 
+      console.log('Structures =>', mapped);
       setStructures(mapped);
     } catch (err) {
       console.error('Failed to get structures:', err);
@@ -84,13 +91,15 @@ export const SystemStructures = () => {
     handleGetStructures();
   }, [handleGetStructures]);
 
+  // Send updated lists to the server
   const handleUpdateStructures = useCallback(
     async (newList: StructureItem[]) => {
-      console.log('handleUpdateStructures called with =>', newList);
+      console.log('handleUpdateStructures =>', newList);
       const { added, updated, removed } = getActualStructures(structures, newList);
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const sanitizedAdded = added.map(({ id, ...rest }) => rest);
+
       try {
         const { structures: updatedStructures = [] } = await outCommand({
           type: OutCommand.updateStructures,
@@ -102,18 +111,19 @@ export const SystemStructures = () => {
           },
         });
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const final = updatedStructures.map(({ owner_id, owner_ticker, type_id, ...rest }: any) => ({
-          ...rest,
-          ownerId: owner_id,
-          ownerTicker: owner_ticker,
-          typeId: type_id,
-        }));
-
-        console.log(
-          `updating structures with -------------- ${JSON.stringify(final)} ----------------------- end update`,
+        const final = updatedStructures.map(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ({ owner_id, owner_ticker, type_id, end_time, system_id, ...rest }: any) => ({
+            ...rest,
+            ownerId: owner_id,
+            ownerTicker: owner_ticker,
+            typeId: type_id,
+            endTime: end_time,
+            systemId: system_id,
+          }),
         );
 
+        console.log('updated structures =>', final);
         setStructures(final);
       } catch (error) {
         console.error('Failed to update structures:', error);
@@ -122,6 +132,7 @@ export const SystemStructures = () => {
     [structures, systemId, outCommand],
   );
 
+  // Paste logic for snippet text
   const processSnippetText = useCallback(
     (text: string) => {
       const lines = text
@@ -140,46 +151,39 @@ export const SystemStructures = () => {
             const snippetItem = parseThreeLineSnippet(snippetLines);
             i += 3;
 
-            // 2.1) Find an existing structure by name (and maybe typeId if relevant)
+            // Attempt to find existing
             const existingIndex = oldList.findIndex(s => s.name.trim() === snippetItem.name.trim());
             if (existingIndex !== -1) {
-              // We have an existing structure => update
               const existing = { ...oldList[existingIndex] };
               const updated = {
                 ...existing,
-                // Merge snippet fields you want to override
                 status: snippetItem.status,
                 endTime: snippetItem.endTime,
                 notes: snippetItem.notes ?? existing.notes,
-                // Keep existing typeId, etc.
               };
               oldList[existingIndex] = updated;
-
               console.log('[processSnippetText] updated existing =>', updated);
             } else {
-              // 2.2) Skip if no matching structure found
-              console.log('[processSnippetText] skipping 3-line snippet => no existing match for', snippetItem.name);
+              // skip if no match
+              console.log('[processSnippetText] no existing match for =>', snippetItem.name);
             }
             continue;
           }
         }
-
         const line = lines[i];
         i += 1;
         const newItem = parseFormatOneLine(line);
         if (newItem) {
-          // Enforce uniqueness by (typeId, name):
+          // enforce uniqueness by (typeId, name)
           const duplicate = oldList.some(s => s.typeId === newItem.typeId && s.name.trim() === newItem.name.trim());
-          if (duplicate) {
-            console.log('[processSnippetText] Skipping duplicate =>', newItem);
-          } else {
+          if (!duplicate) {
             singleLineNewItems.push(newItem);
           }
         }
       }
 
       const merged = [...oldList, ...singleLineNewItems];
-      console.log('[processSnippetText] final merged =>', merged);
+      console.log('[processSnippetText] final =>', merged);
       handleUpdateStructures(merged);
     },
     [structures, handleUpdateStructures],
@@ -206,7 +210,8 @@ export const SystemStructures = () => {
   }, [processSnippetText]);
 
   return (
-    <div tabIndex={0} onPaste={handlePaste} style={{ outline: 'none' }}>
+    // We want the entire container to fill the area => "h-full flex flex-col"
+    <div tabIndex={0} onPaste={handlePaste} className="h-full flex flex-col" style={{ outline: 'none' }}>
       <Widget
         label={
           <div className="flex justify-between items-center text-xs w-full h-full" ref={labelRef}>
@@ -236,28 +241,14 @@ export const SystemStructures = () => {
                   content: (
                     <div className="flex flex-col gap-1">
                       <InfoDrawer title={<b className="text-slate-50">How to add/update structures?</b>}>
-                        In game you need select one or more strucutres <br /> in list in{' '}
-                        <b className="text-sky-500">Directional Scanner</b>. <br /> Use next hotkeys:
-                        <br />
-                        <b className="text-sky-500">Shift + LMB</b> or <b className="text-sky-500">Ctrl + LMB</b>
-                        <br /> or <b className="text-sky-500">Ctrl + A</b> for select all
-                        <br />
-                        and then use <b className="text-sky-500">Ctrl + C</b>, after you need to go <br />
-                        here select Solar system then select the structure widget{' '}
-                        <b className="text-sky-500">Ctrl + V</b>
+                        In game, select one or more structures in D-Scan and press Ctrl+C, then click on this widget and
+                        press Ctrl+V
                       </InfoDrawer>
                       <InfoDrawer title={<b className="text-slate-50">How to select?</b>}>
-                        For select any structure you need click to click on it, <br /> with hotkeys{' '}
-                        <b className="text-sky-500">Shift + LMB</b> or <b className="text-sky-500">Ctrl + LMB</b>
+                        Shift-click or Ctrl-click in table to select multiple
                       </InfoDrawer>
                       <InfoDrawer title={<b className="text-slate-50">How to add a timer?</b>}>
-                        Click on a structure that has a timer within the game <br />
-                        right click the selected item window in game and select copy, then click the blue add timer
-                        button to the left
-                      </InfoDrawer>
-                      <InfoDrawer title={<b className="text-slate-50">How to delete?</b>}>
-                        To delete any signature first of all you need select it
-                        <br /> and then use <b className="text-sky-500">Delete</b>
+                        In game, select a structure with an active timer, right click to copy
                       </InfoDrawer>
                     </div>
                   ) as React.ReactNode,
@@ -267,8 +258,9 @@ export const SystemStructures = () => {
           </div>
         }
       >
+        {/* If no system is selected, show placeholder */}
         {isNotSelectedSystem ? (
-          <div className="w-full h-full flex justify-center items-center select-none text-center text-stone-400/80 text-sm">
+          <div className="flex-1 flex justify-center items-center select-none text-center text-stone-400/80 text-sm">
             System is not selected
           </div>
         ) : (

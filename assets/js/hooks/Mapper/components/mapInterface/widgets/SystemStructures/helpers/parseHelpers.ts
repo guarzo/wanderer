@@ -52,8 +52,25 @@ export function parseThreeLineSnippet(lines: string[]): StructureItem {
     }
   }
   if (match?.groups?.dateTime) {
-    const dt = match.groups.dateTime.trim().replace(/\./g, '-');
-    const iso = dt.replace(' ', 'T') + 'Z';
+    // e.g. "2025.01.13 18:51" => after your replace => "2025-01-13 18:51"
+    let dt = match.groups.dateTime.trim().replace(/\./g, '-'); // => "2025-01-13 18:51"
+
+    // If dt has no seconds, we add ":00"
+    // e.g. "2025-01-13T18:51" => "2025-01-13T18:51:00"
+    // or "2025-01-13 18:51" => "2025-01-13 18:51:00"
+    if (!dt.match(/:\d{2}:/)) {
+      // means we have only HH:MM, so add :00
+      dt = dt.replace(/(\d{2})$/, '$1:00');
+      // e.g. "2025-01-13 18:51" => "2025-01-13 18:51:00"
+    }
+
+    // Now convert space to "T" if present
+    // "2025-01-13 18:51:00" => "2025-01-13T18:51:00"
+    dt = dt.replace(' ', 'T');
+
+    // Finally add a 'Z' (UTC)
+    // => "2025-01-13T18:51:00Z"
+    const iso = dt + 'Z';
     endTime = iso;
     console.log('[parseThreeLineSnippet] endTime =>', endTime);
   }

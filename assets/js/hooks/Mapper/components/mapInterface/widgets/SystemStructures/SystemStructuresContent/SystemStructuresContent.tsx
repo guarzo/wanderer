@@ -6,8 +6,9 @@ import clsx from 'clsx';
 
 import { StructuresEditDialog } from '../SystemStructuresDialog/SystemStructuresDialog';
 import { StructureItem, StructureStatus } from '../helpers/types';
-import classes from './SystemStructuresContent.module.scss';
 import { useHotkey } from '@/hooks/Mapper/hooks';
+
+import classes from './SystemStructuresContent.module.scss';
 
 const statusesRequiringTimer: StructureStatus[] = ['Anchoring', 'Reinforced'];
 
@@ -31,17 +32,16 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
     setShowEditDialog(true);
   };
 
+  // Press Delete => remove selected row from local array
   const handleDeleteSelected = useCallback(
     (e: KeyboardEvent) => {
       if (!selectedRow) {
         return;
       }
-
       e.preventDefault();
       e.stopPropagation();
 
       const newList = structures.filter(s => s.id !== selectedRow.id);
-
       onUpdateStructures(newList);
 
       setSelectedRow(null);
@@ -82,6 +82,7 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
     const sec = Math.floor(msLeft / 1000) % 60;
     const min = Math.floor(msLeft / (1000 * 60)) % 60;
     const hr = Math.floor(msLeft / (1000 * 3600));
+
     const pad = (n: number) => n.toString().padStart(2, '0');
     return (
       <span className="text-sky-400">
@@ -103,13 +104,17 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
     );
   }
 
+  // We'll let "visibleStructures" = structures, or do filtering if needed
   const visibleStructures = structures;
 
   return (
+    // Fill the available space => "flex flex-col h-full"
     <div className="flex flex-col gap-2 p-2 text-xs text-stone-200 h-full">
       {visibleStructures.length === 0 ? (
+        // Fill vertical space so the background is consistent
         <div className="flex-1 flex justify-center items-center text-stone-400/80 text-sm">No structures</div>
       ) : (
+        // Occupy the rest of the vertical space
         <div className="flex-1">
           <DataTable
             value={visibleStructures}

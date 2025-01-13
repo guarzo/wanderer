@@ -78,6 +78,15 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
 
   const handleSaveClick = async () => {
     if (!editData) return;
+    if (editData.endTime && editData.endTime.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)) {
+      editData.endTime = editData.endTime + ':00Z';
+      // => "2025-01-13T18:51:00Z"
+    } else if (editData.endTime && editData.endTime.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)) {
+      // If user typed HH:MM:SS but missing the 'Z', add it
+      if (!editData.endTime.endsWith('Z')) {
+        editData.endTime += 'Z';
+      }
+    }
     if (editData.ownerId) {
       try {
         const { ticker } = await outCommand({
@@ -90,7 +99,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
         editData.ownerTicker = '';
       }
     }
-    console.log(editData);
+    console.log('saving this data', editData);
     onSave(editData);
   };
 
@@ -173,7 +182,7 @@ export const StructuresEditDialog: React.FC<StructuresEditDialogProps> = ({
             <input
               type="datetime-local"
               className="p-inputtext p-component"
-              value={editData.endTime?.substring(0, 16) || ''}
+              value={editData.endTime ? editData.endTime.replace('Z', '').slice(0, 16) : ''}
               onChange={e => handleChange('endTime', e.target.value)}
             />
           </label>
