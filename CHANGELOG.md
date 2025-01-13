@@ -2,6 +2,25 @@
 
 <!-- changelog -->
 
+## [v1.40.0](https://github.com/wanderer-industries/wanderer/compare/v1.39.2...v1.40.0) (2025-01-13)
+
+
+
+
+### Features:
+
+* Map: Added option to show signature ID as system temporary name part
+
+### Bug Fixes:
+
+* Map: New windows systems
+
+* Fix connections remove timeouts
+
+* Map: Add new windows system and removed old
+
+* Map: First prototype of windows
+
 ## [v1.39.2](https://github.com/wanderer-industries/wanderer/compare/v1.39.1...v1.39.2) (2025-01-13)
 
 
