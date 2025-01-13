@@ -70,7 +70,6 @@ export function parseThreeLineSnippet(lines: string[]): StructureItem {
 
   // e.g. "Reinforced until 2025.01.13 23:27"
   const match = line3.match(/^(?<stat>\w+)\s+until\s+(?<dateTime>[\d.]+\s+[\d:]+)/i);
-  console.debug('[parseThreeLineSnippet] match =>', match);
 
   if (match?.groups?.stat) {
     const candidateStatus = match.groups.stat as StructureStatus;
@@ -82,7 +81,6 @@ export function parseThreeLineSnippet(lines: string[]): StructureItem {
     let dt = match.groups.dateTime.trim().replace(/\./g, '-'); // "2025-01-13 23:27"
     dt = dt.replace(' ', 'T'); // "2025-01-13T23:27"
     endTime = formatToISO(dt); // => "2025-01-13T23:27:00Z"
-    console.debug('[parseThreeLineSnippet] endTime =>', endTime);
   }
 
   return {

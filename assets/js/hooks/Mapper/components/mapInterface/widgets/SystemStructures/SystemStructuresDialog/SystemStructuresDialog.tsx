@@ -12,8 +12,8 @@ interface StructuresEditDialogProps {
   visible: boolean;
   structure?: StructureItem;
   onClose: () => void;
-  onSave: (updatedItem: StructureItem, caller: string) => void;
-  onDelete: (id: string, caller: string) => void;
+  onSave: (updatedItem: StructureItem) => void;
+  onDelete: (id: string) => void;
 }
 
 export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
@@ -125,12 +125,12 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
       }
     }
 
-    onSave(editData, 'handle - save click dialog');
+    onSave(editData);
   };
 
   const handleDeleteClick = () => {
     if (!editData) return;
-    onDelete(editData.id, 'handle - delete dialog');
+    onDelete(editData.id);
     onClose();
   };
 
