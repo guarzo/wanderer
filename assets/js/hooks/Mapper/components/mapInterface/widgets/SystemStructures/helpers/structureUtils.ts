@@ -27,14 +27,19 @@ export function getActualStructures(oldList: StructureItem[], newList: Structure
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function mapServerStructure(serverData: any) {
-  const { owner_id, owner_ticker, type_id, end_time, system_id, ...rest } = serverData;
+export function mapServerStructure(serverData: any): StructureItem {
+  console.debug(`server data: ${JSON.stringify(serverData)}`);
+  const { owner_id, owner_ticker, structure_type_id, structure_type, owner_name, end_time, system_id, ...rest } =
+    serverData;
+
   return {
     ...rest,
     ownerId: owner_id,
     ownerTicker: owner_ticker,
-    typeId: type_id,
-    endTime: end_time,
+    ownerName: owner_name,
+    structureType: structure_type,
+    structureTypeId: structure_type_id,
+    endTime: end_time ?? '',
     systemId: system_id,
   };
 }

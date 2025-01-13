@@ -12,7 +12,7 @@ import { renderOwnerCell, renderTypeCell, renderTimerCell } from '../renders/cel
 
 interface SystemStructuresContentProps {
   structures: StructureItem[];
-  onUpdateStructures: (newList: StructureItem[]) => void;
+  onUpdateStructures: (newList: StructureItem[], caller: string) => void;
 }
 
 export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = ({ structures, onUpdateStructures }) => {
@@ -30,6 +30,7 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
     setShowEditDialog(true);
   };
 
+  // Press Delete => remove selected row
   const handleDeleteSelected = useCallback(
     (e: KeyboardEvent) => {
       if (!selectedRow) return;
@@ -37,7 +38,7 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
       e.stopPropagation();
 
       const newList = structures.filter(s => s.id !== selectedRow.id);
-      onUpdateStructures(newList);
+      onUpdateStructures(newList, 'content - delete');
       setSelectedRow(null);
     },
     [selectedRow, structures, onUpdateStructures],
@@ -100,14 +101,14 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
           visible={showEditDialog}
           structure={editingItem}
           onClose={() => setShowEditDialog(false)}
-          onSave={(updatedItem: StructureItem) => {
+          onSave={(updatedItem: StructureItem, caller: string) => {
             const newList = structures.map(s => (s.id === updatedItem.id ? updatedItem : s));
-            onUpdateStructures(newList);
+            onUpdateStructures(newList, caller);
             setShowEditDialog(false);
           }}
-          onDelete={(deleteId: string) => {
+          onDelete={(deleteId: string, caller: string) => {
             const newList = structures.filter(s => s.id !== deleteId);
-            onUpdateStructures(newList);
+            onUpdateStructures(newList, caller);
             setShowEditDialog(false);
           }}
         />

@@ -12,8 +12,8 @@ interface StructuresEditDialogProps {
   visible: boolean;
   structure?: StructureItem;
   onClose: () => void;
-  onSave: (updatedItem: StructureItem) => void;
-  onDelete: (id: string) => void;
+  onSave: (updatedItem: StructureItem, caller: string) => void;
+  onDelete: (id: string, caller: string) => void;
 }
 
 export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
@@ -24,7 +24,7 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
   onDelete,
 }) => {
   const [editData, setEditData] = useState<StructureItem | null>(null);
-  const [owner, setOwner] = useState('');
+  const [ownerInput, setOwnerInput] = useState('');
   const [ownerSuggestions, setOwnerSuggestions] = useState<{ label: string; value: string }[]>([]);
 
   const { outCommand } = useMapRootState();
@@ -35,13 +35,14 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
   useEffect(() => {
     if (structure) {
       setEditData(structure);
-      setOwner(structure.owner ?? '');
+      setOwnerInput(structure.ownerName ?? '');
     } else {
       setEditData(null);
-      setOwner('');
+      setOwnerInput('');
     }
   }, [structure]);
 
+  // Searching corporation owners via auto-complete
   const searchOwners = useCallback(
     async (e: { query: string }) => {
       const newQuery = e.query.trim();
@@ -50,6 +51,7 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
         return;
       }
 
+      // If user typed more text but we have partial match in prevResults
       if (newQuery.startsWith(prevQuery) && prevResults.length > 0) {
         const filtered = prevResults.filter(item => item.label.toLowerCase().includes(newQuery.toLowerCase()));
         setOwnerSuggestions(filtered);
@@ -73,7 +75,8 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
   );
 
   const handleChange = (field: keyof StructureItem, val: string) => {
-    if (field === 'typeId' || field === 'type') return;
+    // If we want to forbid changing structureTypeId or structureType from the dialog, do so here:
+    if (field === 'structureTypeId' || field === 'structureType') return;
 
     setEditData(prev => {
       if (!prev) return null;
@@ -81,15 +84,17 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
     });
   };
 
+  // when user picks a corp from auto-complete
   const handleSelectOwner = (selected: { label: string; value: string }) => {
-    setOwner(selected.label);
-    setEditData(prev => (prev ? { ...prev, owner: selected.label, ownerId: selected.value } : null));
+    setOwnerInput(selected.label);
+    setEditData(prev => (prev ? { ...prev, ownerName: selected.label, ownerId: selected.value } : null));
   };
 
   const handleStatusChange = (val: string) => {
     setEditData(prev => {
       if (!prev) return null;
       const newStatus = val as StructureStatus;
+      // If new status doesn't require a timer, we clear out endTime
       const newEndTime = statusesRequiringTimer.includes(newStatus) ? prev.endTime : '';
       return { ...prev, status: newStatus, endTime: newEndTime };
     });
@@ -98,12 +103,15 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
   const handleSaveClick = async () => {
     if (!editData) return;
 
+    // If status doesn't require a timer, clear endTime
     if (!statusesRequiringTimer.includes(editData.status)) {
       editData.endTime = '';
     } else if (editData.endTime) {
+      // convert to full ISO
       editData.endTime = formatToISO(editData.endTime);
     }
 
+    // fetch corporation ticker if we have an ownerId
     if (editData.ownerId) {
       try {
         const { ticker } = await outCommand({
@@ -117,12 +125,12 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
       }
     }
 
-    onSave(editData);
+    onSave(editData, 'handle - save click dialog');
   };
 
   const handleDeleteClick = () => {
     if (!editData) return;
-    onDelete(editData.id);
+    onDelete(editData.id, 'handle - delete dialog');
     onClose();
   };
 
@@ -136,13 +144,10 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
       className={clsx('myStructuresDialog', 'text-stone-200 w-full max-w-md')}
     >
       <div className="flex flex-col gap-2 text-[14px]">
-        {/* TYPE */}
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Type:</span>
-          <input readOnly className="p-inputtext p-component cursor-not-allowed" value={editData.type ?? ''} />
+          <input readOnly className="p-inputtext p-component cursor-not-allowed" value={editData.structureType ?? ''} />
         </label>
-
-        {/* NAME */}
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Name:</span>
           <input
@@ -151,23 +156,21 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
             onChange={e => handleChange('name', e.target.value)}
           />
         </label>
-
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Owner:</span>
           <AutoComplete
             id="owner"
-            value={owner}
+            value={ownerInput}
             suggestions={ownerSuggestions}
             completeMethod={searchOwners}
             minLength={3}
             delay={400}
             field="label"
             placeholder="Corporation name..."
-            onChange={e => setOwner(e.value)}
+            onChange={e => setOwnerInput(e.value)}
             onSelect={e => handleSelectOwner(e.value)}
           />
         </label>
-
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
           <span>Status:</span>
           <select
@@ -183,7 +186,6 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
             <option value="Reinforced">Reinforced</option>
           </select>
         </label>
-
         {statusesRequiringTimer.includes(editData.status) && (
           <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
             <span>End Time:</span>
@@ -195,7 +197,6 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
             />
           </label>
         )}
-
         <label className="grid grid-cols-[100px_1fr] gap-2 items-start mt-2">
           <span className="mt-1">Notes:</span>
           <textarea

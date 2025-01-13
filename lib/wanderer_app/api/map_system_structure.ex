@@ -1,6 +1,9 @@
-defmodule WandererApp.Api.MapSystemStructures do
-  @moduledoc false
-  
+defmodule WandererApp.Api.MapSystemStructure do
+  @moduledoc """
+  Ash resource representing a structure in a given map system.
+
+  """
+
   use Ash.Resource,
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer
@@ -14,7 +17,6 @@ defmodule WandererApp.Api.MapSystemStructures do
     define(:all_active, action: :all_active)
     define(:create, action: :create)
     define(:update, action: :update)
-    define(:update_type, action: :update_type)
 
     define(:by_id,
       get_by: [:id],
@@ -32,12 +34,12 @@ defmodule WandererApp.Api.MapSystemStructures do
       :system_id,
       :solar_system_name,
       :solar_system_id,
-      :type_id,
+      :structure_type_id,
+      :structure_type,
       :character_eve_id,
       :name,
-      :type,
-      :owner,
       :notes,
+      :owner_name,
       :owner_ticker,
       :owner_id,
       :status,
@@ -55,7 +57,6 @@ defmodule WandererApp.Api.MapSystemStructures do
       filter(expr(system_id == ^arg(:system_id)))
     end
 
-
     create :create do
       primary? true
 
@@ -63,13 +64,12 @@ defmodule WandererApp.Api.MapSystemStructures do
         :system_id,
         :solar_system_name,
         :solar_system_id,
-        :type_id,
+        :structure_type_id,
+        :structure_type,
         :character_eve_id,
         :name,
-        :type,
-        :updated,
         :notes,
-        :owner,
+        :owner_name,
         :owner_ticker,
         :owner_id,
         :status,
@@ -82,6 +82,7 @@ defmodule WandererApp.Api.MapSystemStructures do
         on_lookup: :relate,
         on_no_match: nil
       )
+
     end
 
     update :update do
@@ -92,29 +93,30 @@ defmodule WandererApp.Api.MapSystemStructures do
         :system_id,
         :solar_system_name,
         :solar_system_id,
-        :type_id,
+        :structure_type_id,
+        :structure_type,
         :character_eve_id,
         :name,
-        :type,
-        :updated,
         :notes,
-        :owner,
+        :owner_name,
         :owner_ticker,
         :owner_id,
         :status,
         :end_time
       ]
+
     end
 
-    update :update_type do
-      accept [:type]
-    end
   end
 
   attributes do
     uuid_primary_key :id
 
-    attribute :type_id, :string do
+    attribute :structure_type_id, :string do
+      allow_nil? false
+    end
+
+    attribute :structure_type, :string do
       allow_nil? false
     end
 
@@ -131,18 +133,14 @@ defmodule WandererApp.Api.MapSystemStructures do
     end
 
     attribute :name, :string do
-      allow_nil? true
+      allow_nil? false
     end
 
     attribute :notes, :string do
       allow_nil? true
     end
 
-    attribute :type, :string
-
-    attribute :updated, :integer
-
-    attribute :owner, :string do
+    attribute :owner_name, :string do
       allow_nil? true
     end
 

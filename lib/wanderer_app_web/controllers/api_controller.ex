@@ -9,10 +9,9 @@ defmodule WandererAppWeb.APIController do
   alias WandererApp.Api.Character
   alias WandererApp.CachedInfo
 
-
-# -----------------------------------------------------------------
-# Common
-# -----------------------------------------------------------------
+  # -----------------------------------------------------------------
+  # Common
+  # -----------------------------------------------------------------
 
   @doc """
   GET /api/system-static-info
@@ -20,7 +19,6 @@ defmodule WandererAppWeb.APIController do
   Requires 'id' (the solar_system_id)
 
   Example:
-      GET /api/common/system_static?id=31002229
       GET /api/common/system_static?id=31002229
   """
   def show_system_static(conn, params) do
@@ -44,51 +42,46 @@ defmodule WandererAppWeb.APIController do
     end
   end
 
-# -----------------------------------------------------------------
-# Map
-# -----------------------------------------------------------------
 
-@doc """
-GET /api/map/systems
+  @doc """
+  GET /api/map/systems
 
-Requires either `?map_id=<UUID>` **OR** `?slug=<map-slug>` in the query params.
+  Requires either `?map_id=<UUID>` **OR** `?slug=<map-slug>` in the query params.
 
-If `?all=true` is provided, **all** systems are returned.
-Otherwise, only "visible" systems are returned.
+  If `?all=true` is provided, **all** systems are returned.
+  Otherwise, only "visible" systems are returned.
 
-Examples:
-    GET /api/map/systems?map_id=466e922b-e758-485e-9b86-afae06b88363
-    GET /api/map/systems?slug=my-unique-wormhole-map
-    GET /api/map/systems?map_id=<UUID>&all=true
-"""
-def list_systems(conn, params) do
-  with {:ok, map_id} <- fetch_map_id(params) do
-    # Decide which function to call based on the "all" param
-    repo_fun =
-      if params["all"] == "true" do
-        &MapSystemRepo.get_all_by_map/1
-      else
-        &MapSystemRepo.get_visible_by_map/1
+  Examples:
+      GET /api/map/systems?map_id=466e922b-e758-485e-9b86-afae06b88363
+      GET /api/map/systems?slug=my-unique-wormhole-map
+      GET /api/map/systems?map_id=<UUID>&all=true
+  """
+  def list_systems(conn, params) do
+    with {:ok, map_id} <- fetch_map_id(params) do
+      repo_fun =
+        if params["all"] == "true" do
+          &MapSystemRepo.get_all_by_map/1
+        else
+          &MapSystemRepo.get_visible_by_map/1
+        end
+
+      case repo_fun.(map_id) do
+        {:ok, systems} ->
+          data = Enum.map(systems, &map_system_to_json/1)
+          json(conn, %{data: data})
+
+        {:error, reason} ->
+          conn
+          |> put_status(:not_found)
+          |> json(%{error: "Could not fetch systems for map_id=#{map_id}: #{inspect(reason)}"})
       end
-
-    case repo_fun.(map_id) do
-      {:ok, systems} ->
-        data = Enum.map(systems, &map_system_to_json/1)
-        json(conn, %{data: data})
-
-      {:error, reason} ->
+    else
+      {:error, msg} ->
         conn
-        |> put_status(:not_found)
-        |> json(%{error: "Could not fetch systems for map_id=#{map_id}: #{inspect(reason)}"})
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
     end
-  else
-    {:error, msg} ->
-      conn
-      |> put_status(:bad_request)
-      |> json(%{error: msg})
   end
-end
-
 
   @doc """
   GET /api/map/system
@@ -122,8 +115,6 @@ end
     end
   end
 
-
-
   @doc """
   GET /api/map/tracked_characters_with_info
 
@@ -138,7 +129,6 @@ end
          {:ok, settings_list} <- get_tracked_by_map_ids(map_id),
          {:ok, char_list} <-
            read_characters_by_ids_wrapper(Enum.map(settings_list, & &1.character_id)) do
-
       chars_by_id = Map.new(char_list, &{&1.id, &1})
 
       data =
@@ -242,8 +232,7 @@ end
   end
 
   defp get_timers_for_system(map_system) do
-    # This call retrieves structures based on map_system.id
-    structures = WandererApp.Api.MapSystemStructures.by_system_id!(map_system.id)
+    structures = WandererApp.Api.MapSystemStructure.by_system_id!(map_system.id)
 
     structures
     |> Enum.filter(&timer_needed?/1)
@@ -257,14 +246,12 @@ end
       :system_id,
       :solar_system_name,
       :solar_system_id,
-      :type_id,
+      :structure_type_id,
+      :structure_type,
       :character_eve_id,
       :name,
-      :description,
-      :kind,
-      :group,
-      :type,
-      :owner,
+      :notes,
+      :owner_name,
       :owner_ticker,
       :owner_id,
       :status,
@@ -306,7 +293,8 @@ end
     end
   end
 
-  defp fetch_map_id(_), do: {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"}
+  defp fetch_map_id(_),
+    do: {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"}
 
   defp require_param(params, key) do
     case params[key] do
@@ -372,7 +360,6 @@ end
     ])
   end
 
-
   defp static_system_to_json(system) do
     system
     |> Map.take([
@@ -396,5 +383,4 @@ end
       :sun_type_id
     ])
   end
-
 end

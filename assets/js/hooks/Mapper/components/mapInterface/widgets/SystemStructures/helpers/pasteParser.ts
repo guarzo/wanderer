@@ -1,49 +1,56 @@
 import { StructureItem } from './structureTypes';
 import { parseThreeLineSnippet, parseFormatOneLine, matchesThreeLineSnippet } from './parserHelper';
 
-export function processSnippetText(text: string, existingStructures: StructureItem[]): StructureItem[] {
-  if (!text) return existingStructures.slice();
+export function processSnippetText(rawText: string, existingStructures: StructureItem[]): StructureItem[] {
+  if (!rawText) {
+    return existingStructures.slice();
+  }
 
-  const lines = text
+  const lines = rawText
     .split(/\r?\n/)
-    .map(l => l.trim())
+    .map(line => line.trim())
     .filter(Boolean);
 
+  if (lines.length === 3 && matchesThreeLineSnippet(lines)) {
+    return applyThreeLineSnippet(lines, existingStructures);
+  } else {
+    return applySingleLineParse(lines, existingStructures);
+  }
+}
+
+function applyThreeLineSnippet(snippetLines: string[], existingStructures: StructureItem[]): StructureItem[] {
   const updatedList = [...existingStructures];
-  const singleLineNewItems: StructureItem[] = [];
+  const snippetItem = parseThreeLineSnippet(snippetLines);
 
-  let i = 0;
-  while (i < lines.length) {
-    if (i <= lines.length - 3) {
-      const snippetLines = lines.slice(i, i + 3);
-      if (matchesThreeLineSnippet(snippetLines)) {
-        const snippetItem = parseThreeLineSnippet(snippetLines);
+  const existingIndex = updatedList.findIndex(s => s.name.trim() === snippetItem.name.trim());
 
-        const existingIndex = updatedList.findIndex(s => s.name.trim() === snippetItem.name.trim());
-        if (existingIndex !== -1) {
-          const existing = { ...updatedList[existingIndex] };
-          updatedList[existingIndex] = {
-            ...existing,
-            status: snippetItem.status,
-            endTime: snippetItem.endTime,
-            notes: snippetItem.notes ?? existing.notes,
-          };
-        }
-        i += 3;
-        continue;
-      }
-    }
+  if (existingIndex !== -1) {
+    const existing = updatedList[existingIndex];
+    updatedList[existingIndex] = {
+      ...existing,
+      status: snippetItem.status,
+      endTime: snippetItem.endTime,
+    };
+  }
 
-    const line = lines[i];
-    i += 1;
-    const newItem = parseFormatOneLine(line);
-    if (newItem) {
-      const duplicate = updatedList.some(s => s.typeId === newItem.typeId && s.name.trim() === newItem.name.trim());
-      if (!duplicate) {
-        singleLineNewItems.push(newItem);
-      }
+  return updatedList;
+}
+
+function applySingleLineParse(lines: string[], existingStructures: StructureItem[]): StructureItem[] {
+  const updatedList = [...existingStructures];
+  const newItems: StructureItem[] = [];
+
+  for (const line of lines) {
+    const item = parseFormatOneLine(line);
+    if (!item) continue;
+
+    const isDuplicate = updatedList.some(
+      s => s.structureTypeId === item.structureTypeId && s.name.trim() === item.name.trim(),
+    );
+    if (!isDuplicate) {
+      newItems.push(item);
     }
   }
 
-  return [...updatedList, ...singleLineNewItems];
+  return [...updatedList, ...newItems];
 }

@@ -15,7 +15,7 @@ export function renderOwnerCell(row: StructureItem) {
           className="w-5 h-5 object-contain"
         />
       )}
-      <span>{row.ownerTicker || row.owner}</span>
+      <span>{row.ownerTicker || row.ownerName}</span>
     </div>
   );
 }
@@ -23,8 +23,14 @@ export function renderOwnerCell(row: StructureItem) {
 export function renderTypeCell(row: StructureItem) {
   return (
     <div className="flex items-center gap-1">
-      <img src={`https://images.evetech.net/types/${row.typeId}/icon`} alt="icon" className="w-5 h-5 object-contain" />
-      <span>{row.type ?? ''}</span>
+      {row.structureTypeId && (
+        <img
+          src={`https://images.evetech.net/types/${row.structureTypeId}/icon`}
+          alt="icon"
+          className="w-5 h-5 object-contain"
+        />
+      )}
+      <span>{row.structureType ?? ''}</span>
     </div>
   );
 }

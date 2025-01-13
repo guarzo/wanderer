@@ -5,7 +5,7 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
 
   alias WandererAppWeb.MapEventHandler
   alias WandererApp.Api.MapSystem
-  alias WandererApp.StructuresService
+  alias WandererApp.Structure
 
   def handle_ui_event("get_structures", %{"system_id" => solar_system_id}, %{assigns: %{map_id: map_id}} = socket) do
     case MapSystem.read_by_map_and_solar_system(%{
@@ -43,7 +43,7 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
           inspect(system, pretty: true)
       end)
 
-      StructuresService.update_structures(
+      Structure.update_structures(
         system,
         added_structures,
         updated_structures,
@@ -68,7 +68,7 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
   def handle_ui_event("get_corporation_names", %{"search" => search}, %{assigns: %{current_user: current_user}} = socket) do
     user_chars = current_user.characters
 
-    case WandererApp.StructuresService.search_corporation_names(user_chars, search) do
+    case Structure.search_corporation_names(user_chars, search) do
       {:ok, results} ->
         {:reply, %{results: results}, socket}
 
@@ -80,7 +80,6 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
         {:reply, %{results: []}, socket}
     end
   end
-
 
   def handle_ui_event("get_corporation_ticker", %{"corp_id" => corp_id}, socket) do
     case WandererApp.Esi.get_corporation_info(corp_id) do
@@ -120,7 +119,7 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
 
   def get_system_structures(system_id) do
     results =
-      WandererApp.Api.MapSystemStructures.by_system_id!(system_id)
+      WandererApp.Api.MapSystemStructure.by_system_id!(system_id)
       |> Enum.map(fn record ->
         record
         |> Map.take([
@@ -128,18 +127,18 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
           :system_id,
           :solar_system_id,
           :solar_system_name,
-          :type_id,
+          :structure_type_id,
           :character_eve_id,
           :name,
           :notes,
-          :owner,
+          :owner_name,
           :owner_ticker,
           :owner_id,
           :status,
           :end_time,
           :inserted_at,
           :updated_at,
-          :type
+          :structure_type
         ])
         |> Map.update!(:inserted_at, &Calendar.strftime(&1, "%Y/%m/%d %H:%M:%S"))
         |> Map.update!(:updated_at, &Calendar.strftime(&1, "%Y/%m/%d %H:%M:%S"))

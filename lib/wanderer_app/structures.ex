@@ -1,10 +1,11 @@
-defmodule WandererApp.StructuresService do
+defmodule WandererApp.Structure do
   @moduledoc """
   Encapsulates the logic for parsing and updating system structures.
   """
 
   require Logger
-  alias WandererApp.Api.MapSystemStructures
+  alias WandererApp.Api.MapSystemStructure
+  alias WandererApp.Character
 
   def update_structures(system, added, updated, removed, user_characters) do
     first_char_eve_id = List.first(user_characters)
@@ -33,50 +34,67 @@ defmodule WandererApp.StructuresService do
 
   defp parse_structures(list_of_maps, character_eve_id, system) do
     Logger.debug(fn ->
-      "[StructuresService] parse_structures sees =>\n" <> inspect(list_of_maps, pretty: true)
+      "[Structure] parse_structures =>\n" <> inspect(list_of_maps, pretty: true)
     end)
 
     Enum.map(list_of_maps, fn item ->
       %{
         id: Map.get(item, "id"),
+
         system_id: system.id,
         solar_system_id: system.solar_system_id,
         solar_system_name: system.name,
-        type_id: Map.get(item, "typeId") || "???",
+
+        structure_type_id: Map.get(item, "structureTypeId") || "???",
+        structure_type: Map.get(item, "structureType"),
         character_eve_id: character_eve_id,
         name: Map.get(item, "name"),
         notes: Map.get(item, "notes"),
-        type: Map.get(item, "type"),
-        owner: Map.get(item, "owner"),
+        owner_name: Map.get(item, "ownerName"),
         owner_ticker: Map.get(item, "ownerTicker"),
         owner_id: Map.get(item, "ownerId"),
         status: Map.get(item, "status"),
+
         end_time: parse_end_time(Map.get(item, "endTime"))
       }
     end)
   end
 
   defp parse_end_time(str) when is_binary(str) do
-    case DateTime.from_iso8601(str) do
-      {:ok, dt, _offset} ->
-        dt
+    # Log everything we can about the incoming string
+    Logger.debug("[parse_end_time] raw input => #{inspect(str)} (length=#{String.length(str)})")
 
-      {:error, reason} ->
-        Logger.error("Error parsing ISO-8601 string: #{str}, reason: #{inspect(reason)}")
-        nil
+    if String.trim(str) == "" do
+      Logger.debug("[parse_end_time] It's empty (or whitespace only). Returning nil.")
+      nil
+    else
+      # Attempt to parse
+      case DateTime.from_iso8601(str) do
+        {:ok, dt, _offset} ->
+          Logger.debug("[parse_end_time] Successfully parsed => #{inspect(dt)}")
+          dt
+
+        {:error, reason} ->
+          Logger.error("[parse_end_time] Invalid ISO string: #{inspect(str)}, reason: #{inspect(reason)}")
+          nil
+      end
     end
   end
 
-  defp parse_end_time(_), do: nil
+  defp parse_end_time(other) do
+    Logger.error("[parse_end_time] Received non-string => #{inspect(other)}. Returning nil.")
+    nil
+  end
+
 
   defp remove_structures(system_id, removed_ids) do
-    MapSystemStructures.by_system_id!(system_id)
+    MapSystemStructure.by_system_id!(system_id)
     |> Enum.filter(fn s -> s.id in removed_ids end)
     |> Enum.each(&Ash.destroy!/1)
   end
 
   defp update_structures_in_db(system_id, updated_structs, updated_ids) do
-    existing_records = MapSystemStructures.by_system_id!(system_id)
+    existing_records = MapSystemStructure.by_system_id!(system_id)
 
     Enum.each(existing_records, fn existing ->
       if existing.id in updated_ids do
@@ -84,15 +102,15 @@ defmodule WandererApp.StructuresService do
 
         if updated_data do
           Logger.debug(fn ->
-            "[StructuresService] about to update =>\n" <>
+            "[Structure] about to update =>\n" <>
               inspect(updated_data, pretty: true)
           end)
 
-          updated_data = Map.delete(updated_data, :id)
+          updated_data = Map.delete(updated_data, :id)  # remove PK so Ash doesn't treat it as a new record
 
-          new_record = MapSystemStructures.update(existing, updated_data)
+          new_record = MapSystemStructure.update(existing, updated_data)
           Logger.debug(fn ->
-            "[StructuresService] updated record =>\n" <> inspect(new_record, pretty: true)
+            "[Structure] updated record =>\n" <> inspect(new_record, pretty: true)
           end)
         end
       end
@@ -102,10 +120,10 @@ defmodule WandererApp.StructuresService do
   defp add_structures(added_structs) do
     Enum.each(added_structs, fn struct_map ->
       Logger.debug(fn ->
-        "[StructuresService] Creating structure =>\n" <>
-          inspect(struct_map, pretty: true)
+        "[Structure] Creating structure =>\n" <> inspect(struct_map, pretty: true)
       end)
-      MapSystemStructures.create!(struct_map)
+
+      MapSystemStructure.create!(struct_map)
     end)
   end
 end

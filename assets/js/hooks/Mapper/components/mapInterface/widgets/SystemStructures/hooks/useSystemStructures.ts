@@ -41,19 +41,18 @@ export function useSystemStructures({ systemId, outCommand }: UseSystemStructure
     fetchStructures();
   }, [fetchStructures]);
 
-  function sanitizeEndTimers(item: StructureItem) {
+  const sanitizeEndTimers = useCallback((item: StructureItem) => {
     if (!statusesRequiringTimer.includes(item.status)) {
       item.endTime = '';
     }
-
     return item;
-  }
+  }, []);
 
-  function sanitizeIds(item: StructureItem) {
+  const sanitizeIds = useCallback((item: StructureItem) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { id, ...rest } = item;
     return rest;
-  }
+  }, []);
 
   const handleUpdateStructures = useCallback(
     async (newList: StructureItem[]) => {
@@ -81,7 +80,7 @@ export function useSystemStructures({ systemId, outCommand }: UseSystemStructure
         console.error('Failed to update structures:', err);
       }
     },
-    [structures, systemId, outCommand],
+    [structures, systemId, outCommand, sanitizeIds, sanitizeEndTimers],
   );
 
   return { structures, handleUpdateStructures, isLoading, error };
