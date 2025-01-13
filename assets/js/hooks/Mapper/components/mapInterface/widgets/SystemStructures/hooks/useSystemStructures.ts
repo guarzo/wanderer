@@ -56,8 +56,6 @@ export function useSystemStructures({ systemId, outCommand }: UseSystemStructure
 
   const handleUpdateStructures = useCallback(
     async (newList: StructureItem[]) => {
-      console.debug('[useSystemStructures] handleUpdateStructures =>', newList);
-
       const { added, updated, removed } = getActualStructures(structures, newList);
 
       const sanitizedAdded = added.map(sanitizeIds);

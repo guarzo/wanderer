@@ -13,7 +13,7 @@ import { Widget } from '@/hooks/Mapper/components/mapInterface/components';
 
 import { SystemStructuresContent } from './SystemStructuresContent/SystemStructuresContent';
 import { useSystemStructures } from './hooks/useSystemStructures';
-import { processSnippetText, StructureItem } from './helpers';
+import { processSnippetText } from './helpers';
 
 export const SystemStructures: React.FC = () => {
   const {
@@ -28,14 +28,8 @@ export const SystemStructures: React.FC = () => {
   const labelRef = useRef<HTMLDivElement>(null);
   const isCompact = useMaxWidth(labelRef, 260);
 
-  function debugUpdateStructures(newList: StructureItem[], caller: string) {
-    console.debug(`[handleUpdateStructures from: ${caller}] =>`, newList);
-    handleUpdateStructures(newList);
-  }
-
   const processClipboard = useCallback(
     (text: string) => {
-      console.debug('[SystemStructures] processClipboard =>', text);
       const updated = processSnippetText(text, structures);
       handleUpdateStructures(updated);
     },
@@ -111,7 +105,7 @@ export const SystemStructures: React.FC = () => {
             System is not selected
           </div>
         ) : (
-          <SystemStructuresContent structures={structures} onUpdateStructures={debugUpdateStructures} />
+          <SystemStructuresContent structures={structures} onUpdateStructures={handleUpdateStructures} />
         )}
       </Widget>
     </div>

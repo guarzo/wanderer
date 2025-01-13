@@ -12,7 +12,7 @@ import { renderOwnerCell, renderTypeCell, renderTimerCell } from '../renders/cel
 
 interface SystemStructuresContentProps {
   structures: StructureItem[];
-  onUpdateStructures: (newList: StructureItem[], caller: string) => void;
+  onUpdateStructures: (newList: StructureItem[]) => void;
 }
 
 export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = ({ structures, onUpdateStructures }) => {
@@ -38,7 +38,7 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
       e.stopPropagation();
 
       const newList = structures.filter(s => s.id !== selectedRow.id);
-      onUpdateStructures(newList, 'content - delete');
+      onUpdateStructures(newList);
       setSelectedRow(null);
     },
     [selectedRow, structures, onUpdateStructures],
@@ -101,14 +101,14 @@ export const SystemStructuresContent: React.FC<SystemStructuresContentProps> = (
           visible={showEditDialog}
           structure={editingItem}
           onClose={() => setShowEditDialog(false)}
-          onSave={(updatedItem: StructureItem, caller: string) => {
+          onSave={(updatedItem: StructureItem) => {
             const newList = structures.map(s => (s.id === updatedItem.id ? updatedItem : s));
-            onUpdateStructures(newList, caller);
+            onUpdateStructures(newList);
             setShowEditDialog(false);
           }}
-          onDelete={(deleteId: string, caller: string) => {
+          onDelete={(deleteId: string) => {
             const newList = structures.filter(s => s.id !== deleteId);
-            onUpdateStructures(newList, caller);
+            onUpdateStructures(newList);
             setShowEditDialog(false);
           }}
         />
