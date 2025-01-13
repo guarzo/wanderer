@@ -31,6 +31,7 @@ const INITIAL_DATA: MapRootData = {
   options: {},
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export enum InterfaceStoredSettingsProps {
   isShowMenu = 'isShowMenu',
   isShowMinimap = 'isShowMinimap',
@@ -53,6 +54,7 @@ export type InterfaceStoredSettings = {
   theme: string;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
   isShowMenu: false,
   isShowMinimap: true,
@@ -64,6 +66,7 @@ export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
   theme: 'default',
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const STORED_VISIBLE_WIDGETS_DEFAULT = [
   WidgetsIds.info,
   WidgetsIds.local,
@@ -152,6 +155,7 @@ export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProvide
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useMapRootState = () => {
   const context = useContext<MapRootContextProps>(MapRootContext);
   return context;
