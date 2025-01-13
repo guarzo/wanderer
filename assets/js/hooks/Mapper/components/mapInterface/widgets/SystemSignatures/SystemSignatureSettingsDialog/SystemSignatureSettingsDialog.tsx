@@ -4,6 +4,8 @@ import { Button } from 'primereact/button';
 import { TabPanel, TabView } from 'primereact/tabview';
 import styles from './SystemSignatureSettingsDialog.module.scss';
 import { PrettySwitchbox } from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/components';
+import { OutCommand } from '@/hooks/Mapper/types'; // your import
+
 
 export type Setting = { key: string; name: string; value: boolean; isFilter?: boolean };
 
