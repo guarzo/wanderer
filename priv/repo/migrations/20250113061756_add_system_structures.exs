@@ -48,4 +48,12 @@ defmodule WandererApp.Repo.Migrations.AddSystemStructures do
 
     drop table(:map_system_structures_v1)
   end
+
+  defp table_exists?(table_name) do
+    result = execute("SELECT to_regclass('#{table_name}')")
+      case result do
+        %Postgrex.Result{rows: [[nil]]} -> false
+        _ -> true
+      end
+  end
 end
