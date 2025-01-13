@@ -8,36 +8,38 @@ defmodule WandererApp.Repo.Migrations.AddSystemStructures do
   use Ecto.Migration
 
   def up do
-    create table(:map_system_structures_v1, primary_key: false, if_not_exists: true) do
-      add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
-      add :structure_type_id, :text, null: false
-      add :structure_type, :text, null: false
-      add :character_eve_id, :text, null: false
-      add :solar_system_name, :text, null: false
-      add :solar_system_id, :bigint, null: false
-      add :name, :text, null: false
-      add :notes, :text
-      add :owner_name, :text
-      add :owner_ticker, :text
-      add :owner_id, :text
-      add :status, :text
-      add :end_time, :utc_datetime_usec
+    unless table_exists?("map_system_structures_v1") do
+      create table(:map_system_structures_v1, primary_key: false, if_not_exists: true) do
+        add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
+        add :structure_type_id, :text, null: false
+        add :structure_type, :text, null: false
+        add :character_eve_id, :text, null: false
+        add :solar_system_name, :text, null: false
+        add :solar_system_id, :bigint, null: false
+        add :name, :text, null: false
+        add :notes, :text
+        add :owner_name, :text
+        add :owner_ticker, :text
+        add :owner_id, :text
+        add :status, :text
+        add :end_time, :utc_datetime_usec
 
-      add :inserted_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
+        add :inserted_at, :utc_datetime_usec,
+          null: false,
+          default: fragment("(now() AT TIME ZONE 'utc')")
 
-      add :updated_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
+        add :updated_at, :utc_datetime_usec,
+          null: false,
+          default: fragment("(now() AT TIME ZONE 'utc')")
 
-      add :system_id,
-          references(:map_system_v1,
-            column: :id,
-            name: "map_system_structures_v1_system_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          )
+        add :system_id,
+            references(:map_system_v1,
+              column: :id,
+              name: "map_system_structures_v1_system_id_fkey",
+              type: :uuid,
+              prefix: "public"
+            )
+      end
     end
   end
 
