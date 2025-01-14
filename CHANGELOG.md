@@ -2,6 +2,19 @@
 
 <!-- changelog -->
 
+## [v1.41.0](https://github.com/wanderer-industries/wanderer/compare/v1.40.1...v1.41.0) (2025-01-14)
+
+
+
+
+### Features:
+
+* add structure widget with timer and associated api
+
+### Bug Fixes:
+
+* Map: Add style of corners for windows. Add ability to reset widgets. A lot of refactoring
+
 ## [v1.40.1](https://github.com/wanderer-industries/wanderer/compare/v1.40.0...v1.40.1) (2025-01-14)
 
 
