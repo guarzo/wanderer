@@ -23,7 +23,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
 
   const { systemName, customLabel, customName } = useZooNames(nodeVars);
-  const { tooltipLeft, tooltipTop, sortedCharacters } = useLocalCounter(props, nodeVars);
+  const { sortedCharacters } = useLocalCounter(nodeVars);
 
   return (
     <>
@@ -120,16 +120,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                   {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
                     <i className={PrimeIcons.MAP_MARKER} style={{ fontSize: '0.45rem', fontWeight: 'bold' }} />
                   )}
-
-                  {nodeVars.charactersInSystem.length > 0 && (
-                    <div
-                      className={clsx(classes.localCounter, {
-                        [classes.hasUserCharacters]: nodeVars.hasUserCharacters,
-                      })}
-                    >
-                      <span className="font-sans">{nodeVars.charactersInSystem.length}</span>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -223,8 +213,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
       <LocalCounter
         charactersInSystem={nodeVars.charactersInSystem}
         hasUserCharacters={nodeVars.hasUserCharacters}
-        tooltipLeft={tooltipLeft}
-        tooltipTop={tooltipTop}
         sortedCharacters={sortedCharacters}
         classes={classes}
       />

@@ -37,16 +37,10 @@ export function useZooNames(nodeVars: SolarSystemNodeVars) {
   }, [nodeVars]);
 }
 
-export function useLocalCounter(props: NodeProps<MapSolarSystemType>, nodeVars: SolarSystemNodeVars) {
-  const { xPos, yPos } = props;
-  const { x, y, zoom } = useReactFlow().getViewport();
-
-  const tooltipLeft = useMemo(() => xPos * zoom + x, [xPos, zoom, x]);
-  const tooltipTop = useMemo(() => yPos * zoom + y, [yPos, zoom, y]);
-
+export function useLocalCounter(nodeVars: SolarSystemNodeVars) {
   const sortedCharacters = useMemo(() => {
     return [...nodeVars.charactersInSystem].sort((a, b) => a.name.localeCompare(b.name));
   }, [nodeVars.charactersInSystem]);
 
-  return { tooltipLeft, tooltipTop, sortedCharacters };
+  return { sortedCharacters };
 }

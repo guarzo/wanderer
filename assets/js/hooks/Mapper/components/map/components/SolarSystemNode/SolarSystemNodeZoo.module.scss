@@ -76,6 +76,21 @@
     margin-left: 8px;
     white-space: nowrap;
   }
+
+  .arrow {
+    width: 8px;
+    height: 8px;
+  }
+  
+  /* Square rotated 45° to become a diamond */
+  .arrow::before {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.75);
+    transform: rotate(45deg);
+  }
 }
 
 .LocalCounterLayer {
