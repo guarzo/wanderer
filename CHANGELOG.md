@@ -2,6 +2,21 @@
 
 <!-- changelog -->
 
+## [v1.40.8](https://github.com/wanderer-industries/wanderer/compare/v1.40.7...v1.40.8) (2025-01-15)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fix follow mode
+
+* center system is not selected text for structures (#122)
+
+* Map: Fix system revert issues
+
+* Map: Fix issues with splashing signatures select & sig ID in temp names
+
 ## [v1.40.7](https://github.com/wanderer-industries/wanderer/compare/v1.40.6...v1.40.7) (2025-01-15)
 
 
