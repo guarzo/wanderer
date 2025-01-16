@@ -2,6 +2,29 @@
 
 <!-- changelog -->
 
+## [v1.43.0](https://github.com/wanderer-industries/wanderer/compare/v1.42.1...v1.43.0) (2025-01-16)
+
+
+
+
+### Features:
+
+* Audit: Add 'Signatures added/removed' map audit events
+
+* Audit: Add 'ACL added/removed' map audit events
+
+### Bug Fixes:
+
+* Map: Remove linked sig ID if system containing signature removed from map
+
+* Map: Fix follow mode
+
+* center system is not selected text for structures (#122)
+
+* Map: Fix system revert issues
+
+* Map: Fix issues with splashing signatures select & sig ID in temp names
+
 ## [v1.42.1](https://github.com/wanderer-industries/wanderer/compare/v1.42.0...v1.42.1) (2025-01-16)
 
 
