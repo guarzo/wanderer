@@ -1,16 +1,18 @@
 defmodule WandererApp.Zkb.KillsPreloader do
   @moduledoc """
-  Preloads kills from zKillboard for the last 24 hours, for all visible systems in all maps.
-  Leverages concurrency plus ExRated for rate-limiting,
-  and delegates actual request logic to KillsProvider.fetch_kills_for_system/3.
+  Preloads kills from zKillboard for the last 24 hours, for all visible systems in all maps,
+  with concurrency at the map level.
 
-  On completion, logs total calls_count and total elapsed time in ms.
+  Uses `fetch_kills_for_systems_with_state/3` so we can track calls_count
   """
 
   use GenServer
   require Logger
 
-  @default_max_concurrency 10
+  alias WandererApp.Zkb.KillsProvider.Fetcher
+
+
+  @default_max_concurrency 5
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -29,9 +31,10 @@ defmodule WandererApp.Zkb.KillsPreloader do
   def handle_info(:preload_kills, state) do
     start_time = System.monotonic_time()
     new_state = do_preload_all_maps(state)
-
     end_time = System.monotonic_time()
-    elapsed_ms = System.convert_time_unit(end_time - start_time, :native, :millisecond)
+
+    elapsed_ms =
+      System.convert_time_unit(end_time - start_time, :native, :millisecond)
 
     Logger.info("""
     [KillsPreloader] Finished kills preload => total calls=#{new_state.calls_count}, elapsed=#{elapsed_ms} ms
@@ -45,36 +48,19 @@ defmodule WandererApp.Zkb.KillsPreloader do
   defp do_preload_all_maps(state) do
     case WandererApp.Api.Map.available() do
       {:ok, maps} ->
-        Enum.reduce(maps, state, fn map, acc_state ->
-          Logger.debug("[KillsPreloader] Preloading kills for map=#{map.name} (id=#{map.id})")
+        maps
+        |> Task.async_stream(
+          fn map -> preload_map(map, state) end,
+          max_concurrency: state.max_concurrency,
+          timeout: :timer.minutes(5)
+        )
+        |> Enum.reduce(state, fn
+          {:ok, map_state}, acc_state ->
+            merge_calls_count(acc_state, map_state)
 
-          case WandererApp.MapSystemRepo.get_visible_by_map(map.id) do
-            {:ok, systems} ->
-              {final_acc_state, _results} =
-                systems
-                |> Task.async_stream(
-                  fn system ->
-                    preload_system(system.solar_system_id, acc_state)
-                  end,
-                  max_concurrency: acc_state.max_concurrency,
-                  timeout: :timer.minutes(5)
-                )
-                |> Enum.reduce({acc_state, 0}, fn
-                  {:ok, updated_state}, {acc_s, idx} ->
-                    merged_state = merge_calls_count(acc_s, updated_state)
-                    {merged_state, idx + 1}
-
-                  {:error, reason}, {acc_s, idx} ->
-                    Logger.error("[KillsPreloader] Task failed => #{inspect(reason)}")
-                    {acc_s, idx + 1}
-                end)
-
-              final_acc_state
-
-            {:error, reason} ->
-              Logger.error("[KillsPreloader] Could not get systems for map=#{map.id} => #{inspect(reason)}")
-              acc_state
-          end
+          {:error, reason}, acc_state ->
+            Logger.error("[KillsPreloader] Task failed => #{inspect(reason)}")
+            acc_state
         end)
 
       {:error, reason} ->
@@ -83,18 +69,32 @@ defmodule WandererApp.Zkb.KillsPreloader do
     end
   end
 
-  defp merge_calls_count(s1, s2) do
-    %{s1 | calls_count: s1.calls_count + s2.calls_count}
+  # Preload all visible systems for a given map, returning updated state.
+  defp preload_map(map, state) do
+    Logger.debug("[KillsPreloader] Preloading kills for map=#{map.name} (id=#{map.id})")
+
+    case WandererApp.MapSystemRepo.get_visible_by_map(map.id) do
+      {:ok, systems} ->
+        system_ids = Enum.map(systems, & &1.solar_system_id)
+
+        case Fetcher.fetch_kills_for_systems_with_state(system_ids, 24, state) do
+          {:ok, _kills_map, updated_state} ->
+            updated_state
+
+          {:error, reason, updated_state} ->
+            Logger.error("""
+            [KillsPreloader] fetch_kills_for_systems_with_state failed for map=#{map.id} => #{inspect(reason)}
+            """)
+            updated_state
+        end
+
+      {:error, reason} ->
+        Logger.error("[KillsPreloader] Could not get systems for map=#{map.id} => #{inspect(reason)}")
+        state
+    end
   end
 
-  defp preload_system(system_id, state) do
-    case WandererApp.Zkb.KillsProvider.fetch_kills_for_system(system_id, 24, state) do
-      {:ok, _kills, new_state} ->
-        new_state
-
-      {:error, reason, new_state} ->
-        Logger.warning("[Preloader] fetch_kills_for_system error => #{inspect(reason)}")
-        new_state
-    end
+  defp merge_calls_count(s1, s2) do
+    %{s1 | calls_count: s1.calls_count + s2.calls_count}
   end
 end

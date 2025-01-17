@@ -13,7 +13,7 @@ defmodule WandererApp.Zkb.KillsProvider.Fetcher do
   # ~2 calls/sec
   @exrated_bucket :zkb_preloader_provider
   @exrated_interval_ms 5_000
-  @exrated_max_requests 10
+  @exrated_max_requests 50
 
   # If we fetched this system within the last 15 min => skip
   @full_fetch_cache_expiry_ms 900_000
@@ -21,6 +21,45 @@ defmodule WandererApp.Zkb.KillsProvider.Fetcher do
   @page_size 200
 
   @zkillboard_api "https://zkillboard.com/api"
+
+  @doc """
+  Similar to `fetch_kills_for_systems/3`, but returns the updated state, too.
+  (Used by the Preloader so we can track calls_count, etc.)
+  """
+  def fetch_kills_for_systems_with_state(system_ids, since_hours, state) when is_list(system_ids) do
+    try do
+      # Start with the state's current calls_count (or anything else)
+      {final_map, final_state} =
+        Enum.reduce(system_ids, {%{}, state}, fn sid, {acc_map, acc_st} ->
+          case fetch_kills_for_system_with_state(sid, since_hours, acc_st) do
+            {:ok, kills, new_st} ->
+              {Map.put(acc_map, sid, kills), new_st}
+
+            {:error, reason, new_st} ->
+              {Map.put(acc_map, sid, {:error, reason}), new_st}
+          end
+        end)
+
+      {:ok, final_map, final_state}
+    rescue
+      e ->
+        {:error, e, state}
+    end
+  end
+
+  # A helper that calls fetch_kills_for_system
+  # but increments the calls_count in `state`.
+  defp fetch_kills_for_system_with_state(system_id, since_hours, state) do
+    {:ok, state1} = increment_calls_count(state)
+
+    case fetch_kills_for_system(system_id, since_hours, state1) do
+      {:ok, kills, new_st} ->
+        {:ok, kills, new_st}
+
+      {:error, reason, new_st} ->
+        {:error, reason, new_st}
+    end
+  end
 
   @doc """
   Fetch kills for a system from the zKillboard API, up to `since_hours`.
