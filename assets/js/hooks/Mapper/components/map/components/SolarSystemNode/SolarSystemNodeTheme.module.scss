@@ -60,7 +60,8 @@
   .customName {
     color: var(--rf-custom-name, #93C5FD);
     font-family: var(--rf-node-font-family, inherit) !important;
-    font-weight: var(--rf-node-font-weight, inherit) !important;
+    font-weight
+    : var(--rf-node-font-weight, inherit) !important;
   }
 
   .lockIcon {
@@ -158,6 +159,7 @@
   }
 }
 
+
 .LocalCounterLayer {
   position: absolute;
   top: 0;
@@ -168,17 +170,15 @@
   z-index: 9999;
 
   .localCounter {
-    display: flex;
+    position: absolute;
+    pointer-events: auto;
+    top: 10px;
+    right: 8px;
     color: var(--rf-has-user-characters, #fbbf24);
     font-family: var(--rf-node-font-family, inherit) !important;
     font-weight: var(--rf-node-font-weight, inherit) !important;
+    mix-blend-mode: screen;
     gap: 2px;
-
-    .hasUserCharacters {
-      color: var(--rf-has-user-characters, #fbbf24);
-      font-family: var(--rf-node-font-family, inherit) !important;
-      font-weight: var(--rf-node-font-weight, inherit) !important;
-    }
   }
 }
 
@@ -207,4 +207,10 @@
     margin-left: 2px;
     line-height: 1.2;
   }
+}
+
+.hasUserCharacters {
+  color: var(--rf-has-user-characters, #fbbf24);
+  font-family: var(--rf-node-font-family, inherit) !important;
+  font-weight: var(--rf-node-font-weight, inherit) !important;
 }

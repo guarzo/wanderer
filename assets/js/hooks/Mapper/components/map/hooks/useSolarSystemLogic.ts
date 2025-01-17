@@ -40,6 +40,7 @@ export interface SolarSystemNodeVars {
   killsCount: number | null;
   killsActivityType: string | null;
   hasUserCharacters: boolean;
+  userCharacters: Array<string>;
   showHandlers: boolean;
   regionClass: string | null;
   systemName: string;
@@ -211,6 +212,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     killsCount,
     killsActivityType,
     hasUserCharacters,
+    userCharacters,
     showHandlers,
     regionClass,
     systemName,
