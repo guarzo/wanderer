@@ -1,7 +1,5 @@
 import { useMemo } from 'react';
-import { NodeProps, useReactFlow } from 'reactflow';
-import { MapSolarSystemType } from '../map.types';
-import { SolarSystemNodeVars } from './useSolarSystemNode';
+import { SolarSystemNodeVars } from './useSolarSystemLogic';
 
 export function useZooNames(nodeVars: SolarSystemNodeVars) {
   return useMemo(() => {
@@ -35,12 +33,4 @@ export function useZooNames(nodeVars: SolarSystemNodeVars) {
 
     return { systemName, customLabel, customName };
   }, [nodeVars]);
-}
-
-export function useLocalCounter(nodeVars: SolarSystemNodeVars) {
-  const sortedCharacters = useMemo(() => {
-    return [...nodeVars.charactersInSystem].sort((a, b) => a.name.localeCompare(b.name));
-  }, [nodeVars.charactersInSystem]);
-
-  return { sortedCharacters };
 }
