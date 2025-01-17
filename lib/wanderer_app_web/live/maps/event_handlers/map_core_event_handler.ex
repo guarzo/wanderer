@@ -340,6 +340,8 @@ defmodule WandererAppWeb.MapCoreEventHandler do
          {:ok, characters_limit} <- map_id |> WandererApp.Map.get_characters_limit(),
          {:ok, present_character_ids} <-
            WandererApp.Cache.lookup("map_#{map_id}:presence_character_ids", []),
+         {:ok, detailed_kills_map} <-
+           WandererApp.Cache.lookup("map_#{map_id}:zkb_detailed_kills", %{}),
          {:ok, kills} <- WandererApp.Cache.lookup("map_#{map_id}:zkb_kills", Map.new()) do
       user_character_eve_ids = tracked_map_characters |> Enum.map(& &1.eve_id)
 
@@ -378,6 +380,8 @@ defmodule WandererAppWeb.MapCoreEventHandler do
             kills
             |> Enum.filter(fn {_, kills} -> kills > 0 end)
             |> Enum.map(&MapEventHandler.map_ui_kill/1),
+          detailed_kills:
+            map_detailed_kills(detailed_kills_map),
           present_characters:
             present_character_ids
             |> WandererApp.Character.get_character_eve_ids!(),
@@ -541,6 +545,18 @@ defmodule WandererAppWeb.MapCoreEventHandler do
       options: options
     }
   end
+
+  defp map_detailed_kills(detailed_kills_map) do
+    detailed_kills_map
+    |> Enum.reject(fn {_system_id, kills_list} -> kills_list == [] end)
+    |> Enum.map(fn {system_id, kills_list} ->
+      %{
+        solar_system_id: system_id,
+        kills: kills_list
+      }
+    end)
+  end
+
 
   defp filter_map_characters(
          characters,

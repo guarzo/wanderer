@@ -9,13 +9,18 @@ defmodule WandererApp.Zkb.Supervisor do
 
   def init(_init_args) do
     children = [
-      {WandererApp.Zkb.KillsProvider,
-       uri: "wss://zkillboard.com/websocket/",
-       state: %WandererApp.Zkb.KillsProvider{},
-       opts: [
-         name: {:local, :zkb_kills_provider},
-         mint_upgrade_opts: [Mint.WebSocket.PerMessageDeflate]
-       ]}
+      {
+        WandererApp.Zkb.KillsProvider,
+        uri: "wss://zkillboard.com/websocket/",
+        state: %WandererApp.Zkb.KillsProvider{
+          connected: false,
+        },
+        opts: [
+          name: {:local, :zkb_kills_provider},
+          mint_upgrade_opts: [Mint.WebSocket.PerMessageDeflate]
+        ]
+      },
+      {WandererApp.Zkb.KillsPreloader, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
