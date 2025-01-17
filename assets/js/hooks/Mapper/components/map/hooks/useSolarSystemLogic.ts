@@ -31,6 +31,14 @@ function sortedLabels(labels: string[]) {
   return LABELS_ORDER.filter(x => labels.includes(x)).map(x => LABELS_INFO[x]);
 }
 
+export function useLocalCounter(nodeVars: SolarSystemNodeVars) {
+  const sortedCharacters = useMemo(() => {
+    return [...nodeVars.charactersInSystem].sort((a, b) => a.name.localeCompare(b.name));
+  }, [nodeVars.charactersInSystem]);
+
+  return { sortedCharacters };
+}
+
 export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>) {
   const { id, data, selected } = props;
   const {
