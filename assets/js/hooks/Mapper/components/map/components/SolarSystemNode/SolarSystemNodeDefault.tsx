@@ -4,7 +4,7 @@ import { Handle, Position, NodeProps } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeDefault.module.scss';
 import { PrimeIcons } from 'primereact/api';
-import { useSolarSystemNode } from '../../hooks/useSolarSystemNode';
+import { useSolarSystemNode } from '../../hooks/useSolarSystemLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
