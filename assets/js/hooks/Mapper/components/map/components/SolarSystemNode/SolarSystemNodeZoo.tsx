@@ -4,7 +4,7 @@ import { Handle, Position, NodeProps } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
-import { useSolarSystemNode } from '../../hooks/useSolarSystemNode';
+import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
 import { useZooNames } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
@@ -14,7 +14,6 @@ import {
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
 import { LocalCounter } from './SolarSystemNodeCounter';
-import { useLocalCounter } from '../../hooks/useZooLogic';
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
@@ -113,12 +112,28 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
               <div className="flex items-center justify-end">
                 <div className="flex gap-1 items-center">
-                  {nodeVars.locked && (
-                    <i className={PrimeIcons.LOCK} style={{ fontSize: '0.45rem', fontWeight: 'bold' }} />
+                {nodeVars.locked && (
+                    <i
+                      className={clsx(
+                        PrimeIcons.LOCK,
+                        classes.lockIcon,
+                        {
+                          [classes.hasLocalCounter]: nodeVars.charactersInSystem.length > 0,
+                        },
+                      )}
+                    />
                   )}
 
                   {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
-                    <i className={PrimeIcons.MAP_MARKER} style={{ fontSize: '0.45rem', fontWeight: 'bold' }} />
+                    <i
+                      className={clsx(
+                        PrimeIcons.MAP_MARKER,
+                        classes.mapMarker,
+                        {
+                          [classes.hasLocalCounter]: nodeVars.charactersInSystem.length > 0,
+                        },
+                      )}
+                    />
                   )}
                 </div>
               </div>
