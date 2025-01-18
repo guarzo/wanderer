@@ -12,6 +12,7 @@ import {
 } from '@/hooks/Mapper/components/map/constants';
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
+import { KillsCounter } from './SolarSystemKillsCounter';
 
 export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
@@ -29,15 +30,6 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
           {nodeVars.isShattered && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.shattered)}>
               <span className={clsx('pi pi-chart-pie', classes.icon)} />
-            </div>
-          )}
-
-          {nodeVars.killsCount && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[nodeVars.killsActivityType!])}>
-              <div className={clsx(classes.BookmarkWithIcon)}>
-                <span className={clsx(PrimeIcons.BOLT, classes.icon)} />
-                <span className={clsx(classes.text)}>{nodeVars.killsCount}</span>
-              </div>
             </div>
           )}
 
@@ -212,6 +204,13 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
           id="d"
         />
       </div>
+      {nodeVars.killsCount && nodeVars.killsCount > 0 && nodeVars.solarSystemId && (
+        <KillsCounter
+          killsCount={nodeVars.killsCount ?? 0}
+          killsActivityType={nodeVars.killsActivityType ?? null}
+          systemId={nodeVars.solarSystemId}
+        />
+      )}
     </>
   );
 });
