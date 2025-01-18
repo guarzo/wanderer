@@ -12,6 +12,7 @@ defmodule WandererAppWeb.MapEventHandler do
     MapSignaturesEventHandler,
     MapSystemsEventHandler,
     MapStructuresEventHandler,
+    MapKillsEventHandler,
   }
 
   @map_characters_events [
@@ -118,6 +119,17 @@ defmodule WandererAppWeb.MapEventHandler do
     "get_structures",
   ]
 
+  @map_kills_events [
+    :fetch_new_system_kills,
+    :detailed_kills_updated,
+    :fetch_new_map_kills,
+  ]
+
+  @map_kills_ui_events [
+    "get_system_kills",
+    "get_systems_kills"
+  ]
+
   def handle_event(socket, %{event: event_name} = event)
       when event_name in @map_characters_events,
       do: MapCharactersEventHandler.handle_server_event(event, socket)
@@ -145,6 +157,10 @@ defmodule WandererAppWeb.MapEventHandler do
   def handle_event(socket, %{event: event_name} = event)
       when event_name in @map_signatures_events,
       do: MapSignaturesEventHandler.handle_server_event(event, socket)
+
+  def handle_event(socket, %{event: event_name} = event)
+      when event_name in @map_kills_events,
+      do: MapKillsEventHandler.handle_server_event(event, socket)
 
   def handle_event(socket, {ref, result}) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
@@ -202,8 +218,13 @@ defmodule WandererAppWeb.MapEventHandler do
       when event in @map_activity_ui_events,
       do: MapActivityEventHandler.handle_ui_event(event, body, socket)
 
+  def handle_ui_event(event, body, socket)
+    when event in @map_kills_ui_events,
+    do: MapKillsEventHandler.handle_ui_event(event, body, socket)
+
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
+
 
   def get_system_static_info(nil), do: nil
 
