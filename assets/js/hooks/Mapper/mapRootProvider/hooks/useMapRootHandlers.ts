@@ -29,10 +29,12 @@ import {
 } from './api';
 
 import { emitMapEvent } from '@/hooks/Mapper/events';
+import { DetailedKill } from '../../types/kills';
 
 export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
   const mapInit = useMapInit();
-  const { addSystems, removeSystems, updateSystems, updateSystemSignatures } = useCommandsSystems();
+  const { addSystems, removeSystems, updateSystems, updateSystemSignatures, updateDetailedKills } =
+    useCommandsSystems();
   const { addConnections, removeConnections, updateConnection } = useCommandsConnections();
   const { charactersUpdated, characterAdded, characterRemoved, characterUpdated, presentCharacters } =
     useCommandsCharacters();
@@ -106,6 +108,10 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
 
             case Commands.killsUpdated:
               // do nothing here
+              break;
+
+            case Commands.detailedKillsUpdated:
+              updateDetailedKills(data as Record<string, DetailedKill[]>);
               break;
 
             default:
