@@ -263,12 +263,12 @@ defmodule WandererAppWeb.MapCoreEventHandler do
            owner_id: owner_id
          } = map
        ) do
-    user_permissions =
-      WandererApp.Permissions.get_map_permissions(
-        user_permissions,
-        owner_id,
-        current_user.characters |> Enum.map(& &1.id)
-      )
+  user_permissions =
+    WandererApp.Permissions.get_map_permissions(
+      user_permissions,
+      owner_id,
+      current_user.characters |> Enum.map(& &1.id)
+    )
 
     {:ok, map_user_settings} = WandererApp.MapUserSettingsRepo.get(map_id, current_user.id)
 
@@ -278,29 +278,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
         _ -> {:ok, []}
       end
 
-    {:ok, %{characters: availaible_map_characters}} =
-      WandererApp.Maps.load_characters(map, character_settings, current_user.id)
-
-    can_view? = user_permissions.view_system
-    can_track? = user_permissions.track_character
-
-    tracked_character_ids =
-      availaible_map_characters |> Enum.filter(& &1.tracked) |> Enum.map(& &1.id)
-
-    all_character_tracked? =
-      not (availaible_map_characters |> Enum.empty?()) and
-        availaible_map_characters |> Enum.all?(& &1.tracked)
-
-    cond do
-      (only_tracked_characters and can_track? and all_character_tracked?) or
-          (not only_tracked_characters and can_view?) ->
-        Phoenix.PubSub.subscribe(WandererApp.PubSub, map_id)
-        {:ok, ui_loaded} = WandererApp.Cache.get_and_remove("map_#{map_slug}:ui_loaded", false)
-
-        if ui_loaded do
-          maybe_start_map(map_id)
-        end
-
+      socket =
         socket
         |> assign(
           map_id: map_id,
@@ -311,15 +289,20 @@ defmodule WandererAppWeb.MapCoreEventHandler do
           only_tracked_characters: only_tracked_characters
         )
 
-      only_tracked_characters and can_track? and not all_character_tracked? ->
-        Process.send_after(self(), :not_all_characters_tracked, 10)
-        socket
+      Process.send_after(self(), %{event: :fetch_new_map_kills, payload: %{map_id: map_id}}, 0)
 
-      true ->
-        Process.send_after(self(), :no_permissions, 10)
-        socket
-    end
+      socket
+
+    only_tracked_characters and can_track? and not all_character_tracked? ->
+      Process.send_after(self(), :not_all_characters_tracked, 10)
+      socket
+
+    true ->
+      Process.send_after(self(), :no_permissions, 10)
+      socket
   end
+end
+
 
   defp init_map(socket, _map) do
     Process.send_after(self(), :no_access, 10)
