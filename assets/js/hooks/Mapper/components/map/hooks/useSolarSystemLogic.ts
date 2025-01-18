@@ -31,6 +31,20 @@ function sortedLabels(labels: string[]): Array<{ id: string; shortName: string }
   return LABELS_ORDER.filter(x => labels.includes(x)).map(x => LABELS_INFO[x]);
 }
 
+export function useLocalCounter(nodeVars: SolarSystemNodeVars) {
+  const localCounterCharacters = useMemo(() => {
+    return [...nodeVars.charactersInSystem]
+      .map(char => ({
+        ...char,
+        compact: false,
+        isOwn: nodeVars.userCharacters.includes(char.eve_id),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [nodeVars.charactersInSystem, nodeVars.userCharacters]);
+
+  return { localCounterCharacters };
+}
+
 export interface SolarSystemNodeVars {
   id: string;
   selected: boolean;
@@ -54,7 +68,7 @@ export interface SolarSystemNodeVars {
   sortedStatics: Array<string>;
   effectName: string | null;
   regionName: string | null;
-  solarSystemId: number;
+  solarSystemId: string;
   solarSystemName: string | null;
   locked: boolean;
   hubs: Array<string | number>;
@@ -226,7 +240,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     sortedStatics,
     effectName: effect_name,
     regionName: region_name,
-    solarSystemId: solar_system_id,
+    solarSystemId: solar_system_id.toString(),
     solarSystemName: solar_system_name,
     locked,
     hubs,

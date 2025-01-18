@@ -280,12 +280,6 @@ $custom-name: #93C5FD;
     }
   }
 
-  .classSystemName {
-    //font-weight: bold;
-  }
-
-  .solarSystemName {
-  }
 }
 
 .BottomRow {
@@ -311,6 +305,11 @@ $custom-name: #93C5FD;
 
     &.hasLocalCounter {
       margin-right: 1.25rem;
+    & > span {
+      font-size: 9px;
+      line-height: 9px;
+      font-weight: 500;
+      }
     }
   }
 }
@@ -435,5 +434,4 @@ $custom-name: #93C5FD;
   .hasUserCharacters {
     color: #fcd34d;
   }
-
 }

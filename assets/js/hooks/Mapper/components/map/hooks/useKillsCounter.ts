@@ -6,9 +6,7 @@ interface UseKillsCounterProps {
   realSystemId: string;
 }
 
-export function useKillsCounter({
-  realSystemId,
-}: UseKillsCounterProps) {
+export function useKillsCounter({ realSystemId }: UseKillsCounterProps) {
   const { data: mapData, outCommand } = useMapRootState();
   const { systems } = mapData;
 
@@ -16,15 +14,14 @@ export function useKillsCounter({
   const handleMouseEnter = () => setIsHovered(true);
   const handleMouseLeave = () => setIsHovered(false);
 
-
   const systemNameMap = useMemo(() => {
     const m: Record<string, string> = {};
-    systems.forEach((sys) => {
+    systems.forEach(sys => {
       m[sys.id] = sys.temporary_name || sys.name || '???';
     });
     return m;
   }, [systems]);
-  
+
   const systemIdForHook = useMemo(() => {
     return isHovered ? realSystemId : undefined;
   }, [isHovered, realSystemId]);
@@ -43,8 +40,6 @@ export function useKillsCounter({
       return killTimeMs >= oneHourAgo;
     });
   }, [allKills]);
-
-
 
   return {
     isHovered,
