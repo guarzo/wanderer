@@ -17,7 +17,7 @@ defmodule WandererApp.Zkb.KillsPreloader do
   @expanded_limit 25
 
   @default_hours 1
-  @default_max_concurrency 10
+  @default_max_concurrency 3
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
