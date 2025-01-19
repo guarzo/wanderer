@@ -12,7 +12,7 @@ defmodule WandererApp.Zkb.KillsProvider.Fetcher do
   use Retry
 
   @page_size 200
--
+
   def fetch_limited_for_system(system_id, since_hours, limit, state) do
     {:ok, state1} = increment_calls_count(state)
 

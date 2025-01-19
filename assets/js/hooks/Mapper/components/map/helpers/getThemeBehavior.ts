@@ -1,4 +1,4 @@
-import { SolarSystemNodeDefault, SolarSystemNodeTheme } from '../components/SolarSystemNode';
+import { SolarSystemNodeDefault, SolarSystemNodeTheme, SolarSystemNodeZoo } from '../components/SolarSystemNode';
 import type { NodeProps } from 'reactflow';
 import type { ComponentType } from 'react';
 import { MapSolarSystemType } from '../map.types';
@@ -24,6 +24,11 @@ const THEME_BEHAVIORS: {
     isPanAndDrag: true,
     nodeComponent: SolarSystemNodeTheme,
     connectionMode: ConnectionMode.Loose,
+  },
+  zoo: {
+    isPanAndDrag: true,
+    nodeComponent: SolarSystemNodeZoo,
+    connectionMode: ConnectionMode.Strict,
   },
 };
 
