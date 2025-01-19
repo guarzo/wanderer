@@ -1,12 +1,9 @@
 @import './SolarSystemNodeDefault.module.scss';
 
-/* ---------------------------
-   Only override what's different
---------------------------- */
+/* ---------------------------------------------
+   Only override what's different from the base
+---------------------------------------------- */
 
-/* 1) .RootCustomNode:
-   - new background-color using CSS var
-   - plus color, font-family, and font-weight */
 .RootCustomNode {
   background-color: var(--rf-node-bg-color, #202020) !important;
   color: var(--rf-text-color, #ffffff);
@@ -14,17 +11,11 @@
   font-weight: var(--rf-node-font-weight, inherit) !important;
 }
 
-/* 2) .Bookmarks:
-   - add var-based font family/weight
-*/
 .Bookmarks {
   font-family: var(--rf-node-font-family, inherit) !important;
   font-weight: var(--rf-node-font-weight, inherit) !important;
 }
 
-/* 3) .HeadRow, .classTitle, .classSystemName:
-   - add new references to var-based font family/weight
-*/
 .HeadRow {
   font-family: var(--rf-node-font-family, inherit) !important;
   font-weight: var(--rf-node-font-weight, inherit) !important;
@@ -47,9 +38,6 @@
   }
 }
 
-/* 4) .BottomRow:
-   - introduces .tagTitle, .regionName, .customName, .localCounter
-     referencing new CSS variables */
 .BottomRow {
   font-family: var(--rf-node-font-family, inherit) !important;
   font-weight: var(--rf-node-font-weight, inherit) !important;
@@ -72,20 +60,29 @@
   .customName {
     color: var(--rf-custom-name, #93C5FD);
     font-family: var(--rf-node-font-family, inherit) !important;
-    font-weight: var(--rf-node-font-weight, inherit) !important;
+    font-weight
+    : var(--rf-node-font-weight, inherit) !important;
   }
 
-  .localCounter {
-    display: flex;
-    color: var(--rf-has-user-characters, #fbbf24);
-    font-family: var(--rf-node-font-family, inherit) !important;
-    font-weight: var(--rf-node-font-weight, inherit) !important;
-    gap: 2px;
+  .lockIcon {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
 
-    .hasUserCharacters {
-      color: var(--rf-has-user-characters, #fbbf24);
-      font-family: var(--rf-node-font-family, inherit) !important;
-      font-weight: var(--rf-node-font-weight, inherit) !important;
+    &.hasLocalCounter {
+      margin-right: 1.25rem;
+    }
+  }
+
+  .mapMarker {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
+
+    &.hasLocalCounter {
+      margin-right: 1.25rem;
     }
   }
 }
+
+
