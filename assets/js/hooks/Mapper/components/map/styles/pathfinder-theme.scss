@@ -44,6 +44,28 @@
   --rf-node-font-family: 'Oxygen', sans-serif;
   --rf-node-text-color: var(--pf-text-color);
 
+  --rf-node-local-counter: #5cb85c;
+  --rf-has-user-characters: var(--rf-node-local-counter, #5cb85c);
+
   --rf-tag-color: #fbbf24;
   --window-corner: #72716f;
+
+
+  --eve-solar-system-status-home: #4a6c7f;
+  --eve-solar-system-status-color-home: #4a6c7f;
+  --eve-solar-system-status-color-home-dark30: #00a4ff;
+  --eve-solar-system-status-friendly: #7f6c50;
+  --eve-solar-system-status-color-friendly: #7f6c50;
+  --eve-solar-system-status-friendly-dark30: #7f6c50;
+  --eve-solar-system-status-color-friendly-dark20: #ffe86c;
+  --eve-solar-system-status-color-friendly-dark5: #7f6c50;
+  --eve-solar-system-status-lookingFor: #366565;
+  --eve-solar-system-status-color-lookingFor: #366565;
+  --eve-solar-system-status-color-lookingFor-dark15: #73fdd0;
+  --eve-solar-system-status-warning: #653834;
+  --eve-solar-system-status-color-warning: #653834;
+  --eve-solar-system-status-target: #bd000096;
+  --eve-solar-system-status-color-target: #bd000096;
+  --eve-solar-system-status-dangerous: #14730085;
+  --eve-solar-system-status-color-dangerous: #14730085;
 }
