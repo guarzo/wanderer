@@ -7,7 +7,7 @@ defmodule WandererApp.Zkb.KillsProvider.ZkbApi do
   require Logger
   alias ExRated
 
-  # 5 calls per s
+  # 5 calls per second allowed
   @exrated_bucket :zkb_preloader_provider
   @exrated_interval_ms 1_000
   @exrated_max_requests 5
@@ -18,10 +18,10 @@ defmodule WandererApp.Zkb.KillsProvider.ZkbApi do
   Perform rate-limit check before fetching a single page from zKillboard and parse the response.
 
   Returns:
-    - `{:ok, updated_state, partials_list}` if success
+    - `{:ok, updated_state, partials_list}` on success
     - `{:error, reason, updated_state}` if error
   """
-  def fetch_and_parse_page(system_id, page, %{calls_count: _n} = state) do
+  def fetch_and_parse_page(system_id, page, %{calls_count: _} = state) do
     with :ok <- check_rate(),
          {:ok, resp} <- do_req_get(system_id, page),
          partials when is_list(partials) <- parse_response_body(resp) do
@@ -40,10 +40,11 @@ defmodule WandererApp.Zkb.KillsProvider.ZkbApi do
 
   defp do_req_get(system_id, page) do
     url = "#{@zkillboard_api}/kills/systemID/#{system_id}/page/#{page}/"
-    Logger.debug("[ZkbApi] do_req_get => system=#{system_id}, page=#{page}, url=#{url}")
+    Logger.debug("[ZkbApi] GET => system=#{system_id}, page=#{page}, url=#{url}")
 
     try do
       resp = Req.get!(url, decode_body: :json)
+
       if resp.status == 200 do
         {:ok, resp}
       else
@@ -75,5 +76,4 @@ defmodule WandererApp.Zkb.KillsProvider.ZkbApi do
         {:error, :rate_limited}
     end
   end
-
 end

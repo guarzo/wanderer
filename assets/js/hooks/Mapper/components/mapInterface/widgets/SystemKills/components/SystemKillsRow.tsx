@@ -68,80 +68,215 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
 
   const victimPortraitUrl = eveImageUrl('characters', kill.victim_char_id, 'portrait', 64);
   const victimShipUrl = eveImageUrl('types', kill.victim_ship_type_id, 'render', 64);
+  const victimCorpId = kill.victim_corp_id;
+  const victimCorpUrl = victimCorpId ? eveImageUrl('corporations', victimCorpId, 'logo', 32) : null;
+  const victimAllianceId = kill.victim_alliance_id;
+  const victimAllianceUrl = victimAllianceId ? eveImageUrl('alliances', victimAllianceId, 'logo', 32) : null;
+
   const subscriptData = getAttackerSubscript(kill);
 
-  const portraitSize = compact ? 24 : 40;
-  const shipSize = compact ? 32 : 48;
+  // Tailwind row height (h-10 = 2.5rem, h-16 = 4rem).
+  // In a default 16px environment, h-16 is 64px.
+  const rowHeightClass = compact ? 'h-10' : 'h-16';
+  const rowPaddingClass = 'px-1 py-1';
 
-  return (
-    <div
-      className={clsx(
-        'flex border-b border-stone-700 whitespace-nowrap overflow-hidden',
-        'transition-all duration-300',
-        compact ? 'px-2 py-1 text-xs' : 'p-1 text-sm',
-      )}
-    >
-      <div className="flex items-center min-w-0 overflow-hidden">
-        {victimPortraitUrl && (
-          <a
-            href={zkillLink('character', kill.victim_char_id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0"
-          >
-            <img
-              src={victimPortraitUrl}
-              alt="VictimPortrait"
-              width={portraitSize}
-              height={portraitSize}
-              className="rounded-none"
-            />
-          </a>
+  if (compact) {
+    return (
+      <div
+        className={clsx(
+          rowHeightClass,
+          rowPaddingClass,
+          'flex items-center border-b border-stone-700 text-xs',
+          'whitespace-nowrap overflow-hidden',
         )}
+      >
+        <div className="flex items-center gap-2 h-full">
+          {victimPortraitUrl && (
+            <a
+              href={zkillLink('character', kill.victim_char_id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 h-full"
+            >
+              {/* Portrait fills the row height */}
+              <img
+                src={victimPortraitUrl}
+                alt="VictimPortrait"
+                className="border border-stone-600 rounded-none h-full w-auto object-contain"
+              />
+            </a>
+          )}
 
-        <div className={clsx('flex flex-col ml-2 min-w-0 overflow-hidden', compact ? 'gap-0.5' : 'gap-1')}>
-          <div className="flex items-center gap-2 min-w-0 overflow-hidden">
-            <span className="truncate text-stone-200">{victimShipName}</span>
-            <span className="text-stone-500">|</span>
-            <span className="truncate text-stone-400">{victimTicker}</span>
-          </div>
-          {!compact && <span className="text-stone-400 truncate">{timeAgo}</span>}
-        </div>
-      </div>
-      <div className="flex ml-auto items-center min-w-0 overflow-hidden">
-        {compact && (
-          <div className={clsx('flex items-center gap-1 text-stone-400 ml-2 mr-2')}>
-            <span>{timeAgo}</span>
-            <span className="text-stone-600">|</span>
-            {!onlyOneSystem && (
-              <>
-                <span className="text-stone-300">{systemName}</span>
-                <span className="text-stone-600">|</span>
-              </>
+          {/* Corp + Alliance stacked */}
+          <div className="flex flex-col h-full">
+            {victimCorpUrl && victimCorpId && (
+              <a
+                href={zkillLink('corporation', victimCorpId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 h-1/2"
+              >
+                <img
+                  src={victimCorpUrl}
+                  alt="VictimCorp"
+                  className="border border-stone-600 rounded-none w-auto h-full object-contain"
+                />
+              </a>
             )}
-            <span className="text-stone-300">{attackerTicker}</span>
+            {victimAllianceUrl && victimAllianceId && (
+              <a
+                href={zkillLink('alliance', victimAllianceId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 h-1/2"
+              >
+                <img
+                  src={victimAllianceUrl}
+                  alt="VictimAlliance"
+                  className="border border-stone-600 rounded-none w-auto h-full object-contain"
+                />
+              </a>
+            )}
           </div>
-        )}
-        {!compact && (
-          <div className={clsx('flex flex-col items-end justify-center min-w-0 overflow-hidden', 'mr-3')}>
-            {!onlyOneSystem && <span className="text-stone-300 text-sm truncate">{systemName}</span>}
-            {totalValue && <span className="text-green-400 text-xs truncate">{totalValue}</span>}
-            <span className="text-stone-300 text-sm truncate">{attackerTicker}</span>
+
+          <div className="flex flex-col leading-tight">
+            <span className="text-stone-200 truncate">{victimShipName}</span>
+            <span className="text-stone-400 truncate">{victimTicker}</span>
           </div>
-        )}
+        </div>
+
+        <div className="flex-grow" />
+
+        <div className="flex items-center gap-2 text-stone-400">
+          <span>{timeAgo}</span>
+          <span className="text-stone-600">|</span>
+          {!onlyOneSystem && (
+            <>
+              <span className="text-stone-300">{systemName}</span>
+              <span className="text-stone-600">|</span>
+            </>
+          )}
+
+          <span className="text-red-400 truncate">{attackerTicker}</span>
+          {totalValue && (
+            <>
+              <span className="text-stone-600">|</span>
+              <span className="text-green-400 truncate">{totalValue}</span>
+            </>
+          )}
+        </div>
+
         {victimShipUrl && (
           <a
             href={zkillLink('kill', killmailId)}
             target="_blank"
             rel="noopener noreferrer"
-            className="relative shrink-0"
+            className="relative shrink-0 ml-2 h-full"
           >
             <img
               src={victimShipUrl}
               alt="VictimShip"
-              width={shipSize}
-              height={shipSize}
-              className={classes.shipImage}
+              className={clsx(classes.shipImage, 'border border-stone-600 rounded-none h-full w-auto object-contain')}
+            />
+            {subscriptData && (
+              <span className={clsx(classes.attackerCountLabel, subscriptData.cssClass)}>{subscriptData.label}</span>
+            )}
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  // Non-compact layout
+  return (
+    <div
+      className={clsx(
+        rowHeightClass,
+        rowPaddingClass,
+        'flex border-b border-stone-700 text-sm',
+        'whitespace-nowrap overflow-hidden',
+      )}
+    >
+      <div className="flex items-start gap-2 h-full">
+        {victimPortraitUrl && (
+          <a
+            href={zkillLink('character', kill.victim_char_id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 h-full"
+          >
+            {/* Portrait fills the row height */}
+            <img
+              src={victimPortraitUrl}
+              alt="VictimPortrait"
+              className="border border-stone-600 rounded-none h-full w-auto object-contain"
+            />
+          </a>
+        )}
+
+        {/* Stacked corp+alliance images, matching the portrait’s total height */}
+        <div className="flex flex-col h-full">
+          {victimCorpUrl && victimCorpId && (
+            <a
+              href={zkillLink('corporation', victimCorpId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 h-1/2"
+            >
+              <img
+                src={victimCorpUrl}
+                alt="VictimCorp"
+                className="border border-stone-600 rounded-none w-auto h-full object-contain"
+              />
+            </a>
+          )}
+          {victimAllianceUrl && victimAllianceId && (
+            <a
+              href={zkillLink('alliance', victimAllianceId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 h-1/2"
+            >
+              <img
+                src={victimAllianceUrl}
+                alt="VictimAlliance"
+                className="border border-stone-600 rounded-none w-auto h-full object-contain"
+              />
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Ship name, ticker, time */}
+      <div className="flex flex-col ml-3 min-w-0 overflow-hidden gap-1">
+        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+          <span className="truncate text-stone-200">{victimShipName}</span>
+          <span className="text-stone-500">|</span>
+          <span className="truncate text-stone-400">{victimTicker}</span>
+        </div>
+        <span className="text-stone-400 truncate">{timeAgo}</span>
+      </div>
+
+      {/* System name, total isk, attacker ticker */}
+      <div className="flex ml-auto items-center min-w-0 overflow-hidden h-full">
+        <div className="flex flex-col items-end justify-center min-w-0 overflow-hidden mr-3">
+          {!onlyOneSystem && <span className="text-stone-300 text-sm truncate">{systemName}</span>}
+          {totalValue && <span className="text-green-400 text-xs truncate">{totalValue}</span>}
+          <span className="text-stone-300 text-sm truncate">{attackerTicker}</span>
+        </div>
+
+        {/* Victim’s ship image on the right */}
+        {victimShipUrl && (
+          <a
+            href={zkillLink('kill', killmailId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="relative shrink-0 h-full"
+          >
+            <img
+              src={victimShipUrl}
+              alt="VictimShip"
+              className={clsx(classes.shipImage, 'border border-stone-600 rounded-none h-full w-auto object-contain')}
             />
             {subscriptData && (
               <span className={clsx(classes.attackerCountLabel, subscriptData.cssClass)}>{subscriptData.label}</span>
