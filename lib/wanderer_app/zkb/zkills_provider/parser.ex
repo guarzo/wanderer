@@ -4,16 +4,11 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   """
 
   require Logger
-
   alias WandererApp.Zkb.KillsProvider.KillsCache
-  alias WandererApp.Esi
-  alias WandererApp.CachedInfo
 
   @doc """
-  Parse a raw killmail (`full_km`) and store it if valid. Returns:
-
-    - `{:ok, kill_time}` if the killmail was successfully parsed and stored
-    - `:skip` if missing/invalid data or kill_time
+  Parse a raw killmail (`full_km`) and store it if valid.
+  Returns `{:ok, kill_time}` or `:skip`.
   """
   def parse_and_store_killmail(%{"killmail_id" => _kill_id} = full_km) do
     parsed_map = do_parse(full_km)
@@ -57,14 +52,13 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   defp do_parse(_),
     do: nil
 
-  def store_killmail(%{"killmail_id" => nil}), do: :ok
+  defp store_killmail(%{"killmail_id" => nil}), do: :ok
 
-  def store_killmail(%{"killmail_id" => kill_id} = parsed) do
+  defp store_killmail(%{"killmail_id" => kill_id} = parsed) do
     final = build_kill_data(parsed)
 
     if final do
       enriched = maybe_enrich_killmail(final)
-
       KillsCache.put_killmail(kill_id, enriched)
 
       system_id = enriched["solar_system_id"]
@@ -78,7 +72,7 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
     end
   end
 
-  def store_killmail(_),
+  defp store_killmail(_),
     do: :ok
 
   defp build_kill_data(%{
@@ -120,9 +114,6 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
 
   defp build_kill_data(_),
     do: nil
-
-  defp extract_victim_fields(nil),
-    do: %{char_id: nil, corp_id: nil, alliance_id: nil, ship_type_id: nil}
 
   defp extract_victim_fields(%{
          "character_id" => cid,
@@ -202,19 +193,20 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
     |> maybe_put_ship_name("final_blow_ship_type_id", "final_blow_ship_name")
   end
 
+  # ------------------------------------------------------------------
+  # "maybe_*" resolution from ESI or cached data
+  # ------------------------------------------------------------------
+
   defp maybe_put_character_name(km, id_key, name_key) do
     case Map.get(km, id_key) do
       nil -> km
-      0   -> km
+      0 -> km
       eve_id ->
-        case Esi.get_character_info(eve_id) do
-          {:ok, %{"name" => char_name} = _info} ->
+        case WandererApp.Esi.get_character_info(eve_id) do
+          {:ok, %{"name" => char_name}} ->
             Map.put(km, name_key, char_name)
 
-          {:ok, _other} ->
-            km
-
-          {:error, _reason} ->
+          _ ->
             km
         end
     end
@@ -223,17 +215,17 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   defp maybe_put_corp_ticker(km, id_key, ticker_key) do
     case Map.get(km, id_key) do
       nil -> km
-      0   -> km
+      0 -> km
       corp_id ->
-        case Esi.get_corporation_info(corp_id) do
-          {:ok, %{"ticker" => ticker} = _corp_info} ->
+        case WandererApp.Esi.get_corporation_info(corp_id) do
+          {:ok, %{"ticker" => ticker}} ->
             Map.put(km, ticker_key, ticker)
-
-          {:ok, _other} ->
-            km
 
           {:error, reason} ->
             Logger.warning("[Parser] Failed to fetch corp info: ID=#{corp_id}, reason=#{inspect(reason)}")
+            km
+
+          _ ->
             km
         end
     end
@@ -242,16 +234,13 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   defp maybe_put_alliance_ticker(km, id_key, ticker_key) do
     case Map.get(km, id_key) do
       nil -> km
-      0   -> km
+      0 -> km
       alliance_id ->
-        case Esi.get_alliance_info(alliance_id) do
-          {:ok, %{"ticker" => alliance_ticker} = _alliance_info} ->
+        case WandererApp.Esi.get_alliance_info(alliance_id) do
+          {:ok, %{"ticker" => alliance_ticker}} ->
             Map.put(km, ticker_key, alliance_ticker)
 
-          {:ok, _other} ->
-            km
-
-          {:error, _reason} ->
+          _ ->
             km
         end
     end
@@ -260,21 +249,16 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   defp maybe_put_ship_name(km, id_key, name_key) do
     case Map.get(km, id_key) do
       nil -> km
-      0   -> km
+      0 -> km
       type_id ->
-        case CachedInfo.get_ship_type(type_id) do
-          {:ok, nil} ->
-            km
-
-          {:ok, %{name: ship_name} = _ship_type} ->
-            Map.put(km, name_key, ship_name)
-
-          {:ok, _other} ->
-            km
-
+        case WandererApp.CachedInfo.get_ship_type(type_id) do
+          {:ok, nil} -> km
+          {:ok, %{name: ship_name}} -> Map.put(km, name_key, ship_name)
           {:error, reason} ->
             Logger.warning("[Parser] Failed to fetch ship type: ID=#{type_id}, reason=#{inspect(reason)}")
             km
+
+          _ -> km
         end
     end
   end

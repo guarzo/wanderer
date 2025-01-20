@@ -19,13 +19,13 @@ defmodule WandererApp.Zkb.KillsProvider.Websocket do
 
   # Called by `KillsProvider.handle_in`
   def handle_in({:text, frame}, state) do
+    Logger.debug("[KillsProvider.Websocket] Received frame => #{frame}")
     partial = Jason.decode!(frame)
-
     parse_and_store_zkb_partial(partial)
     {:ok, state}
   end
 
-  # Called by Fresh for control frames
+  # Called for control frames
   def handle_control({:pong, _msg}, state),
     do: {:ok, state}
 
@@ -34,7 +34,7 @@ defmodule WandererApp.Zkb.KillsProvider.Websocket do
     {:ok, state}
   end
 
-  # Called by Fresh for :info messages
+  # Called by the process mailbox
   def handle_info(:heartbeat, state) do
     payload = Jason.encode!(%{"action" => "pong"})
     {:reply, {:text, payload}, state}
@@ -56,16 +56,19 @@ defmodule WandererApp.Zkb.KillsProvider.Websocket do
     do: :reconnect
 
   # Called on terminate
-  def handle_terminate(reason, _state),
-    do: Logger.warning("[KillsProvider.Websocket] Terminating => #{inspect(reason)}")
+  def handle_terminate(reason, _state) do
+    Logger.warning("[KillsProvider.Websocket] Terminating => #{inspect(reason)}")
+  end
 
   defp handle_subscribe(channel, state) do
+    Logger.debug("[KillsProvider.Websocket] Subscribing to #{channel}")
     payload = Jason.encode!(%{"action" => "sub", "channel" => channel})
     {:reply, {:text, payload}, state}
   end
 
   # The partial from zKillboard has killmail_id + zkb.hash, but no time/victim/attackers
   defp parse_and_store_zkb_partial(%{"killmail_id" => kill_id, "zkb" => %{"hash" => kill_hash}} = partial) do
+    Logger.debug("[KillsProvider.Websocket] parse_and_store_zkb_partial => kill_id=#{kill_id}")
     case Esi.get_killmail(kill_id, kill_hash) do
       {:ok, full_esi_data} ->
         # Merge partial zKB fields (like totalValue) onto ESI data
@@ -73,7 +76,7 @@ defmodule WandererApp.Zkb.KillsProvider.Websocket do
         Parser.parse_and_store_killmail(enriched)
 
       {:error, reason} ->
-        Logger.warning("[KillsProvider:WS] ESI get_killmail failed => kill_id=#{kill_id}, reason=#{inspect(reason)}")
+        Logger.warning("[KillsProvider.Websocket] ESI get_killmail failed => kill_id=#{kill_id}, reason=#{inspect(reason)}")
         :skip
     end
   end
