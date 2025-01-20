@@ -8,8 +8,6 @@ defmodule WandererApp.Zkb.Supervisor do
   end
 
   def init(_init_args) do
-    # only create the preloader child
-    # if zkill_preload_disabled? is *false*.
     preloader_child =
       unless WandererApp.Env.zkill_preload_disabled?() do
         {WandererApp.Zkb.KillsPreloader, []}

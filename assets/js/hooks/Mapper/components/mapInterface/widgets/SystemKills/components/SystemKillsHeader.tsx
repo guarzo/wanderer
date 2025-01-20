@@ -15,11 +15,11 @@ interface KillsWidgetHeaderProps {
 
 export const KillsHeader: React.FC<KillsWidgetHeaderProps> = ({ systemId }) => {
   const [settings, setSettings] = useKillsWidgetSettings();
-  const { showAllVisible, compact } = settings;
+  const { showAll, compact } = settings;
 
   // toggles
   const onToggleShowAllVisible = () => {
-    setSettings(prev => ({ ...prev, showAllVisible: !prev.showAllVisible }));
+    setSettings(prev => ({ ...prev, showAll: !prev.showAll }));
   };
   const onToggleCompact = () => {
     setSettings(prev => ({ ...prev, compact: !prev.compact }));
@@ -30,11 +30,9 @@ export const KillsHeader: React.FC<KillsWidgetHeaderProps> = ({ systemId }) => {
       <div className="flex items-center gap-1">
         <div className="text-stone-400">
           Kills
-          {systemId && !showAllVisible && ' in '}
+          {systemId && !showAll && ' in '}
         </div>
-        {systemId && !showAllVisible && (
-          <SystemView systemId={systemId} className="select-none text-center" hideRegion />
-        )}
+        {systemId && !showAll && <SystemView systemId={systemId} className="select-none text-center" hideRegion />}
       </div>
 
       <LayoutEventBlocker className="flex gap-2 items-center">
@@ -42,7 +40,7 @@ export const KillsHeader: React.FC<KillsWidgetHeaderProps> = ({ systemId }) => {
           size="xs"
           labelSide="left"
           label="Show all systems"
-          value={showAllVisible}
+          value={showAll}
           classNameLabel="text-stone-400 hover:text-stone-200 transition duration-300"
           onChange={onToggleShowAllVisible}
         />
