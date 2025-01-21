@@ -74,9 +74,6 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
   const victimAllianceUrl = victimAllianceId ? eveImageUrl('alliances', victimAllianceId, 'logo', 32) : null;
 
   const subscriptData = getAttackerSubscript(kill);
-
-  // Tailwind row height (h-10 = 2.5rem, h-16 = 4rem).
-  // In a default 16px environment, h-16 is 64px.
   const rowHeightClass = compact ? 'h-10' : 'h-16';
   const rowPaddingClass = 'px-1 py-1';
 
@@ -98,7 +95,6 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
               rel="noopener noreferrer"
               className="shrink-0 h-full"
             >
-              {/* Portrait fills the row height */}
               <img
                 src={victimPortraitUrl}
                 alt="VictimPortrait"
@@ -107,7 +103,6 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
             </a>
           )}
 
-          {/* Corp + Alliance stacked */}
           <div className="flex flex-col h-full">
             {victimCorpUrl && victimCorpId && (
               <a
@@ -186,8 +181,6 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
       </div>
     );
   }
-
-  // Non-compact layout
   return (
     <div
       className={clsx(
@@ -205,7 +198,6 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
             rel="noopener noreferrer"
             className="shrink-0 h-full"
           >
-            {/* Portrait fills the row height */}
             <img
               src={victimPortraitUrl}
               alt="VictimPortrait"
@@ -213,8 +205,6 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
             />
           </a>
         )}
-
-        {/* Stacked corp+alliance images, matching the portrait’s total height */}
         <div className="flex flex-col h-full">
           {victimCorpUrl && victimCorpId && (
             <a
@@ -246,8 +236,6 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
           )}
         </div>
       </div>
-
-      {/* Ship name, ticker, time */}
       <div className="flex flex-col ml-3 min-w-0 overflow-hidden gap-1">
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           <span className="truncate text-stone-200">{victimShipName}</span>
@@ -256,16 +244,12 @@ export const KillRow: React.FC<KillRowProps> = ({ kill, systemName, compact = fa
         </div>
         <span className="text-stone-400 truncate">{timeAgo}</span>
       </div>
-
-      {/* System name, total isk, attacker ticker */}
       <div className="flex ml-auto items-center min-w-0 overflow-hidden h-full">
         <div className="flex flex-col items-end justify-center min-w-0 overflow-hidden mr-3">
           {!onlyOneSystem && <span className="text-stone-300 text-sm truncate">{systemName}</span>}
           {totalValue && <span className="text-green-400 text-xs truncate">{totalValue}</span>}
           <span className="text-stone-300 text-sm truncate">{attackerTicker}</span>
         </div>
-
-        {/* Victim’s ship image on the right */}
         {victimShipUrl && (
           <a
             href={zkillLink('kill', killmailId)}
