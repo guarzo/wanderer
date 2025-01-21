@@ -10,18 +10,14 @@ defmodule WandererApp.Zkb.KillsPreloader do
   alias WandererApp.Zkb.KillsProvider
   alias WandererApp.Zkb.KillsProvider.KillsCache
 
-  @default_hours 1            # For "quick" fetch or the 1-hour portion of expanded
-  @expanded_hours 24          # The fallback age in hours if 1-hour kills are insufficient
-
-  @quick_kills_limit 1        # For quick pass
-  @expanded_kills_limit 25    # For expanded pass
-
+  @quick_limit 1
+  @expanded_limit 25
+  @default_hours 1
   @default_max_concurrency 2
+
+  # How many minutes back we look for “last active” maps
   @last_active_cutoff 30
 
-  @doc """
-  Starts the KillsPreloader GenServer.
-  """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -34,16 +30,20 @@ defmodule WandererApp.Zkb.KillsPreloader do
       max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency)
     }
 
+    # Kick off the preload passes
     send(self(), :start_preload)
     {:ok, state}
   end
 
   @impl true
   def handle_info(:start_preload, state) do
-    cutoff_time = DateTime.utc_now() |> DateTime.add(-@last_active_cutoff, :minute)
+    cutoff_time =
+      DateTime.utc_now()
+      |> DateTime.add(-@last_active_cutoff, :minute)
 
     last_active_result = WandererApp.Api.MapState.get_last_active(cutoff_time)
 
+    # gather last-active maps, or fallback
     last_active_maps =
       case last_active_result do
         {:ok, []} ->
@@ -65,33 +65,42 @@ defmodule WandererApp.Zkb.KillsPreloader do
           []
       end
 
-    system_list = gather_visible_systems(last_active_maps)
-    unique_systems = Enum.uniq(system_list)
+    # gather systems from these maps
+    system_tuples = gather_visible_systems(last_active_maps)
+    unique_systems = Enum.uniq(system_tuples)
 
-    Logger.debug("[KillsPreloader] Found #{length(unique_systems)} unique systems across #{length(last_active_maps)} map(s)")
+    Logger.debug("""
+      [KillsPreloader] Found #{length(unique_systems)} unique systems \
+      across #{length(last_active_maps)} map(s)
+    """)
 
+    # ---- QUICK PASS ----
     state_quick = %{state | phase: :quick_pass}
+
     {time_quick_ms, state_after_quick} =
       measure_execution_time(fn ->
         do_quick_pass(unique_systems, state_quick)
       end)
 
     Logger.info("""
-    [KillsPreloader] Phase 1 (quick) done => calls_count=#{state_after_quick.calls_count},
-    elapsed=#{time_quick_ms}ms
+      [KillsPreloader] Phase 1 (quick) done => calls_count=#{state_after_quick.calls_count},
+      elapsed=#{time_quick_ms}ms
     """)
 
+    # ---- EXPANDED PASS ----
     state_expanded = %{state_after_quick | phase: :expanded_pass}
+
     {time_expanded_ms, final_state} =
       measure_execution_time(fn ->
         do_expanded_pass(unique_systems, state_expanded)
       end)
 
     Logger.info("""
-    [KillsPreloader] Phase 2 (expanded) done => calls_count=#{final_state.calls_count},
-    elapsed=#{time_expanded_ms}ms
+      [KillsPreloader] Phase 2 (expanded) done => calls_count=#{final_state.calls_count},
+      elapsed=#{time_expanded_ms}ms
     """)
 
+    # Reset phase to :idle
     {:noreply, %{final_state | phase: :idle}}
   end
 
@@ -108,13 +117,30 @@ defmodule WandererApp.Zkb.KillsPreloader do
         max_concurrency: state.max_concurrency,
         timeout: :timer.minutes(2)
       )
-      |> Enum.reduce({state, %{}}, &reduce_quick_result/2)
+      |> Enum.reduce({state, %{}}, &reduce_fetch_result(:quick, &1, &2))
 
     if map_size(kills_map) > 0 do
       broadcast_all_kills(kills_map, :quick)
     end
 
     final_state
+  end
+
+  defp fetch_quick_kills_for_system(_map_id, system_id, st) do
+    Logger.debug("[KillsPreloader] Quick fetch for system=#{system_id}")
+
+    # 1 kill, from the last hour, no force
+    case KillsProvider.Fetcher.fetch_kills_for_system(system_id, @default_hours, st,
+           limit: @quick_limit,
+           force: false
+         ) do
+      {:ok, kills, updated_state} ->
+        {:ok, system_id, kills, updated_state}
+
+      {:error, reason, updated_state} ->
+        Logger.warning("[KillsPreloader] Quick fetch failed => system=#{system_id}, reason=#{inspect(reason)}")
+        {:error, reason, updated_state}
+    end
   end
 
   defp do_expanded_pass(system_tuples, state) do
@@ -127,7 +153,7 @@ defmodule WandererApp.Zkb.KillsPreloader do
         max_concurrency: state.max_concurrency,
         timeout: :timer.minutes(5)
       )
-      |> Enum.reduce({state, %{}}, &reduce_expanded_result/2)
+      |> Enum.reduce({state, %{}}, &reduce_fetch_result(:expanded, &1, &2))
 
     if map_size(kills_map) > 0 do
       broadcast_all_kills(kills_map, :expanded)
@@ -136,36 +162,15 @@ defmodule WandererApp.Zkb.KillsPreloader do
     final_state
   end
 
-  defp fetch_quick_kills_for_system(_map_id, system_id, st) do
-    Logger.debug("[KillsPreloader] Quick fetch for system=#{system_id}")
-
-    case KillsProvider.Fetcher.fetch_kills_for_system_up_to_age_and_limit(
-           system_id,
-           @default_hours,
-           @quick_kills_limit,
-           st
-         ) do
-      {:ok, kills, updated_state} ->
-        {:ok, system_id, kills, updated_state}
-
-      {:error, reason, updated_state} ->
-        Logger.warning("[KillsPreloader] Quick fetch failed => system=#{system_id}, reason=#{inspect(reason)}")
-        {:error, reason, updated_state}
-    end
-  end
-
   defp fetch_expanded_kills_for_system(_map_id, system_id, st) do
-    with {:ok, kills_default_time, updated_state} <-
-           KillsProvider.Fetcher.fetch_kills_for_system_up_to_age_and_limit(
-             system_id,
-             @default_hours,
-             @expanded_kills_limit,
-             st,
+    # 1) Try up to @expanded_limit from the last hour
+    with {:ok, kills_1h, updated_state} <-
+           KillsProvider.Fetcher.fetch_kills_for_system(system_id, @default_hours, st,
+             limit: @expanded_limit,
              force: true
            ),
          {:ok, final_kills, final_state} <-
-           maybe_fetch_24h_if_needed(system_id, kills_default_time, updated_state)
-    do
+           maybe_fetch_24h_if_needed(system_id, kills_1h, updated_state) do
       {:ok, system_id, final_kills, final_state}
     else
       {:error, reason, updated_state} ->
@@ -174,21 +179,18 @@ defmodule WandererApp.Zkb.KillsPreloader do
     end
   end
 
-  defp maybe_fetch_24h_if_needed(system_id, kills_default_time, st) do
-    if length(kills_default_time) < @expanded_kills_limit do
-      needed = @expanded_kills_limit - length(kills_default_time)
+  defp maybe_fetch_24h_if_needed(system_id, kills_1h, st) do
+    if length(kills_1h) < @expanded_limit do
+      needed = @expanded_limit - length(kills_1h)
 
-      case KillsProvider.Fetcher.fetch_kills_for_system_up_to_age_and_limit(
-             system_id,
-             @expanded_hours,
-             needed,
-             st,
+      case KillsProvider.Fetcher.fetch_kills_for_system(system_id, 24, st,
+             limit: needed,
              force: true
            ) do
-        {:ok, _kills_expanded_time, updated_state2} ->
+        {:ok, _kills_24h, updated_state2} ->
           final_kills =
             KillsCache.fetch_cached_kills(system_id)
-            |> Enum.take(@expanded_kills_limit)
+            |> Enum.take(@expanded_limit)
 
           {:ok, final_kills, updated_state2}
 
@@ -197,61 +199,45 @@ defmodule WandererApp.Zkb.KillsPreloader do
           {:error, reason2, updated_state2}
       end
     else
-      {:ok, kills_default_time, st}
+      {:ok, kills_1h, st}
+    end
+  end
+
+  defp reduce_fetch_result(phase, task_result, {acc_st, acc_map}) do
+    case task_result do
+      {:ok, {:ok, sys_id, kills, updated_state}} ->
+        new_st = merge_calls_count(acc_st, updated_state)
+        new_map = Map.put(acc_map, sys_id, kills)
+        {new_st, new_map}
+
+      {:ok, {:error, reason, updated_state}} ->
+        if phase == :quick do
+          Logger.warning("[KillsPreloader] Quick fetch task failed => #{inspect(reason)}")
+        else
+          Logger.error("[KillsPreloader] Expanded fetch task failed => #{inspect(reason)}")
+        end
+
+        new_st = merge_calls_count(acc_st, updated_state)
+        {new_st, acc_map}
+
+      {:error, reason} ->
+        Logger.error("[KillsPreloader] #{phase} fetch task crashed => #{inspect(reason)}")
+        {acc_st, acc_map}
     end
   end
 
   defp gather_visible_systems(maps) do
     maps
-    |> Enum.flat_map(&visible_systems_for_map/1)
-  end
+    |> Enum.flat_map(fn map_record ->
+      case WandererApp.MapSystemRepo.get_visible_by_map(map_record.map_id) do
+        {:ok, systems} ->
+          Enum.map(systems, fn sys -> {map_record.map_id, sys.solar_system_id} end)
 
-  defp visible_systems_for_map(map_record) do
-    case WandererApp.MapSystemRepo.get_visible_by_map(map_record.map_id) do
-      {:ok, systems} ->
-        # Return a list of {map_id, system_id} tuples
-        Enum.map(systems, fn sys ->
-          {map_record.map_id, sys.solar_system_id}
-        end)
-
-      {:error, reason} ->
-        Logger.warning("[KillsPreloader] get_visible_by_map failed => map_id=#{map_record.map_id}, reason=#{inspect(reason)}")
-        []
-    end
-  end
-
-  defp reduce_quick_result({:ok, {:ok, sys_id, kills, updated_state}}, {acc_st, acc_map}) do
-    new_st = merge_calls_count(acc_st, updated_state)
-    new_map = Map.put(acc_map, sys_id, kills)
-    {new_st, new_map}
-  end
-
-  defp reduce_quick_result({:ok, {:error, reason, updated_state}}, {acc_st, acc_map}) do
-    Logger.warning("[KillsPreloader] Quick fetch task failed => #{inspect(reason)}")
-    new_st = merge_calls_count(acc_st, updated_state)
-    {new_st, acc_map}
-  end
-
-  defp reduce_quick_result({:error, reason}, {acc_st, acc_map}) do
-    Logger.error("[KillsPreloader] Quick fetch task crashed => #{inspect(reason)}")
-    {acc_st, acc_map}
-  end
-
-  defp reduce_expanded_result({:ok, {:ok, sys_id, kills, updated_state}}, {acc_st, acc_map}) do
-    new_st = merge_calls_count(acc_st, updated_state)
-    new_map = Map.put(acc_map, sys_id, kills)
-    {new_st, new_map}
-  end
-
-  defp reduce_expanded_result({:ok, {:error, reason, updated_state}}, {acc_st, acc_map}) do
-    Logger.error("[KillsPreloader] Expanded fetch task failed => #{inspect(reason)}")
-    new_st = merge_calls_count(acc_st, updated_state)
-    {new_st, acc_map}
-  end
-
-  defp reduce_expanded_result({:error, reason}, {acc_st, acc_map}) do
-    Logger.error("[KillsPreloader] Expanded fetch task crashed => #{inspect(reason)}")
-    {acc_st, acc_map}
+        {:error, reason} ->
+          Logger.warning("[KillsPreloader] get_visible_by_map failed => map_id=#{map_record.map_id}, reason=#{inspect(reason)}")
+          []
+      end
+    end)
   end
 
   defp broadcast_all_kills(kills_map, phase_type) do
