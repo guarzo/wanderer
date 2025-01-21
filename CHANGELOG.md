@@ -2,6 +2,27 @@
 
 <!-- changelog -->
 
+## [v1.44.0](https://github.com/wanderer-industries/wanderer/compare/v1.43.1...v1.44.0) (2025-01-21)
+
+
+
+
+### Features:
+
+* add news post for structures widget (#131)
+
+### Bug Fixes:
+
+* Map: Fix link signatures on splash. Fix deleting connection on locked system remove.
+
+* Fix system statics list (required EVE DB data update). Add system name to signature added/removed audit log
+
+* change structure tooltip to avoid paste confusion (#125)
+
+* change structure tooltip to avoid paste confusion
+
+* clarify use of evetime and use primereact calendar
+
 ## [v1.43.1](https://github.com/wanderer-industries/wanderer/compare/v1.43.0...v1.43.1) (2025-01-20)
 
 
