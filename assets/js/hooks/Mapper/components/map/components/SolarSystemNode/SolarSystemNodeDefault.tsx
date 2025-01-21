@@ -1,20 +1,23 @@
 import { memo } from 'react';
 import { MapSolarSystemType } from '../../map.types';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, NodeProps, Position } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeDefault.module.scss';
 import { PrimeIcons } from 'primereact/api';
-import { useSolarSystemNode } from '../../hooks/useSolarSystemNode';
+import { useLocalCounter, useSolarSystemNode } from '../../hooks/useSolarSystemLogic';
 import {
+  EFFECT_BACKGROUND_STYLES,
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
-  EFFECT_BACKGROUND_STYLES,
 } from '@/hooks/Mapper/components/map/constants';
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
+import { LocalCounter } from './SolarSystemLocalCounter';
+import { KillsCounter } from './SolarSystemKillsCounter';
 
 export const SolarSystemNodeDefault = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
+  const { localCounterCharacters } = useLocalCounter(nodeVars);
 
   return (
     <>
@@ -43,13 +46,19 @@ export const SolarSystemNodeDefault = memo((props: NodeProps<MapSolarSystemType>
             </div>
           )}
 
-          {nodeVars.killsCount && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[nodeVars.killsActivityType!])}>
+          {nodeVars.killsCount && nodeVars.killsCount > 0 && nodeVars.solarSystemId && (
+            <KillsCounter
+              killsCount={nodeVars.killsCount}
+              systemId={nodeVars.solarSystemId}
+              size="lg"
+              killsActivityType={nodeVars.killsActivityType}
+              className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[nodeVars.killsActivityType!])}
+            >
               <div className={clsx(classes.BookmarkWithIcon)}>
                 <span className={clsx(PrimeIcons.BOLT, classes.icon)} />
                 <span className={clsx(classes.text)}>{nodeVars.killsCount}</span>
               </div>
-            </div>
+            </KillsCounter>
           )}
 
           {nodeVars.labelsInfo.map(x => (
@@ -125,24 +134,15 @@ export const SolarSystemNodeDefault = memo((props: NodeProps<MapSolarSystemType>
               {nodeVars.isWormhole && !nodeVars.customName && <div />}
 
               <div className="flex items-center justify-end">
-                <div className="flex gap-1 items-center">
-                  {nodeVars.locked && (
-                    <i className={PrimeIcons.LOCK} style={{ fontSize: '0.45rem', fontWeight: 'bold' }} />
-                  )}
+                <div
+                  className={clsx('flex gap-1 items-center', {
+                    [classes.hasLocalCounter]: nodeVars.charactersInSystem.length > 0,
+                  })}
+                >
+                  {nodeVars.locked && <i className={clsx(PrimeIcons.LOCK, classes.lockIcon)} />}
 
                   {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
-                    <i className={PrimeIcons.MAP_MARKER} style={{ fontSize: '0.45rem', fontWeight: 'bold' }} />
-                  )}
-
-                  {nodeVars.charactersInSystem.length > 0 && (
-                    <div
-                      className={clsx(classes.localCounter, {
-                        ['text-amber-300']: nodeVars.hasUserCharacters,
-                      })}
-                    >
-                      <i className="pi pi-users" style={{ fontSize: '0.50rem' }} />
-                      <span className="font-sans">{nodeVars.charactersInSystem.length}</span>
-                    </div>
+                    <i className={clsx(PrimeIcons.MAP_MARKER, classes.mapMarker)} />
                   )}
                 </div>
               </div>
@@ -213,6 +213,11 @@ export const SolarSystemNodeDefault = memo((props: NodeProps<MapSolarSystemType>
           id="d"
         />
       </div>
+      <LocalCounter
+        hasUserCharacters={nodeVars.hasUserCharacters}
+        localCounterCharacters={localCounterCharacters}
+        classes={classes}
+      />
     </>
   );
 });
