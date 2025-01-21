@@ -12,6 +12,7 @@ import { sortWHClasses } from '@/hooks/Mapper/helpers';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
 import { CharacterTypeRaw, OutCommand } from '@/hooks/Mapper/types';
 import { LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants';
+import useLocalStorageState from 'use-local-storage-state';
 
 function getActivityType(count: number) {
   if (count <= 5) return 'activityNormal';
@@ -29,6 +30,20 @@ const SpaceToClass: Record<string, string> = {
 function sortedLabels(labels: string[]) {
   if (!labels) return [];
   return LABELS_ORDER.filter(x => labels.includes(x)).map(x => LABELS_INFO[x]);
+}
+
+export function useLocalCounter(nodeVars: SolarSystemNodeVars) {
+  const localCounterCharacters = useMemo(() => {
+    return nodeVars.charactersInSystem
+      .map(char => ({
+        ...char,
+        compact: true,
+        isOwn: nodeVars.userCharacters.includes(char.eve_id),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [nodeVars.charactersInSystem, nodeVars.userCharacters]);
+
+  return { localCounterCharacters };
 }
 
 export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>) {
@@ -182,6 +197,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>) {
     killsCount,
     killsActivityType,
     hasUserCharacters,
+    userCharacters,
     showHandlers,
     regionClass,
     systemName,
@@ -195,7 +211,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>) {
     sortedStatics,
     effectName: effect_name,
     regionName: region_name,
-    solarSystemId: solar_system_id,
+    solarSystemId: solar_system_id.toString(),
     solarSystemName: solar_system_name,
     locked,
     hubs,
@@ -236,7 +252,7 @@ export interface SolarSystemNodeVars {
   sortedStatics: Array<string | number>;
   effectName: string | null;
   regionName: string | null;
-  solarSystemId: number;
+  solarSystemId: string;
   solarSystemName: string | null;
   locked: boolean;
   hubs: string[] | number[];
@@ -244,6 +260,7 @@ export interface SolarSystemNodeVars {
   isConnecting: boolean;
   hoverNodeId: string | null;
   charactersInSystem: Array<CharacterTypeRaw>;
+  userCharacters: Array<string>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   unsplashedLeft: Array<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
