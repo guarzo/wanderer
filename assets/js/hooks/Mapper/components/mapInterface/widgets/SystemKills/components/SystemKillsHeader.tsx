@@ -1,28 +1,25 @@
 import React from 'react';
-import clsx from 'clsx';
 import {
   LayoutEventBlocker,
-  WdImgButton,
   WdCheckbox,
+  WdImgButton,
   TooltipPosition,
   SystemView,
 } from '@/hooks/Mapper/components/ui-kit';
 import { useKillsWidgetSettings } from '../hooks/useKillsWidgetSettings';
+import { PrimeIcons } from 'primereact/api';
 
 interface KillsWidgetHeaderProps {
   systemId?: string;
+  onOpenSettings: () => void;
 }
 
-export const KillsHeader: React.FC<KillsWidgetHeaderProps> = ({ systemId }) => {
+export const KillsHeader: React.FC<KillsWidgetHeaderProps> = ({ systemId, onOpenSettings }) => {
   const [settings, setSettings] = useKillsWidgetSettings();
-  const { showAll, compact } = settings;
+  const { showAll } = settings;
 
-  // toggles
   const onToggleShowAllVisible = () => {
     setSettings(prev => ({ ...prev, showAll: !prev.showAll }));
-  };
-  const onToggleCompact = () => {
-    setSettings(prev => ({ ...prev, compact: !prev.compact }));
   };
 
   return (
@@ -46,14 +43,10 @@ export const KillsHeader: React.FC<KillsWidgetHeaderProps> = ({ systemId }) => {
         />
 
         <WdImgButton
-          className={clsx(
-            compact ? 'hero-bars-2' : 'hero-bars-3',
-            'hover:text-sky-200 transition duration-300',
-            'inline-flex items-center justify-center w-5 h-5 text-sm leading-none align-middle',
-          )}
-          onClick={onToggleCompact}
+          className={PrimeIcons.SLIDERS_H}
+          onClick={onOpenSettings}
           tooltip={{
-            content: 'Toggle compact mode',
+            content: 'Open Kills Settings',
             position: TooltipPosition.left,
           }}
         />
