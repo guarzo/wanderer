@@ -1,5 +1,3 @@
-// FullKillRow.tsx
-
 import React from 'react';
 import clsx from 'clsx';
 import { DetailedKill } from '@/hooks/Mapper/types/kills';
@@ -35,10 +33,12 @@ export const FullKillRow: React.FC<FullKillRowProps> = ({ killDetails, systemNam
   const killTimeAgo = kill_time ? formatTimeMixed(kill_time) : '0h ago';
   const killValueFormatted = total_value && total_value > 0 ? `${formatISK(total_value)} ISK` : null;
 
-  const victimPortraitUrl = victim_char_id ? eveImageUrl('characters', victim_char_id, 'portrait', 64) : null;
-  const victimShipUrl = eveImageUrl('types', victim_ship_type_id, 'render', 64);
-  const victimCorpLogoUrl = victim_corp_id ? eveImageUrl('corporations', victim_corp_id, 'logo', 32) : null;
-  const victimAllianceLogoUrl = victim_alliance_id ? eveImageUrl('alliances', victim_alliance_id, 'logo', 32) : null;
+  const victimPortraitUrl = victim_char_id ? eveImageUrl('characters', victim_char_id, 'portrait', 64) || null : null;
+  const victimShipUrl = victim_ship_type_id ? eveImageUrl('types', victim_ship_type_id, 'render', 64) || null : null;
+  const victimCorpLogoUrl = victim_corp_id ? eveImageUrl('corporations', victim_corp_id, 'logo', 32) || null : null;
+  const victimAllianceLogoUrl = victim_alliance_id
+    ? eveImageUrl('alliances', victim_alliance_id, 'logo', 32) || null
+    : null;
 
   const attackerSubscript = getAttackerSubscript(killDetails);
 
@@ -46,7 +46,6 @@ export const FullKillRow: React.FC<FullKillRowProps> = ({ killDetails, systemNam
     <div
       className={clsx('h-16 px-1 py-1', 'flex border-b border-stone-700', 'text-sm whitespace-nowrap overflow-hidden')}
     >
-      {/* Left side: victim portrait & corp/alliance icons */}
       <KillRowSubInfo
         victimCorpId={victim_corp_id}
         victimCorpLogoUrl={victimCorpLogoUrl}
@@ -57,9 +56,13 @@ export const FullKillRow: React.FC<FullKillRowProps> = ({ killDetails, systemNam
       />
       <div className="flex flex-col ml-3 min-w-0 overflow-hidden gap-1">
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
-          <span className="truncate text-stone-200">{victimShipName}</span>
+          <span className="truncate text-stone-200 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            {victimShipName}
+          </span>
           <span className="text-stone-500">|</span>
-          <span className="truncate text-stone-400">{victimAffiliationTicker}</span>
+          <span className="truncate text-stone-400 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            {victimAffiliationTicker}
+          </span>
         </div>
         <span className="text-stone-400 truncate">{killTimeAgo}</span>
       </div>

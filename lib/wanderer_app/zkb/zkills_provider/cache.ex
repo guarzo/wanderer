@@ -1,11 +1,6 @@
 defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   @moduledoc """
   Provides helper functions for putting/fetching kill data
-  in the Nebulex cache, so the calling code doesn't have to worry
-  about the exact cache key structure or TTL logic.
-
-  Also handles checks for "recently fetched" systems (timestamp caching)
-  with a random jitter on expiry to avoid refetching all systems at once.
   """
 
   require Logger
@@ -41,6 +36,17 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
     killmail_ids
     |> Enum.map(&get_killmail/1)
     |> Enum.reject(&is_nil/1)
+  end
+
+  @doc """
+  Fetch cached kills for multiple solar system IDs.
+  Returns a map of `%{ solar_system_id => list_of_kills }`.
+  """
+  def fetch_cached_kills_for_systems(system_ids) when is_list(system_ids) do
+    Enum.reduce(system_ids, %{}, fn sid, acc ->
+      kills_list = fetch_cached_kills(sid)
+      Map.put(acc, sid, kills_list)
+    end)
   end
 
   @doc """
