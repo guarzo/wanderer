@@ -2,7 +2,6 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   @moduledoc """
   Handles kills-related UI/server events.
   """
-
   use WandererAppWeb, :live_component
   require Logger
 
@@ -10,26 +9,31 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   alias WandererApp.Zkb.KillsProvider
   alias WandererApp.Zkb.KillsProvider.KillsCache
 
+  # ---------------------------------------------------------------------------
+  # Server events
+  # ---------------------------------------------------------------------------
 
+  # Called by MapEventHandler when event is in @map_kills_events
   def handle_server_event(%{event: :detailed_kills_updated, payload: payload}, socket) do
+    # Forward updated kills to the client
     Phoenix.LiveView.push_event(socket, "detailed_kills_updated", payload)
   end
 
   def handle_server_event(%{event: :fetch_new_system_kills, payload: system}, socket) do
     parent_pid = self()
-    ref = make_ref()
 
     Task.start(fn ->
       sid = system.solar_system_id
+
       case KillsProvider.Fetcher.fetch_kills_for_system(sid, 24, %{calls_count: 0}) do
         {:ok, kills, _state} ->
           kills_map = %{sid => kills}
-          send(parent_pid, {ref, {:detailed_kills_updated, kills_map}})
+
+          # Send a standard event map without {ref, ...}
+          send(parent_pid, %{event: :detailed_kills_updated, payload: kills_map})
 
         {:error, reason, _state} ->
-          Logger.warning(
-            "[MapKillsEventHandler] Failed to fetch kills for system=#{sid}: #{inspect(reason)}"
-          )
+          Logger.warning("[MapKillsEventHandler] Failed to fetch kills for system=#{sid}: #{inspect(reason)}")
       end
     end)
 
@@ -38,7 +42,6 @@ defmodule WandererAppWeb.MapKillsEventHandler do
 
   def handle_server_event(%{event: :fetch_new_map_kills, payload: %{map_id: map_id}}, socket) do
     parent_pid = self()
-    ref = make_ref()
 
     Task.start(fn ->
       with {:ok, map_systems} <- WandererApp.MapSystemRepo.get_visible_by_map(map_id),
@@ -46,18 +49,17 @@ defmodule WandererAppWeb.MapKillsEventHandler do
            {:ok, systems_map} <-
              KillsProvider.Fetcher.fetch_kills_for_systems(system_ids, 24, %{calls_count: 0})
       do
-        send(parent_pid, {ref, {:detailed_kills_updated, systems_map}})
+        send(parent_pid, %{event: :detailed_kills_updated, payload: systems_map})
       else
         {:error, reason} ->
-          Logger.warning(
-            "[MapKillsEventHandler] Failed to fetch kills for map=#{map_id}, reason=#{inspect(reason)}"
-          )
+          Logger.warning("[MapKillsEventHandler] Failed to fetch kills for map=#{map_id}, reason=#{inspect(reason)}")
       end
     end)
 
     socket
   end
 
+  # Fallback for any unknown server event
   def handle_server_event(event, socket) do
     updated_socket =
       case MapCoreEventHandler.handle_server_event(event, socket) do
@@ -76,12 +78,11 @@ defmodule WandererAppWeb.MapKillsEventHandler do
       reply_payload = %{"system_id" => system_id, "kills" => kills_from_cache}
 
       parent_pid = self()
-      ref = make_ref()
 
       Task.start(fn ->
         case KillsProvider.Fetcher.fetch_kills_for_system(system_id, since_hours, %{calls_count: 0}) do
           {:ok, fresh_kills, _new_state} ->
-            send(parent_pid, {ref, {:detailed_kills_updated, %{system_id => fresh_kills}}})
+            send(parent_pid, %{event: :detailed_kills_updated, payload: %{system_id => fresh_kills}})
 
           {:error, reason, _new_state} ->
             Logger.warning("[MapKillsEventHandler] fetch_kills_for_system => error=#{inspect(reason)}")
@@ -108,12 +109,11 @@ defmodule WandererAppWeb.MapKillsEventHandler do
       reply_payload = %{"systems_kills" => cached_map}
 
       parent_pid = self()
-      ref = make_ref()
 
       Task.start(fn ->
         case KillsProvider.Fetcher.fetch_kills_for_systems(parsed_ids, since_hours, %{calls_count: 0}) do
           {:ok, systems_map} ->
-            send(parent_pid, {ref, {:detailed_kills_updated, systems_map}})
+            send(parent_pid, %{event: :detailed_kills_updated, payload: systems_map})
 
           {:error, reason} ->
             Logger.warning("[MapKillsEventHandler] fetch_kills_for_systems => error=#{inspect(reason)}")
