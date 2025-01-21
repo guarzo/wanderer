@@ -294,22 +294,20 @@ $custom-name: #93C5FD;
   align-items: center;
   height: 19px;
 
-  .localCounter {
-    display: flex;
-    //align-items: center;
-    gap: 2px;
+  .hasLocalCounter {
+    margin-right: 1.25rem;
+  }
 
-    & > i {
-      position: relative;
-      top: 1px;
-    }
+  .lockIcon {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
+  }
 
-    & > span {
-      font-size: 9px;
-      line-height: 9px;
-      font-weight: 500;
-      //margin-top: 1px;
-    }
+  .mapMarker {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
   }
 }
 
@@ -392,6 +390,46 @@ $custom-name: #93C5FD;
 
     &.HandleLeft {
       left: -3px;
+    }
+  }
+}
+
+.LocalCounterLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  padding: 8;
+
+  .localCounter {
+    position: absolute;
+    pointer-events: auto;
+    top: 10px;
+    right: 8px;
+    font-family: var(--rf-node-font-family, inherit);
+    font-weight: var(--rf-node-font-weight, inherit);
+    mix-blend-mode: screen;
+    gap: 2px;
+    color: var(--rf-node-local-counter, #5cb85c);
+
+    &.hasUserCharacters {
+      color: var(--rf-has-user-characters, #fbbf24);
+      font-family: var(--rf-node-font-family, inherit);
+      font-weight: var(--rf-node-font-weight, inherit);
+    }
+
+    & > i {
+      position: relative;
+      top: 1px;
+    }
+
+    & > span {
+      font-size: 9px;
+      line-height: 9px;
+      font-weight: 500;
     }
   }
 }
