@@ -1,14 +1,50 @@
 defmodule WandererApp.Zkb.KillsProvider.Parser do
   @moduledoc """
   Helper for parsing & storing a killmail from the ESI data (plus zKB partial).
+  Responsible for:
+    - Parsing the raw JSON structures,
+    - Combining partial & full kill data,
+    - Checking whether kills are 'too old',
+    - Storing in KillsCache, etc.
   """
 
   require Logger
   alias WandererApp.Zkb.KillsProvider.KillsCache
 
   @doc """
+  Merges the 'partial' from zKB and the 'full' killmail from ESI, checks its time
+  vs. `cutoff_dt`.
+
+  Returns:
+    - `:ok` if we parsed & stored successfully,
+    - `:older` if killmail time is older than `cutoff_dt`,
+    - `:skip` if we cannot parse or store for some reason.
+  """
+  def parse_full_and_store(full_km, partial_zkb, cutoff_dt) when is_map(full_km) do
+    # Attempt to parse the killmail_time
+    case parse_killmail_time(full_km) do
+      {:ok, km_dt} ->
+        if older_than_cutoff?(km_dt, cutoff_dt) do
+          :older
+        else
+          # Merge the "zkb" portion from the partial into the full killmail
+          enriched = Map.merge(full_km, %{"zkb" => partial_zkb["zkb"]})
+          parse_and_store_killmail(enriched)
+        end
+
+      _ ->
+        :skip
+    end
+  end
+
+  def parse_full_and_store(_full_km, _partial_zkb, _cutoff_dt),
+    do: :skip
+
+  @doc """
   Parse a raw killmail (`full_km`) and store it if valid.
-  Returns `{:ok, kill_time}` or `:skip`.
+  Returns:
+    - `:ok` if successfully parsed & stored,
+    - `:skip` otherwise
   """
   def parse_and_store_killmail(%{"killmail_id" => _kill_id} = full_km) do
     parsed_map = do_parse(full_km)
@@ -17,7 +53,7 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
       :skip
     else
       store_killmail(parsed_map)
-      {:ok, parsed_map["kill_time"]}
+      :ok
     end
   end
 
@@ -51,6 +87,24 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
 
   defp do_parse(_),
     do: nil
+
+  @doc """
+  Extracts & returns {:ok, DateTime} from the "killmail_time" field, or :skip on failure.
+  """
+  def parse_killmail_time(full_km) do
+    killmail_time_str = Map.get(full_km, "killmail_time", "")
+
+    case DateTime.from_iso8601(killmail_time_str) do
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
+      _ ->
+        :skip
+    end
+  end
+
+  defp older_than_cutoff?(%DateTime{} = dt, %DateTime{} = cutoff_dt),
+    do: DateTime.compare(dt, cutoff_dt) == :lt
 
   defp store_killmail(%{"killmail_id" => nil}), do: :ok
 
@@ -193,10 +247,6 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
     |> maybe_put_ship_name("final_blow_ship_type_id", "final_blow_ship_name")
   end
 
-  # ------------------------------------------------------------------
-  # "maybe_*" resolution from ESI or cached data
-  # ------------------------------------------------------------------
-
   defp maybe_put_character_name(km, id_key, name_key) do
     case Map.get(km, id_key) do
       nil -> km
@@ -263,6 +313,7 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
     end
   end
 
+  # Utility
   defp within_last_hour?(nil), do: false
 
   defp within_last_hour?(%DateTime{} = dt),
