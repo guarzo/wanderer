@@ -164,7 +164,6 @@ defmodule WandererAppWeb.MapEventHandler do
       when event_name in @map_kills_events,
       do: MapKillsEventHandler.handle_server_event(event, socket)
 
-
   def handle_event(socket, {ref, result}) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
 
@@ -219,12 +218,11 @@ defmodule WandererAppWeb.MapEventHandler do
       do: MapActivityEventHandler.handle_ui_event(event, body, socket)
 
   def handle_ui_event(event, body, socket)
-    when event in @map_kills_ui_events,
-    do: MapKillsEventHandler.handle_ui_event(event, body, socket)
+      when event in @map_kills_ui_events,
+      do: MapKillsEventHandler.handle_ui_event(event, body, socket)
 
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
-
 
   def get_system_static_info(nil), do: nil
 

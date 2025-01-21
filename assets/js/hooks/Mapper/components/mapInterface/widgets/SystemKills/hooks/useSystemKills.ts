@@ -3,6 +3,7 @@ import debounce from 'lodash.debounce';
 import { OutCommand } from '@/hooks/Mapper/types/mapHandlers';
 import { DetailedKill } from '@/hooks/Mapper/types/kills';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { useKillsWidgetSettings } from './useKillsWidgetSettings';
 
 interface UseSystemKillsProps {
   systemId?: string;
@@ -45,13 +46,17 @@ export function useSystemKills({ systemId, outCommand, showAllVisible = false, s
   const { data, update } = useMapRootState();
   const { detailedKills = {}, systems = [] } = data;
 
-  const visibleSystemIds = useMemo(() => systems.map(s => s.id), [systems]);
+  const [settings] = useKillsWidgetSettings();
+  const excludedSystems = settings.excludedSystems;
+
+  const visibleSystemIds = useMemo(() => {
+    return systems.map(s => s.id).filter(id => !excludedSystems.includes(Number(id)));
+  }, [systems, excludedSystems]);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Used to track if we did a fallback fetch once
-  const didFallbackFetch = useRef(false);
+  const didFallbackFetch = useRef(Object.keys(detailedKills).length !== 0);
 
   const mergeKillsIntoGlobal = useCallback(
     (killsMap: Record<string, DetailedKill[]>) => {
@@ -158,7 +163,7 @@ export function useSystemKills({ systemId, outCommand, showAllVisible = false, s
       return visibleSystemIds.flatMap(sid => detailedKills[sid] ?? []);
     }
     return [];
-  }, [showAllVisible, systemId, visibleSystemIds, detailedKills]);
+  }, [showAllVisible, systemId, didFallbackFetch, visibleSystemIds, detailedKills]);
 
   /**
    * If we are loading and we have NO kills yet, we are effectively "loading."
@@ -177,7 +182,7 @@ export function useSystemKills({ systemId, outCommand, showAllVisible = false, s
       debouncedFetchKills.cancel();
       fetchKills(true); // forceFallback => fetch as though showAll
     }
-  }, [systemId, showAllVisible, debouncedFetchKills, fetchKills]);
+  }, [systemId, showAllVisible, debouncedFetchKills, fetchKills, didFallbackFetch]);
 
   /**
    * useEffect #2 => if we do have showAll or a system,

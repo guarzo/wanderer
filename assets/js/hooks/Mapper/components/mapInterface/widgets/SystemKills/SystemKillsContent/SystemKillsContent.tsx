@@ -1,5 +1,5 @@
-import clsx from 'clsx';
 import React, { useMemo } from 'react';
+import clsx from 'clsx';
 import { DetailedKill } from '@/hooks/Mapper/types/kills';
 import { KillRow } from '../components/SystemKillsRow';
 
@@ -24,14 +24,6 @@ export const SystemKillsContent: React.FC<SystemKillsContentProps> = ({
     });
   }, [kills]);
 
-  if (sortedKills.length === 0) {
-    return (
-      <div className="w-full h-full flex justify-center items-center text-center text-stone-400/80 text-sm">
-        No kills found
-      </div>
-    );
-  }
-
   return (
     <div
       className={clsx(
@@ -46,9 +38,9 @@ export const SystemKillsContent: React.FC<SystemKillsContentProps> = ({
         return (
           <KillRow
             key={kill.killmail_id}
-            kill={kill}
+            killDetails={kill}
             systemName={systemName}
-            compact={compact}
+            isCompact={compact}
             onlyOneSystem={onlyOneSystem}
           />
         );

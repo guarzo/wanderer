@@ -16,14 +16,13 @@ export const WidgetsSettings = ({}: WidgetsSettingsProps) => {
     [toggleWidgetVisibility],
   );
 
-
   const detailedKillsDisabled = data.options?.detailedKillsDisabled === true;
-  const WidgetProps = getWidgetsCheckboxesProps(detailedKillsDisabled)
+  const widgetProps = getWidgetsCheckboxesProps(detailedKillsDisabled);
 
   return (
     <div className="flex flex-col h-full gap-2">
       <div>
-        {WidgetProps.map(widget => (
+        {widgetProps.map(widget => (
           <PrettySwitchbox
             key={widget.id}
             label={widget.label}
