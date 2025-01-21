@@ -1,0 +1,53 @@
+@import './SolarSystemNodeTheme.module.scss';
+
+
+.BottomRow {
+  font-family: var(--rf-node-font-family, inherit) !important;
+  font-weight: var(--rf-node-font-weight, inherit) !important;
+
+  .tagTitle {
+    font-size: 10px;
+    font-weight: medium;
+    font-family: var(--rf-node-font-family, inherit) !important;
+    font-weight: var(--rf-node-font-weight, inherit) !important;
+    color: var(--rf-tag-color, #38BDF8);
+  }
+
+  .regionName {
+    color: var(--rf-region-name, #D6D3D1);
+    font-family: var(--rf-node-font-family, inherit) !important;
+    font-weight: var(--rf-node-font-weight, inherit) !important;
+  }
+
+  .customName {
+    color: var(--rf-custom-name, #93C5FD);
+    font-family: var(--rf-node-font-family, inherit) !important;
+    font-weight
+    : var(--rf-node-font-weight, inherit) !important;
+  }
+
+  .lockIcon {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
+
+    &.hasLocalCounter {
+      margin-right: 0.75rem;
+    }
+  }
+
+  .mapMarker {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
+
+    &.hasLocalCounter {
+      margin-right: 0.75rem;
+    }
+  }
+}
+
+/* Override .statics font-size from 8px → 10px. */
+.statics {
+  font-size: 10px;
+}
