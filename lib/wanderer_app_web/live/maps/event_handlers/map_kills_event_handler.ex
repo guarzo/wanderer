@@ -10,7 +10,6 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   alias WandererApp.Zkb.KillsProvider
   alias WandererApp.Zkb.KillsProvider.KillsCache
 
-
   def handle_server_event(%{event: :detailed_kills_updated, payload: payload}, socket) do
     Phoenix.LiveView.push_event(socket, "detailed_kills_updated", payload)
   end
@@ -21,15 +20,14 @@ defmodule WandererAppWeb.MapKillsEventHandler do
 
     Task.start(fn ->
       sid = system.solar_system_id
+      # 24-hour fetch, no special limit => pass no opts
       case KillsProvider.Fetcher.fetch_kills_for_system(sid, 24, %{calls_count: 0}) do
         {:ok, kills, _state} ->
           kills_map = %{sid => kills}
           send(parent_pid, {ref, {:detailed_kills_updated, kills_map}})
 
         {:error, reason, _state} ->
-          Logger.warning(
-            "[MapKillsEventHandler] Failed to fetch kills for system=#{sid}: #{inspect(reason)}"
-          )
+          Logger.warning("[MapKillsEventHandler] Failed to fetch kills for system=#{sid}: #{inspect(reason)}")
       end
     end)
 
@@ -43,15 +41,14 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     Task.start(fn ->
       with {:ok, map_systems} <- WandererApp.MapSystemRepo.get_visible_by_map(map_id),
            system_ids <- Enum.map(map_systems, & &1.solar_system_id),
+           # Using a 'multi-system' fetch helper:
            {:ok, systems_map} <-
              KillsProvider.Fetcher.fetch_kills_for_systems(system_ids, 24, %{calls_count: 0})
       do
         send(parent_pid, {ref, {:detailed_kills_updated, systems_map}})
       else
         {:error, reason} ->
-          Logger.warning(
-            "[MapKillsEventHandler] Failed to fetch kills for map=#{map_id}, reason=#{inspect(reason)}"
-          )
+          Logger.warning("[MapKillsEventHandler] Failed to fetch kills for map=#{map_id}, reason=#{inspect(reason)}")
       end
     end)
 
