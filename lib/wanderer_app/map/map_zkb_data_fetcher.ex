@@ -13,6 +13,9 @@ defmodule WandererApp.Map.ZkbDataFetcher do
   @logger Application.compile_env(:wanderer_app, :logger)
   @pubsub_client Application.compile_env(:wanderer_app, :pubsub_client)
 
+    # This means 120 “ticks” of 15s each → ~30 minutes
+    @preload_cycle_ticks 120
+
   def start_link(_) do
     GenServer.start(__MODULE__, [], name: __MODULE__)
   end
@@ -20,12 +23,13 @@ defmodule WandererApp.Map.ZkbDataFetcher do
   @impl true
   def init([]) do
     {:ok, timer} = :timer.send_interval(@interval, :fetch_data)
-
-    {:ok, %{timer: timer}}
+    # Start with a preload counter at 0
+    {:ok, %{timer: timer, iteration: 0}}
   end
 
   @impl true
-  def handle_info(:fetch_data, state) do
+  def handle_info(:fetch_data, %{iteration: iteration} = state) do
+    # 1) Normal 15-second logic for updating kills
     WandererApp.Map.RegistryHelper.list_all_maps()
     |> Task.async_stream(
       fn %{id: map_id, pid: _server_pid} ->
@@ -35,6 +39,7 @@ defmodule WandererApp.Map.ZkbDataFetcher do
           |> case do
             pid when is_pid(pid) ->
               _update_map_kills(map_id)
+
               unless WandererApp.Env.zkill_preload_disabled?() do
                 update_detailed_map_kills(map_id)
               end
@@ -51,15 +56,26 @@ defmodule WandererApp.Map.ZkbDataFetcher do
       max_concurrency: 10,
       on_timeout: :kill_task
     )
-    |> Enum.map(fn _ -> :ok end)
+    |> Enum.each(fn _ -> :ok end)
 
-    {:noreply, state}
+    new_iteration = iteration + 1
+    if WandererApp.Env.zkill_preload_disabled?() do
+      if new_iteration >= @preload_cycle_ticks do
+        Logger.info("[ZkbDataFetcher] Triggering a fresh kill preload pass ...")
+        WandererApp.Zkb.KillsPreloader.run_preload_now()
+        # reset iteration
+        {:noreply, %{state | iteration: 0}}
+      else
+        {:noreply, %{state | iteration: new_iteration}}
+      end
+    else
+      {:noreply, %{state | iteration: new_iteration}}
+    end
   end
 
   @impl true
   def handle_info({ref, _result}, state) do
     Process.demonitor(ref, [:flush])
-
     {:noreply, state}
   end
 
@@ -81,9 +97,6 @@ defmodule WandererApp.Map.ZkbDataFetcher do
   end
 
   defp update_detailed_map_kills(map_id) do
-    unless WandererApp.Env.zkill_preload_disabled?() do
-      {WandererApp.Zkb.KillsPreloader, []}
-    end
     if WandererApp.Cache.lookup!("map_#{map_id}:started", false) do
       systems =
         map_id
@@ -133,8 +146,13 @@ defmodule WandererApp.Map.ZkbDataFetcher do
             Map.put(acc, system_id, new_ids_list)
           end)
 
-        WandererApp.Cache.put("map_#{map_id}:zkb_ids", updated_ids_map, ttl: :timer.hours(KillsCache.killmail_ttl))
-        WandererApp.Cache.put("map_#{map_id}:zkb_detailed_kills", updated_details_map, ttl: :timer.hours(KillsCache.killmail_ttl))
+        WandererApp.Cache.put("map_#{map_id}:zkb_ids", updated_ids_map,
+          ttl: :timer.hours(KillsCache.killmail_ttl)
+        )
+
+        WandererApp.Cache.put("map_#{map_id}:zkb_detailed_kills", updated_details_map,
+          ttl: :timer.hours(KillsCache.killmail_ttl)
+        )
 
         changed_data = Map.take(updated_details_map, changed_systems)
 
@@ -150,7 +168,6 @@ defmodule WandererApp.Map.ZkbDataFetcher do
       :ok
     end
   end
-
 
   defp _maybe_broadcast_map_kills(new_kills_map, map_id) do
     {:ok, old_kills_map} = WandererApp.Cache.lookup("map_#{map_id}:zkb_kills", Map.new())
