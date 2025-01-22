@@ -44,6 +44,10 @@
   --rf-node-font-family: 'Oxygen', sans-serif;
   --rf-node-text-color: var(--pf-text-color);
 
+  --rf-node-local-counter: #5cb85c;
+  --rf-has-user-characters: var(--rf-node-local-counter, #5cb85c);
+  --rf-local-counter-font-weight: 700;
+
   --rf-tag-color: #fbbf24;
   --window-corner: #72716f;
 }
