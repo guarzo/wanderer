@@ -59,6 +59,8 @@ defmodule WandererAppWeb.MapEventHandler do
     "get_corporation_ticker",
     "get_alliance_names",
     "get_alliance_ticker",
+    "update_system_custom_flags",
+    "update_system_status"
   ]
 
   @map_connection_events [
@@ -291,6 +293,7 @@ defmodule WandererAppWeb.MapEventHandler do
           temporary_name: temporary_name,
           owner_type: owner_type,
           owner_id: owner_id,
+          custom_flags: custom_flags,
           status: status,
           visible: visible
         } = _system,
@@ -320,6 +323,7 @@ defmodule WandererAppWeb.MapEventHandler do
       temporary_name: temporary_name,
       owner_type: owner_type,
       owner_id: owner_id,
+      custom_flags: custom_flags,
       visible: visible
     }
   end
