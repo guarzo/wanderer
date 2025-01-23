@@ -361,20 +361,20 @@ defmodule WandererApp.Esi.ApiClient do
       {"search", search_val},
       {"categories", categories_val},
       {"language", "en-us"},
-      {"strict", "false"}
+      {"strict", "false"},
+      {"datasource", "tranquility"}
     ]
 
     merged_opts = Keyword.put(opts, :params, query_params)
-
-    _search(character_eve_id, search_val, merged_opts)
+    _search(character_eve_id, search_val, categories_val, merged_opts)
   end
 
   @decorate cacheable(
     cache: Cache,
-    key: "search-#{character_eve_id}-#{search_val |> Slug.slugify()}",
+    key: "search-#{character_eve_id}-#{categories_val}-#{search_val |> Slug.slugify()}",
     opts: [ttl: @ttl]
   )
-  defp _search(character_eve_id, search_val, merged_opts) do
+  defp _search(character_eve_id, search_val, categories_val, merged_opts) do
     _get_character_auth_data(character_eve_id, "search", merged_opts)
   end
 
@@ -474,22 +474,8 @@ defmodule WandererApp.Esi.ApiClient do
       )
 
   defp get(path, api_opts \\ [], opts \\ []) do
-    api_opts = Keyword.merge(api_opts, @retry_opts)
-
-    params_list = Keyword.get(api_opts, :params, [])
-    query_string = URI.encode_query(params_list)
-
-    full_url =
-      if query_string == "" do
-        "#{@base_url}#{path}"
-      else
-        "#{@base_url}#{path}?#{query_string}"
-      end
-
-    Logger.debug("ESI GET --> #{full_url}")
-
     try do
-      case Req.get(full_url, api_opts) do
+      case Req.get("#{@base_url}#{path}", api_opts |> Keyword.merge(@retry_opts)) do
         {:ok, %{status: 200, body: body}} ->
           {:ok, body}
 
@@ -514,10 +500,10 @@ defmodule WandererApp.Esi.ApiClient do
     rescue
       e ->
         @logger.error(Exception.message(e))
+
         {:error, "Request failed"}
     end
   end
-
 
   defp post(url, opts) do
     try do

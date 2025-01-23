@@ -12,7 +12,6 @@ import { sortWHClasses } from '@/hooks/Mapper/helpers';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
 import { CharacterTypeRaw, OutCommand } from '@/hooks/Mapper/types';
 import { LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants';
-import useLocalStorageState from 'use-local-storage-state';
 
 const zkillboardBaseURL = 'https://zkillboard.com';
 
@@ -121,7 +120,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>) {
       setOwnerURL('');
       return;
     }
-    console.log(owner_type);
     if (owner_type === 'corp') {
       outCommand({
         type: OutCommand.getCorporationTicker,

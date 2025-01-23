@@ -50,6 +50,7 @@ defmodule WandererApp.Api.MapSystem do
     define(:update_owner, action: :update_owner)
     define(:update_owner_id, action: :update_owner_id)
     define(:update_owner_type, action: :update_owner_type)
+    define(:update_custom_flags, action: :update_custom_flags)
     define(:update_labels, action: :update_labels)
     define(:update_linked_sig_eve_id, action: :update_linked_sig_eve_id)
     define(:update_position, action: :update_position)
@@ -122,6 +123,10 @@ defmodule WandererApp.Api.MapSystem do
     update :update_owner_type do
       accept [:owner_type]
     end
+    
+    update :update_custom_flags do
+      accept [:custom_flags]
+    end
 
     update :update_labels do
       accept [:labels]
@@ -175,6 +180,10 @@ defmodule WandererApp.Api.MapSystem do
     end
 
     attribute :owner_type, :string do
+      allow_nil? true
+    end
+
+    attribute :custom_flags, :string do
       allow_nil? true
     end
 
