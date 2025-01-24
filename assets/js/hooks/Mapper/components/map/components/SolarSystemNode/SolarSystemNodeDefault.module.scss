@@ -20,11 +20,16 @@ $custom-name: #93C5FD;
   width: 130px;
   height: 34px;
 
+  font-family: var(--rf-node-font-family, inherit) !important;
+  font-weight: var(--rf-node-font-weight, inherit) !important;
+
   flex-direction: column;
   padding: 2px 6px;
   font-size: 10px;
 
-  background-color: $tooltip-bg;
+  background-color: var(--rf-node-bg-color, #202020) !important;
+  color: var(--rf-text-color, #ffffff);
+
   box-shadow: 0 0 5px rgba($dark-bg, 0.5);
   border: 1px solid darken($pastel-blue, 10%);
   border-radius: 5px;
@@ -275,7 +280,6 @@ $custom-name: #93C5FD;
   /* Firefox kostyl */
   @-moz-document url-prefix() {
     .classSystemName {
-      font-family: inherit !important;
       font-weight: bold;
     }
   }
@@ -294,22 +298,20 @@ $custom-name: #93C5FD;
   align-items: center;
   height: 19px;
 
-  .localCounter {
-    display: flex;
-    //align-items: center;
-    gap: 2px;
+  .hasLocalCounter {
+    margin-right: 1.25rem;
+  }
 
-    & > i {
-      position: relative;
-      top: 1px;
-    }
+  .lockIcon {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
+  }
 
-    & > span {
-      font-size: 9px;
-      line-height: 9px;
-      font-weight: 500;
-      //margin-top: 1px;
-    }
+  .mapMarker {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
   }
 }
 
@@ -392,6 +394,42 @@ $custom-name: #93C5FD;
 
     &.HandleLeft {
       left: -3px;
+    }
+  }
+}
+
+.LocalCounterLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  padding: 8;
+
+  .localCounter {
+    position: absolute;
+    pointer-events: auto;
+    top: 9.5px;
+    right: 8px;
+    mix-blend-mode: screen;
+    gap: 2px;
+    color: var(--rf-node-local-counter, #5cb85c);
+
+    &.hasUserCharacters {
+      color: var(--rf-has-user-characters, #fbbf24);
+    }
+
+    & > i {
+      position: relative;
+      top: 1px;
+    }
+
+    & > span {
+      font-size: 9px;
+      line-height: 9px;
+      font-weight: var(--rf-local-counter-font-weight, 500);
     }
   }
 }
