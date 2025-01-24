@@ -1,0 +1,26 @@
+@import './SolarSystemNodeTheme.module.scss';
+
+/* Override .statics font-size from 8px → 10px. */
+.statics {
+  font-size: 10px;
+}
+
+
+.BottomRow {
+
+  .hasLocalCounter {
+    margin-right: 0.7rem;
+  }
+
+  .lockIcon {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
+  }
+
+  .mapMarker {
+    font-size: 0.45rem;
+    font-weight: bold;
+    position: relative;
+  }
+}

@@ -120,6 +120,7 @@ export type SolarSystemRawType = {
   temporary_name: string | null;
   owner_id: string | null;
   owner_type: string | null;
+  custom_flags: string | null;
   linked_sig_eve_id: string | null;
 
   system_static_info: SolarSystemStaticInfoRaw;
