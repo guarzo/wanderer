@@ -354,19 +354,28 @@ defmodule WandererApp.Esi.ApiClient do
     do: _get_character_auth_data(character_eve_id, "ship", opts)
 
   def search(character_eve_id, opts \\ []) do
-    search  = opts[:params][:search]
-    category = opts[:params][:category] || "none"
+    search_val = to_string(opts[:params][:search] || "")
+    categories_val = to_string(opts[:params][:categories] || "character,alliance,corporation")
 
-    _search(character_eve_id, category, search, opts)
+    query_params = [
+      {"search", search_val},
+      {"categories", categories_val},
+      {"language", "en-us"},
+      {"strict", "false"},
+      {"datasource", "tranquility"}
+    ]
+
+    merged_opts = Keyword.put(opts, :params, query_params)
+    _search(character_eve_id, search_val, categories_val, merged_opts)
   end
 
   @decorate cacheable(
-              cache: Cache,
-              key: "search-#{character_eve_id}-#{search |> Slug.slugify()}-#{category |> Slug.slugify()}",
-              opts: [ttl: @ttl]
-            )
-  defp _search(character_eve_id, category, search, opts) when is_binary(search) do
-    _get_character_auth_data(character_eve_id, "search", opts)
+    cache: Cache,
+    key: "search-#{character_eve_id}-#{categories_val}-#{search_val |> Slug.slugify()}",
+    opts: [ttl: @ttl]
+  )
+  defp _search(character_eve_id, search_val, categories_val, merged_opts) do
+    _get_character_auth_data(character_eve_id, "search", merged_opts)
   end
 
   defp _remove_intersection(pairs_arr) do
@@ -465,22 +474,8 @@ defmodule WandererApp.Esi.ApiClient do
       )
 
   defp get(path, api_opts \\ [], opts \\ []) do
-    api_opts = Keyword.merge(api_opts, @retry_opts)
-
-    params_list = Keyword.get(api_opts, :params, [])
-    query_string = URI.encode_query(params_list)
-
-    full_url =
-      if query_string == "" do
-        "#{@base_url}#{path}"
-      else
-        "#{@base_url}#{path}?#{query_string}"
-      end
-
-    Logger.debug("ESI GET --> #{full_url}")
-
     try do
-      case Req.get(full_url, api_opts) do
+      case Req.get("#{@base_url}#{path}", api_opts |> Keyword.merge(@retry_opts)) do
         {:ok, %{status: 200, body: body}} ->
           {:ok, body}
 
@@ -505,10 +500,10 @@ defmodule WandererApp.Esi.ApiClient do
     rescue
       e ->
         @logger.error(Exception.message(e))
+
         {:error, "Request failed"}
     end
   end
-
 
   defp post(url, opts) do
     try do
