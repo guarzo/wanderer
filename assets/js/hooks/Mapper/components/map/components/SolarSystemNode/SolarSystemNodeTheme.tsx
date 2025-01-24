@@ -133,14 +133,13 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
               {nodeVars.isWormhole && !nodeVars.customName && <div />}
 
               <div className="flex items-center justify-end">
-                {/* Moved the condition to the container */}
                 <div
-                  className={clsx('flex gap-1 items-center', {
+                  className={clsx('flex items-center gap-1', {
                     [classes.hasLocalCounter]: nodeVars.charactersInSystem.length > 0,
+                    [classes.countAbove9]: nodeVars.charactersInSystem.length > 9,
                   })}
                 >
                   {nodeVars.locked && <i className={clsx(PrimeIcons.LOCK, classes.lockIcon)} />}
-
                   {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
                     <i className={clsx(PrimeIcons.MAP_MARKER, classes.mapMarker)} />
                   )}
