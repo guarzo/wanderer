@@ -138,6 +138,7 @@ export enum OutCommand {
   updateSystemName = 'update_system_name',
   updateSystemTemporaryName = 'update_system_temporary_name',
   updateSystemOwner = 'update_system_owner',
+  updateSystemCustomFlags = 'update_system_custom_flags',
   updateSystemDescription = 'update_system_description',
   updateSystemLabels = 'update_system_labels',
   updateSystemLocked = 'update_system_locked',

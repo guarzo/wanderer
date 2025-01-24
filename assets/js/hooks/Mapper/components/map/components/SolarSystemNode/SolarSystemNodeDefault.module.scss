@@ -300,7 +300,12 @@ $custom-name: #93C5FD;
 
   .hasLocalCounter {
     margin-right: 1.25rem;
+    // Add an extra 0.75rem if count > 9
+    &.countAbove9 {
+      margin-right: 2rem; 
+    }
   }
+
 
   .lockIcon {
     font-size: 0.45rem;
