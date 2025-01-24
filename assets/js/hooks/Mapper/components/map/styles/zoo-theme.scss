@@ -1,0 +1,6 @@
+@import './pathfinder-theme.scss';
+
+.zoo-theme {
+  @extend .pathfinder-theme;
+  --rf-bg-gap: 45;
+}
