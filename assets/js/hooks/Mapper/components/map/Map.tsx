@@ -283,7 +283,7 @@ const MapComp = ({
           nodeTypes={nodeTypes}
           connectionMode={connectionMode}
           snapToGrid
-          snapGrid={[45, 45]}
+          snapGrid={[35, 35]}
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}
           onSelectionDragStop={handleSelectionDragStop}
