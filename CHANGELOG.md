@@ -2,6 +2,35 @@
 
 <!-- changelog -->
 
+## [v1.45.0](https://github.com/wanderer-industries/wanderer/compare/v1.44.0...v1.45.0) (2025-02-01)
+
+
+
+
+### Features:
+
+* add news post for zkill widget
+
+* add zkill widget
+
+### Bug Fixes:
+
+* design feedback patch
+
+* removed unneeded event handler
+
+* Core: Add discord link to 'Like' icon on main interface
+
+* Core: Update shuttered constellations (required EVE DB data update on server).
+
+* Widgets: Fix widgets not visible on map
+
+* Audit: Fix signature added/removed system name
+
+* improve structure widget styling (#127)
+
+* prevent constraint error for follow/toggle (#132)
+
 ## [v1.44.0](https://github.com/wanderer-industries/wanderer/compare/v1.43.9...v1.44.0) (2025-02-01)
 
 
