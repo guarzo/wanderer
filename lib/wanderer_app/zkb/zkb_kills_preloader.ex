@@ -70,10 +70,10 @@ defmodule WandererApp.Zkb.KillsPreloader do
     system_tuples = gather_visible_systems(last_active_maps)
     unique_systems = Enum.uniq(system_tuples)
 
-    Logger.debug("""
+    Logger.debug(fn -> "
     [KillsPreloader] Found #{length(unique_systems)} unique systems \
     across #{length(last_active_maps)} map(s)
-    """)
+    " end)
 
     # ---- QUICK PASS ----
     state_quick = %{state | phase: :quick_pass}
@@ -167,7 +167,7 @@ defmodule WandererApp.Zkb.KillsPreloader do
   end
 
   defp fetch_kills_for_system(system_id, :quick, hours, limit, state) do
-    Logger.debug("[KillsPreloader] Quick fetch => system=#{system_id}, hours=#{hours}, limit=#{limit}")
+    Logger.debug(fn -> "[KillsPreloader] Quick fetch => system=#{system_id}, hours=#{hours}, limit=#{limit}" end)
 
     case KillsProvider.Fetcher.fetch_kills_for_system(system_id, hours, state, limit: limit, force: false) do
       {:ok, kills, updated_state} ->
@@ -180,7 +180,7 @@ defmodule WandererApp.Zkb.KillsPreloader do
   end
 
   defp fetch_kills_for_system(system_id, :expanded, hours, limit, state) do
-    Logger.debug("[KillsPreloader] Expanded fetch => system=#{system_id}, hours=#{hours}, limit=#{limit} (forcing refresh)")
+    Logger.debug(fn -> "[KillsPreloader] Expanded fetch => system=#{system_id}, hours=#{hours}, limit=#{limit} (forcing refresh)" end)
 
     with {:ok, kills_1h, updated_state} <-
            KillsProvider.Fetcher.fetch_kills_for_system(system_id, hours, state, limit: limit, force: true),
@@ -198,7 +198,7 @@ defmodule WandererApp.Zkb.KillsPreloader do
   defp maybe_fetch_more_if_needed(system_id, kills_1h, limit, state) do
     if length(kills_1h) < limit do
       needed = limit - length(kills_1h)
-      Logger.debug("[KillsPreloader] Expanding to #{@expanded_hours}h => system=#{system_id}, need=#{needed} more kills")
+      Logger.debug(fn -> "[KillsPreloader] Expanding to #{@expanded_hours}h => system=#{system_id}, need=#{needed} more kills" end)
 
       case KillsProvider.Fetcher.fetch_kills_for_system(system_id, @expanded_hours, state, limit: needed, force: true) do
         {:ok, _kills_24h, updated_state2} ->
