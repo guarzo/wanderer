@@ -40,7 +40,7 @@ defmodule WandererApp.Zkb.KillsProvider.ZkbApi do
 
   defp do_req_get(system_id, page) do
     url = "#{@zkillboard_api}/kills/systemID/#{system_id}/page/#{page}/"
-    Logger.debug("[ZkbApi] GET => system=#{system_id}, page=#{page}, url=#{url}")
+    Logger.debug(fn -> "[ZkbApi] GET => system=#{system_id}, page=#{page}, url=#{url}" end)
 
     try do
       resp = Req.get!(url, decode_body: :json)
@@ -72,7 +72,7 @@ defmodule WandererApp.Zkb.KillsProvider.ZkbApi do
         :ok
 
       {:error, limit} ->
-        Logger.debug("[ZkbApi] RATE_LIMIT => limit=#{inspect(limit)}")
+        Logger.debug(fn -> "[ZkbApi] RATE_LIMIT => limit=#{inspect(limit)}" end)
         {:error, :rate_limited}
     end
   end
