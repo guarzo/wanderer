@@ -147,6 +147,12 @@ defmodule WandererApp.Map.Server do
     |> map_pid!
     |> GenServer.cast({&Impl.update_system_owner/2, [update]})
 
+  def update_system_custom_flags(map_id, update) when is_binary(map_id),
+  do:
+    map_id
+    |> map_pid!
+    |> GenServer.cast({&Impl.update_system_custom_flags/2, [update]})
+
   def update_system_locked(map_id, update) when is_binary(map_id),
     do:
       map_id
