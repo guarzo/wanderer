@@ -69,13 +69,13 @@ export type InterfaceStoredSettings = {
 
 export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
   isShowMenu: false,
-  isShowMinimap: true,
-  isShowKSpace: false,
-  isThickConnections: false,
-  isShowUnsplashedSignatures: false,
+  isShowMinimap: false,
+  isShowKSpace: true,
+  isThickConnections: true,
+  isShowUnsplashedSignatures: true,
   isShowBackgroundPattern: true,
-  isSoftBackground: false,
-  theme: 'default',
+  isSoftBackground: true,
+  theme: 'zoo',
 };
 
 export interface MapRootContextProps {

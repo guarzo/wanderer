@@ -125,7 +125,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
       setOwnerURL('');
       return;
     }
-
     if (owner_type === 'corp') {
       outCommand({
         type: OutCommand.getCorporationTicker,

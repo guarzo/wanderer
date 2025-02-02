@@ -20,12 +20,7 @@ export enum WidgetsIds {
   kills = 'kills',
 }
 
-export const STORED_VISIBLE_WIDGETS_DEFAULT = [
-  WidgetsIds.info,
-  WidgetsIds.local,
-  WidgetsIds.routes,
-  WidgetsIds.signatures,
-];
+export const STORED_VISIBLE_WIDGETS_DEFAULT = [WidgetsIds.routes, WidgetsIds.signatures];
 
 export const DEFAULT_WIDGETS: WindowProps[] = [
   {
@@ -108,8 +103,7 @@ export function getWidgetsCheckboxesProps(detailedKillsDisabled: boolean): Widge
   return filterOutKills(WIDGETS_CHECKBOXES_PROPS, detailedKillsDisabled);
 }
 
-
 function filterOutKills<T extends { id: WidgetsIds }>(items: T[], shouldFilter: boolean) {
   if (!shouldFilter) return items;
-  return items.filter((w) => w.id !== WidgetsIds.kills);
+  return items.filter(w => w.id !== WidgetsIds.kills);
 }

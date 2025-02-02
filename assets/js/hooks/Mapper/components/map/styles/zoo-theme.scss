@@ -1,0 +1,8 @@
+@import './pathfinder-theme.scss';
+
+.zoo-theme {
+  @extend .pathfinder-theme;
+  --rf-bg-gap: 34;
+  --rf-snap-size: 17;
+  --rf-has-user-characters: #5cb85c;
+}
