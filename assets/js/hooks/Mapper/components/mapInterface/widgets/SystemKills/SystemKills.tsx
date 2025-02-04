@@ -80,6 +80,7 @@ export const SystemKills: React.FC = () => {
                     systemNameMap={systemNameMap}
                     compact={settings.compact}
                     onlyOneSystem={!visible}
+                    whOnly={settings.whOnly}
                   />
                 </div>
               )}

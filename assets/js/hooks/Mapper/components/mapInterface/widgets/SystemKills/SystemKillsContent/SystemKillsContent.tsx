@@ -2,12 +2,14 @@ import React, { useMemo } from 'react';
 import clsx from 'clsx';
 import { DetailedKill } from '@/hooks/Mapper/types/kills';
 import { KillRow } from '../components/SystemKillsRow';
+import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormholeSpace';
 
 interface SystemKillsContentProps {
   kills: DetailedKill[];
   systemNameMap: Record<string, string>;
   compact?: boolean;
   onlyOneSystem?: boolean;
+  whOnly?: boolean;
 }
 
 export const SystemKillsContent: React.FC<SystemKillsContentProps> = ({
@@ -15,20 +17,23 @@ export const SystemKillsContent: React.FC<SystemKillsContentProps> = ({
   systemNameMap,
   compact = false,
   onlyOneSystem = false,
+  whOnly = false,
 }) => {
   const sortedKills = useMemo(() => {
-    return [...kills].sort((a, b) => {
-      const timeA = a.kill_time ? new Date(a.kill_time).getTime() : 0;
-      const timeB = b.kill_time ? new Date(b.kill_time).getTime() : 0;
-      return timeB - timeA;
-    });
-  }, [kills]);
+    return [...kills]
+      .sort((a, b) => {
+        const timeA = a.kill_time ? new Date(a.kill_time).getTime() : 0;
+        const timeB = b.kill_time ? new Date(b.kill_time).getTime() : 0;
+        return timeB - timeA;
+      })
+      .filter(kill => !whOnly || isWormholeSpace(kill.solar_system_id));
+  }, [kills, whOnly]); 
 
   return (
     <div
       className={clsx(
         'flex flex-col w-full text-stone-200 text-xs transition-all duration-300',
-        compact ? 'p-1' : 'p-1',
+        compact ? 'p-1' : 'p-1'
       )}
     >
       {sortedKills.map(kill => {
