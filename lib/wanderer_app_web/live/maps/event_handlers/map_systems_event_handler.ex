@@ -238,6 +238,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         "locked" -> :update_system_locked
         "tag" -> :update_system_tag
         "temporary_name" -> :update_system_temporary_name
+        "custom_flags" -> :update_system_custom_flags
         "status" -> :update_system_status
         _ -> nil
       end
@@ -250,6 +251,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         "locked" -> :locked
         "tag" -> :tag
         "temporary_name" -> :temporary_name
+        "custom_flags" -> :custom_flags
         "status" -> :status
         _ -> :none
       end
