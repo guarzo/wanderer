@@ -1,42 +1,55 @@
 import { memo } from 'react';
 import { MapSolarSystemType } from '../../map.types';
-import { Handle, NodeProps, Position } from 'reactflow';
+import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import clsx from 'clsx';
-import classes from './SolarSystemNodeTheme.module.scss';
+import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
-import { useLocalCounter, useSolarSystemNode } from '../../hooks/useSolarSystemLogic';
+import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
+import { useZooNames } from '../../hooks/useZooLogic';
 import {
-  EFFECT_BACKGROUND_STYLES,
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
+  EFFECT_BACKGROUND_STYLES,
 } from '@/hooks/Mapper/components/map/constants';
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
-import { LocalCounter } from './SolarSystemLocalCounter';
 import { KillsCounter } from './SolarSystemKillsCounter';
+import { LocalCounter } from './SolarSystemLocalCounter';
 
-export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) => {
+export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
+
+  const { getEdges } = useReactFlow();
+  const edges = getEdges();
+  const connectionCount = edges.filter(
+    edge => edge.source === props.id || edge.target === props.id
+  ).length;
+
+  const openWH = nodeVars.unsplashedLeft.length + nodeVars.unsplashedRight.length -  connectionCount
+
+  const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
+  const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
+
+  const { systemName, customLabel, customName } = useZooNames(nodeVars, props);
   const { localCounterCharacters } = useLocalCounter(nodeVars);
 
   return (
     <>
       {nodeVars.visible && (
         <div className={classes.Bookmarks}>
-          {(nodeVars.labelCustom !== '' || (nodeVars.ownerTicker !== '' && nodeVars.ownerURL !== '')) && (
+          {customLabel !== '' && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.custom)}>
-              {nodeVars.ownerURL && nodeVars.ownerTicker && (
+              {nodeVars.ownerURL && nodeVars.ownerTicker ? (
                 <a
                   href={nodeVars.ownerURL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)]"
                 >
-                  {nodeVars.ownerTicker}{' '}
+                  {customLabel}
                 </a>
-              )}
-              {nodeVars.labelCustom && (
-                <span className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)]">{nodeVars.labelCustom}</span>
+              ) : (
+                <span className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] ">{customLabel}</span>
               )}
             </div>
           )}
@@ -62,6 +75,15 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
             </KillsCounter>
           )}
 
+          {openWH > 0 && (
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES['custom'])}>
+              <div className={clsx(classes.BookmarkWithIcon)}>
+                <span className="pi pi-sparkles pi-spin" style={{ marginRight: '3px', fontSize: '8px', color: '#ffffff' }}></span>
+                <span className={clsx(classes.text, classes.openWhText)}>{openWH}</span>
+              </div>
+            </div>
+          )}
+
           {nodeVars.labelsInfo.map(x => (
             <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
               {x.shortName}
@@ -74,8 +96,10 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
         className={clsx(
           classes.RootCustomNode,
           nodeVars.regionClass && classes[nodeVars.regionClass],
-          nodeVars.status !== undefined ? classes[STATUS_CLASSES[nodeVars.status]] : '',
-          { [classes.selected]: nodeVars.selected },
+          nodeVars.status != null ? classes[STATUS_CLASSES[nodeVars.status]] : null,
+          {
+            [classes.selected]: nodeVars.selected,
+          },
         )}
       >
         {nodeVars.visible && (
@@ -91,57 +115,38 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
                 {nodeVars.classTitle ?? '-'}
               </div>
 
-              {nodeVars.tag != null && nodeVars.tag !== '' && (
-                <div className={clsx(classes.TagTitle)}>{nodeVars.tag}</div>
-              )}
-
               <div
                 className={clsx(
                   classes.classSystemName,
-                  '[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] flex-grow overflow-hidden text-ellipsis whitespace-nowrap',
+                  'flex-grow overflow-hidden text-ellipsis whitespace-nowrap font-sans',
                 )}
               >
-                {nodeVars.systemName}
+                {systemName}
               </div>
 
               {nodeVars.isWormhole && (
-                <div className={classes.statics}>
-                  {nodeVars.sortedStatics.map(whClass => (
-                    <WormholeClassComp key={String(whClass)} id={String(whClass)} />
-                  ))}
+                <div className={classes.wormholeContainer}>
+                  <div className={classes.statics}>
+                    {nodeVars.sortedStatics.map(whClass => (
+                      <WormholeClassComp key={whClass} id={whClass} />
+                    ))}
+                  </div>
+                  {nodeVars.effectName !== null && (
+                    <div className={clsx(classes.effect, EFFECT_BACKGROUND_STYLES[nodeVars.effectName])} />
+                  )}
                 </div>
-              )}
-
-              {nodeVars.effectName !== null && nodeVars.isWormhole && (
-                <div className={clsx(classes.effect, EFFECT_BACKGROUND_STYLES[nodeVars.effectName])} />
               )}
             </div>
 
             <div className={clsx(classes.BottomRow, 'flex items-center justify-between')}>
-              {nodeVars.customName && (
-                <div
-                  className={clsx(
-                    classes.CustomName,
-                    '[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] whitespace-nowrap overflow-hidden text-ellipsis mr-0.5',
-                  )}
-                >
-                  {nodeVars.customName}
+              <div className="flex items-center gap-2">
+                {nodeVars.tag != null && nodeVars.tag !== '' && (
+                  <div className={clsx(classes.tagTitle, 'font-medium')}>{`[${nodeVars.tag}]`}</div>
+                )}
+                <div className={clsx(classes.customName)} title={`${customName ?? ''}`}>
+                  {customName}
                 </div>
-              )}
-
-              {!nodeVars.isWormhole && !nodeVars.customName && (
-                <div
-                  className={clsx(
-                    classes.RegionName,
-                    '[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] whitespace-nowrap overflow-hidden text-ellipsis mr-0.5',
-                  )}
-                >
-                  {nodeVars.regionName}
-                </div>
-              )}
-
-              {nodeVars.isWormhole && !nodeVars.customName && <div />}
-
+              </div>
               <div className="flex items-center justify-end">
                 <div
                   className={clsx('flex items-center gap-1', {
@@ -150,7 +155,7 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
                   })}
                 >
                   {nodeVars.locked && <i className={clsx(PrimeIcons.LOCK, classes.lockIcon)} />}
-                  {nodeVars.hubs.includes(nodeVars.solarSystemId) && (
+                  {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
                     <i className={clsx(PrimeIcons.MAP_MARKER, classes.mapMarker)} />
                   )}
                 </div>
@@ -179,15 +184,36 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
           )}
         </>
       )}
-
-      <div onMouseDownCapture={e => nodeVars.dbClick(e)} className={classes.Handlers}>
+      <div onMouseDownCapture={nodeVars.dbClick} className={classes.Handlers}>
+        <Handle
+          type="target"
+          position={Position.Bottom}
+          style={{
+            width: '100%',
+            height: '100%',
+            background: 'none',
+            cursor: 'cell',
+            pointerEvents: dropHandler,
+            opacity: 0,
+            borderRadius: 0,
+          }}
+          id="whole-node-target"
+        />
         <Handle
           type="source"
           className={clsx(classes.Handle, classes.HandleTop, {
             [classes.selected]: nodeVars.selected,
             [classes.Tick]: nodeVars.isThickConnections,
           })}
-          style={{ visibility: nodeVars.showHandlers ? 'visible' : 'hidden' }}
+          style={{
+            width: '100%',
+            height: '55%',
+            background: 'none',
+            cursor: 'cell',
+            opacity: 0,
+            borderRadius: 0,
+            visibility: showHandlers ? 'visible' : 'hidden',
+          }}
           position={Position.Top}
           id="a"
         />
@@ -197,7 +223,7 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
             [classes.selected]: nodeVars.selected,
             [classes.Tick]: nodeVars.isThickConnections,
           })}
-          style={{ visibility: nodeVars.showHandlers ? 'visible' : 'hidden' }}
+          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell', zIndex: 10 }}
           position={Position.Right}
           id="b"
         />
@@ -207,7 +233,7 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
             [classes.selected]: nodeVars.selected,
             [classes.Tick]: nodeVars.isThickConnections,
           })}
-          style={{ visibility: nodeVars.showHandlers ? 'visible' : 'hidden' }}
+          style={{ visibility: 'hidden', cursor: 'cell' }}
           position={Position.Bottom}
           id="c"
         />
@@ -217,7 +243,7 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
             [classes.selected]: nodeVars.selected,
             [classes.Tick]: nodeVars.isThickConnections,
           })}
-          style={{ visibility: nodeVars.showHandlers ? 'visible' : 'hidden' }}
+          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell', zIndex: 10 }}
           position={Position.Left}
           id="d"
         />
@@ -226,9 +252,11 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
         hasUserCharacters={nodeVars.hasUserCharacters}
         localCounterCharacters={localCounterCharacters}
         classes={classes}
+        showIcon={false}
       />
     </>
   );
 });
 
-SolarSystemNodeTheme.displayName = 'SolarSystemNodeTheme';
+SolarSystemNodeZoo.displayName = 'SolarSystemNodeZoo';
+export default SolarSystemNodeZoo;
