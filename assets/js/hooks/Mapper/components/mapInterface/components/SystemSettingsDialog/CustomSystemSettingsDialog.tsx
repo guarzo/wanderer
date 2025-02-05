@@ -5,43 +5,99 @@ import { IconField } from 'primereact/iconfield';
 import { InputText } from 'primereact/inputtext';
 import { InputTextarea } from 'primereact/inputtextarea';
 import { AutoComplete } from 'primereact/autocomplete';
+import { Checkbox } from 'primereact/checkbox';
 
 import { TooltipPosition, WdImageSize, WdImgButton } from '@/hooks/Mapper/components/ui-kit';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { useMapGetOption } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { OutCommand } from '@/hooks/Mapper/types';
-import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
+import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager.ts';
+import { isWormholeSpace } from '../../../map/helpers/isWormholeSpace';
 
-interface SystemSettingsDialogProps {
+// ----- Custom Flags Helpers and Constants -----
+const CHECKBOX_ITEMS = [
+  { code: 'B', label: 'Blobber' },
+  { code: 'MB', label: 'Marauder Blobber' },
+  { code: 'C', label: 'Check Notes' },
+  { code: 'F', label: 'Farm' },
+  { code: 'PW', label: 'Prewarp Sites' },
+  { code: 'PT', label: 'POS Trash' },
+  { code: 'DNP', label: 'Do Not Pod' },
+  { code: 'CF', label: 'Coward Finder' },
+];
+
+function parseTagString(str: string): string[] {
+  if (!str) return [];
+  return str
+    .trim()
+    .split(/\s+/)
+    .map(item => item.replace(/^\*/, ''))
+    .filter(Boolean);
+}
+
+function toTagString(arr: string[]): string {
+  return arr.map(code => `*${code}`).join(' ');
+}
+
+function extractKnownFlagsFromLabel(label: string): { leftover: string; flags: string[] } {
+  const parts = label.trim().split(/\s+/);
+  const validCodes = new Set(CHECKBOX_ITEMS.map(item => item.code));
+  const recognizedFlags: string[] = [];
+  const leftoverParts: string[] = [];
+  for (const part of parts) {
+    const candidate = part.replace(/^\*/, '');
+    if (validCodes.has(candidate)) {
+      recognizedFlags.push(candidate);
+    } else {
+      leftoverParts.push(part);
+    }
+  }
+  return { leftover: leftoverParts.join(' '), flags: recognizedFlags };
+}
+
+
+interface CustomSystemSettingsDialogProps {
   systemId: string;
   visible: boolean;
   setVisible: (visible: boolean) => void;
 }
 
-export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSettingsDialogProps) => {
+/**
+ * CustomSystemSettingsDialog wraps the upstream system settings dialog functionality
+ * while adding your customizations (such as custom flags checkboxes). By isolating your
+ * modifications in this component, you can more easily merge upstream changes later.
+ */
+export const CustomSystemSettingsDialog = ({ systemId, visible, setVisible }: CustomSystemSettingsDialogProps) => {
   const {
     data: { systems },
     outCommand,
   } = useMapRootState();
-  const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
   const system = getSystemById(systems, systemId);
+  const isWormhole = system ? isWormholeSpace(system.system_static_info.system_class) : false;
 
+  // Base fields
   const [name, setName] = useState('');
   const [label, setLabel] = useState('');
   const [temporaryName, setTemporaryName] = useState('');
   const [description, setDescription] = useState('');
 
+  // Owner fields (typically used for wormhole systems)
   const [ownerName, setOwnerName] = useState('');
   const [ownerId, setOwnerId] = useState('');
   const [ownerType, setOwnerType] = useState<'corp' | 'alliance' | ''>('');
+
   const [ownerSuggestions, setOwnerSuggestions] = useState<string[]>([]);
   const [ownerMap, setOwnerMap] = useState<Record<string, { id: string; type: 'corp' | 'alliance' }>>({});
   const [prevOwnerQuery, setPrevOwnerQuery] = useState('');
   const [prevOwnerResults, setPrevOwnerResults] = useState<string[]>([]);
 
+  // --- New state for custom flags ---
+  const [selectedFlags, setSelectedFlags] = useState<string[]>([]);
+
+  // Ref for autofocus on the bookmark name
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Consolidate the state into a ref so that the latest values are available in callbacks.
   const dataRef = useRef({
     name,
     label,
@@ -51,8 +107,9 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     ownerId,
     ownerType,
     system,
+    selectedFlags,
   });
-  dataRef.current = { name, label, temporaryName, description, ownerName, ownerId, ownerType, system };
+  dataRef.current = { name, label, temporaryName, description, ownerName, ownerId, ownerType, system, selectedFlags };
 
   useEffect(() => {
     if (!system) return;
@@ -81,8 +138,22 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     } else {
       setOwnerName('');
     }
-  }, [system, outCommand]);
 
+    // --- Initialize custom flags state ---
+    if (system.custom_flags) {
+      setSelectedFlags(parseTagString(system.custom_flags));
+    } else {
+      const extracted = extractKnownFlagsFromLabel(labelsManager.customLabel || '');
+      if (extracted.flags.length > 0) {
+        setSelectedFlags(extracted.flags);
+        setLabel(extracted.leftover);
+      } else {
+        setSelectedFlags([]);
+      }
+    }
+  }, [outCommand, system]);
+
+  // --- Owner search handling (used for wormhole systems) ---
   const searchOwners = useCallback(
     async (e: { query: string }) => {
       const newQuery = e.query.trim();
@@ -132,8 +203,12 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
 
   const handleCustomLabelInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.toUpperCase();
-    const cleaned = raw.replace(/[^A-Z0-9\-[\](){}]/g, '');
+    const cleaned = raw.replace(/[^A-Z0-9\-[\](){} \s]/g, '');
     setLabel(cleaned);
+  }, []);
+
+  const handleCheckboxChange = useCallback((code: string, checked: boolean) => {
+    setSelectedFlags(prev => (checked ? [...prev, code] : prev.filter(item => item !== code)));
   }, []);
 
   const validTickerRegex = useMemo(() => /^[A-Z0-9\-[\](){} ]+$/, []);
@@ -158,8 +233,9 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     }
   }, [ownerName, ownerMap, validTickerRegex]);
 
+  // --- Save handler that combines upstream updates with custom flags ---
   const handleSave = useCallback(() => {
-    const { name, label, temporaryName, description, ownerId, ownerType, system } = dataRef.current;
+    const { name, label, temporaryName, description, ownerId, ownerType, system, selectedFlags } = dataRef.current;
     if (!system) return;
 
     const lm = new LabelsManager(system.labels ?? '');
@@ -170,10 +246,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     });
     outCommand({
       type: OutCommand.updateSystemName,
-      data: {
-        system_id: systemId,
-        value: name.trim() || system.system_static_info.solar_system_name,
-      },
+      data: { system_id: systemId, value: name.trim() || system.system_static_info.solar_system_name },
     });
     outCommand({
       type: OutCommand.updateSystemTemporaryName,
@@ -187,6 +260,12 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
       type: OutCommand.updateSystemOwner,
       data: { system_id: systemId, owner_id: ownerId, owner_type: ownerType },
     });
+    // Update custom flags via a separate outCommand call.
+    const flagsStr = toTagString(selectedFlags);
+    outCommand({
+      type: OutCommand.updateSystemCustomFlags,
+      data: { system_id: systemId, value: flagsStr },
+    });
     setVisible(false);
   }, [outCommand, setVisible, systemId]);
 
@@ -194,15 +273,9 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     inputRef.current?.focus();
   }, []);
 
-  const handleInput = useCallback((e: React.FormEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    input.value = input.value.toUpperCase().replace(/[^A-Z0-9\-[\](){} ]/g, '');
+  const handleInput = useCallback((e: any) => {
+    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9\-[\](){} ]/g, '');
   }, []);
-
-  const handleResetSystemName = useCallback(() => {
-    if (!system) return;
-    setName(system.system_static_info.solar_system_name);
-  }, [system]);
 
   return (
     <Dialog
@@ -212,8 +285,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
       style={{ width: '450px' }}
       onShow={onShow}
       onHide={() => {
-        if (!visible) return;
-        setVisible(false);
+        if (visible) setVisible(false);
       }}
     >
       <form
@@ -225,136 +297,135 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-1">
-              <label htmlFor="name">Custom name</label>
+              <label htmlFor="temporaryName">Bookmark Name</label>
               <IconField>
-                {name !== system?.system_static_info.solar_system_name && (
+                {temporaryName && (
                   <WdImgButton
-                    className="pi pi-undo"
+                    className="pi pi-trash text-red-400"
                     textSize={WdImageSize.large}
                     tooltip={{
-                      content: 'Reset system name',
+                      content: 'Remove temporary name',
                       className: 'pi p-input-icon',
                       position: TooltipPosition.top,
                     }}
-                    onClick={handleResetSystemName}
+                    onClick={() => setTemporaryName('')}
                   />
                 )}
                 <InputText
-                  id="name"
+                  id="temporaryName"
+                  autoComplete="off"
                   ref={inputRef}
-                  aria-describedby="name"
-                  autoComplete="off"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
+                  maxLength={10}
+                  value={temporaryName}
+                  onChange={e => setTemporaryName(e.target.value)}
                 />
               </IconField>
             </div>
-
-            <div className="flex flex-col gap-1">
-              <label htmlFor="label">Custom label</label>
-              <IconField>
-                {label !== '' && (
-                  <WdImgButton
-                    className="pi pi-trash text-red-400"
-                    textSize={WdImageSize.large}
-                    tooltip={{
-                      content: 'Remove custom label',
-                      className: 'pi p-input-icon',
-                      position: TooltipPosition.top,
-                    }}
-                    onClick={() => setLabel('')}
-                  />
-                )}
-                <InputText
-                  id="label"
-                  aria-describedby="label"
-                  autoComplete="off"
-                  value={label}
-                  maxLength={5}
-                  onChange={handleCustomLabelInput}
-                />
-              </IconField>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label htmlFor="owner">Owner</label>
-              <IconField>
-                {ownerName && (
-                  <WdImgButton
-                    className="pi pi-trash text-red-400"
-                    textSize={WdImageSize.large}
-                    tooltip={{
-                      content: 'Clear Owner',
-                      className: 'pi p-input-icon',
-                      position: TooltipPosition.top,
-                    }}
-                    onClick={() => {
-                      setOwnerName('');
-                      setOwnerId('');
-                      setOwnerType('');
-                    }}
-                  />
-                )}
-                <AutoComplete
-                  id="owner"
-                  className="w-full"
-                  placeholder="Type to search (corp/alliance)"
-                  suggestions={ownerSuggestions}
-                  completeMethod={searchOwners}
-                  value={ownerName}
-                  forceSelection={true}
-                  onInput={handleInput}
-                  onSelect={e => {
-                    const chosenName = e.value;
-                    setOwnerName(chosenName);
-                    const foundKey = Object.keys(ownerMap).find(key => key.toUpperCase() === chosenName.toUpperCase());
-                    if (foundKey) {
-                      const found = ownerMap[foundKey];
-                      setOwnerId(found.id);
-                      setOwnerType(found.type);
-                    } else {
-                      setOwnerId('');
-                      setOwnerType('');
-                    }
-                  }}
-                  onChange={e => {
-                    setOwnerName(e.value);
-                    setOwnerId('');
-                    setOwnerType('');
-                  }}
-                  onBlur={handleOwnerBlur}
-                />
-              </IconField>
-            </div>
-
-            {isTempSystemNameEnabled && (
+            {/* For non‑wormhole systems, show the Tag (custom label) field */}
+            {!isWormhole ? (
               <div className="flex flex-col gap-1">
-                <label htmlFor="temporaryName">Temporary Name</label>
+                <label htmlFor="label">Tag (4-j, 7-A, etc)</label>
                 <IconField>
-                  {temporaryName && (
+                  {label !== '' && (
                     <WdImgButton
                       className="pi pi-trash text-red-400"
                       textSize={WdImageSize.large}
                       tooltip={{
-                        content: 'Remove temporary name',
+                        content: 'Remove custom tag',
                         className: 'pi p-input-icon',
                         position: TooltipPosition.top,
                       }}
-                      onClick={() => setTemporaryName('')}
+                      onClick={() => setLabel('')}
                     />
                   )}
                   <InputText
-                    id="temporaryName"
+                    id="label"
+                    aria-describedby="label"
                     autoComplete="off"
-                    maxLength={10}
-                    value={temporaryName}
-                    onChange={e => setTemporaryName(e.target.value)}
+                    value={label}
+                    maxLength={5}
+                    onChange={handleCustomLabelInput}
+                    onInput={handleInput}
                   />
                 </IconField>
               </div>
+            ) : (
+              // For wormhole systems, show the Ticker (owner) field along with custom flags.
+              <>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="owner">Ticker</label>
+                  <IconField>
+                    {ownerName && (
+                      <WdImgButton
+                        className="pi pi-trash text-red-400"
+                        textSize={WdImageSize.large}
+                        tooltip={{
+                          content: 'Clear Owner',
+                          className: 'pi p-input-icon',
+                          position: TooltipPosition.top,
+                        }}
+                        onClick={() => {
+                          setOwnerName('');
+                          setOwnerId('');
+                          setOwnerType('');
+                        }}
+                      />
+                    )}
+                    <AutoComplete
+                      id="owner"
+                      className="w-full"
+                      placeholder="Type to search (corp/alliance)"
+                      suggestions={ownerSuggestions}
+                      completeMethod={searchOwners}
+                      value={ownerName}
+                      forceSelection={true}
+                      onInput={handleInput}
+                      onSelect={e => {
+                        const chosenName = e.value;
+                        setOwnerName(chosenName);
+                        const foundKey = Object.keys(ownerMap).find(
+                          key => key.toUpperCase() === chosenName.toUpperCase(),
+                        );
+                        if (foundKey) {
+                          const found = ownerMap[foundKey];
+                          setOwnerId(found.id);
+                          setOwnerType(found.type);
+                        } else {
+                          setOwnerId('');
+                          setOwnerType('');
+                        }
+                      }}
+                      onChange={e => {
+                        setOwnerName(e.value);
+                        setOwnerId('');
+                        setOwnerType('');
+                      }}
+                      onBlur={handleOwnerBlur}
+                    />
+                  </IconField>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label>Custom Flags</label>
+                  <div className="grid grid-cols-2 gap-2 pl-2">
+                    {CHECKBOX_ITEMS.map(item => {
+                      const checked = selectedFlags.includes(item.code);
+                      return (
+                        <div key={item.code} className="flex items-center gap-2">
+                          <Checkbox
+                            inputId={item.code}
+                            checked={checked}
+                            onChange={e => handleCheckboxChange(item.code, e.checked)}
+                          />
+                          <label htmlFor={item.code}>{item.label}</label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
             )}
             <div className="flex flex-col gap-1">
-              <label htmlFor="description">Description</label>
+              <label htmlFor="description">Notes</label>
               <InputTextarea
                 id="description"
                 rows={5}
