@@ -2,6 +2,33 @@
 
 <!-- changelog -->
 
+## [v1.46.0](https://github.com/wanderer-industries/wanderer/compare/v1.45.0...v1.46.0) (2025-02-05)
+
+
+
+
+### Features:
+
+* allow filtering of k-space kills (#147)
+
+### Bug Fixes:
+
+* improve local character header shrink behavior (#146)
+
+* Core: include external libraries in build
+
+* Core: include external libraries in build
+
+* include category param in search cache key (#144)
+
+* restored kills lightning bolt functionality (#143)
+
+* Map: Fixed problem with windows. (#140)
+
+* Map: Fixed problem with windows.
+
+* Core: Added min heigth for body
+
 ## [v1.45.0](https://github.com/wanderer-industries/wanderer/compare/v1.44.9...v1.45.0) (2025-02-05)
 
 
