@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { MapSolarSystemType } from '../map.types';
 import { NodeProps } from 'reactflow';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
@@ -12,6 +12,8 @@ import { sortWHClasses } from '@/hooks/Mapper/helpers';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
 import { CharacterTypeRaw, OutCommand, SystemSignature } from '@/hooks/Mapper/types';
 import { LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants';
+
+const zkillboardBaseURL = 'https://zkillboard.com';
 
 export type LabelInfo = {
   id: string;
@@ -62,6 +64,8 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     status,
     labels,
     temporary_name,
+    owner_id,
+    owner_type,
     linked_sig_eve_id: linkedSigEveId = '',
   } = data;
 
@@ -110,6 +114,35 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     () => mapSystemSignatures[solar_system_id] || system_signatures,
     [system_signatures, solar_system_id, mapSystemSignatures],
   );
+
+  const [ownerTicker, setOwnerTicker] = useState(null);
+  const [ownerURL, setOwnerURL] = useState('');
+
+  useEffect(() => {
+    // Reset or handle no owner
+    if (!owner_id || !owner_type) {
+      setOwnerTicker(null);
+      setOwnerURL('');
+      return;
+    }
+    if (owner_type === 'corp') {
+      outCommand({
+        type: OutCommand.getCorporationTicker,
+        data: { corp_id: owner_id },
+      }).then(({ ticker }) => {
+        setOwnerTicker(ticker);
+        setOwnerURL(`${zkillboardBaseURL}/corporation/${owner_id}`);
+      });
+    } else if (owner_type === 'alliance') {
+      outCommand({
+        type: OutCommand.getAllianceTicker,
+        data: { alliance_id: owner_id },
+      }).then(({ ticker }) => {
+        setOwnerTicker(ticker);
+        setOwnerURL(`${zkillboardBaseURL}/alliance/${owner_id}`);
+      });
+    }
+  }, [outCommand, owner_id, owner_type]);
 
   const charactersInSystem = useMemo(() => {
     return characters.filter(c => c.location?.solar_system_id === solar_system_id && c.online);
@@ -239,6 +272,8 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     isThickConnections,
     classTitle: class_title,
     temporaryName: computedTemporaryName,
+    ownerTicker,
+    ownerURL,
   };
 
   return nodeVars;
@@ -280,4 +315,6 @@ export interface SolarSystemNodeVars {
   isThickConnections: boolean;
   classTitle: string | null;
   temporaryName?: string | null;
+  ownerTicker?: string | null;
+  ownerURL?: string | null;
 }
