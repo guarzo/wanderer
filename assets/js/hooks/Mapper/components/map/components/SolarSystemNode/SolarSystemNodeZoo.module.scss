@@ -1,19 +1,29 @@
 @import './SolarSystemNodeTheme.module.scss';
 
-/* Override .statics font-size from 8px → 10px. */
-.statics {
-  margin-top: -2px;
-  font-size: 10px;
+.HeadRow {
+  .statics {
+    margin-top: -2px;
+    line-height: 8px;
+    display: flex;
+    font-size: 10px;
+    position: static;
+    gap: 2px;
+  }
+
+  .wormholeContainer {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .effect {
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    border-radius: 2px;
+    margin-left: 1px;
+  }
 }
-
-/* In SolarSystemNodeZoo.module.scss */
-.wormholeContainer {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem; /* Optional: adjust spacing between the statics and the effect */
-}
-
-
 
 .BottomRow {
 
