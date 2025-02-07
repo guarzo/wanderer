@@ -78,7 +78,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           {openWH > 0 && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES['custom'])}>
               <div className={clsx(classes.BookmarkWithIcon)}>
-                <span className="pi pi-sparkles pi-spin" style={{ marginRight: '3px', fontSize: '8px', color: '#ffffff' }}></span>
+                <span  className={clsx("pi pi-sparkles pi-spin", classes.openWhColorCycle)} style={{ marginRight: '3px', fontSize: '8px', color: '#ffffff' }}></span>
                 <span className={clsx(classes.text, classes.openWhText)}>{openWH}</span>
               </div>
             </div>

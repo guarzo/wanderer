@@ -1,5 +1,34 @@
 @import './SolarSystemNodeTheme.module.scss';
 
+@keyframes openWhColorCycle {
+  0% {
+    color: #FF0018; // Vivid Red
+  }
+  16.67% {
+    color: #FFA52C; // Deep Saffron
+  }
+  33.33% {
+    color: #FFFF41; // Maximum Yellow
+  }
+  50% {
+    color: #008018; // Ao
+  }
+  66.67% {
+    color: #0000F9; // Blue
+  }
+  83.33% {
+    color: #86007D; // Philippine Violet
+  }
+  100% {
+    color: #FF0018; // Back to Vivid Red
+  }
+}
+
+.openWhColorCycle {
+  animation: openWhColorCycle 1s infinite;
+}
+
+
 .openWhText {
   font-size: 6px;
 }
