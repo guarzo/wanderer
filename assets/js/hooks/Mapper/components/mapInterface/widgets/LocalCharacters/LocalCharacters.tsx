@@ -11,6 +11,89 @@ import { LocalCharactersHeader } from './components/LocalCharactersHeader';
 import classes from './LocalCharacters.module.scss';
 import clsx from 'clsx';
 
+//
+// A new responsive checkbox that adjusts its label and even removes itself
+// if there isn’t enough space.
+//
+interface ResponsiveCheckboxProps {
+  tooltipContent: string;
+  size: string;
+  labelFull: string;
+  labelAbbreviated: string;
+  value: boolean;
+  onChange: () => void;
+  classNameLabel?: string;
+  containerClassName?: string;
+  labelSide?: string;
+}
+
+const ResponsiveCheckbox: React.FC<ResponsiveCheckboxProps> = ({
+  tooltipContent,
+  size,
+  labelFull,
+  labelAbbreviated,
+  value,
+  onChange,
+  classNameLabel,
+  containerClassName,
+  labelSide = 'left',
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        setWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Define breakpoints (adjust these values as needed):
+  const FULL_LABEL_THRESHOLD = 150;       // full label (e.g. "Show offline")
+  const ABBREVIATED_LABEL_THRESHOLD = 100;  // abbreviated label (e.g. "Offline")
+  const MINIMUM_THRESHOLD = 50;             // only enough space for the checkbox icon
+
+  let labelToShow: string;
+  if (width === 0) {
+    // Before we have a measurement, assume there's enough space.
+    labelToShow = labelFull;
+  } else if (width >= FULL_LABEL_THRESHOLD) {
+    labelToShow = labelFull;
+  } else if (width >= ABBREVIATED_LABEL_THRESHOLD) {
+    labelToShow = labelAbbreviated;
+  } else if (width >= MINIMUM_THRESHOLD) {
+    labelToShow = ''; // show checkbox with no label
+  } else {
+    return null; // not enough space to show anything
+  }
+
+  const checkbox = (
+    <div ref={containerRef} className={containerClassName}>
+      <WdCheckbox
+        size={size}
+        labelSide={labelSide}
+        label={labelToShow}
+        value={value}
+        classNameLabel={classNameLabel}
+        onChange={onChange}
+      />
+    </div>
+  );
+
+  return tooltipContent ? (
+    <WdTooltipWrapper content={tooltipContent}>{checkbox}</WdTooltipWrapper>
+  ) : (
+    checkbox
+  );
+};
+
+//
+// The main component with an updated header that uses ResponsiveCheckbox
+//
 export const LocalCharacters = () => {
   const {
     data: { characters, userCharacters, selectedSystems },
