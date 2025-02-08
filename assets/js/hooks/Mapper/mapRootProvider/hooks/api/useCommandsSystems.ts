@@ -69,16 +69,19 @@ export const useCommandsSystems = () => {
 
   const updateSystemSignatures = useCallback(
     async (systemId: string) => {
+      console.debug(`updateSystemSignatures: Fetching signatures for system ${systemId}`);
       const { update, systemSignatures } = ref.current;
       const { signatures } = await outCommand({
         type: OutCommand.getSignatures,
         data: { system_id: `${systemId}` },
       });
+      console.debug(`updateSystemSignatures: Received signatures:`, signatures);
       const out = { ...systemSignatures, [`${systemId}`]: signatures };
       update({ systemSignatures: out }, true);
     },
     [outCommand],
   );
+
 
   const updateLinkSignatureToSystem = useCallback(async (command: CommandLinkSignatureToSystem) => {
     const { update } = ref.current;

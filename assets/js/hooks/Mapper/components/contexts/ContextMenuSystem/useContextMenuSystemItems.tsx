@@ -1,4 +1,4 @@
-import { useLabelsMenu, useStatusMenu, useZooTagMenu } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
+import { useStatusMenu, useZooTagMenu } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
 import { useMemo } from 'react';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import classes from './ContextMenuSystem.module.scss';
@@ -16,8 +16,6 @@ export const useContextMenuSystemItems = ({
   onHubToggle,
   onSystemTag,
   onSystemStatus,
-  onSystemLabels,
-  onCustomLabelDialog,
   onOpenSettings,
   onWaypointSet,
   systemId,
@@ -26,7 +24,6 @@ export const useContextMenuSystemItems = ({
 }: Omit<ContextMenuSystemProps, 'contextMenuRef'>) => {
   const getTags = useZooTagMenu(systems, systemId, onSystemTag);
   const getStatus = useStatusMenu(systems, systemId, onSystemStatus);
-  const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog);
   const getWaypointMenu = useWaypointMenu(onWaypointSet);
   const canLockSystem = useMapCheckPermissions([UserPermission.LOCK_SYSTEM]);
 
@@ -56,7 +53,6 @@ export const useContextMenuSystemItems = ({
       { separator: true },
       getTags(),
       getStatus(),
-      ...getLabels(),
       ...getWaypointMenu(systemId, system.system_static_info.system_class),
       {
         label: !hubs.includes(systemId) ? 'Add in Routes' : 'Remove from Routes',
@@ -97,7 +93,6 @@ export const useContextMenuSystemItems = ({
     systemId,
     getTags,
     getStatus,
-    getLabels,
     getWaypointMenu,
     hubs,
     onHubToggle,

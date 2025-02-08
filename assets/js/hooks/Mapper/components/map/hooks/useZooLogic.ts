@@ -1,33 +1,34 @@
-import { useMemo } from 'react';
-import { SolarSystemNodeVars } from './useSolarSystemLogic';
+import { useEffect, useMemo, useRef } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
+import { SolarSystemNodeVars } from './useSolarSystemLogic';
+import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo';
+import { useCommandsSystems } from '@/hooks/Mapper/mapRootProvider/hooks/api/useCommandsSystems';
+import { SystemSignature } from '@/hooks/Mapper/types';
 
-/**
- * Ensures that a given value is a string.
- * If the value is not a string, returns the provided fallback.
- */
 function safeString(value?: string | null, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
-/**
- * Hook to compute zoo names for a node.
- * It derives systemName, customLabel, and customName based on various node variables.
- *
- * Changes made:
- * - Removed all conditionals around the temporary name.
- * - The temporary name is now always considered to be present.
- */
-export function useZooNames(nodeVars: SolarSystemNodeVars, props: NodeProps<MapSolarSystemType>) {
-  const { data } = props;
-  const { custom_flags } = data;
-
-  // Destructure properties from nodeVars to ensure stable dependencies
-  const { temporaryName, solarSystemName, regionName, labelCustom, ownerTicker, isWormhole: nodeIsWormhole } = nodeVars;
-
+export function useZooNames(
+  {
+    temporaryName,
+    solarSystemName,
+    regionName,
+    labelCustom,
+    ownerTicker,
+    isWormhole,
+  }: {
+    temporaryName?: string | null;
+    solarSystemName?: string | null;
+    regionName?: string | null;
+    labelCustom?: string | null;
+    ownerTicker?: string | null;
+    isWormhole?: boolean;
+  },
+  { data: { custom_flags } }: NodeProps<MapSolarSystemType>
+) {
   return useMemo(() => {
-    // Convert potential null/undefined to safe values
     const safeSolarSystemName = safeString(solarSystemName);
     const safeTemporaryName = safeString(temporaryName, safeSolarSystemName);
     const safeRegionName = safeString(regionName);
@@ -35,37 +36,91 @@ export function useZooNames(nodeVars: SolarSystemNodeVars, props: NodeProps<MapS
     const safeOwnerTicker = safeString(ownerTicker);
     const safeFlags = safeString(custom_flags);
 
-    // Convert to boolean explicitly for wormhole status
-    const isWormhole = Boolean(nodeIsWormhole);
 
-    /**
-     * systemName:
-     *   - Always use temporaryName.
-     */
     const computedSystemName = safeTemporaryName;
-
-    /**
-     * customLabel:
-     *   - If wormhole: use solarSystemName (if non-empty) otherwise fallback to labelCustom.
-     *   - If not wormhole: always use regionName.
-     */
     const computedCustomLabel = isWormhole
       ? safeSolarSystemName || safeLabelCustom
       : safeTemporaryName !== safeSolarSystemName
         ? safeRegionName
         : '';
-
-    /**
-     * customName:
-     *   - For wormholes: always show "ownerTicker custom_flags".
-     *   - For non-wormholes: always show "solarSystemName labelCustom".
-     */
     const computedCustomName = isWormhole
       ? `${safeOwnerTicker} ${safeFlags}`
       : safeTemporaryName !== safeSolarSystemName
         ? `${safeSolarSystemName} ${safeLabelCustom}`
         : `${safeRegionName} ${safeLabelCustom}`;
 
-    return { systemName: computedSystemName, customLabel: computedCustomLabel, customName: computedCustomName };
-  }, [custom_flags, temporaryName, solarSystemName, regionName, labelCustom, ownerTicker, nodeIsWormhole]);
+    return {
+      systemName: computedSystemName,
+      customLabel: computedCustomLabel,
+      customName: computedCustomName,
+    };
+  }, [
+    temporaryName,
+    solarSystemName,
+    regionName,
+    labelCustom,
+    ownerTicker,
+    isWormhole,
+    custom_flags,
+  ]);
+}
+
+export function useZooLabels(
+  connectionCount: number,
+  {
+    unsplashedLeft,
+    unsplashedRight,
+    systemSigs,
+  }: {
+    unsplashedLeft: any[];  // type these properly
+    unsplashedRight: any[];
+    systemSigs?: SystemSignature[] | null;
+  }
+) {
+  const computed = useMemo(() => {
+    const unsplashedCount =
+      unsplashedLeft.length + unsplashedRight.length - connectionCount;
+
+    let hasEol = false;
+    let isDeadEnd = true;
+    let hasGas = false;
+    let hasCrit = false;
+
+    if (systemSigs) {
+      for (const s of systemSigs) {
+        const customInfo = parseSignatureCustomInfo(s.custom_info);
+        if (s.group === 'Wormhole' || s.group === 'Cosmic Signature') {
+          isDeadEnd = false;
+        }
+        if (s.group === 'Wormhole' && customInfo?.isEOL) {
+          hasEol = true;
+        }
+        if (s.group === 'Wormhole' && customInfo?.isCrit) {
+          hasCrit = true;
+        }
+        if (s.group?.toLowerCase() === 'gas site') {
+          hasGas = true;
+        }
+        if (!isDeadEnd && hasEol && hasGas && hasCrit) {
+          break;
+        }
+      }
+    }
+
+    return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
+  }, [connectionCount, unsplashedLeft, unsplashedRight, systemSigs]);
+
+  return computed;
+}
+
+export function useUpdateSignatures(systemId: string): void {
+  const { updateSystemSignatures } = useCommandsSystems();
+  const didFetchRef = useRef(false);
+
+  useEffect(() => {
+    if (!didFetchRef.current) {
+      didFetchRef.current = true;
+      updateSystemSignatures(systemId)
+    }
+  }, [systemId, updateSystemSignatures]);
 }
