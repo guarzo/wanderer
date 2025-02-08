@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
 import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo';
 import { useCommandsSystems } from '@/hooks/Mapper/mapRootProvider/hooks/api/useCommandsSystems';
-import { SystemSignature } from '@/hooks/Mapper/types';
+import { OutCommand, SystemSignature } from '@/hooks/Mapper/types';
 import { LabelInfo } from './useSolarSystemLogic';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 
 function safeString(value?: string | null, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
@@ -120,11 +121,29 @@ export function useZooLabels(
   return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
 }
 
-export function useUpdateSignatures(systemId: string): void {
-  const { updateSystemSignatures } = useCommandsSystems();
+export function useGetSignatures(systemId: string): SystemSignature[] {
+  const { outCommand } = useMapRootState();
+  const [signatures, setSignatures] = useState<SystemSignature[]>([]);
+
+  const handleGetSignatures = useCallback(async () => {
+    try {
+      const { signatures } = await outCommand({
+        type: OutCommand.getSignatures,
+        data: { system_id: systemId },
+      });
+      setSignatures(signatures);
+    } catch (error) {
+      console.error('Failed to fetch signatures', error);
+    }
+  }, [outCommand, systemId]);
 
   useEffect(() => {
-    // Trigger update every time the systemId changes.
-    updateSystemSignatures(systemId);
-  }, [systemId, updateSystemSignatures]);
+    // Optionally add a delay before calling handleGetSignatures.
+    const timer = setTimeout(() => {
+      handleGetSignatures();
+    }, 1000); // delay in milliseconds; adjust as needed
+    return () => clearTimeout(timer);
+  }, [handleGetSignatures]);
+
+  return signatures;
 }
