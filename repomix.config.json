@@ -1,0 +1,35 @@
+{
+  "outpt": {
+    "filePath": "repomix-output.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "compress": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "showLineNumbers": false,
+    "copyToClipboard": true,
+    "topFilesLength": 5,
+    "includeEmptyDirectories": false
+  },
+  "include": [
+    "**/*"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "additional-folder",
+      "**/*.log",
+      "priv/repo/data/*.*",
+      "assets/js/hooks/Mapper/components/map/components/ZooIcons"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}
