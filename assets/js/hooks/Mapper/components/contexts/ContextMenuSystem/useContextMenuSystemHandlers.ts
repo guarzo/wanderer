@@ -104,6 +104,40 @@ export const useContextMenuSystemHandlers = ({ systems, hubs, outCommand }: UseC
     setSystem(undefined);
   }, []);
 
+  const onSystemCustomFlags = useCallback((selectedFlags?: string) => {
+    const { system, outCommand } = ref.current;
+    if (!system) {
+      return;
+    }
+
+    outCommand({
+      type: OutCommand.updateSystemCustomFlags,
+      data: {
+        system_id: system,
+        value: selectedFlags ?? '',
+      },
+    });
+    setSystem(undefined);
+  }, []);
+
+
+  const onSystemOwner = useCallback((ownerId?: string, ownerType?: string) => {
+    const { system, outCommand } = ref.current;
+    if (!system) {
+      return;
+    }
+
+    outCommand({
+      type: OutCommand.updateSystemOwner,
+      data: {
+        system_id: system,
+        ownerId: ownerId,
+        ownerType: ownerType,
+      },
+    });
+    setSystem(undefined);
+  }, []);
+
 
   const onSystemStatus = useCallback((status: number) => {
     const { system, outCommand } = ref.current;
@@ -179,6 +213,8 @@ export const useContextMenuSystemHandlers = ({ systems, hubs, outCommand }: UseC
     onHubToggle,
     onSystemTag,
     onSystemTemporaryName,
+    onSystemCustomFlags,
+    onSystemOwner,
     onSystemStatus,
     onSystemLabels,
     onOpenSettings,
