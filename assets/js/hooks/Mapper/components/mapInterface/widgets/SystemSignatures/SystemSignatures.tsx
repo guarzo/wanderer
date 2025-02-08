@@ -67,6 +67,11 @@ export const SystemSignatures = () => {
 
   const [visible, setVisible] = useState(false);
   const [settings, setSettings] = useState<Setting[]>(defaultSettings);
+  const [sigCount, setSigCount] = useState<number>(0);
+
+  const handleSigCountChange = useCallback((count: number) => {
+    setSigCount(count);
+  }, []);
 
   const [systemId] = selectedSystems;
 
@@ -109,7 +114,7 @@ export const SystemSignatures = () => {
           <div className="flex justify-between items-center gap-1">
             {!compact && (
               <div className="flex whitespace-nowrap text-ellipsis overflow-hidden text-stone-400">
-                Signatures {isNotSelectedSystem ? '' : 'in'}
+                {!sigCount ? '' : ` [${sigCount}]`} Signatures {isNotSelectedSystem ? '' : 'in'}
               </div>
             )}
             {!isNotSelectedSystem && <SystemView systemId={systemId} className="select-none text-center" hideRegion />}
@@ -166,7 +171,7 @@ export const SystemSignatures = () => {
           System is not selected
         </div>
       ) : (
-        <SystemSignaturesContent systemId={systemId} settings={settings} onLazyDeleteChange={handleLazyDeleteChange} />
+        <SystemSignaturesContent systemId={systemId} settings={settings} onLazyDeleteChange={handleLazyDeleteChange} onCountChange={handleSigCountChange} />
       )}
       {visible && (
         <SystemSignatureSettingsDialog

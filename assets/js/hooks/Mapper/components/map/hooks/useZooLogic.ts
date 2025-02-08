@@ -138,12 +138,66 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
   }, [outCommand, systemId]);
 
   useEffect(() => {
-    // Optionally add a delay before calling handleGetSignatures.
     const timer = setTimeout(() => {
       handleGetSignatures();
-    }, 1000); // delay in milliseconds; adjust as needed
+    }, 10);
     return () => clearTimeout(timer);
   }, [handleGetSignatures]);
 
   return signatures;
+}
+
+
+export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
+  return useMemo(() => {
+    // If there are no signatures, return defaults.
+    if (!systemSigs || systemSigs.length === 0) {
+      return {
+        newestUpdatedAt: 0,
+        signatureAgeHours: 0,
+        bookmarkColor: '#F57C00', // default to dark orange
+      };
+    }
+
+    // Filter to signatures you care about (e.g., group "Wormhole" and not linked)
+    const filteredSignatures = systemSigs.filter(
+      s => s.group === 'Wormhole' && !s.linked_system
+    );
+
+    // Helper function to get a timestamp from a signature.
+    const getSignatureTimestamp = (s: SystemSignature): number => {
+      if (s.updated_at) {
+        return new Date(s.updated_at).getTime();
+      } else if (s.inserted_at) {
+        return new Date(s.inserted_at).getTime();
+      }
+      return 0;
+    };
+
+    // Compute the newest timestamp using updated_at as primary, inserted_at as secondary.
+    const newestTimestamp = filteredSignatures.reduce((max, s) => {
+      const ts = getSignatureTimestamp(s);
+      return ts > max ? ts : max;
+    }, 0);
+
+    // Calculate the age in hours (rounded to the nearest hour)
+    let signatureAgeHours = 0;
+    if (newestTimestamp > 0) {
+      const ageMs = Date.now() - newestTimestamp;
+      signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
+      // Clamp negative values to 0 (so a future timestamp doesn't yield a negative age)
+      signatureAgeHours = Math.max(0, signatureAgeHours);
+    }
+
+    // Choose the bookmark color:
+    // - Dark orange for less than 5 hours.
+    // - Deep red for 5 hours or more.
+    const bookmarkColor = signatureAgeHours < 5 ? '#F57C00' : '#D32F2F';
+
+    return {
+      newestUpdatedAt: newestTimestamp,
+      signatureAgeHours,
+      bookmarkColor,
+    };
+  }, [systemSigs]);
 }
