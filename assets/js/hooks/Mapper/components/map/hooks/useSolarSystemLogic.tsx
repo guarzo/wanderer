@@ -83,11 +83,9 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   } = system_static_info;
 
   const {
-    interfaceSettings,
     data: { systemSignatures: mapSystemSignatures },
   } = useMapRootState();
 
-  const { isShowUnsplashedSignatures } = interfaceSettings;
   const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
   const isShowLinkedSigId = useMapGetOption('show_linked_signature_id') === 'true';
   const isShowLinkedSigIdTempName = useMapGetOption('show_linked_signature_id_temp_name') === 'true';
@@ -271,6 +269,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     temporaryName: computedTemporaryName,
     ownerTicker,
     ownerURL,
+    systemSigs,
   };
 
   return nodeVars;
@@ -314,4 +313,5 @@ export interface SolarSystemNodeVars {
   temporaryName?: string | null;
   ownerTicker?: string | null;
   ownerURL?: string | null;
+  systemSigs?: SystemSignature[];
 }

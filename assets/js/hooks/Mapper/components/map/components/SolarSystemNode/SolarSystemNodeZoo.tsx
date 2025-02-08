@@ -5,19 +5,19 @@ import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
-import { useZooNames } from '../../hooks/useZooLogic';
+import { useZooNames, useZooLabels, useUpdateSignatures } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
   EFFECT_BACKGROUND_STYLES,
 } from '@/hooks/Mapper/components/map/constants';
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
-import { UnsplashedSignature } from '@/hooks/Mapper/components/map/components/UnsplashedSignature';
 import { KillsCounter } from './SolarSystemKillsCounter';
 import { LocalCounter } from './SolarSystemLocalCounter';
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
+  useUpdateSignatures(nodeVars.solarSystemId);
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
@@ -25,12 +25,24 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
     edge => edge.source === props.id || edge.target === props.id
   ).length;
 
-  const openWH = nodeVars.unsplashedLeft.length + nodeVars.unsplashedRight.length -  connectionCount
-
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
 
-  const { systemName, customLabel, customName } = useZooNames(nodeVars, props);
+  const { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit } = useZooLabels(connectionCount, {
+    unsplashedLeft: nodeVars.unsplashedLeft,
+    unsplashedRight: nodeVars.unsplashedRight,
+    systemSigs: nodeVars.systemSigs,
+  });
+
+  const { systemName, customLabel, customName } = useZooNames({
+    temporaryName: nodeVars.temporaryName,
+    solarSystemName: nodeVars.solarSystemName,
+    regionName: nodeVars.regionName,
+    labelCustom: nodeVars.labelCustom,
+    ownerTicker: nodeVars.ownerTicker,
+    isWormhole: nodeVars.isWormhole,
+  }, props);
+
   const { localCounterCharacters } = useLocalCounter(nodeVars);
 
   return (
@@ -75,12 +87,36 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </KillsCounter>
           )}
 
-          {openWH > 0 && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES['custom'])}>
+          {unsplashedCount > 0 && (
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)}>
               <div className={clsx(classes.BookmarkWithIcon)}>
-                <span className={clsx("pi pi-sparkles")} style={{ marginRight: '3px', fontSize: '8px' }}></span>
-                <span className={clsx(classes.text, classes.openWhText)}>{openWH}</span>
+                <span className={clsx("pi pi-bullseye")} style={{ marginRight: '3px', fontSize: '8px' }}></span>
+                <span className={clsx(classes.text, classes.openWhText)}>{unsplashedCount}</span>
               </div>
+            </div>
+          )}
+
+          {hasEol && (
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.eol)}>
+              <span className={clsx('pi pi-stopwatch', classes.icon)} />
+            </div>
+          )}
+
+          {hasGas && (
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.gas)}>
+              <span className={clsx('pi pi-cloud', classes.icon)} style={{ color: 'black' }} />
+            </div>
+          )}
+
+          {nodeVars.isWormhole && isDeadEnd && (
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.deadend)}>
+              <span className={clsx('pi pi-directions-alt', classes.icon)} />
+            </div>
+          )}
+
+          {hasCrit && (
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.crit)}>
+              <span className={clsx('pi pi-info-circle', classes.icon)} />
             </div>
           )}
 
