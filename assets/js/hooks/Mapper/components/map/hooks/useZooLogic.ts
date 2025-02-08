@@ -138,10 +138,9 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
   }, [outCommand, systemId]);
 
   useEffect(() => {
-    // Optionally add a delay before calling handleGetSignatures.
     const timer = setTimeout(() => {
       handleGetSignatures();
-    }, 1000); // delay in milliseconds; adjust as needed
+    }, 10);
     return () => clearTimeout(timer);
   }, [handleGetSignatures]);
 
