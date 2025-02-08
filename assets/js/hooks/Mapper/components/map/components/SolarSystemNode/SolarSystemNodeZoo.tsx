@@ -98,12 +98,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {hasGas && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.gas)}>
-              <span className={clsx('pi pi-cloud', classes.icon)} style={{ color: 'black' }} />
-            </div>
-          )}
-
           {hasCrit && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.crit)}>
               <span className={clsx('pi pi-info-circle', classes.icon)} />
@@ -113,7 +107,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           {nodeVars.labelsInfo.map(x => (
             <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
               {LABEL_ICON_MAP[x.id] ? (
-                <i className={clsx(`pi ${LABEL_ICON_MAP[x.id]}`, classes.icon)} />
+                <i className={clsx(`pi ${LABEL_ICON_MAP[x.id].icon} ${LABEL_ICON_MAP[x.id].colorClass}`, classes.icon)} />
               ) : (
                 x.shortName
               )}

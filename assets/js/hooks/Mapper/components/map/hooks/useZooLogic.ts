@@ -71,51 +71,53 @@ export function useZooLabels(
     unsplashedRight,
     systemSigs,
   }: {
-    unsplashedLeft: any[];  // type these properly
+    unsplashedLeft: any[];  // ideally, type these properly
     unsplashedRight: any[];
     systemSigs?: SystemSignature[] | null;
   }
 ) {
-    const unsplashedCount =
-      unsplashedLeft.length + unsplashedRight.length - connectionCount;
+  const unsplashedCount =
+    unsplashedLeft.length + unsplashedRight.length - connectionCount;
 
-    let hasEol = false;
-    let isDeadEnd = true;
-    let hasGas = false;
-    let hasCrit = false;
+  let hasEol = false;
+  let isDeadEnd = true;
+  let hasGas = false;
+  let hasCrit = false;
 
-    if (systemSigs) {
-      for (const s of systemSigs) {
-        const customInfo = parseSignatureCustomInfo(s.custom_info);
-        if (s.group === 'Wormhole' || s.group === 'Cosmic Signature') {
-          isDeadEnd = false;
-        }
-        if (s.group === 'Wormhole' && customInfo?.isEOL) {
-          hasEol = true;
-        }
-        if (s.group === 'Wormhole' && customInfo?.isCrit) {
-          hasCrit = true;
-        }
-        if (s.group?.toLowerCase() === 'gas site') {
-          hasGas = true;
-        }
-        if (!isDeadEnd && hasEol && hasGas && hasCrit) {
-          break;
-        }
+  if (systemSigs) {
+    for (const s of systemSigs) {
+      const customInfo = parseSignatureCustomInfo(s.custom_info);
+      if (s.group === 'Wormhole' || s.group === 'Cosmic Signature') {
+        isDeadEnd = false;
+      }
+      if (s.group === 'Wormhole' && customInfo?.isEOL) {
+        hasEol = true;
+      }
+      if (s.group === 'Wormhole' && customInfo?.isCrit) {
+        hasCrit = true;
+      }
+      // Option 1: Check for exact match
+      // if (s.group?.toLowerCase() === 'gas site') {
+      // Option 2: More flexible check (allows "gas cloud", "gas site", etc.)
+      if (s.group && s.group.trim().toLowerCase().includes('gas')) {
+        hasGas = true;
+      }
+
+      // If all are true, we can break early.
+      if (!isDeadEnd && hasEol && hasGas && hasCrit) {
+        break;
       }
     }
+  }
 
-    return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
+  return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
 }
 
 export function useUpdateSignatures(systemId: string): void {
   const { updateSystemSignatures } = useCommandsSystems();
-  const didFetchRef = useRef(false);
 
   useEffect(() => {
-    if (!didFetchRef.current) {
-      didFetchRef.current = true;
-      updateSystemSignatures(systemId)
-    }
+    // Trigger update every time the systemId changes.
+    updateSystemSignatures(systemId);
   }, [systemId, updateSystemSignatures]);
 }
