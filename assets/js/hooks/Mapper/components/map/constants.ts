@@ -1,4 +1,7 @@
-import { ConnectionType, MassState, ShipSizeStatus } from '@/hooks/Mapper/types';
+import { ConnectionType, MassState, ShipSizeStatus } from '../../types/connection';
+import { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER } from './labelIconMap';
+export type { LabelIcon, LabelInfo } from './labelIconMap';
+export { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER };
 
 export enum SOLAR_SYSTEM_CLASS_IDS {
   ccp1 = -1,
@@ -627,6 +630,7 @@ export const EFFECT_BACKGROUND_STYLES: Record<string, string> = {
   'Federal Stellar Observatory': 'eve-wh-effect-color-federalStellarObservatory',
 };
 
+// Marker bookmark background styles, including new wormhole styles
 export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   custom: 'wd-marker-bookmark-color-custom',
   shattered: 'wd-marker-bookmark-color-shattered',
@@ -635,33 +639,25 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   activityWarn: 'wd-marker-bookmark-color-warn',
   activityDanger: 'wd-marker-bookmark-color-danger',
 
-  la: 'wd-marker-bookmark-color-average',
-  lb: 'wd-marker-bookmark-color-ytirium',
+  gas: 'eve-zoo-effect-color-has-gas',
+  eol: 'eve-zoo-effect-color-has-eol',
+  deadEnd: 'eve-zoo-effect-color-is-dead-end',
+  crit: 'eve-zoo-effect-color-is-critical',
+  unSplashed: 'eve-zoo-effect-color-unsplashed',
+  de: 'eve-zoo-effect-color-is-dead-end',
+  wormhole: 'eve-zoo-effect-color-wormhole',
+  flygd: 'eve-zoo-effect-color-flygd',
+
   lc: 'wd-marker-bookmark-color-ytirium',
   l1: 'wd-marker-bookmark-color-l1',
   l2: 'wd-marker-bookmark-color-l2',
   l3: 'wd-marker-bookmark-color-l3',
-};
 
-export enum LABELS {
-  clear = 'clear',
-  la = 'a',
-  lb = 'b',
-  lc = 'c',
-  l1 = '1',
-  l2 = '2',
-  l3 = '3',
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const LABELS_INFO: Record<string, any> = {
-  [LABELS.clear]: { id: 'clear', name: 'Clear', shortName: '', icon: '' },
-  [LABELS.la]: { id: 'la', name: 'Label A', shortName: 'A', icon: '' },
-  [LABELS.lb]: { id: 'lb', name: 'Label B', shortName: 'B', icon: '' },
-  [LABELS.lc]: { id: 'lc', name: 'Label C', shortName: 'C', icon: '' },
-  [LABELS.l1]: { id: 'l1', name: 'Label 1', shortName: '1', icon: '' },
-  [LABELS.l2]: { id: 'l2', name: 'Label 2', shortName: '2', icon: '' },
-  [LABELS.l3]: { id: 'l3', name: 'Label 3', shortName: '3', icon: '' },
+  // New wormhole background styles
+  wormholeMagic: 'eve-zoo-effect-color-wormhole-magic',
+  wormholeInfinity: 'eve-zoo-effect-color-wormhole-infinity',
+  wormholePlanet: 'eve-zoo-effect-color-wormhole-planet',
+  wormholeLoop: 'eve-zoo-effect-color-wormhole-loop',
 };
 
 export enum STATUSES {
@@ -693,8 +689,6 @@ export const STATUSES_ORDER = [
   STATUSES.target,
   STATUSES.dangerous,
 ];
-
-export const LABELS_ORDER = [LABELS.clear, LABELS.la, LABELS.lb, LABELS.lc, LABELS.l1, LABELS.l2, LABELS.l3];
 
 export const STATUS_COLOR_CLASSES: Record<number, string> = {
   [STATUSES.unknown]: 'eve-system-status-color-clear',
@@ -746,6 +740,7 @@ export const SHIP_SIZES_NAMES = {
   [ShipSizeStatus.freight]: 'Huge',
   [ShipSizeStatus.capital]: 'Capital',
 };
+
 export const SHIP_SIZES_SIZE = {
   [ShipSizeStatus.small]: '5K',
   [ShipSizeStatus.medium]: '62K',
