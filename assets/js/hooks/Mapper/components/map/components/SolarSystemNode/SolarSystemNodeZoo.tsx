@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
-import { useZooNames, useZooLabels, useGetSignatures } from '../../hooks/useZooLogic';
+import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
@@ -21,6 +21,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const nodeVars = useSolarSystemNode(props);
   const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
   nodeVars.systemSigs = updatedSignatures
+  console.log(JSON.stringify(updatedSignatures))
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
@@ -48,6 +49,9 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   }, props);
 
   const { localCounterCharacters } = useLocalCounter(nodeVars);
+
+  const { signatureAgeHours, bookmarkColor } = useSignatureAge(nodeVars.systemSigs);
+  console.log("results: ", signatureAgeHours, bookmarkColor)
 
   return (
     <>
@@ -109,6 +113,12 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           {hasCrit && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.crit)}>
               <span className={clsx('pi pi-info-circle', classes.icon)} />
+            </div>
+          )}
+
+          {nodeVars.systemSigs.length > 0 && (
+            <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
+              <span className={clsx(classes.text)}>{signatureAgeHours}h</span>
             </div>
           )}
 

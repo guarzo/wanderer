@@ -12,6 +12,7 @@ import { sortWHClasses } from '@/hooks/Mapper/helpers';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
 import { CharacterTypeRaw, OutCommand, SystemSignature } from '@/hooks/Mapper/types';
 import { LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants';
+import { SignatureCriticalCheckbox } from '../../mapRootContent/components/SignatureSettings/components/SignatureCriticalCheckbox';
 
 const zkillboardBaseURL = 'https://zkillboard.com';
 
@@ -213,12 +214,12 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   }, [isTempSystemNameEnabled, computedTemporaryName, name, solar_system_name]);
 
   const { unsplashedLeft, unsplashedRight, newestUpdatedAt } = useMemo(() => {
-    // Filter the signatures you care about
+    // Filter the signatures you care about.
     const filteredSignatures = systemSigs.filter(
       s => s.group === 'Wormhole' && !s.linked_system,
     );
 
-    // Map to your desired type
+    // Map to your desired type.
     const mappedSignatures = filteredSignatures.map(s => ({
       eve_id: s.eve_id,
       type: s.type,
@@ -226,27 +227,35 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
       kind: s.kind,
       name: s.name,
       group: s.group,
-      sig_id: s.eve_id, // Unique key property
+      sig_id: s.eve_id, // Unique key property.
       updated_at: s.updated_at,
     })) as UnsplashedSignatureType[];
 
-    // Find the signature with the latest updated_at value.
-    // (Make sure to convert the date strings to Date objects for accurate comparisons.)
-    const newestUpdatedAt =
-      filteredSignatures.length > 0
-        ? filteredSignatures.reduce((latest, s) => {
-            return new Date(s.updated_at).getTime() >
-              new Date(latest.updated_at).getTime()
-              ? s
-              : latest;
-          }).updated_at
-        : null; // Or use a default value if there are no signatures
+    // Helper function to get the timestamp from a signature.
+    const getSignatureTimestamp = (s: SystemSignature): number => {
+      if (s.updated_at) {
+        return new Date(s.updated_at).getTime();
+      } else if (s.inserted_at) {
+        return new Date(s.inserted_at).getTime();
+      }
+      return 0;
+    };
 
-    // Prepare the two chunks as before.
+    console.log(JSON.stringify(filteredSignatures))
+
+    // Compute the newest timestamp using updated_at as primary, inserted_at as secondary.
+    const newestTimestamp = filteredSignatures.reduce((max, s) => {
+      console.log(max, s)
+      const current = getSignatureTimestamp(s);
+      return current > max ? current : max;
+    }, 0);
+
+    // Split the mapped signatures into two chunks.
     const [unsplashedLeft, unsplashedRight] = prepareUnsplashedChunks(mappedSignatures);
 
-    return { unsplashedLeft, unsplashedRight, newestUpdatedAt };
+    return { unsplashedLeft, unsplashedRight, newestUpdatedAt: newestTimestamp };
   }, [systemSigs]);
+
 
   // Ensure hubs are always strings.
   const hubsAsStrings = useMemo(() => hubs.map(item => item.toString()), [hubs]);
@@ -290,6 +299,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     ownerTicker,
     ownerURL,
     systemSigs,
+    newestUpdatedAt,
   };
 
   return nodeVars;
@@ -334,4 +344,5 @@ export interface SolarSystemNodeVars {
   ownerTicker?: string | null;
   ownerURL?: string | null;
   systemSigs?: SystemSignature[];
+  newestUpdatedAt: number;
 }
