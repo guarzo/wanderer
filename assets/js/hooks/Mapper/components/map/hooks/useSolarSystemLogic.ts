@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { MapSolarSystemType } from '../map.types';
 import { NodeProps } from 'reactflow';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
@@ -13,6 +13,8 @@ import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
 import { CharacterTypeRaw, Commands, OutCommand, SystemSignature } from '@/hooks/Mapper/types';
 import { LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants';
 import { useMapEventListener } from '@/hooks/Mapper/events';
+
+const zkillboardBaseURL = 'https://zkillboard.com';
 
 export type LabelInfo = {
   id: string;
@@ -63,6 +65,8 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     status,
     labels,
     temporary_name,
+    owner_id,
+    owner_type,
     linked_sig_eve_id: linkedSigEveId = '',
   } = data;
 
@@ -80,11 +84,9 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   } = system_static_info;
 
   const {
-    interfaceSettings,
     data: { systemSignatures: mapSystemSignatures },
   } = useMapRootState();
 
-  const { isShowUnsplashedSignatures } = interfaceSettings;
   const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
   const isShowLinkedSigId = useMapGetOption('show_linked_signature_id') === 'true';
   const isShowLinkedSigIdTempName = useMapGetOption('show_linked_signature_id_temp_name') === 'true';
@@ -111,6 +113,35 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     () => mapSystemSignatures[solar_system_id] || system_signatures,
     [system_signatures, solar_system_id, mapSystemSignatures],
   );
+
+  const [ownerTicker, setOwnerTicker] = useState(null);
+  const [ownerURL, setOwnerURL] = useState('');
+
+  useEffect(() => {
+    // Reset or handle no owner
+    if (!owner_id || !owner_type) {
+      setOwnerTicker(null);
+      setOwnerURL('');
+      return;
+    }
+    if (owner_type === 'corp') {
+      outCommand({
+        type: OutCommand.getCorporationTicker,
+        data: { corp_id: owner_id },
+      }).then(({ ticker }) => {
+        setOwnerTicker(ticker);
+        setOwnerURL(`${zkillboardBaseURL}/corporation/${owner_id}`);
+      });
+    } else if (owner_type === 'alliance') {
+      outCommand({
+        type: OutCommand.getAllianceTicker,
+        data: { alliance_id: owner_id },
+      }).then(({ ticker }) => {
+        setOwnerTicker(ticker);
+        setOwnerURL(`${zkillboardBaseURL}/alliance/${owner_id}`);
+      });
+    }
+  }, [outCommand, owner_id, owner_type]);
 
   const charactersInSystem = useMemo(() => {
     return characters.filter(c => c.location?.solar_system_id === solar_system_id && c.online);
@@ -183,9 +214,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   }, [isTempSystemNameEnabled, computedTemporaryName, name, solar_system_name]);
 
   const [unsplashedLeft, unsplashedRight] = useMemo(() => {
-    if (!isShowUnsplashedSignatures) {
-      return [[], []];
-    }
     return prepareUnsplashedChunks(
       systemSigs
         .filter(s => s.group === 'Wormhole' && !s.linked_system)
@@ -198,7 +226,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
           group: s.group,
         })) as UnsplashedSignatureType[],
     );
-  }, [isShowUnsplashedSignatures, systemSigs]);
+  }, [systemSigs]);
 
   // Ensure hubs are always strings.
   const hubsAsStrings = useMemo(() => hubs.map(item => item.toString()), [hubs]);
@@ -239,6 +267,9 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     isThickConnections,
     classTitle: class_title,
     temporaryName: computedTemporaryName,
+    ownerTicker,
+    ownerURL,
+    systemSigs,
   };
 
   return nodeVars;
@@ -280,6 +311,9 @@ export interface SolarSystemNodeVars {
   isThickConnections: boolean;
   classTitle: string | null;
   temporaryName?: string | null;
+  ownerTicker?: string | null;
+  ownerURL?: string | null;
+  systemSigs?: SystemSignature[];
 }
 
 export function useNodeKillsCount(systemId: number | string, initialKillsCount: number | null): number | null {
