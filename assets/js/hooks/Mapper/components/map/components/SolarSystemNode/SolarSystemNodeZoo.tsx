@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
-import { useZooNames, useZooLabels, useUpdateSignatures } from '../../hooks/useZooLogic';
+import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
@@ -14,10 +14,13 @@ import {
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { KillsCounter } from './SolarSystemKillsCounter';
 import { LocalCounter } from './SolarSystemLocalCounter';
+import { LABEL_ICON_MAP } from '@/hooks/Mapper/components/map/constants';
+
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
-  useUpdateSignatures(nodeVars.solarSystemId);
+  const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
+  nodeVars.systemSigs = updatedSignatures
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
@@ -28,10 +31,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
 
-  const { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit } = useZooLabels(connectionCount, {
+  const { unsplashedCount, hasEol, hasGas, hasCrit } = useZooLabels(connectionCount, {
     unsplashedLeft: nodeVars.unsplashedLeft,
     unsplashedRight: nodeVars.unsplashedRight,
     systemSigs: nodeVars.systemSigs,
+    labelInfo: nodeVars.labelsInfo,
   });
 
   const { systemName, customLabel, customName } = useZooNames({
@@ -44,6 +48,8 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   }, props);
 
   const { localCounterCharacters } = useLocalCounter(nodeVars);
+
+  const { signatureAgeHours, bookmarkColor } = useSignatureAge(nodeVars.systemSigs);
 
   return (
     <>
@@ -63,12 +69,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
               ) : (
                 <span className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] ">{customLabel}</span>
               )}
-            </div>
-          )}
-
-          {nodeVars.isShattered && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.shattered)}>
-              <span className={clsx('pi pi-chart-pie', classes.icon)} />
             </div>
           )}
 
@@ -108,21 +108,25 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {nodeVars.isWormhole && isDeadEnd && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.deadend)}>
-              <span className={clsx('pi pi-directions-alt', classes.icon)} />
-            </div>
-          )}
-
           {hasCrit && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.crit)}>
               <span className={clsx('pi pi-info-circle', classes.icon)} />
             </div>
           )}
 
+          {nodeVars.systemSigs.length > 0 && (
+            <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
+              <span className={clsx(classes.text)}>{signatureAgeHours}h</span>
+            </div>
+          )}
+
           {nodeVars.labelsInfo.map(x => (
             <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
-              {x.shortName}
+              {LABEL_ICON_MAP[x.id] ? (
+                <i className={clsx(`pi ${LABEL_ICON_MAP[x.id].icon} ${LABEL_ICON_MAP[x.id].colorClass}`, classes.icon)} />
+              ) : (
+                x.shortName
+              )}
             </div>
           ))}
         </div>
@@ -176,6 +180,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
             <div className={clsx(classes.BottomRow, 'flex items-center justify-between')}>
               <div className="flex items-center gap-2">
+                {nodeVars.isShattered && (
+                <div>
+                    <span className={clsx('pi pi-spinner-dotted','[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)]', 'text-[8px]', 'text-sky-200')} />
+                </div>
+                )}
                 {nodeVars.tag != null && nodeVars.tag !== '' && (
                   <div className={clsx(classes.tagTitle, 'font-medium')}>{`[${nodeVars.tag}]`}</div>
                 )}
@@ -195,6 +204,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                     <i className={clsx(PrimeIcons.MAP_MARKER, classes.mapMarker)} />
                   )}
                 </div>
+                <LocalCounter
+                  hasUserCharacters={nodeVars.hasUserCharacters}
+                  localCounterCharacters={localCounterCharacters}
+                  showIcon={false}
+                />
               </div>
             </div>
           </>
@@ -264,12 +278,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           id="d"
         />
       </div>
-      <LocalCounter
-        hasUserCharacters={nodeVars.hasUserCharacters}
-        localCounterCharacters={localCounterCharacters}
-        classes={classes}
-        showIcon={false}
-      />
     </>
   );
 });

@@ -275,8 +275,6 @@ const MapComp = ({
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
-          // TODO we need save into session all of this
-          //      and on any action do either
           defaultViewport={getViewPortFromStore()}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
