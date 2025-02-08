@@ -14,6 +14,8 @@ import {
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { KillsCounter } from './SolarSystemKillsCounter';
 import { LocalCounter } from './SolarSystemLocalCounter';
+import { LABEL_ICON_MAP } from '@/hooks/Mapper/components/map/constants';
+
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
@@ -28,7 +30,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
 
-  const { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit } = useZooLabels(connectionCount, {
+  const { unsplashedCount, hasEol, hasGas, hasCrit } = useZooLabels(connectionCount, {
     unsplashedLeft: nodeVars.unsplashedLeft,
     unsplashedRight: nodeVars.unsplashedRight,
     systemSigs: nodeVars.systemSigs,
@@ -63,12 +65,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
               ) : (
                 <span className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)] ">{customLabel}</span>
               )}
-            </div>
-          )}
-
-          {nodeVars.isShattered && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.shattered)}>
-              <span className={clsx('pi pi-chart-pie', classes.icon)} />
             </div>
           )}
 
@@ -108,12 +104,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {nodeVars.isWormhole && isDeadEnd && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.deadend)}>
-              <span className={clsx('pi pi-directions-alt', classes.icon)} />
-            </div>
-          )}
-
           {hasCrit && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.crit)}>
               <span className={clsx('pi pi-info-circle', classes.icon)} />
@@ -122,7 +112,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
           {nodeVars.labelsInfo.map(x => (
             <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
-              {x.shortName}
+              {LABEL_ICON_MAP[x.id] ? (
+                <i className={clsx(`pi ${LABEL_ICON_MAP[x.id]}`, classes.icon)} />
+              ) : (
+                x.shortName
+              )}
             </div>
           ))}
         </div>
@@ -176,6 +170,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
             <div className={clsx(classes.BottomRow, 'flex items-center justify-between')}>
               <div className="flex items-center gap-2">
+                {nodeVars.isShattered && (
+                <div>
+                    <span className={clsx('pi pi-spinner-dotted','[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)]', 'text-[8px]', 'text-sky-200')} />
+                </div>
+                )}
                 {nodeVars.tag != null && nodeVars.tag !== '' && (
                   <div className={clsx(classes.tagTitle, 'font-medium')}>{`[${nodeVars.tag}]`}</div>
                 )}
