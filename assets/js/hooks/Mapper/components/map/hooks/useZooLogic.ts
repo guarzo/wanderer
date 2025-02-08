@@ -138,12 +138,63 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
   }, [outCommand, systemId]);
 
   useEffect(() => {
-    // Optionally add a delay before calling handleGetSignatures.
     const timer = setTimeout(() => {
       handleGetSignatures();
-    }, 1000); // delay in milliseconds; adjust as needed
+    }, 10);
     return () => clearTimeout(timer);
   }, [handleGetSignatures]);
 
   return signatures;
+}
+
+
+export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
+  return useMemo(() => {
+    if (!systemSigs || systemSigs.length === 0) {
+      return {
+        newestUpdatedAt: 0,
+        signatureAgeHours: 0,
+        bookmarkColor: '#388E3C', // default to green
+      };
+    }
+
+    const filteredSignatures = systemSigs.filter(
+      s => s.group === 'Wormhole' && !s.linked_system
+    );
+
+    const getSignatureTimestamp = (s: SystemSignature): number => {
+      if (s.updated_at) {
+        return new Date(s.updated_at).getTime();
+      } else if (s.inserted_at) {
+        return new Date(s.inserted_at).getTime();
+      }
+      return 0;
+    };
+
+    const newestTimestamp = filteredSignatures.reduce((max, s) => {
+      const ts = getSignatureTimestamp(s);
+      return ts > max ? ts : max;
+    }, 0);
+
+    let signatureAgeHours = 0;
+    if (newestTimestamp > 0) {
+      const ageMs = Date.now() - newestTimestamp;
+      signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
+    }
+
+    let bookmarkColor = '#388E3C';
+    if (signatureAgeHours < 4) {
+      bookmarkColor = '#388E3C'; // deep green
+    } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
+      bookmarkColor = '#F57C00'; // dark orange
+    } else {
+      bookmarkColor = '#D32F2F'; // deep red
+    }
+
+    return {
+      newestUpdatedAt: newestTimestamp,
+      signatureAgeHours,
+      bookmarkColor,
+    };
+  }, [systemSigs]);
 }
