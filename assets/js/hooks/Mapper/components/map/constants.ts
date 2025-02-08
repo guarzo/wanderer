@@ -631,15 +631,14 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   activityNormal: 'wd-marker-bookmark-color-normal',
   activityWarn: 'wd-marker-bookmark-color-warn',
   activityDanger: 'wd-marker-bookmark-color-danger',
+
   gas: 'eve-zoo-effect-color-has-gas',
   eol: 'eve-zoo-effect-color-has-eol',
   deadEnd: 'eve-zoo-effect-color-is-dead-end',
   crit: 'eve-zoo-effect-color-is-critical',
   unSplashed: 'eve-zoo-effect-color-unsplashed',
+  de: 'eve-zoo-effect-color-is-dead-end',
 
-
-  de: 'wd-marker-bookmark-color-average',
-  p: 'wd-marker-bookmark-color-ytirium',
   lc: 'wd-marker-bookmark-color-ytirium',
   l1: 'wd-marker-bookmark-color-l1',
   l2: 'wd-marker-bookmark-color-l2',
@@ -649,17 +648,22 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
 export enum LABELS {
   clear = 'clear',
   la = 'de',
-  lb = 'p',
+  lb = 'gas',
   lc = 'c',
   l1 = '1',
   l2 = '2',
   l3 = '3',
 }
 
-export const LABEL_ICON_MAP: Record<string, string> = {
+export type LabelIcon = {
+  icon: string;
+  colorClass: string;
+};
+
+export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
   // [LABELS.clear]: 'pi pi-times', // Example icon for "clear"
-  [LABELS.la]: 'pi pi-directions-alt', // Example icon for "Dead End"
-  [LABELS.lb]: 'pi pi-prime', // Example icon for Label B
+  [LABELS.la]: { icon: 'pi-directions-alt', colorClass: 'text-white' },
+  [LABELS.lb]: { icon: 'pi-cloud', colorClass: 'text-teal-500' },
   // [LABELS.lc]: 'pi pi-question-circle', // Example icon for Label C
   // [LABELS.l1]: 'pi pi-check', // Example icon for Label 1
   // [LABELS.l2]: 'pi pi-plus', // Example icon for Label 2
@@ -669,7 +673,7 @@ export const LABEL_ICON_MAP: Record<string, string> = {
 export const LABELS_INFO: Record<string, any> = {
   [LABELS.clear]: { id: 'clear', name: 'Clear', shortName: '', icon: '' },
   [LABELS.la]: { id: 'de', name: 'Dead End', shortName:'DE', icon: '' },
-  [LABELS.lb]: { id: 'p', name: 'More than meets the eye', shortName: 'PRIME', icon: '' },
+  [LABELS.lb]: { id: 'gas', name: 'Gas', shortName: 'GAS', icon: '' },
   [LABELS.lc]: { id: 'lc', name: 'Label C', shortName: 'C', icon: '' },
   [LABELS.l1]: { id: 'l1', name: 'Label 1', shortName: '1', icon: '' },
   [LABELS.l2]: { id: 'l2', name: 'Label 2', shortName: '2', icon: '' },
