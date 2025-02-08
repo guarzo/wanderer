@@ -212,20 +212,40 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     return null;
   }, [isTempSystemNameEnabled, computedTemporaryName, name, solar_system_name]);
 
-  const [unsplashedLeft, unsplashedRight] = useMemo(() => {
-    return prepareUnsplashedChunks(
-      systemSigs
-        .filter(s => s.group === 'Wormhole' && !s.linked_system)
-        .map(s => ({
-          eve_id: s.eve_id,
-          type: s.type,
-          custom_info: s.custom_info,
-          kind: s.kind,
-          name: s.name,
-          group: s.group,
-          sig_id: s.eve_id, // Add a unique key property
-        })) as UnsplashedSignatureType[],
+  const { unsplashedLeft, unsplashedRight, newestUpdatedAt } = useMemo(() => {
+    // Filter the signatures you care about
+    const filteredSignatures = systemSigs.filter(
+      s => s.group === 'Wormhole' && !s.linked_system,
     );
+
+    // Map to your desired type
+    const mappedSignatures = filteredSignatures.map(s => ({
+      eve_id: s.eve_id,
+      type: s.type,
+      custom_info: s.custom_info,
+      kind: s.kind,
+      name: s.name,
+      group: s.group,
+      sig_id: s.eve_id, // Unique key property
+      updated_at: s.updated_at,
+    })) as UnsplashedSignatureType[];
+
+    // Find the signature with the latest updated_at value.
+    // (Make sure to convert the date strings to Date objects for accurate comparisons.)
+    const newestUpdatedAt =
+      filteredSignatures.length > 0
+        ? filteredSignatures.reduce((latest, s) => {
+            return new Date(s.updated_at).getTime() >
+              new Date(latest.updated_at).getTime()
+              ? s
+              : latest;
+          }).updated_at
+        : null; // Or use a default value if there are no signatures
+
+    // Prepare the two chunks as before.
+    const [unsplashedLeft, unsplashedRight] = prepareUnsplashedChunks(mappedSignatures);
+
+    return { unsplashedLeft, unsplashedRight, newestUpdatedAt };
   }, [systemSigs]);
 
   // Ensure hubs are always strings.

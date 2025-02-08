@@ -8,3 +8,19 @@
 .Table {
 
 }
+
+.flashPending {
+  animation: flashRedBlack 1s infinite;
+}
+
+@keyframes flashRedBlack {
+  0% {
+    background-color: red;
+  }
+  50% {
+    background-color: black;
+  }
+  100% {
+    background-color: red;
+  }
+}
