@@ -1,4 +1,4 @@
-import { useLabelsMenu, useStatusMenu, useTagMenu } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
+import { useStatusMenu, useZooTagMenu } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
 import { useMemo } from 'react';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import classes from './ContextMenuSystem.module.scss';
