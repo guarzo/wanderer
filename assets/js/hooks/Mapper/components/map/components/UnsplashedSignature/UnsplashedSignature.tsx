@@ -38,6 +38,10 @@ export const UnsplashedSignature = ({ signature }: UnsplashedSignatureProps) => 
     return customInfo?.isEOL;
   }, [customInfo]);
 
+  const isCrit= useMemo(() => {
+    return customInfo?.isCrit;
+  }, [customInfo]);
+
   const whClassStyle = useMemo(() => {
     if (signature.type === 'K162' && k162TypeOption) {
       const k162Data = wormholesData[k162TypeOption.whClassName];
