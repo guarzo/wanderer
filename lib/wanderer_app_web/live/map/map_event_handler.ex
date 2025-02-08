@@ -56,6 +56,13 @@ defmodule WandererAppWeb.MapEventHandler do
     "update_system_locked",
     "update_system_tag",
     "update_system_temporary_name",
+    "update_system_owner",
+    "update_system_status",
+    "get_corporation_names",
+    "get_corporation_ticker",
+    "get_alliance_names",
+    "get_alliance_ticker",
+    "update_system_custom_flags",
     "update_system_status"
   ]
 
@@ -125,8 +132,6 @@ defmodule WandererAppWeb.MapEventHandler do
   @map_structures_ui_events [
     "update_structures",
     "get_structures",
-    "get_corporation_names",
-    "get_corporation_ticker"
   ]
 
   @map_kills_events [
@@ -360,11 +365,19 @@ defmodule WandererAppWeb.MapEventHandler do
           labels: labels,
           linked_sig_eve_id: linked_sig_eve_id,
           temporary_name: temporary_name,
+          owner_type: owner_type,
+          owner_id: owner_id,
+          custom_flags: custom_flags,
           status: status,
           visible: visible
-        } = _system,
+        } = system,
         _include_static_data? \\ true
       ) do
+    require Logger
+
+    # Check if the system has an owner_ticker field
+    owner_ticker = Map.get(system, :owner_ticker)
+
     system_static_info = get_system_static_info(solar_system_id)
 
     system_signatures =
@@ -385,7 +398,25 @@ defmodule WandererAppWeb.MapEventHandler do
           0
       end
 
-    %{
+    # Handle the case where owner_ticker is an empty string
+    final_owner_ticker = case owner_ticker do
+      "" -> nil
+      ticker -> ticker
+    end
+
+    # Handle the case where owner_type is an empty string
+    final_owner_type = case owner_type do
+      "" -> nil
+      type -> type
+    end
+
+    # Handle the case where owner_id is an empty string
+    final_owner_id = case owner_id do
+      "" -> nil
+      id -> id
+    end
+
+    result = %{
       id: "#{solar_system_id}",
       position: %{x: position_x, y: position_y},
       description: description,
@@ -399,8 +430,14 @@ defmodule WandererAppWeb.MapEventHandler do
       tag: tag,
       temporary_name: temporary_name,
       comments_count: comments_count,
+      owner_type: final_owner_type,
+      owner_id: final_owner_id,
+      owner_ticker: final_owner_ticker,
+      custom_flags: custom_flags,
       visible: visible
     }
+
+    result
   end
 
   def map_ui_system_static_info(nil), do: %{}

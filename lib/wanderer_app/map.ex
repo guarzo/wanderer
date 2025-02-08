@@ -617,4 +617,43 @@ defmodule WandererApp.Map do
 
     {character_id, signature_count}
   end
+
+  def get_update_map(update, attributes) do
+    require Logger
+
+    # Convert string keys to atoms if they exist
+    update =
+      Enum.reduce(attributes, update, fn attr, acc ->
+        string_key = to_string(attr)
+
+        case acc do
+          # Already has atom key
+          %{^attr => _} ->
+            acc
+
+          %{} = map ->
+            case Map.fetch(map, string_key) do
+              {:ok, value} ->
+                map
+                |> Map.put(attr, value)
+                |> Map.delete(string_key)
+
+              :error ->
+                map
+            end
+        end
+      end)
+
+    Logger.debug(fn -> "[get_update_map] Processing update: #{inspect(update)}" end)
+
+    result =
+      {:ok,
+       Enum.reduce(attributes, Map.new(), fn attribute, map ->
+         value = Map.get(update, attribute)
+         Map.put(map, attribute, value)
+       end)}
+
+    Logger.debug(fn -> "[get_update_map] Result: #{inspect(result)}" end)
+    result
+  end
 end
