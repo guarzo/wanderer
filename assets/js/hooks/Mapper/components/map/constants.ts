@@ -634,6 +634,12 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   activityNormal: 'wd-marker-bookmark-color-normal',
   activityWarn: 'wd-marker-bookmark-color-warn',
   activityDanger: 'wd-marker-bookmark-color-danger',
+  gas: 'eve-zoo-effect-color-has-gas',
+  eol: 'eve-zoo-effect-color-has-eol',
+  deadEnd: 'eve-zoo-effect-color-is-dead-end',
+  crit: 'eve-zoo-effect-color-is-critical',
+  unSplashed: 'eve-zoo-effect-color-unsplashed',
+
 
   la: 'wd-marker-bookmark-color-average',
   lb: 'wd-marker-bookmark-color-ytirium',
