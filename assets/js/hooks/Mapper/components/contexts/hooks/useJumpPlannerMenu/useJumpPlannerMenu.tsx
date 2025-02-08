@@ -5,7 +5,7 @@ import { isPossibleSpace } from '@/hooks/Mapper/components/map/helpers/isKnownSp
 import { Route } from '@/hooks/Mapper/types/routes.ts';
 import { SolarSystemRawType, SolarSystemStaticInfoRaw } from '@/hooks/Mapper/types';
 import { getSystemById } from '@/hooks/Mapper/helpers';
-import { SOLAR_SYSTEM_CLASS_IDS } from '@/hooks/Mapper/components/map/constants.ts';
+import { SOLAR_SYSTEM_CLASS_IDS } from '@/hooks/Mapper/components/map/constants';
 
 const imperialSpace = [SOLAR_SYSTEM_CLASS_IDS.hs, SOLAR_SYSTEM_CLASS_IDS.ls, SOLAR_SYSTEM_CLASS_IDS.ns];
 const criminalSpace = [SOLAR_SYSTEM_CLASS_IDS.ls, SOLAR_SYSTEM_CLASS_IDS.ns];
