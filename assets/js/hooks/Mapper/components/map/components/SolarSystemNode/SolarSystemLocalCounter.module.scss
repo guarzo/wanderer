@@ -46,3 +46,16 @@
     }
   }
 }
+
+.Zoo {
+  .localCounter {
+    @-moz-document url-prefix() {
+      top: 0;
+    }
+
+    & > span {
+      position: relative;
+      top: -1px;
+    }
+  }
+}
