@@ -54,6 +54,7 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
             custom_info: JSON.stringify({
               k162Type: values.k162Type,
               isEOL: values.isEOL,
+              isCrit: values.isCrit,
             }),
           };
 
@@ -129,16 +130,19 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
 
     let k162Type = null;
     let isEOL = false;
+    let isCrit = false;
     if (custom_info) {
       const customInfo = JSON.parse(custom_info);
       k162Type = customInfo.k162Type;
       isEOL = customInfo.isEOL;
+      isCrit = customInfo.isCrit;
     }
 
     signatureForm.reset({
       linked_system: linked_system?.solar_system_id.toString() ?? undefined,
       k162Type: k162Type,
       isEOL: isEOL,
+      isCrit: isCrit,
       ...rest,
     });
   }, [signatureForm, signatureData]);

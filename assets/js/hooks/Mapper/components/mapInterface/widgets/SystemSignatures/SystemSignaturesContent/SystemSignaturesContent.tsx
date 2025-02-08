@@ -1,10 +1,12 @@
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { parseSignatures } from '@/hooks/Mapper/helpers';
+import { parseSignatures, getActualSigs } from '../helpers/zooSignatures';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers.ts';
 import { WdTooltip, WdTooltipHandlers } from '@/hooks/Mapper/components/ui-kit';
 import {
   getGroupIdByRawGroup,
   GROUPS_LIST,
+  TIME_ONE_DAY,
+  TIME_ONE_WEEK,
 } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants.ts';
 
 import { DataTable, DataTableRowClickEvent, DataTableRowMouseEvent, SortOrder } from 'primereact/datatable';
@@ -18,12 +20,9 @@ import { useClipboard } from '@/hooks/Mapper/hooks/useClipboard';
 
 import classes from './SystemSignaturesContent.module.scss';
 import clsx from 'clsx';
-import { SystemSignature } from '@/hooks/Mapper/types';
+import { SystemSignature, SignatureGroup } from '@/hooks/Mapper/types';
 import { SignatureView } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/SignatureView';
-import {
-  getActualSigs,
-  getRowColorByTimeLeft,
-} from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/helpers';
+import { getRowColorByTimeLeft } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/helpers';
 import {
   renderAddedTimeLeft,
   renderDescription,
@@ -217,12 +216,28 @@ export const SystemSignaturesContent = ({
   );
 
   const handlePaste = async (clipboardContent: string) => {
+    // If lazy delete is active, do not merge with existing signatures.
+    const existing = lazyDeleteValue ? undefined : signaturesRef.current;
+
     const newSignatures = parseSignatures(
       clipboardContent,
       settings.map(x => x.key),
+      existing // Only merge with existing signatures if lazy delete is false
     );
 
-    handleUpdateSignatures(newSignatures, !lazyDeleteValue);
+    const filteredNew = newSignatures.filter(sig => {
+      if (sig.kind === COSMIC_SIGNATURE && sig.eve_id.length === 3) {
+        const prefix = sig.eve_id.substring(0, 3).toUpperCase();
+        return !signaturesRef.current.some(existingSig =>
+          existingSig.kind === COSMIC_SIGNATURE &&
+          existingSig.eve_id.substring(0, 3).toUpperCase() === prefix &&
+          existingSig.eve_id.length === 7
+        );
+      }
+      return true;
+    });
+
+    handleUpdateSignatures(filteredNew, !lazyDeleteValue);
 
     if (lazyDeleteValue && !keepLazyDeleteValue) {
       onLazyDeleteChange?.(false);
@@ -294,7 +309,25 @@ export const SystemSignaturesContent = ({
     };
   }, []);
 
-  const renderToolbar = (/*row: SystemSignature*/) => {
+
+  useEffect(() => {
+    const currentTime = Date.now();
+    // Filter signatures based on their group and age.
+    const signaturesToDelete = signaturesRef.current.filter(sig => {
+      if (!sig.inserted_at) return false;
+      const insertedTime = new Date(sig.inserted_at).getTime();
+      const threshold = sig.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_WEEK;
+      return currentTime - insertedTime > threshold;
+    });
+
+    if (signaturesToDelete.length > 0) {
+      const remainingSignatures = signaturesRef.current.filter(sig => !signaturesToDelete.includes(sig));
+      handleUpdateSignatures(remainingSignatures, false, true);
+    }
+  }, [handleUpdateSignatures, signatures]);
+
+
+  const renderToolbar = () => {
     return (
       <div className="flex justify-end items-center gap-2 mr-[4px]">
         <WdTooltipWrapper content="To Edit Signature do double click">
