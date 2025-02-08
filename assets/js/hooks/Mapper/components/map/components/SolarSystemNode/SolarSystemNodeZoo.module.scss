@@ -1,0 +1,48 @@
+@import './SolarSystemNodeTheme.module.scss';
+
+.openWhText {
+  font-size: 6px;
+}
+
+.HeadRow {
+  .statics {
+    margin-top: -2px;
+    line-height: 8px;
+    display: flex;
+    font-size: 10px;
+    position: static;
+    gap: 2px;
+  }
+
+  .wormholeContainer {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .effect {
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    border-radius: 2px;
+    margin-left: 1px;
+  }
+}
+
+.BottomRow {
+
+  .TagTitle {
+    font-size: 11px;
+    font-weight: medium;
+
+    color: var(--rf-tag-color, #38BDF8);
+  }
+
+  .hasLocalCounter {
+    margin-right: 0.75rem;
+    // Add an extra 0.25rem if count > 9
+    &.countAbove9 {
+      margin-right: 1.0rem;
+    }
+  }
+}
