@@ -155,16 +155,16 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
       return {
         newestUpdatedAt: 0,
         signatureAgeHours: 0,
-        bookmarkColor: '#F57C00', // default to dark orange
+        bookmarkColor: '#388E3C', // default to green
       };
     }
 
-    // Filter to signatures you care about (e.g., group "Wormhole" and not linked)
+    // Filter to signatures you care about (for example, group "Wormhole" and not linked)
     const filteredSignatures = systemSigs.filter(
       s => s.group === 'Wormhole' && !s.linked_system
     );
 
-    // Helper function to get a timestamp from a signature.
+    // Helper function to get the timestamp from a signature.
     const getSignatureTimestamp = (s: SystemSignature): number => {
       if (s.updated_at) {
         return new Date(s.updated_at).getTime();
@@ -185,14 +185,22 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
     if (newestTimestamp > 0) {
       const ageMs = Date.now() - newestTimestamp;
       signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
-      // Clamp negative values to 0 (so a future timestamp doesn't yield a negative age)
+      // Clamp negative values to 0.
       signatureAgeHours = Math.max(0, signatureAgeHours);
     }
 
-    // Choose the bookmark color:
-    // - Dark orange for less than 5 hours.
-    // - Deep red for 5 hours or more.
-    const bookmarkColor = signatureAgeHours < 5 ? '#F57C00' : '#D32F2F';
+    // Determine the bookmark color:
+    // - Green for less than 4 hours,
+    // - Orange for 4 to 8 hours (inclusive),
+    // - Red for more than 8 hours.
+    let bookmarkColor = '#388E3C'; // default to green
+    if (signatureAgeHours < 4) {
+      bookmarkColor = '#388E3C'; // green
+    } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
+      bookmarkColor = '#F57C00'; // orange
+    } else if (signatureAgeHours > 8) {
+      bookmarkColor = '#D32F2F'; // red
+    }
 
     return {
       newestUpdatedAt: newestTimestamp,

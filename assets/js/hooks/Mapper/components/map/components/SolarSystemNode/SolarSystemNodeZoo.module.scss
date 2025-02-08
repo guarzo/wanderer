@@ -39,10 +39,10 @@
   }
 
   .hasLocalCounter {
-    margin-right: 0.75rem;
+    margin-right: 0.25rem;
     // Add an extra 0.25rem if count > 9
     &.countAbove9 {
-      margin-right: 1.0rem;
+      margin-right: 0.5rem;
     }
   }
 }

@@ -204,6 +204,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                     <i className={clsx(PrimeIcons.MAP_MARKER, classes.mapMarker)} />
                   )}
                 </div>
+                <LocalCounter
+                  hasUserCharacters={nodeVars.hasUserCharacters}
+                  localCounterCharacters={localCounterCharacters}
+                  showIcon={false}
+                />
               </div>
             </div>
           </>
@@ -273,12 +278,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           id="d"
         />
       </div>
-      <LocalCounter
-        hasUserCharacters={nodeVars.hasUserCharacters}
-        localCounterCharacters={localCounterCharacters}
-        classes={classes}
-        showIcon={false}
-      />
     </>
   );
 });

@@ -241,11 +241,8 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
       return 0;
     };
 
-    console.log(JSON.stringify(filteredSignatures))
-
     // Compute the newest timestamp using updated_at as primary, inserted_at as secondary.
     const newestTimestamp = filteredSignatures.reduce((max, s) => {
-      console.log(max, s)
       const current = getSignatureTimestamp(s);
       return current > max ? current : max;
     }, 0);
