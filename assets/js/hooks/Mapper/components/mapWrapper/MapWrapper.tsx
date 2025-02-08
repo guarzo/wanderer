@@ -8,7 +8,7 @@ import { ContextMenuSystem, useContextMenuSystemHandlers } from '@/hooks/Mapper/
 import {
   SystemCustomLabelDialog,
   SystemLinkSignatureDialog,
-  SystemSettingsDialog,
+  CustomSystemSettingsDialog,
 } from '@/hooks/Mapper/components/mapInterface/components';
 import classes from './MapWrapper.module.scss';
 import { Connections } from '@/hooks/Mapper/components/mapRootContent/components/Connections';

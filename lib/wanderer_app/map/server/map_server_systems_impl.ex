@@ -129,6 +129,18 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     state |> update_system(:update_temporary_name, [:temporary_name], update)
   end
 
+  def update_system_owner(state, update) do
+    state
+    |> update_system(:update_owner, [:owner_type, :owner_id], update)
+  end
+
+  def update_system_custom_flags(
+        state,
+        update
+      ) do
+    state |> update_system(:update_custom_flags, [:custom_flags], update)
+  end
+
   def update_system_locked(
         state,
         update
