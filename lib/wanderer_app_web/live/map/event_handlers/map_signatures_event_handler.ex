@@ -121,6 +121,18 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
       |> WandererApp.MapUserSettingsRepo.to_form_data!()
       |> WandererApp.MapUserSettingsRepo.get_boolean_setting("delete_connection_with_sigs")
 
+    # Get the system to clean up expired signatures
+    case WandererApp.Api.MapSystem.read_by_map_and_solar_system(%{
+           map_id: map_id,
+           solar_system_id: solar_system_id |> String.to_integer()
+         }) do
+      {:ok, system} ->
+        # Clean up expired signatures before updating
+        cleanup_expired_signatures(system.id)
+      _ ->
+        :ok
+    end
+
     map_id
     |> WandererApp.Map.Server.update_signatures(%{
       solar_system_id: get_integer(solar_system_id),
@@ -149,6 +161,9 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
            solar_system_id: get_integer(solar_system_id)
          }) do
       {:ok, system} ->
+        # Clean up expired signatures before returning them
+        cleanup_expired_signatures(system.id)
+
         {:reply, %{signatures: get_system_signatures(system.id)}, socket}
 
       _ ->
