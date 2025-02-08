@@ -124,7 +124,9 @@ export function useUpdateSignatures(systemId: string): void {
   const { updateSystemSignatures } = useCommandsSystems();
 
   useEffect(() => {
-    // Trigger update every time the systemId changes.
-    updateSystemSignatures(systemId);
+    const timer = setTimeout(() => {
+      updateSystemSignatures(systemId);
+    }, 1000); // 100ms delay (adjust as needed)
+    return () => clearTimeout(timer);
   }, [systemId, updateSystemSignatures]);
 }
