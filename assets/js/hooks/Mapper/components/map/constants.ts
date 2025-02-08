@@ -632,8 +632,13 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   activityWarn: 'wd-marker-bookmark-color-warn',
   activityDanger: 'wd-marker-bookmark-color-danger',
 
-  la: 'wd-marker-bookmark-color-average',
-  lb: 'wd-marker-bookmark-color-ytirium',
+  gas: 'eve-zoo-effect-color-has-gas',
+  eol: 'eve-zoo-effect-color-has-eol',
+  deadEnd: 'eve-zoo-effect-color-is-dead-end',
+  crit: 'eve-zoo-effect-color-is-critical',
+  unSplashed: 'eve-zoo-effect-color-unsplashed',
+  de: 'eve-zoo-effect-color-is-dead-end',
+
   lc: 'wd-marker-bookmark-color-ytirium',
   l1: 'wd-marker-bookmark-color-l1',
   l2: 'wd-marker-bookmark-color-l2',
@@ -642,18 +647,33 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
 
 export enum LABELS {
   clear = 'clear',
-  la = 'a',
-  lb = 'b',
+  la = 'de',
+  lb = 'gas',
   lc = 'c',
   l1 = '1',
   l2 = '2',
   l3 = '3',
 }
 
+export type LabelIcon = {
+  icon: string;
+  colorClass: string;
+};
+
+export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
+  // [LABELS.clear]: 'pi pi-times', // Example icon for "clear"
+  [LABELS.la]: { icon: 'pi-directions-alt', colorClass: 'text-white' },
+  [LABELS.lb]: { icon: 'pi-cloud', colorClass: 'text-teal-500' },
+  // [LABELS.lc]: 'pi pi-question-circle', // Example icon for Label C
+  // [LABELS.l1]: 'pi pi-check', // Example icon for Label 1
+  // [LABELS.l2]: 'pi pi-plus', // Example icon for Label 2
+  // [LABELS.l3]: 'pi pi-minus', // Example icon for Label 3
+};
+
 export const LABELS_INFO: Record<string, any> = {
   [LABELS.clear]: { id: 'clear', name: 'Clear', shortName: '', icon: '' },
-  [LABELS.la]: { id: 'la', name: 'Label A', shortName: 'A', icon: '' },
-  [LABELS.lb]: { id: 'lb', name: 'Label B', shortName: 'B', icon: '' },
+  [LABELS.la]: { id: 'de', name: 'Dead End', shortName:'DE', icon: '' },
+  [LABELS.lb]: { id: 'gas', name: 'Gas', shortName: 'GAS', icon: '' },
   [LABELS.lc]: { id: 'lc', name: 'Label C', shortName: 'C', icon: '' },
   [LABELS.l1]: { id: 'l1', name: 'Label 1', shortName: '1', icon: '' },
   [LABELS.l2]: { id: 'l2', name: 'Label 2', shortName: '2', icon: '' },

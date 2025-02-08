@@ -8,3 +8,19 @@
 .Table {
 
 }
+
+.flashPending {
+  animation: flashRedRed 1s infinite;
+}
+
+@keyframes flashRedRed {
+  0% {
+    background-color: #f87171; /* lighter red */
+  }
+  50% {
+    background-color: #ef4444; /* slightly darker red */
+  }
+  100% {
+    background-color: #f87171; /* back to lighter red */
+  }
+}

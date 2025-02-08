@@ -1,15 +1,6 @@
 import { SystemSignature, SignatureKind, SignatureGroup } from '@/hooks/Mapper/types';
 import { MAPPING_TYPE_TO_ENG, GROUPS_LIST } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants';
-import { getState } from '../components/mapInterface/widgets/SystemSignatures/helpers';
-
-/**
- * Helper function to split a row into tokens.
- * If the row contains tab characters, split on tab.
- * Otherwise, split on two or more spaces.
- */
-function getTokens(row: string): string[] {
-  return row.includes('\t') ? row.split('\t') : row.split(/\s{2,}/);
-}
+import { getState } from './getState.ts';
 
 export function parseWormholeLine(
   value: string
@@ -53,8 +44,7 @@ export function parseWormholeLine(
 }
 
 /**
- * Parses a single line representing a system signature in bookmark format.
- * Now uses getTokens() to support both tab-delimited and multiple-space-delimited input.
+ * Parses a single line representing a system signature in bookmark format
  */
 export function parseSignatureLine(line: string): SystemSignature | null {
   if (!line) {
@@ -73,8 +63,7 @@ export function parseSignatureLine(line: string): SystemSignature | null {
     return null;
   }
 
-  // Use the helper to split the line
-  const parts = getTokens(trimmedLine);
+  const parts = trimmedLine.split('\t');
   if (parts.length < 3) {
     console.debug(`parseSignatureLine: Insufficient tokens in line: "${trimmedLine}"`);
     return null;
@@ -279,9 +268,6 @@ export function mergeSignatures(
  * Parses multiple lines of system signature data.
  * Supports both the bookmark (3-token) format and the probe scanner (6-token) format.
  * Optionally, an existing signatures array can be provided to merge with new data.
- *
- * This version now uses getTokens() so that if your input isn’t tab-separated (e.g. uses multiple spaces)
- * it will still work.
  */
 export function parseSignatures(
   value: string,
@@ -292,10 +278,9 @@ export function parseSignatures(
   const rows = value.split('\n');
   for (const row of rows) {
     if (!row.trim()) continue;
-    // Use the helper to get tokens from the row.
-    const tokens = getTokens(row);
+    const tokens = row.split('\t');
     if (tokens.length === 6) {
-      // Probe scanner format.
+      // probe scanner.
       const [eve_id, kindToken, groupToken, nameToken] = tokens;
       const mappedKind = MAPPING_TYPE_TO_ENG[kindToken as SystemSignature["kind"]];
       const kind = availableKeys && availableKeys.includes(mappedKind)
@@ -311,7 +296,7 @@ export function parseSignatures(
       });
       console.debug(`parseSignatures: Processed probe scanner line for eve_id="${eve_id}"`);
     } else if (tokens.length === 3) {
-      // Bookmark format.
+      // bookmark format.
       const parsed = parseSignatureLine(row);
       if (parsed) {
         newArr.push(parsed);

@@ -8,7 +8,7 @@ import { ContextMenuSystem, useContextMenuSystemHandlers } from '@/hooks/Mapper/
 import {
   SystemCustomLabelDialog,
   SystemLinkSignatureDialog,
-  SystemSettingsDialog,
+  CustomSystemSettingsDialog,
 } from '@/hooks/Mapper/components/mapInterface/components';
 import classes from './MapWrapper.module.scss';
 import { Connections } from '@/hooks/Mapper/components/mapRootContent/components/Connections';
@@ -170,16 +170,16 @@ export const MapWrapper = () => {
       />
 
       {openSettings != null && (
-        <SystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
+        <CustomSystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
       )}
 
-      {openCustomLabel != null && (
+    {openCustomLabel != null && (
         <SystemCustomLabelDialog systemId={openCustomLabel} visible setVisible={() => setOpenCustomLabel(null)} />
-      )}
+    )}
 
-      {linkSignatureToSystem != null && (
-        <SystemLinkSignatureDialog data={linkSignatureToSystem} setVisible={() => updateLinkSignatureToSystem(null)} />
-      )}
+    {linkSignatureToSystem != null && (
+      <SystemLinkSignatureDialog data={linkSignatureToSystem} setVisible={() => updateLinkSignatureToSystem(null)} />
+    )}
 
       <AddSystemDialog
         visible={!!openAddSystem}
