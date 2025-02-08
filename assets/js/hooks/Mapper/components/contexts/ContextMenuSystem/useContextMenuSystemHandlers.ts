@@ -8,25 +8,19 @@ import { useDeleteSystems } from '@/hooks/Mapper/components/contexts/hooks';
 
 interface UseContextMenuSystemHandlersProps {
   hubs: string[];
-  userHubs: string[];
   systems: SolarSystemRawType[];
   outCommand: OutCommandHandler;
 }
 
-export const useContextMenuSystemHandlers = ({
-  systems,
-  hubs,
-  userHubs,
-  outCommand,
-}: UseContextMenuSystemHandlersProps) => {
+export const useContextMenuSystemHandlers = ({ systems, hubs, outCommand }: UseContextMenuSystemHandlersProps) => {
   const contextMenuRef = useRef<ContextMenu | null>(null);
 
   const [system, setSystem] = useState<string>();
 
   const { deleteSystems } = useDeleteSystems();
 
-  const ref = useRef({ hubs, userHubs, system, systems, outCommand, deleteSystems });
-  ref.current = { hubs, userHubs, system, systems, outCommand, deleteSystems };
+  const ref = useRef({ hubs, system, systems, outCommand, deleteSystems });
+  ref.current = { hubs, system, systems, outCommand, deleteSystems };
 
   const open = useCallback((ev: any, systemId: string) => {
     setSystem(systemId);
@@ -78,21 +72,6 @@ export const useContextMenuSystemHandlers = ({
     setSystem(undefined);
   }, []);
 
-  const onUserHubToggle = useCallback(() => {
-    const { userHubs, system, outCommand } = ref.current;
-    if (!system) {
-      return;
-    }
-
-    outCommand({
-      type: !userHubs.includes(system) ? OutCommand.addUserHub : OutCommand.deleteUserHub,
-      data: {
-        system_id: system,
-      },
-    });
-    setSystem(undefined);
-  }, []);
-
   const onSystemTag = useCallback((tag?: string) => {
     const { system, outCommand } = ref.current;
     if (!system) {
@@ -120,6 +99,39 @@ export const useContextMenuSystemHandlers = ({
       data: {
         system_id: system,
         value: temporaryName ?? '',
+      },
+    });
+    setSystem(undefined);
+  }, []);
+
+  const onSystemCustomFlags = useCallback((selectedFlags?: string) => {
+    const { system, outCommand } = ref.current;
+    if (!system) {
+      return;
+    }
+
+    outCommand({
+      type: OutCommand.updateSystemCustomFlags,
+      data: {
+        system_id: system,
+        value: selectedFlags ?? '',
+      },
+    });
+    setSystem(undefined);
+  }, []);
+
+  const onSystemOwner = useCallback((ownerId?: string, ownerType?: string) => {
+    const { system, outCommand } = ref.current;
+    if (!system) {
+      return;
+    }
+
+    outCommand({
+      type: OutCommand.updateSystemOwner,
+      data: {
+        system_id: system,
+        ownerId: ownerId,
+        ownerType: ownerType,
       },
     });
     setSystem(undefined);
@@ -197,9 +209,10 @@ export const useContextMenuSystemHandlers = ({
     onDeleteSystem,
     onLockToggle,
     onHubToggle,
-    onUserHubToggle,
     onSystemTag,
     onSystemTemporaryName,
+    onSystemCustomFlags,
+    onSystemOwner,
     onSystemStatus,
     onSystemLabels,
     onOpenSettings,

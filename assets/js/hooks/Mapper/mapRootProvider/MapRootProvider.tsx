@@ -68,6 +68,12 @@ const INITIAL_DATA: MapRootData = {
   followingCharacterEveId: null,
 };
 
+export enum AvailableThemes {
+  default = 'default',
+  pathfinder = 'pathfinder',
+  zoo = 'zoo',
+}
+
 export enum InterfaceStoredSettingsProps {
   isShowMenu = 'isShowMenu',
   isShowMinimap = 'isShowMinimap',
