@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
-import { useZooNames, useZooLabels, useUpdateSignatures } from '../../hooks/useZooLogic';
+import { useZooNames, useZooLabels, useGetSignatures } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
@@ -19,7 +19,8 @@ import { LABEL_ICON_MAP } from '@/hooks/Mapper/components/map/constants';
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
-  useUpdateSignatures(nodeVars.solarSystemId);
+  const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
+  nodeVars.systemSigs = updatedSignatures
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
