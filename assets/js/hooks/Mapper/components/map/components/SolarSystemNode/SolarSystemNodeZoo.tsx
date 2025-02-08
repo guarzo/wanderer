@@ -141,7 +141,9 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             [classes.selected]: nodeVars.selected,
           },
         )}
+        onMouseDownCapture={e => nodeVars.dbClick(e)}
       >
+
         {nodeVars.visible && (
           <>
             <div className={classes.HeadRow}>
@@ -214,7 +216,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           </>
         )}
       </div>
-      <div onMouseDownCapture={nodeVars.dbClick} className={classes.Handlers}>
+      <div className={classes.Handlers}>
         <Handle
           type="target"
           position={Position.Bottom}
