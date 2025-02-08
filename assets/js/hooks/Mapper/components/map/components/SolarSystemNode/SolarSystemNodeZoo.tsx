@@ -34,6 +34,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
     unsplashedLeft: nodeVars.unsplashedLeft,
     unsplashedRight: nodeVars.unsplashedRight,
     systemSigs: nodeVars.systemSigs,
+    labelInfo: nodeVars.labelsInfo,
   });
 
   const { systemName, customLabel, customName } = useZooNames({
@@ -113,7 +114,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           {nodeVars.labelsInfo.map(x => (
             <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
               {LABEL_ICON_MAP[x.id] ? (
-                <i className={clsx(`pi ${LABEL_ICON_MAP[x.id]}`, classes.icon)} />
+                <i className={clsx(`pi ${LABEL_ICON_MAP[x.id].icon} ${LABEL_ICON_MAP[x.id].colorClass}`, classes.icon)} />
               ) : (
                 x.shortName
               )}

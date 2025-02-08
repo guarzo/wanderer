@@ -31,7 +31,7 @@ export const useLabelsMenu = (
   ref.current = { onSystemLabels, systemId, systems, onCustomLabelDialog };
 
   return useCallback(() => {
-    const { onSystemLabels, systemId, systems, onCustomLabelDialog } = ref.current;
+    const { onSystemLabels, systemId, systems } = ref.current;
     const system = systemId ? getSystemById(systems, systemId) : undefined;
     const labels = new LabelsManager(system?.labels ?? '');
 
