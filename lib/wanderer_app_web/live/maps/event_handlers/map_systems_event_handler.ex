@@ -4,6 +4,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   require Logger
 
   alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
+  alias WandererApp.Character
 
   def handle_server_event(%{event: :add_system, payload: system}, socket),
     do:
@@ -217,6 +218,33 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   end
 
   def handle_ui_event(
+      "update_system_owner",
+      %{"system_id" => sid, "owner_id" => oid, "owner_type" => otype} = _params,
+      %{
+        assigns: %{
+          map_id: map_id,
+          current_user: current_user,
+          tracked_character_ids: tracked_character_ids,
+          user_permissions: user_permissions
+        }
+      } = socket
+    ) do
+
+    if can_update_system?(:owner, user_permissions) do
+      system_id_int = String.to_integer(sid)
+
+      WandererApp.Map.Server.update_system_owner(map_id, %{
+        solar_system_id: system_id_int,
+        owner_id: oid,
+        owner_type: otype
+      })
+    end
+
+    {:noreply, socket}
+  end
+
+
+  def handle_ui_event(
         "update_system_" <> param,
         %{"system_id" => solar_system_id, "value" => value} = _event,
         %{
@@ -238,6 +266,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         "locked" -> :update_system_locked
         "tag" -> :update_system_tag
         "temporary_name" -> :update_system_temporary_name
+        "custom_flags" -> :update_system_custom_flags
         "status" -> :update_system_status
         _ -> nil
       end
@@ -250,6 +279,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         "locked" -> :locked
         "tag" -> :tag
         "temporary_name" -> :temporary_name
+        "custom_flags" -> :custom_flags
         "status" -> :status
         _ -> :none
       end
