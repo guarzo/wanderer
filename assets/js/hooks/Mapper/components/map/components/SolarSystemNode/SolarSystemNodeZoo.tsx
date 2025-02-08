@@ -21,7 +21,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const nodeVars = useSolarSystemNode(props);
   const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
   nodeVars.systemSigs = updatedSignatures
-  console.log(JSON.stringify(updatedSignatures))
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
@@ -51,7 +50,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const { localCounterCharacters } = useLocalCounter(nodeVars);
 
   const { signatureAgeHours, bookmarkColor } = useSignatureAge(nodeVars.systemSigs);
-  console.log("results: ", signatureAgeHours, bookmarkColor)
 
   return (
     <>

@@ -150,21 +150,18 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
 
 export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
   return useMemo(() => {
-    // If there are no signatures, return defaults.
     if (!systemSigs || systemSigs.length === 0) {
       return {
         newestUpdatedAt: 0,
         signatureAgeHours: 0,
-        bookmarkColor: 'green',
+        bookmarkColor: '#388E3C', // default to green
       };
     }
 
-    // Filter to signatures you care about (for example, those with group "Wormhole" and not linked)
     const filteredSignatures = systemSigs.filter(
       s => s.group === 'Wormhole' && !s.linked_system
     );
 
-    // Helper function to get the timestamp from a signature.
     const getSignatureTimestamp = (s: SystemSignature): number => {
       if (s.updated_at) {
         return new Date(s.updated_at).getTime();
@@ -174,30 +171,24 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
       return 0;
     };
 
-    // Compute the newest timestamp using updated_at as primary, inserted_at as secondary.
     const newestTimestamp = filteredSignatures.reduce((max, s) => {
       const ts = getSignatureTimestamp(s);
       return ts > max ? ts : max;
     }, 0);
 
-    // Calculate the age in hours (rounded to the nearest hour)
     let signatureAgeHours = 0;
     if (newestTimestamp > 0) {
       const ageMs = Date.now() - newestTimestamp;
       signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
     }
 
-    // Choose the bookmark color:
-    // - Green: less than 1 hour
-    // - Yellow: between 1 and 4 hours (inclusive)
-    // - Red: more than 4 hours
-    let bookmarkColor = 'green';
+    let bookmarkColor = '#388E3C';
     if (signatureAgeHours < 1) {
-      bookmarkColor = 'green';
+      bookmarkColor = '#388E3C'; // deep green
     } else if (signatureAgeHours >= 1 && signatureAgeHours <= 4) {
-      bookmarkColor = 'yellow';
+      bookmarkColor = '#F57C00'; // dark orange
     } else {
-      bookmarkColor = 'red';
+      bookmarkColor = '#D32F2F'; // deep red
     }
 
     return {
