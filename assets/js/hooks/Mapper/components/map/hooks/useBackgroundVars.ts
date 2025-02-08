@@ -6,7 +6,9 @@ export function useBackgroundVars(themeName?: string) {
   const [gap, setGap] = useState<number>(16);
   const [size, setSize] = useState<number>(1);
   const [color, setColor] = useState('#81818b');
-  const [snapSize, setSnapSize] = useState<number>(25);
+  const [snapSizeX, setSnapSizeX] = useState<number>(25);
+  const [snapSizeY, setSnapSizeY] = useState<number>(25);
+
 
   useEffect(() => {
     // match any element whose entire `class` attribute ends with "-theme"
@@ -30,19 +32,24 @@ export function useBackgroundVars(themeName?: string) {
 
     const cssVarGap = style.getPropertyValue('--rf-bg-gap');
     const cssVarSize = style.getPropertyValue('--rf-bg-size');
-    const cssVarSnapSize = style.getPropertyValue('--rf-snap-size');
+    const cssVarSnapSizeX = style.getPropertyValue('--rf-snap-sizeX');
+    const cssVarSnapSizeY = style.getPropertyValue('--rf-snap-sizeY');
+
     const cssColor = style.getPropertyValue('--rf-bg-pattern-color');
 
     const gapNum = parseInt(cssVarGap, 10) || 16;
     const sizeNum = parseInt(cssVarSize, 10) || 1;
-    const snapSize = parseInt(cssVarSnapSize, 10) || 25; //react-flow default
+    const snapSizeX = parseInt(cssVarSnapSizeX, 10) || 25; //react-flow default
+    const snapSizeY = parseInt(cssVarSnapSizeY, 10) || 25; //react-flow default
+
 
     setVariant(finalVariant);
     setGap(gapNum);
     setSize(sizeNum);
     setColor(cssColor);
-    setSnapSize(snapSize);
+    setSnapSizeX(snapSizeX);
+    setSnapSizeY(snapSizeY);
   }, [themeName]);
 
-  return { variant, gap, size, color, snapSize };
+  return { variant, gap, size, color, snapSizeX, snapSizeY };
 }
