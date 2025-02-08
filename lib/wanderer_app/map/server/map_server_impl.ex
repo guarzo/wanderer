@@ -158,6 +158,10 @@ defmodule WandererApp.Map.Server.Impl do
 
   defdelegate update_system_temporary_name(state, update), to: SystemsImpl
 
+  defdelegate update_system_owner(state, update), to: SystemsImpl
+
+  defdelegate update_system_custom_flags(state, update), to: SystemsImpl
+
   defdelegate update_system_locked(state, update), to: SystemsImpl
 
   defdelegate update_system_labels(state, update), to: SystemsImpl
@@ -448,7 +452,10 @@ defmodule WandererApp.Map.Server.Impl do
                                  "position" => %{"x" => x, "y" => y},
                                  "status" => status,
                                  "tag" => tag,
-                                 "temporary_name" => temporary_name
+                                 "temporary_name" => temporary_name,
+                                 "owner_type" => owner_type,
+                                 "owner_id" => owner_id,
+                                 "custom_flags" => custom_flags
                                } = _system,
                                acc ->
         acc
@@ -471,6 +478,8 @@ defmodule WandererApp.Map.Server.Impl do
           solar_system_id: id |> String.to_integer(),
           temporary_name: temporary_name
         })
+        |> update_system_owner(%{solar_system_id: id |> String.to_integer(), owner_type: owner_type, owner_id: owner_id})
+        |> update_system_custom_flags(%{solar_system_id: id |> String.to_integer(), custom_flags: custom_flags})
         |> update_system_locked(%{solar_system_id: id |> String.to_integer(), locked: locked})
         |> update_system_labels(%{solar_system_id: id |> String.to_integer(), labels: labels})
       end)
