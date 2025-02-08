@@ -1,4 +1,4 @@
-import { useLabelsMenu, useStatusMenu, useTagMenu } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
+import { useStatusMenu, useZooTagMenu, useLabelsMenu } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
 import { useMemo } from 'react';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import classes from './ContextMenuSystem.module.scss';
@@ -25,7 +25,7 @@ export const useContextMenuSystemItems = ({
   hubs,
   systems,
 }: Omit<ContextMenuSystemProps, 'contextMenuRef'>) => {
-  const getTags = useTagMenu(systems, systemId, onSystemTag);
+  const getTags = useZooTagMenu(systems, systemId, onSystemTag);
   const getStatus = useStatusMenu(systems, systemId, onSystemStatus);
   const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog);
   const getWaypointMenu = useWaypointMenu(onWaypointSet);
