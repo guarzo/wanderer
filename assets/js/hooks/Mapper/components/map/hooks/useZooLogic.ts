@@ -76,7 +76,6 @@ export function useZooLabels(
     systemSigs?: SystemSignature[] | null;
   }
 ) {
-  const computed = useMemo(() => {
     const unsplashedCount =
       unsplashedLeft.length + unsplashedRight.length - connectionCount;
 
@@ -107,9 +106,6 @@ export function useZooLabels(
     }
 
     return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
-  }, [connectionCount, unsplashedLeft, unsplashedRight, systemSigs]);
-
-  return computed;
 }
 
 export function useUpdateSignatures(systemId: string): void {
