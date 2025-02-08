@@ -11,7 +11,7 @@ export const LOCAL_CHARACTER_WIDGET_DEFAULT: LocalCharacterWidgetSettings = {
   compact: true,
   showOffline: false,
   version: 0,
-  showShipName: false,
+  showShipName: true,
 };
 
 export function useLocalCharacterWidgetSettings() {

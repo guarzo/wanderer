@@ -4,7 +4,7 @@ import { LayoutEventBlocker, SystemView, WdImgButton } from '@/hooks/Mapper/comp
 import { SystemInfoContent } from './SystemInfoContent';
 import { PrimeIcons } from 'primereact/api';
 import { useState, useCallback } from 'react';
-import { SystemSettingsDialog } from '@/hooks/Mapper/components/mapInterface/components/SystemSettingsDialog/SystemSettingsDialog.tsx';
+import { CustomSystemSettingsDialog } from '@/hooks/Mapper/components/mapInterface/components/SystemSettingsDialog';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import { ANOIK_ICON, DOTLAN_ICON, ZKB_ICON } from '@/hooks/Mapper/icons';
 
@@ -70,7 +70,7 @@ export const SystemInfo = () => {
         <SystemInfoContent systemId={systemId} onEditClick={() => setVisible(true)} />
       )}
 
-      {visible && <SystemSettingsDialog systemId={systemId} visible setVisible={setVisible} />}
+      {visible && <CustomSystemSettingsDialog systemId={systemId} visible setVisible={setVisible} />}
     </Widget>
   );
 };

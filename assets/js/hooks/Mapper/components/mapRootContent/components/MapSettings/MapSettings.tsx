@@ -7,7 +7,7 @@ import {
   InterfaceStoredSettingsProps,
   useMapRootState,
   InterfaceStoredSettings,
-  AvailableThemes
+  AvailableThemes,
 } from '@/hooks/Mapper/mapRootProvider';
 import { OutCommand } from '@/hooks/Mapper/types';
 import { Dropdown } from 'primereact/dropdown';
@@ -119,6 +119,7 @@ const UI_CHECKBOXES_PROPS: SettingsListItem[] = [
 const THEME_OPTIONS = [
   { label: 'Default', value: AvailableThemes.default },
   { label: 'Pathfinder', value: AvailableThemes.pathfinder },
+  { label: 'Faoble', value: AvailableThemes.zoo},
 ];
 
 const THEME_SETTING: SettingsListItem = {
