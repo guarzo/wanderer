@@ -56,6 +56,13 @@ defmodule WandererAppWeb.MapEventHandler do
     "update_system_locked",
     "update_system_tag",
     "update_system_temporary_name",
+    "update_system_owner",
+    "update_system_status",
+    "get_corporation_names",
+    "get_corporation_ticker",
+    "get_alliance_names",
+    "get_alliance_ticker",
+    "update_system_custom_flags",
     "update_system_status"
   ]
 
@@ -115,8 +122,6 @@ defmodule WandererAppWeb.MapEventHandler do
   @map_structures_ui_events [
     "update_structures",
     "get_structures",
-    "get_corporation_names",
-    "get_corporation_ticker"
   ]
 
   @map_kills_events [
@@ -323,6 +328,9 @@ defmodule WandererAppWeb.MapEventHandler do
           labels: labels,
           linked_sig_eve_id: linked_sig_eve_id,
           temporary_name: temporary_name,
+          owner_type: owner_type,
+          owner_id: owner_id,
+          custom_flags: custom_flags,
           status: status,
           visible: visible
         } = _system,
@@ -350,6 +358,9 @@ defmodule WandererAppWeb.MapEventHandler do
       status: status,
       tag: tag,
       temporary_name: temporary_name,
+      owner_type: owner_type,
+      owner_id: owner_id,
+      custom_flags: custom_flags,
       visible: visible
     }
   end

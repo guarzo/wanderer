@@ -13,7 +13,7 @@ import {
   SHIP_SIZES_NAMES_ORDER,
   SHIP_SIZES_NAMES_SHORT,
   SHIP_SIZES_SIZE,
-} from '@/hooks/Mapper/components/map/constants.ts';
+} from '@/hooks/Mapper/components/map/constants';
 
 export interface ContextMenuConnectionProps {
   contextMenuRef: RefObject<ContextMenu>;
