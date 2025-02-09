@@ -4,6 +4,7 @@ import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
+import { GiPortal } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
 import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
 import {
@@ -16,17 +17,14 @@ import { KillsCounter } from './SolarSystemKillsCounter';
 import { LocalCounter } from './SolarSystemLocalCounter';
 import { LABEL_ICON_MAP } from '@/hooks/Mapper/components/map/constants';
 
-
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
   const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
-  nodeVars.systemSigs = updatedSignatures
+  nodeVars.systemSigs = updatedSignatures;
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
-  const connectionCount = edges.filter(
-    edge => edge.source === props.id || edge.target === props.id
-  ).length;
+  const connectionCount = edges.filter(edge => edge.source === props.id || edge.target === props.id).length;
 
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
@@ -38,18 +36,23 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
     labelInfo: nodeVars.labelsInfo,
   });
 
-  const { systemName, customLabel, customName } = useZooNames({
-    temporaryName: nodeVars.temporaryName,
-    solarSystemName: nodeVars.solarSystemName,
-    regionName: nodeVars.regionName,
-    labelCustom: nodeVars.labelCustom,
-    ownerTicker: nodeVars.ownerTicker,
-    isWormhole: nodeVars.isWormhole,
-  }, props);
+  const { systemName, customLabel, customName } = useZooNames(
+    {
+      temporaryName: nodeVars.temporaryName,
+      solarSystemName: nodeVars.solarSystemName,
+      regionName: nodeVars.regionName,
+      labelCustom: nodeVars.labelCustom,
+      ownerTicker: nodeVars.ownerTicker,
+      isWormhole: nodeVars.isWormhole,
+    },
+    props,
+  );
 
   const { localCounterCharacters } = useLocalCounter(nodeVars);
 
   const { signatureAgeHours, bookmarkColor } = useSignatureAge(nodeVars.systemSigs);
+
+  console.log('unsplashedCounts are', unsplashedCount);
 
   return (
     <>
@@ -88,11 +91,24 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           )}
 
           {unsplashedCount > 0 && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)}>
-              <div className={clsx(classes.BookmarkWithIcon)}>
-                <span className={clsx("pi pi-bullseye")} style={{ marginRight: '3px', fontSize: '8px' }}></span>
-                <span className={clsx(classes.text, classes.openWhText)}>{unsplashedCount}</span>
-              </div>
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)} style={{ display: 'flex' }}>
+              <GiPortal
+                size={8} // Increased size for better visibility
+                color="#1ABC9C"
+                style={{
+                  marginRight: '2px',
+                  filter: 'drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.25))',
+                }}
+              />
+              <span
+                style={{
+                  color: '#1ABC9C',
+                  fontSize: '8px', // Adjusted font size
+                  lineHeight: '8px', // Ensure the line height is enough for the text
+                }}
+              >
+                {unsplashedCount}
+              </span>
             </div>
           )}
 
@@ -104,7 +120,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
           {hasGas && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.gas)}>
-              <span className={clsx('pi pi-cloud', classes.icon)} style={{ color: 'black' }} />
+              <span className={clsx('pi pi-cloud', classes.icon)} style={{ color: 'black', fontSize: '8px' }} />
             </div>
           )}
 
@@ -116,14 +132,30 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
           {nodeVars.systemSigs.length > 0 && signatureAgeHours >= 0 && (
             <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
-              <span className={clsx(classes.text)}>{signatureAgeHours}h</span>
+              <span
+                className={clsx(classes.text)}
+                style={{
+                  color: '#444444',
+                  fontSize: '8px',
+                  marginLeft: '1px',
+                  marginRight: '1px',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginTop: '-1px',
+                }}
+              >
+                {signatureAgeHours}h
+              </span>
             </div>
           )}
 
           {nodeVars.labelsInfo.map(x => (
             <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
               {LABEL_ICON_MAP[x.id] ? (
-                <i className={clsx(`pi ${LABEL_ICON_MAP[x.id].icon} ${LABEL_ICON_MAP[x.id].colorClass}`, classes.icon)} />
+                <i
+                  className={clsx(`pi ${LABEL_ICON_MAP[x.id].icon} ${LABEL_ICON_MAP[x.id].colorClass}`, classes.icon)}
+                />
               ) : (
                 x.shortName
               )}
@@ -143,7 +175,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
         )}
         onMouseDownCapture={e => nodeVars.dbClick(e)}
       >
-
         {nodeVars.visible && (
           <>
             <div className={classes.HeadRow}>
@@ -183,9 +214,16 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             <div className={clsx(classes.BottomRow, 'flex items-center justify-between')}>
               <div className="flex items-center gap-2">
                 {nodeVars.isShattered && (
-                <div>
-                    <span className={clsx('pi pi-spinner-dotted','[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)]', 'text-[8px]', 'text-sky-200')} />
-                </div>
+                  <div>
+                    <span
+                      className={clsx(
+                        'pi pi-spinner-dotted',
+                        '[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)]',
+                        'text-[8px]',
+                        'text-sky-200',
+                      )}
+                    />
+                  </div>
                 )}
                 {nodeVars.tag != null && nodeVars.tag !== '' && (
                   <div className={clsx(classes.tagTitle, 'font-medium')}>{`[${nodeVars.tag}]`}</div>
