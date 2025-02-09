@@ -109,11 +109,11 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
 
   const handleGetSignatures = useCallback(async () => {
     try {
-      const { signatures } = await outCommand({
+      const response = await outCommand({
         type: OutCommand.getSignatures,
         data: { system_id: systemId },
       });
-      setSignatures(signatures);
+      setSignatures(response.signatures ?? []);
     } catch (error) {
       console.error('Failed to fetch signatures', error);
     }
