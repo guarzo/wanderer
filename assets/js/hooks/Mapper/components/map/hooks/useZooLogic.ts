@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
 import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo';
-import { useCommandsSystems } from '@/hooks/Mapper/mapRootProvider/hooks/api/useCommandsSystems';
 import { OutCommand, SystemSignature } from '@/hooks/Mapper/types';
 import { LabelInfo } from './useSolarSystemLogic';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
@@ -27,7 +26,7 @@ export function useZooNames(
     ownerTicker?: string | null;
     isWormhole?: boolean;
   },
-  { data: { custom_flags } }: NodeProps<MapSolarSystemType>
+  { data: { custom_flags } }: NodeProps<MapSolarSystemType>,
 ) {
   return useMemo(() => {
     const safeSolarSystemName = safeString(solarSystemName);
@@ -36,7 +35,6 @@ export function useZooNames(
     const safeLabelCustom = safeString(labelCustom);
     const safeOwnerTicker = safeString(ownerTicker);
     const safeFlags = safeString(custom_flags);
-
 
     const computedSystemName = safeTemporaryName;
     const computedCustomLabel = isWormhole
@@ -55,15 +53,7 @@ export function useZooNames(
       customLabel: computedCustomLabel,
       customName: computedCustomName,
     };
-  }, [
-    temporaryName,
-    solarSystemName,
-    regionName,
-    labelCustom,
-    ownerTicker,
-    isWormhole,
-    custom_flags,
-  ]);
+  }, [temporaryName, solarSystemName, regionName, labelCustom, ownerTicker, isWormhole, custom_flags]);
 }
 
 export function useZooLabels(
@@ -74,14 +64,13 @@ export function useZooLabels(
     systemSigs,
     labelInfo,
   }: {
-    unsplashedLeft: any[];  // ideally, type these properly
-    unsplashedRight: any[];
+    unsplashedLeft: SystemSignature[];
+    unsplashedRight: SystemSignature[];
     systemSigs?: SystemSignature[] | null;
     labelInfo: LabelInfo[];
-  }
+  },
 ) {
-  const unsplashedCount =
-    unsplashedLeft.length + unsplashedRight.length - connectionCount;
+  const unsplashedCount = unsplashedLeft.length + unsplashedRight.length - connectionCount;
 
   const hasGasLabel = labelInfo.some(label => label.id === 'gas');
 
@@ -102,21 +91,14 @@ export function useZooLabels(
       if (s.group === 'Wormhole' && customInfo?.isCrit) {
         hasCrit = true;
       }
-      // Option 1: Check for exact match
-      // if (s.group?.toLowerCase() === 'gas site') {
-      // Option 2: More flexible check (allows "gas cloud", "gas site", etc.)
       if (!hasGasLabel && s.group && s.group.trim().toLowerCase().includes('gas')) {
         hasGas = true;
       }
-
-      // If all are true, we can break early.
       if (!isDeadEnd && hasEol && hasGas && hasCrit) {
         break;
       }
     }
   }
-
-
 
   return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
 }
@@ -147,24 +129,28 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
   return signatures;
 }
 
-
 export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 3600000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   return useMemo(() => {
-    // If there are no signatures, return defaults.
     if (!systemSigs || systemSigs.length === 0) {
       return {
         newestUpdatedAt: 0,
         signatureAgeHours: 0,
-        bookmarkColor: '#388E3C', // default to green
+        bookmarkColor: '#388E3C',
       };
     }
 
-    // Filter to signatures you care about (for example, group "Wormhole" and not linked)
-    const filteredSignatures = systemSigs.filter(
-      s => s.group === 'Wormhole' && !s.linked_system
-    );
+    const filteredSignatures = systemSigs.filter(s => s.group === 'Wormhole' && !s.linked_system);
 
-    // Helper function to get the timestamp from a signature.
     const getSignatureTimestamp = (s: SystemSignature): number => {
       if (s.updated_at) {
         return new Date(s.updated_at).getTime();
@@ -174,32 +160,25 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
       return 0;
     };
 
-    // Compute the newest timestamp using updated_at as primary, inserted_at as secondary.
     const newestTimestamp = filteredSignatures.reduce((max, s) => {
       const ts = getSignatureTimestamp(s);
       return ts > max ? ts : max;
     }, 0);
 
-    // Calculate the age in hours (rounded to the nearest hour)
     let signatureAgeHours = 0;
     if (newestTimestamp > 0) {
-      const ageMs = Date.now() - newestTimestamp;
+      const ageMs = now - newestTimestamp;
       signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
-      // Clamp negative values to 0.
       signatureAgeHours = Math.max(0, signatureAgeHours);
     }
 
-    // Determine the bookmark color:
-    // - Green for less than 4 hours,
-    // - Orange for 4 to 8 hours (inclusive),
-    // - Red for more than 8 hours.
-    let bookmarkColor = '#388E3C'; // default to green
+    let bookmarkColor = '#388E3C';
     if (signatureAgeHours < 4) {
-      bookmarkColor = '#388E3C'; // green
+      bookmarkColor = '#388E3C';
     } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
-      bookmarkColor = '#F57C00'; // orange
+      bookmarkColor = '#F57C00';
     } else if (signatureAgeHours > 8 && signatureAgeHours <= 24) {
-      bookmarkColor = '#D32F2F'; // red
+      bookmarkColor = '#D32F2F';
     } else {
       signatureAgeHours = -1;
     }
@@ -209,5 +188,5 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
       signatureAgeHours,
       bookmarkColor,
     };
-  }, [systemSigs]);
+  }, [systemSigs, now]);
 }
