@@ -6,22 +6,29 @@ import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { GiConcentrationOrb } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
-import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
+import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic'; // <- Contains your custom hooks
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
   EFFECT_BACKGROUND_STYLES,
+  LABEL_ICON_MAP,
 } from '@/hooks/Mapper/components/map/constants';
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { KillsCounter } from './SolarSystemKillsCounter';
 import { LocalCounter } from './SolarSystemLocalCounter';
-import { LABEL_ICON_MAP } from '@/hooks/Mapper/components/map/constants';
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
-  const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
-  nodeVars.systemSigs = updatedSignatures;
 
+  // CHANGED: Instead of mutating nodeVars, we just store the updated signatures
+  // in a local variable here:
+  const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
+
+  // If your node needs the system signatures for other logic, you can
+  // pass them into nodeVars as a "new" field — but do NOT mutate in place:
+  // e.g. const nodeVarsWithSigs = { ...nodeVars, systemSigs: updatedSignatures };
+
+  // Count edges:
   const { getEdges } = useReactFlow();
   const edges = getEdges();
   const connectionCount = edges.filter(edge => edge.source === props.id || edge.target === props.id).length;
@@ -29,12 +36,14 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
 
+  // CHANGED: Pass updatedSignatures directly to useZooLabels.
   const { unsplashedCount, hasEol, hasGas, hasCrit } = useZooLabels(connectionCount, {
     unsplashedLeft: nodeVars.unsplashedLeft,
     unsplashedRight: nodeVars.unsplashedRight,
     systemSigs: updatedSignatures,
     labelInfo: nodeVars.labelsInfo,
   });
+
   const { systemName, customLabel, customName } = useZooNames(
     {
       temporaryName: nodeVars.temporaryName,
@@ -49,6 +58,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
   const { localCounterCharacters } = useLocalCounter(nodeVars);
 
+  // CHANGED: pass updatedSignatures here
   const { signatureAgeHours, bookmarkColor } = useSignatureAge(updatedSignatures);
 
   return (
@@ -90,7 +100,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           {unsplashedCount > 0 && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)} style={{ display: 'flex' }}>
               <GiConcentrationOrb
-                size={8} // Increased size for better visibility
+                size={8}
                 color="#38bdf8"
                 style={{
                   marginRight: '2px',
@@ -101,8 +111,8 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                 style={{
                   marginTop: '1px',
                   color: '#38bdf8',
-                  fontSize: '8px', // Adjusted font size
-                  lineHeight: '8px', // Ensure the line height is enough for the text
+                  fontSize: '8px',
+                  lineHeight: '8px',
                 }}
               >
                 {unsplashedCount}
@@ -128,6 +138,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
+          {/* Only display signatureAge if we have signatures and the age is >= 0 */}
           {updatedSignatures.length > 0 && signatureAgeHours >= 0 && (
             <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
               <span
@@ -252,6 +263,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           </>
         )}
       </div>
+
       <div className={classes.Handlers} onMouseDownCapture={nodeVars.dbClick}>
         <Handle
           type="target"
@@ -295,7 +307,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             [classes.selected]: nodeVars.selected,
             [classes.Tick]: nodeVars.isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell', zIndex: 10 }}
+          style={{
+            visibility: showHandlers ? 'visible' : 'hidden',
+            cursor: 'cell',
+            zIndex: 10,
+          }}
           position={Position.Right}
           id="b"
         />
@@ -315,7 +331,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             [classes.selected]: nodeVars.selected,
             [classes.Tick]: nodeVars.isThickConnections,
           })}
-          style={{ visibility: showHandlers ? 'visible' : 'hidden', cursor: 'cell', zIndex: 10 }}
+          style={{
+            visibility: showHandlers ? 'visible' : 'hidden',
+            cursor: 'cell',
+            zIndex: 10,
+          }}
           position={Position.Left}
           id="d"
         />

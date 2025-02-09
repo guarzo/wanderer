@@ -118,7 +118,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   const [ownerURL, setOwnerURL] = useState('');
 
   useEffect(() => {
-    // Reset or handle no owner
     if (!owner_id || !owner_type) {
       setOwnerTicker(null);
       setOwnerURL('');
@@ -240,13 +239,11 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
       return current > max ? current : max;
     }, 0);
 
-    // Split the mapped signatures into two chunks.
     const [unsplashedLeft, unsplashedRight] = prepareUnsplashedChunks(mappedSignatures);
 
     return { unsplashedLeft, unsplashedRight, newestUpdatedAt: newestTimestamp };
   }, [systemSigs]);
 
-  // Ensure hubs are always strings.
   const hubsAsStrings = useMemo(() => hubs.map(item => item.toString()), [hubs]);
 
   return {
@@ -276,7 +273,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     solarSystemName: solar_system_name,
     locked,
     hubs: hubsAsStrings,
-    name,
+    name: name,
     isConnecting,
     hoverNodeId,
     charactersInSystem,
@@ -289,7 +286,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     ownerURL,
     systemSigs,
     newestUpdatedAt,
-  } as SolarSystemNodeVars;
+  };
 }
 
 export interface SolarSystemNodeVars {
