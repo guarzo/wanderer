@@ -171,7 +171,12 @@ export const SystemSignatures = () => {
           System is not selected
         </div>
       ) : (
-        <SystemSignaturesContent systemId={systemId} settings={settings} onLazyDeleteChange={handleLazyDeleteChange} onCountChange={handleSigCountChange} />
+        <SystemSignaturesContent
+          systemId={systemId}
+          settings={settings}
+          onLazyDeleteChange={handleLazyDeleteChange}
+          onCountChange={handleSigCountChange}
+        />
       )}
       {visible && (
         <SystemSignatureSettingsDialog
