@@ -94,7 +94,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)} style={{ display: 'flex' }}>
               <GiPortal
                 size={8} // Increased size for better visibility
-                color="#1ABC9C"
+                color="#38bdf8"
                 style={{
                   marginRight: '2px',
                   filter: 'drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.25))',
@@ -102,7 +102,8 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
               />
               <span
                 style={{
-                  color: '#1ABC9C',
+                  marginTop: '1px',
+                  color: '#38bdf8',
                   fontSize: '8px', // Adjusted font size
                   lineHeight: '8px', // Ensure the line height is enough for the text
                 }}
@@ -135,7 +136,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
               <span
                 className={clsx(classes.text)}
                 style={{
-                  color: '#444444',
+                  color: '#FFFFFF',
                   fontSize: '8px',
                   marginLeft: '1px',
                   marginRight: '1px',
