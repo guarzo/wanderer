@@ -32,10 +32,9 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const { unsplashedCount, hasEol, hasGas, hasCrit } = useZooLabels(connectionCount, {
     unsplashedLeft: nodeVars.unsplashedLeft,
     unsplashedRight: nodeVars.unsplashedRight,
-    systemSigs: nodeVars.systemSigs,
+    systemSigs: updatedSignatures,
     labelInfo: nodeVars.labelsInfo,
   });
-
   const { systemName, customLabel, customName } = useZooNames(
     {
       temporaryName: nodeVars.temporaryName,
@@ -50,7 +49,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
   const { localCounterCharacters } = useLocalCounter(nodeVars);
 
-  const { signatureAgeHours, bookmarkColor } = useSignatureAge(nodeVars.systemSigs);
+  const { signatureAgeHours, bookmarkColor } = useSignatureAge(updatedSignatures);
 
   return (
     <>
@@ -129,7 +128,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {nodeVars.systemSigs.length > 0 && signatureAgeHours >= 0 && (
+          {updatedSignatures.length > 0 && signatureAgeHours >= 0 && (
             <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
               <span
                 className={clsx(classes.text)}
