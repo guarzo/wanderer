@@ -253,7 +253,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           </>
         )}
       </div>
-      <div className={classes.Handlers}>
+      <div className={classes.Handlers} onMouseDownCapture={nodeVars.dbClick}>
         <Handle
           type="target"
           position={Position.Bottom}
@@ -285,6 +285,10 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           }}
           position={Position.Top}
           id="a"
+          onDoubleClick={e => {
+            e.stopPropagation();
+            nodeVars.dbClick(e);
+          }}
         />
         <Handle
           type="source"

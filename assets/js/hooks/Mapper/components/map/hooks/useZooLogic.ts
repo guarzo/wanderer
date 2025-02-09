@@ -136,7 +136,6 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
     const interval = setInterval(() => {
       setNow(Date.now());
     }, 3600000);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -167,7 +166,8 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
 
     let signatureAgeHours = 0;
     if (newestTimestamp > 0) {
-      const ageMs = now - newestTimestamp;
+      const adjustedNow = now + new Date().getTimezoneOffset() * 60000;
+      const ageMs = adjustedNow - newestTimestamp;
       signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
       signatureAgeHours = Math.max(0, signatureAgeHours);
     }
@@ -187,6 +187,7 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
       newestUpdatedAt: newestTimestamp,
       signatureAgeHours,
       bookmarkColor,
+      now,
     };
   }, [systemSigs, now]);
 }

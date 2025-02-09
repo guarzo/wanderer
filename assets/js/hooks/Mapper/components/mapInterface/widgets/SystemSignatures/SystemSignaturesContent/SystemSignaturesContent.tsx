@@ -60,7 +60,7 @@ interface SystemSignaturesContentProps {
   selectable?: boolean;
   onSelect?: (signature: SystemSignature) => void;
   onLazyDeleteChange?: (value: boolean) => void;
-  onCountChange: (count: Number) => void;
+  onCountChange: (count: number) => void;
 }
 
 export const SystemSignaturesContent = ({
@@ -122,7 +122,7 @@ export const SystemSignaturesContent = ({
 
   useEffect(() => {
     onCountChange(signatures.length);
-  }, [signatures]);
+  }, [onCountChange, signatures]);
 
   // ── Modified handleGetSignatures: preserve pending items that haven't expired ─────────────
   const handleGetSignatures = useCallback(async () => {
@@ -145,14 +145,12 @@ export const SystemSignaturesContent = ({
         return sig;
       });
       // Also add any pending deletion items that are not returned by the server.
-      const extra = Array.from(pendingMap.values()).filter(sig =>
-        !serverSignatures.some(s => s.eve_id === sig.eve_id),
-      );
+      const extra = Array.from(pendingMap.values()).filter(sig => !serverSignatures.some(s => s.eve_id === sig.eve_id));
       setSignatures([...merged, ...extra]);
     } else {
       setSignatures(serverSignatures);
     }
-  }, [outCommand, systemId, lazyDeleteValue]);
+  }, [outCommand, systemId, lazyDeleteValue, signaturesRef, setSignatures]);
 
   const handleUpdateSignatures = useCallback(
     async (newSignatures: SystemSignature[], updateOnly: boolean, skipUpdateUntouched?: boolean) => {
@@ -176,7 +174,7 @@ export const SystemSignaturesContent = ({
       setSignatures(() => updatedSignatures);
       setSelectedSignatures([]);
     },
-    [outCommand, systemId],
+    [outCommand, setSignatures, signaturesRef, systemId],
   );
 
   const handleDeleteSelected = useCallback(
@@ -223,15 +221,16 @@ export const SystemSignaturesContent = ({
       const newSignatures = parseSignatures(
         clipboardContent,
         settings.map(x => x.key),
-        undefined
+        undefined,
       );
       const filteredNew = newSignatures.filter(sig => {
         if (sig.kind === COSMIC_SIGNATURE && sig.eve_id.length === 3) {
           const prefix = sig.eve_id.substring(0, 3).toUpperCase();
-          return !signaturesRef.current.some(existingSig =>
-            existingSig.kind === COSMIC_SIGNATURE &&
-            existingSig.eve_id.substring(0, 3).toUpperCase() === prefix &&
-            existingSig.eve_id.length === 7
+          return !signaturesRef.current.some(
+            existingSig =>
+              existingSig.kind === COSMIC_SIGNATURE &&
+              existingSig.eve_id.substring(0, 3).toUpperCase() === prefix &&
+              existingSig.eve_id.length === 7,
           );
         }
         return true;
@@ -288,15 +287,16 @@ export const SystemSignaturesContent = ({
       const newSignatures = parseSignatures(
         clipboardContent,
         settings.map(x => x.key),
-        existing
+        existing,
       );
       const filteredNew = newSignatures.filter(sig => {
         if (sig.kind === COSMIC_SIGNATURE && sig.eve_id.length === 3) {
           const prefix = sig.eve_id.substring(0, 3).toUpperCase();
-          return !signaturesRef.current.some(existingSig =>
-            existingSig.kind === COSMIC_SIGNATURE &&
-            existingSig.eve_id.substring(0, 3).toUpperCase() === prefix &&
-            existingSig.eve_id.length === 7
+          return !signaturesRef.current.some(
+            existingSig =>
+              existingSig.kind === COSMIC_SIGNATURE &&
+              existingSig.eve_id.substring(0, 3).toUpperCase() === prefix &&
+              existingSig.eve_id.length === 7,
           );
         }
         return true;
@@ -306,13 +306,10 @@ export const SystemSignaturesContent = ({
   };
   // ─────────────────────────────────────────────────────────────────────────
 
-  const handleEnterRow = useCallback(
-    (e: DataTableRowMouseEvent) => {
-      setHoveredSig(filteredSignatures[e.index]);
-      tooltipRef.current?.show(e.originalEvent);
-    },
-    [/* filteredSignatures defined below */]
-  );
+  const handleEnterRow = useCallback((e: DataTableRowMouseEvent) => {
+    setHoveredSig(filteredSignatures[e.index]);
+    tooltipRef.current?.show(e.originalEvent);
+  }, []);
 
   const handleLeaveRow = useCallback((e: DataTableRowMouseEvent) => {
     tooltipRef.current?.hide(e.originalEvent);
@@ -328,7 +325,7 @@ export const SystemSignaturesContent = ({
     }
     handlePaste(clipboardContent.text);
     setClipboardContent(null);
-  }, [clipboardContent, selectable, lazyDeleteValue, keepLazyDeleteValue]);
+  }, [clipboardContent, selectable, lazyDeleteValue, keepLazyDeleteValue, handlePaste, setClipboardContent]);
 
   useHotkey(true, ['a'], handleSelectAll);
   useHotkey(false, ['Backspace', 'Delete'], handleDeleteSelected);
@@ -339,7 +336,7 @@ export const SystemSignaturesContent = ({
       return;
     }
     handleGetSignatures();
-  }, [systemId]);
+  }, [handleGetSignatures, setSignatures, systemId]);
 
   useMapEventListener(event => {
     switch (event.name) {
@@ -377,7 +374,7 @@ export const SystemSignaturesContent = ({
       const remainingSignatures = signaturesRef.current.filter(sig => !signaturesToDelete.includes(sig));
       handleUpdateSignatures(remainingSignatures, false, true);
     }
-  }, [handleUpdateSignatures, signatures]);
+  }, [handleUpdateSignatures, signatures, signaturesRef]);
 
   const renderToolbar = () => {
     return (
