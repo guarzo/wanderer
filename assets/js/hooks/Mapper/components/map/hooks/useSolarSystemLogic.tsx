@@ -12,7 +12,6 @@ import { sortWHClasses } from '@/hooks/Mapper/helpers';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
 import { CharacterTypeRaw, OutCommand, SystemSignature } from '@/hooks/Mapper/types';
 import { LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants';
-import { SignatureCriticalCheckbox } from '../../mapRootContent/components/SignatureSettings/components/SignatureCriticalCheckbox';
 
 const zkillboardBaseURL = 'https://zkillboard.com';
 
@@ -215,9 +214,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
 
   const { unsplashedLeft, unsplashedRight, newestUpdatedAt } = useMemo(() => {
     // Filter the signatures you care about.
-    const filteredSignatures = systemSigs.filter(
-      s => s.group === 'Wormhole' && !s.linked_system,
-    );
+    const filteredSignatures = systemSigs.filter(s => s.group === 'Wormhole' && !s.linked_system);
 
     // Map to your desired type.
     const mappedSignatures = filteredSignatures.map(s => ({
@@ -252,7 +249,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
 
     return { unsplashedLeft, unsplashedRight, newestUpdatedAt: newestTimestamp };
   }, [systemSigs]);
-
 
   // Ensure hubs are always strings.
   const hubsAsStrings = useMemo(() => hubs.map(item => item.toString()), [hubs]);
