@@ -114,7 +114,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {nodeVars.systemSigs.length > 0 && (
+          {nodeVars.systemSigs.length > 0 && signatureAgeHours >= 0 && (
             <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
               <span className={clsx(classes.text)}>{signatureAgeHours}h</span>
             </div>
