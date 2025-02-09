@@ -2,6 +2,41 @@
 
 <!-- changelog -->
 
+## [v1.48.0](https://github.com/wanderer-industries/wanderer/compare/v1.47.1...v1.48.0) (2025-02-09)
+
+
+
+
+### Features:
+
+* Map: Added check for active map subscription to using Map APIs
+
+* Added WANDERER_RESTRICT_MAPS_CREATION env support
+
+### Bug Fixes:
+
+* Connections: Fixed connections auto-refresh after update
+
+* Map: Fixed a lot of design and architect issues after last milliâ¦ (#154)
+
+* Map: Fixed a lot of design and architect issues after last million PRs
+
+* Map: removed unnecessary hooks styles
+
+* restore styling for local characters list (#152)
+
+* remove snap to grid customization (#153)
+
+* color and formatting fixes for local character (#150)
+
+* fix route list hover and on the map character list (#149)
+
+* correct formatting for on the map character list
+
+* fix hover for route list
+
+* kill count subscript position on firefox, and remove kill filter for single system (#148)
+
 ## [v1.47.1](https://github.com/wanderer-industries/wanderer/compare/v1.47.0...v1.47.1) (2025-02-09)
 
 
