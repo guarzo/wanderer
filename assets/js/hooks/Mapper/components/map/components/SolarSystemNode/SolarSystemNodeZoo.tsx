@@ -4,6 +4,7 @@ import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
+import { GiPortal } from "react-icons/gi";
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
 import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
 import {
@@ -87,11 +88,29 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </KillsCounter>
           )}
 
+          {nodeVars.systemSigs.length > 0 && signatureAgeHours >= 0 && (
+            <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
+              <span className={clsx(classes.text)} style={{ color: '#444444', fontSize: '8px', marginLeft: '1px', marginRight: '1px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '-1px'}}>{signatureAgeHours}h</span>
+            </div>
+          )}
+
           {unsplashedCount > 0 && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)}>
               <div className={clsx(classes.BookmarkWithIcon)}>
-                <span className={clsx("pi pi-bullseye")} style={{ marginRight: '3px', fontSize: '8px' }}></span>
-                <span className={clsx(classes.text, classes.openWhText)}>{unsplashedCount}</span>
+                <GiPortal
+                  size={10} // Increased size for better visibility
+                  color="#1ABC9C"
+                  style={{
+                    marginRight: '1px',
+                    filter: 'drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.25))'
+                  }}
+                />
+                <span
+                  className={clsx(classes.text, classes.openWhText)}
+                  style={{ color: "#1ABC9C", fontSize: '8px' }}
+                >
+                  {unsplashedCount}
+                </span>
               </div>
             </div>
           )}
@@ -104,19 +123,13 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
           {hasGas && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.gas)}>
-              <span className={clsx('pi pi-cloud', classes.icon)} style={{ color: 'black' }} />
+              <span className={clsx('pi pi-cloud', classes.icon)} style={{ color: 'black', fontSize: '8px' }} />
             </div>
           )}
 
           {hasCrit && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.crit)}>
               <span className={clsx('pi pi-info-circle', classes.icon)} />
-            </div>
-          )}
-
-          {nodeVars.systemSigs.length > 0 && (
-            <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
-              <span className={clsx(classes.text)}>{signatureAgeHours}h</span>
             </div>
           )}
 
