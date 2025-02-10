@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { MapSolarSystemType } from '../../map.types';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import clsx from 'clsx';
@@ -129,17 +129,24 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {nodeVars.labelsInfo.map(x => (
-            <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
-              {LABEL_ICON_MAP[x.id] ? (
-                <i
-                  className={clsx(`pi ${LABEL_ICON_MAP[x.id].icon} ${LABEL_ICON_MAP[x.id].colorClass}`, classes.icon)}
-                />
-              ) : (
-                x.shortName
-              )}
-            </div>
-          ))}
+          {nodeVars.labelsInfo.map(x => {
+            const iconData = LABEL_ICON_MAP[x.id];
+            return (
+              <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
+                {iconData ? (
+                  React.isValidElement(iconData.icon) ? (
+                    // If the icon is a React element (i.e. a custom SVG), render it directly.
+                    <span className={clsx(classes.icon, iconData.colorClass)}>{iconData.icon}</span>
+                  ) : (
+                    // Otherwise assume it's a string representing an icon class.
+                    <i className={clsx(`pi ${iconData.icon} ${iconData.colorClass}`, classes.icon)} />
+                  )
+                ) : (
+                  x.shortName
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
