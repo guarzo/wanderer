@@ -1,4 +1,5 @@
 import { ConnectionType, MassState, ShipSizeStatus } from '@/hooks/Mapper/types';
+import { FlyGdIcon, WormHoleIcon } from './components/ZooIcons';
 
 export enum SOLAR_SYSTEM_CLASS_IDS {
   ccp1 = -1,
@@ -638,6 +639,8 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   crit: 'eve-zoo-effect-color-is-critical',
   unSplashed: 'eve-zoo-effect-color-unsplashed',
   de: 'eve-zoo-effect-color-is-dead-end',
+  wormhole: 'eve-zoo-effect-color-wormhole',
+  flygd: 'eve-zoo-effect-color-flygd',
 
   lc: 'wd-marker-bookmark-color-ytirium',
   l1: 'wd-marker-bookmark-color-l1',
@@ -651,12 +654,12 @@ export enum LABELS {
   lb = 'gas',
   lc = 'eol',
   l1 = 'crit',
-  l2 = '2',
-  l3 = '3',
+  l2 = 'wormhole',
+  l3 = 'flygd',
 }
 
 export type LabelIcon = {
-  icon: string;
+  icon: React.ReactNode;
   colorClass: string;
 };
 
@@ -673,8 +676,14 @@ export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
   [LABELS.lb]: { icon: 'pi-cloud', colorClass: 'text-teal-500' },
   [LABELS.lc]: { icon: 'pi-stopwatch', colorClass: 'text-white' },
   [LABELS.l1]: { icon: 'pi-info-circle', colorClass: 'text-white' },
-  // [LABELS.l2]: 'pi pi-plus', // Example icon for Label 2
-  // [LABELS.l3]: 'pi pi-minus', // Example icon for Label 3
+  [LABELS.l2]: {
+    icon: <FlyGdIcon fill="#00008B" />,
+    colorClass: 'text-teal-500',
+  },
+  [LABELS.l3]: {
+    icon: <WormHoleIcon fill="#8B0000" />,
+    colorClass: 'text-teal-500',
+  },
 };
 
 export const LABELS_INFO: Record<string, LabelInfo> = {
@@ -683,8 +692,8 @@ export const LABELS_INFO: Record<string, LabelInfo> = {
   [LABELS.lb]: { id: 'gas', name: 'Gas', shortName: 'GAS', icon: '' },
   [LABELS.lc]: { id: 'eol', name: 'Eol', shortName: 'EOL', icon: '' },
   [LABELS.l1]: { id: 'crit', name: 'Crit', shortName: 'CRIT', icon: '' },
-  [LABELS.l2]: { id: 'l2', name: 'Label 2', shortName: '2', icon: '' },
-  [LABELS.l3]: { id: 'l3', name: 'Label 3', shortName: '3', icon: '' },
+  [LABELS.l2]: { id: 'wormhole', name: 'Wormhole', shortName: 'WH', icon: '' },
+  [LABELS.l3]: { id: 'flygd', name: 'Flygd', shortName: 'FLYGD', icon: '' },
 };
 
 export enum STATUSES {

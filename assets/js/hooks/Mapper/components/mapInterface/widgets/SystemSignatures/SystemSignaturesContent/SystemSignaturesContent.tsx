@@ -1,4 +1,5 @@
 // SystemSignaturesContent.tsx
+
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { parseSignatures, getActualSigs } from '../helpers/zooSignatures';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
@@ -86,17 +87,23 @@ export const SystemSignaturesContent = ({
   const [sortSettings, setSortSettings] = useLocalStorageState<SystemSignaturesSortSettings>('window:signatures:sort', {
     defaultValue: SORT_DEFAULT_VALUES,
   });
+
   const tableRef = useRef<HTMLDivElement>(null);
   const compact = useMaxWidth(tableRef, 260);
   const medium = useMaxWidth(tableRef, 380);
+
   const refData = useRef({ selectable });
   refData.current = { selectable };
+
   const tooltipRef = useRef<WdTooltipHandlers>(null);
   const { clipboardContent, setClipboardContent } = useClipboard();
+
+  // Whether lazy-delete is currently active:
   const lazyDeleteValue = useMemo(
     () => settings.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)?.value ?? false,
     [settings],
   );
+  // Whether to remain in lazy-delete mode after a parse
   const keepLazyDeleteValue = useMemo(
     () => settings.find(s => s.key === KEEP_LAZY_DELETE_SETTING)?.value ?? false,
     [settings],
@@ -121,18 +128,29 @@ export const SystemSignaturesContent = ({
     onCountChange(signatures.length);
   }, [onCountChange, signatures]);
 
+  const [pendingDeletions, setPendingDeletions] = useState<
+    Record<string, { flashUntil: number; finalUntil: number; flashTimeoutId: number; finalTimeoutId: number }>
+  >({});
+  const [pendingUndoSignatures, setPendingUndoSignatures] = useState<ExtendedSystemSignature[]>([]);
+
   const handleGetSignatures = useCallback(async () => {
+    if (!systemId) {
+      setSignatures([]);
+      return;
+    }
     const { signatures: serverSignatures } = await outCommand({
       type: OutCommand.getSignatures,
       data: { system_id: systemId },
     });
     const extendedServer = serverSignatures.map((s: SystemSignature) => ({ ...s })) as ExtendedSystemSignature[];
+
     if (lazyDeleteValue) {
       const now = Date.now();
       const pendingMap = new Map<string, ExtendedSystemSignature>();
       signaturesRef.current
         .filter(sig => sig.pendingDeletion && sig.pendingUntil && sig.pendingUntil > now)
         .forEach(sig => pendingMap.set(sig.eve_id, sig));
+
       const merged = extendedServer.map(sig =>
         pendingMap.has(sig.eve_id)
           ? { ...sig, pendingDeletion: true, pendingUntil: pendingMap.get(sig.eve_id)!.pendingUntil }
@@ -194,11 +212,6 @@ export const SystemSignaturesContent = ({
     [onSelect, selectable],
   );
 
-  const [pendingDeletions, setPendingDeletions] = useState<
-    Record<string, { flashUntil: number; finalUntil: number; flashTimeoutId: number; finalTimeoutId: number }>
-  >({});
-  const [pendingUndoSignatures, setPendingUndoSignatures] = useState<ExtendedSystemSignature[]>([]);
-
   const undoPendingDeletions = useCallback(() => {
     Object.entries(pendingDeletions).forEach(([, timers]) => {
       clearTimeout(timers.flashTimeoutId);
@@ -230,6 +243,7 @@ export const SystemSignaturesContent = ({
           settings.map(x => x.key),
           undefined,
         ).map(s => ({ ...s })) as ExtendedSystemSignature[];
+
         const filteredNew = newSignatures.filter(sig => {
           if (sig.kind === COSMIC_SIGNATURE && sig.eve_id.length === 3) {
             const prefix = sig.eve_id.substring(0, 3).toUpperCase();
@@ -242,24 +256,33 @@ export const SystemSignaturesContent = ({
           }
           return true;
         });
+
         const currentNonPending = signaturesRef.current.filter(sig => !sig.pendingDeletion);
         const { added, updated, removed } = getActualSigs(currentNonPending, filteredNew, false, true);
+
         setPendingUndoSignatures(prev => [...prev, ...removed]);
+
         const { signatures: updatedSignatures } = await outCommand({
           type: OutCommand.updateSignatures,
           data: { system_id: systemId, added, updated, removed: [] },
         });
         const castedUpdated = updatedSignatures.map((s: SystemSignature) => ({ ...s })) as ExtendedSystemSignature[];
+
         const now = Date.now();
         removed.forEach(sig => {
           const flashTimeoutId = window.setTimeout(() => {
             setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
           }, 7000);
+
           const finalTimeoutId = window.setTimeout(async () => {
+            const baseSig: SystemSignature = {
+              ...sig,
+            };
             await outCommand({
               type: OutCommand.updateSignatures,
-              data: { system_id: systemId, added: [], updated: [], removed: [sig] },
+              data: { system_id: systemId, added: [], updated: [], removed: [baseSig] },
             });
+
             setPendingDeletions(prev => {
               const newPending = { ...prev };
               delete newPending[sig.eve_id];
@@ -267,11 +290,13 @@ export const SystemSignaturesContent = ({
             });
             setPendingUndoSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
           }, 60000);
+
           setPendingDeletions(prev => ({
             ...prev,
             [sig.eve_id]: { flashUntil: now + 7000, finalUntil: now + 60000, flashTimeoutId, finalTimeoutId },
           }));
         });
+
         const merged = castedUpdated.map(sig =>
           removed.some(r => r.eve_id === sig.eve_id)
             ? { ...sig, pendingDeletion: true, pendingUntil: now + 7000 }
@@ -282,6 +307,7 @@ export const SystemSignaturesContent = ({
           .filter(p => !merged.some(s => s.eve_id === p.eve_id));
         const finalArr = [...merged, ...pendingRemoved];
         setSignatures(finalArr);
+
         if (!keepLazyDeleteValue) {
           onLazyDeleteChange?.(false);
         }
@@ -292,6 +318,7 @@ export const SystemSignaturesContent = ({
           settings.map(x => x.key),
           existing,
         ).map(s => ({ ...s })) as ExtendedSystemSignature[];
+
         const filteredNew = newSignatures.filter(sig => {
           if (sig.kind === COSMIC_SIGNATURE && sig.eve_id.length === 3) {
             const prefix = sig.eve_id.substring(0, 3).toUpperCase();
@@ -304,6 +331,7 @@ export const SystemSignaturesContent = ({
           }
           return true;
         });
+
         handleUpdateSignatures(filteredNew, true);
       }
     },
@@ -444,8 +472,10 @@ export const SystemSignaturesContent = ({
           rowClassName={row => {
             const isPending = pendingDeletions[row.eve_id] && pendingDeletions[row.eve_id].flashUntil > Date.now();
             if (isPending) return clsx(classes.TableRowCompact, classes.flashPending);
-            if (selectedSignatures.some(s => s.eve_id === row.eve_id))
+
+            if (selectedSignatures.some(s => s.eve_id === row.eve_id)) {
               return clsx(classes.TableRowCompact, 'bg-amber-500/50 hover:bg-amber-500/70 transition');
+            }
             return clsx(classes.TableRowCompact, 'hover:bg-purple-400/20 transition');
           }}
         >
@@ -515,6 +545,7 @@ export const SystemSignaturesContent = ({
           )}
         </DataTable>
       )}
+
       <WdTooltip
         className="bg-stone-900/95 text-slate-50"
         ref={tooltipRef}
