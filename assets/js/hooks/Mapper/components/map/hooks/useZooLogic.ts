@@ -68,7 +68,7 @@ export function useZooLabels(
   return { unsplashedCount };
 }
 
-export function useGetSignatures(systemId: string): SystemSignature[] {
+export function useGetSignatures(systemId: string) {
   const { outCommand } = useMapRootState();
   const [signatures, setSignatures] = useState<SystemSignature[]>([]);
 
@@ -84,45 +84,13 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
     }
   }, [outCommand, systemId]);
 
+  // Fetch once when mounted or if systemId changes:
   useEffect(() => {
-    const timer = setTimeout(() => {
-      handleGetSignatures();
-    }, 10);
-    return () => clearTimeout(timer);
+    handleGetSignatures();
   }, [handleGetSignatures]);
 
-  return signatures;
-}
-
-export function useFetchSignaturesForNodes(
-  systemIds: string[],
-  onFetched: (systemId: string, signatures: SystemSignature[]) => void,
-) {
-  const { outCommand } = useMapRootState();
-
-  const fetchSignatures = useCallback(async () => {
-    for (const systemId of systemIds) {
-      try {
-        const response = await outCommand({
-          type: OutCommand.getSignatures,
-          data: { system_id: systemId },
-        });
-        const signatures = response.signatures ?? [];
-
-        // Let the caller update node data state
-        onFetched(systemId, signatures);
-      } catch (error) {
-        console.error(`Failed to fetch signatures for system ${systemId}`, error);
-      }
-    }
-  }, [systemIds, outCommand, onFetched]);
-
-  // fetch when systemIds changes (or on mount)
-  useEffect(() => {
-    if (systemIds.length > 0) {
-      fetchSignatures();
-    }
-  }, [systemIds, fetchSignatures]);
+  // Return both the signatures and a way to refetch them:
+  return [signatures, handleGetSignatures] as const;
 }
 
 export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
