@@ -1,3 +1,3 @@
 export * from './getState';
-export * from './getRowColorByTimeLeft';
+export * from './getRowBackgroundColor';
 export * from './getActualSigs';

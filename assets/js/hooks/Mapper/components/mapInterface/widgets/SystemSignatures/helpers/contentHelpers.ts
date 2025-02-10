@@ -1,17 +1,13 @@
-import clsx from 'clsx';
-import classes from './contentHelpers.module.scss';
 import { SystemSignature } from '@/hooks/Mapper/types';
+import { getRowBackgroundColor } from './getRowBackgroundColor';
 
 export interface ExtendedSystemSignature extends SystemSignature {
   pendingDeletion?: boolean;
   pendingUntil?: number;
+  pendingAddition?: boolean;
+  pendingAdditionFinal?: boolean;
 }
 
-export interface PendingChange extends ExtendedSystemSignature {
-  action: 'add' | 'delete';
-}
-
-export const FLASH_DURATION_MS = 5000;
 export const FINAL_DURATION_MS = 30000;
 
 export function toSystemSignature(sig: ExtendedSystemSignature): SystemSignature {
@@ -39,9 +35,7 @@ export function scheduleLazyDeletionTimers(
       Record<
         string,
         {
-          flashUntil: number;
           finalUntil: number;
-          flashTimeoutId: number;
           finalTimeoutId: number;
         }
       >
@@ -49,30 +43,19 @@ export function scheduleLazyDeletionTimers(
   >,
   removeSignaturePermanently: (sig: ExtendedSystemSignature) => Promise<void>,
   setSignatures: React.Dispatch<React.SetStateAction<ExtendedSystemSignature[]>>,
-  flashMs = FLASH_DURATION_MS,
   finalMs = FINAL_DURATION_MS,
 ) {
   const now = Date.now();
   toRemove.forEach(sig => {
-    const flashTimeoutId = window.setTimeout(() => {
-      setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
-    }, flashMs);
-
     const finalTimeoutId = window.setTimeout(async () => {
       await removeSignaturePermanently(sig);
-      setPendingMap(prev => {
-        const updated = { ...prev };
-        delete updated[sig.eve_id];
-        return updated;
-      });
+      setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
     }, finalMs);
 
     setPendingMap(prev => ({
       ...prev,
       [sig.eve_id]: {
-        flashUntil: now + flashMs,
         finalUntil: now + finalMs,
-        flashTimeoutId,
         finalTimeoutId,
       },
     }));
@@ -87,62 +70,38 @@ export function mergeWithPendingFlags(
   const localMap = new Map<string, ExtendedSystemSignature>();
 
   local.forEach(sig => {
-    localMap.set(sig.eve_id, {
-      ...sig,
-      pendingDeletion: !!sig.pendingDeletion,
-    });
+    if (sig.pendingDeletion) {
+      localMap.set(sig.eve_id, sig);
+    }
   });
 
   const merged = server.map(sig => {
-    const serverSig = { ...sig, pendingDeletion: !!sig.pendingDeletion };
-    const localSig = localMap.get(serverSig.eve_id);
-    if (!localSig) return serverSig;
+    const localSig = localMap.get(sig.eve_id);
+    if (!localSig) return sig;
 
-    const isStillPending = localSig.pendingDeletion && localSig.pendingUntil && localSig.pendingUntil > now;
-
-    return {
-      ...serverSig,
-      pendingDeletion: isStillPending,
-      pendingUntil: isStillPending ? localSig.pendingUntil : undefined,
-    };
+    const stillPending = localSig.pendingUntil && localSig.pendingUntil > now;
+    if (stillPending) {
+      return { ...sig, pendingDeletion: true, pendingUntil: localSig.pendingUntil };
+    }
+    return sig;
   });
 
-  const extraPending = Array.from(localMap.values()).filter(
-    x => x.pendingDeletion && !merged.some(m => m.eve_id === x.eve_id),
-  );
+  const extraPending = Array.from(localMap.values()).filter(p => !merged.some(m => m.eve_id === p.eve_id));
 
-  return [...merged, ...extraPending].map(sig => ({
-    ...sig,
-    pendingDeletion: !!sig.pendingDeletion,
-  }));
+  return [...merged, ...extraPending];
 }
 
-export function getRowClassName(
-  row: ExtendedSystemSignature,
-  pendingDeletionMap: Record<
-    string,
-    {
-      flashUntil: number;
-      finalUntil: number;
-      flashTimeoutId: number;
-      finalTimeoutId: number;
-    }
-  >,
-  selectedIds: string[],
-  getRowColorByTimeLeft: (date?: Date) => string | null | undefined,
-): string {
-  const isFlashingDeletion =
-    pendingDeletionMap[row.eve_id]?.flashUntil && pendingDeletionMap[row.eve_id].flashUntil > Date.now();
+export function getRowClassName(row: ExtendedSystemSignature, selectedSignatures: ExtendedSystemSignature[]): string {
+  const baseClasses = 'h-2 text-[12px] leading-2';
 
-  if (isFlashingDeletion || row.pendingDeletion) {
-    return clsx(classes.TableRowCompact, classes.flashPending);
+  if (selectedSignatures.some(s => s.eve_id === row.eve_id)) {
+    return `${baseClasses} bg-amber-500/50 hover:bg-amber-500/70 transition duration-200`;
   }
 
-  if (selectedIds.includes(row.eve_id)) {
-    return clsx(classes.TableRowCompact, 'bg-amber-500/50 hover:bg-amber-500/70 transition duration-200');
+  if (row.pendingDeletion) {
+    return `${baseClasses} bg-red-500/50 hover:bg-red-500/60 transition duration-200`;
   }
 
-  const dateClass = getRowColorByTimeLeft(row.inserted_at ? new Date(row.inserted_at) : undefined) ?? '';
-
-  return clsx(classes.TableRowCompact, dateClass || 'hover:bg-purple-400/20 transition duration-200');
+  const bgClass = getRowBackgroundColor(row.inserted_at ? new Date(row.inserted_at) : undefined);
+  return `${baseClasses} ${bgClass || 'hover:bg-purple-400/20 transition duration-200'}`;
 }

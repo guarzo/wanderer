@@ -7,7 +7,7 @@ import {
   WdCheckbox,
   WdImgButton,
 } from '@/hooks/Mapper/components/ui-kit';
-import { ExtendedSystemSignature, SystemSignaturesContent } from './SystemSignaturesContent';
+import { SystemSignaturesContent } from './SystemSignaturesContent';
 import {
   COSMIC_ANOMALY,
   COSMIC_SIGNATURE,
@@ -19,22 +19,25 @@ import {
   STRUCTURE,
   SystemSignatureSettingsDialog,
 } from './SystemSignatureSettingsDialog';
-import { SignatureGroup } from '@/hooks/Mapper/types';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { SignatureGroup, SystemSignature } from '@/hooks/Mapper/types';
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { PrimeIcons } from 'primereact/api';
+
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { CheckboxChangeEvent } from 'primereact/checkbox';
 import useMaxWidth from '@/hooks/Mapper/hooks/useMaxWidth';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
+import { useHotkey } from '@/hooks/Mapper/hooks';
 
 const SIGNATURE_SETTINGS_KEY = 'wanderer_system_signature_settings_v5_2';
-
 export const SHOW_DESCRIPTION_COLUMN_SETTING = 'show_description_column_setting';
 export const SHOW_UPDATED_COLUMN_SETTING = 'SHOW_UPDATED_COLUMN_SETTING';
 export const LAZY_DELETE_SIGNATURES_SETTING = 'LAZY_DELETE_SIGNATURES_SETTING';
 export const KEEP_LAZY_DELETE_SETTING = 'KEEP_LAZY_DELETE_ENABLED_SETTING';
 
-const INITIAL_SETTINGS_SCHEMA: Setting[] = [
+const settings: Setting[] = [
   { key: SHOW_UPDATED_COLUMN_SETTING, name: 'Show Updated Column', value: false, isFilter: false },
   { key: SHOW_DESCRIPTION_COLUMN_SETTING, name: 'Show Description Column', value: false, isFilter: false },
   { key: LAZY_DELETE_SIGNATURES_SETTING, name: 'Lazy Delete Signatures', value: false, isFilter: false },
@@ -54,9 +57,9 @@ const INITIAL_SETTINGS_SCHEMA: Setting[] = [
   { key: SignatureGroup.CombatSite, name: 'Show Combat Sites', value: true, isFilter: true },
 ];
 
-function updateSettingsInStorage(newSettings: Setting[]): void {
-  localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(newSettings));
-}
+const defaultSettings = () => {
+  return [...settings];
+};
 
 export const SystemSignatures = () => {
   const {
@@ -64,56 +67,66 @@ export const SystemSignatures = () => {
   } = useMapRootState();
 
   const [visible, setVisible] = useState(false);
-
-  const [settings, setSettings] = useState<Setting[]>(() => {
-    const restored = localStorage.getItem(SIGNATURE_SETTINGS_KEY);
-    return restored ? JSON.parse(restored) : [...INITIAL_SETTINGS_SCHEMA];
-  });
-
+  const [currentSettings, setSettings] = useState<Setting[]>(defaultSettings);
   const [sigCount, setSigCount] = useState<number>(0);
-  const [systemId] = selectedSystems;
-  const isNotSelectedSystem = selectedSystems.length !== 1;
-
-  const lazyDeleteValue = useMemo(
-    () => settings.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)!.value,
-    [settings],
-  );
-
-  const [pendingSigs, setPendingSigs] = useState<ExtendedSystemSignature[]>([]);
+  const [pendingSigs, setPendingSigs] = useState<SystemSignature[]>([]);
   const [undoPending, setUndoPending] = useState<() => void>(() => () => {});
-
-  const handleSettingsChange = useCallback((newSettings: Setting[]) => {
-    setSettings(newSettings);
-    updateSettingsInStorage(newSettings);
-    setVisible(false);
-  }, []);
-
-  const handleLazyDeleteChange = useCallback((value: boolean) => {
-    setSettings(prev => {
-      const lazy = prev.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)!;
-      lazy.value = value;
-      const updated = [...prev];
-      updateSettingsInStorage(updated);
-      return updated;
-    });
-  }, []);
 
   const handleSigCountChange = useCallback((count: number) => {
     setSigCount(count);
   }, []);
 
+  const [systemId] = selectedSystems;
+  const isNotSelectedSystem = selectedSystems.length !== 1;
+
+  const lazyDeleteValue = useMemo(() => {
+    return currentSettings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!.value;
+  }, [currentSettings]);
+
+  const handleSettingsChange = useCallback((newSettings: Setting[]) => {
+    setSettings(newSettings);
+    localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(newSettings));
+    setVisible(false);
+  }, []);
+
+  const handleLazyDeleteChange = useCallback((value: boolean) => {
+    setSettings(prevSettings => {
+      const lazyDelete = prevSettings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!;
+      lazyDelete.value = value;
+      localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(prevSettings));
+      return [...prevSettings];
+    });
+  }, []);
+
+  useEffect(() => {
+    const restoredSettings = localStorage.getItem(SIGNATURE_SETTINGS_KEY);
+    if (restoredSettings) {
+      setSettings(JSON.parse(restoredSettings));
+    }
+  }, []);
+
   const ref = useRef<HTMLDivElement>(null);
   const compact = useMaxWidth(ref, 260);
+
+  useHotkey(true, ['z'], (event: KeyboardEvent) => {
+    if (pendingSigs.length > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      undoPending();
+      setPendingSigs([]);
+    }
+  });
 
   return (
     <Widget
       label={
         <div className="flex justify-between items-center text-xs w-full h-full" ref={ref}>
           <div className="flex justify-between items-center gap-1">
-            <div className="flex whitespace-nowrap text-ellipsis overflow-hidden text-stone-400">
-              [{sigCount}] Signatures
-              {!isNotSelectedSystem && ' in'}
-            </div>
+            {!compact && (
+              <div className="flex whitespace-nowrap text-ellipsis overflow-hidden text-stone-400">
+                {!sigCount ? '' : `[${sigCount}]`} Signatures {isNotSelectedSystem ? '' : 'in'}
+              </div>
+            )}
             {!isNotSelectedSystem && <SystemView systemId={systemId} className="select-none text-center" hideRegion />}
           </div>
           <LayoutEventBlocker className="flex gap-2.5">
@@ -129,8 +142,9 @@ export const SystemSignatures = () => {
             </WdTooltipWrapper>
             {pendingSigs.length > 0 && (
               <WdImgButton
-                className={`${PrimeIcons.UNDO} hover:text-red-700`}
-                tooltip={{ content: `Undo pending actions (${pendingSigs.length})` }}
+                className={PrimeIcons.UNDO}
+                style={{ color: 'red' }}
+                tooltip={{ content: `Undo pending deletions (${pendingSigs.length})` }}
                 onClick={() => {
                   undoPending();
                   setPendingSigs([]);
@@ -141,21 +155,26 @@ export const SystemSignatures = () => {
               className={PrimeIcons.QUESTION_CIRCLE}
               tooltip={{
                 position: TooltipPosition.left,
+                // @ts-ignore
                 content: (
                   <div className="flex flex-col gap-1">
                     <InfoDrawer title={<b className="text-slate-50">How to add/update signature?</b>}>
-                      In game you need to select one or more signatures in the Probe scanner list. Use hotkeys like{' '}
-                      <b className="text-sky-500">Shift + LMB</b>, <b className="text-sky-500">Ctrl + LMB</b> or{' '}
-                      <b className="text-sky-500">Ctrl + A</b> for select all, then copy (
-                      <b className="text-sky-500">Ctrl + C</b>) and paste (<b className="text-sky-500">Ctrl + V</b>)
-                      here.
+                      In game you need select one or more signatures <br /> in list in{' '}
+                      <b className="text-sky-500">Probe scanner</b>. <br /> Use next hotkeys:
+                      <br />
+                      <b className="text-sky-500">Shift + LMB</b> or <b className="text-sky-500">Ctrl + LMB</b>
+                      <br /> or <b className="text-sky-500">Ctrl + A</b> for select all
+                      <br />
+                      and then use <b className="text-sky-500">Ctrl + C</b>, after you need to go <br />
+                      here select Solar system and paste it with <b className="text-sky-500">Ctrl + V</b>
                     </InfoDrawer>
                     <InfoDrawer title={<b className="text-slate-50">How to select?</b>}>
-                      Click on a signature (or use hotkeys like <b className="text-sky-500">Shift + LMB</b> or{' '}
-                      <b className="text-sky-500">Ctrl + LMB</b>).
+                      For select any signature need click on that, <br /> with hotkeys{' '}
+                      <b className="text-sky-500">Shift + LMB</b> or <b className="text-sky-500">Ctrl + LMB</b>
                     </InfoDrawer>
                     <InfoDrawer title={<b className="text-slate-50">How to delete?</b>}>
-                      Select the signature(s) and press <b className="text-sky-500">Del</b>.
+                      For delete any signature first of all you need select before
+                      <br /> and then use <b className="text-sky-500">Del</b>
                     </InfoDrawer>
                   </div>
                 ) as React.ReactNode,
@@ -173,18 +192,18 @@ export const SystemSignatures = () => {
       ) : (
         <SystemSignaturesContent
           systemId={systemId}
-          settings={settings}
+          settings={currentSettings}
           onLazyDeleteChange={handleLazyDeleteChange}
+          onCountChange={handleSigCountChange}
           onPendingChange={(pending, undo) => {
             setPendingSigs(pending);
             setUndoPending(() => undo);
           }}
-          onCountChange={handleSigCountChange}
         />
       )}
       {visible && (
         <SystemSignatureSettingsDialog
-          settings={settings}
+          settings={currentSettings}
           onCancel={() => setVisible(false)}
           onSave={handleSettingsChange}
         />

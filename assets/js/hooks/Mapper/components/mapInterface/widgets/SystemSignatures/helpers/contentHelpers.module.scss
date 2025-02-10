@@ -5,18 +5,7 @@
   line-height: 8px;
 }
 
-.flashPending td {
-  animation: flashPending 1.2s linear infinite;
-}
-
-@keyframes flashPending {
-  0% {
-    background-color: #f87171;
-  }
-  50% {
-    background-color: #dc2626;
-  }
-  100% {
-    background-color: #f87171;
-  }
+.pendingDeletion td {
+  background-color: #f87171 !important;
+  transition: background-color 0.2s ease;
 }

@@ -3,13 +3,13 @@ import {
   TIME_TEN_MINUTES,
 } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants.ts';
 
-export const getRowColorByTimeLeft = (date: Date | undefined) => {
+export const getRowBackgroundColor = (date: Date | undefined): string => {
   if (!date) {
-    return null;
+    return '';
   }
 
   const currentDate = new Date();
-  const diff = currentDate.getTime() + currentDate.getTimezoneOffset() * TIME_ONE_MINUTE - date.getTime();
+  const diff = currentDate.getTime() + currentDate.getTimezoneOffset() * 60000 - date.getTime();
 
   if (diff < TIME_ONE_MINUTE) {
     return 'bg-lime-600/50 transition hover:bg-lime-600/60';
@@ -18,4 +18,6 @@ export const getRowColorByTimeLeft = (date: Date | undefined) => {
   if (diff < TIME_TEN_MINUTES) {
     return 'bg-lime-700/40 transition hover:bg-lime-700/50';
   }
+
+  return '';
 };
