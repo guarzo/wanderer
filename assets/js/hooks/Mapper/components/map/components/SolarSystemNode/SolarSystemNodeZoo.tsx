@@ -6,7 +6,7 @@ import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { GiConcentrationOrb } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
-import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic'; // <- Contains your custom hooks
+import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
@@ -16,11 +16,13 @@ import {
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { KillsCounter } from './SolarSystemKillsCounter';
 import { LocalCounter } from './SolarSystemLocalCounter';
+import { useMapEventListener } from '@/hooks/Mapper/events';
+import { Commands } from '@/hooks/Mapper/types';
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
 
-  const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
+  const [updatedSignatures, refreshSignatures] = useGetSignatures(nodeVars.solarSystemId);
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
@@ -46,9 +48,17 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
     props,
   );
 
-  const { localCounterCharacters } = useLocalCounter(nodeVars);
+  useMapEventListener(event => {
+    if (event.name === Commands.signaturesUpdated && event.data?.toString() === nodeVars.solarSystemId.toString()) {
+      refreshSignatures();
+      return true;
+    }
+    return false;
+  });
 
   const { signatureAgeHours, bookmarkColor } = useSignatureAge(updatedSignatures);
+
+  const { localCounterCharacters } = useLocalCounter(nodeVars);
 
   return (
     <>
@@ -135,10 +145,8 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
               <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
                 {iconData ? (
                   React.isValidElement(iconData.icon) ? (
-                    // If the icon is a React element (i.e. a custom SVG), render it directly.
                     <span className={clsx(classes.icon, iconData.colorClass)}>{iconData.icon}</span>
                   ) : (
-                    // Otherwise assume it's a string representing an icon class.
                     <i className={clsx(`pi ${iconData.icon} ${iconData.colorClass}`, classes.icon)} />
                   )
                 ) : (
