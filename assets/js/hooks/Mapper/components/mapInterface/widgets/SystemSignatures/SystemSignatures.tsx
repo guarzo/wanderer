@@ -185,7 +185,7 @@ export const SystemSignatures = () => {
           settings={settings}
           onLazyDeleteChange={handleLazyDeleteChange}
           onCountChange={handleSigCountChange}
-          onPendingDeletionChange={(pending, undo) => {
+          onPendingChange={(pending, undo) => {
             setPendingSigs(pending);
             setUndoPending(() => undo);
           }}

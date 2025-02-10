@@ -1,5 +1,3 @@
-// SystemSignaturesContent.tsx
-
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { parseSignatures, getActualSigs } from '../helpers/zooSignatures';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
@@ -18,8 +16,8 @@ import { Setting } from '../SystemSignatureSettingsDialog';
 import { useHotkey } from '@/hooks/Mapper/hooks';
 import useMaxWidth from '@/hooks/Mapper/hooks/useMaxWidth';
 import { useClipboard } from '@/hooks/Mapper/hooks/useClipboard';
-import classes from './SystemSignaturesContent.module.scss';
 import clsx from 'clsx';
+import classes from './SystemSignaturesContent.module.scss';
 import { SystemSignature, SignatureGroup } from '@/hooks/Mapper/types';
 import { SignatureView } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/SignatureView';
 import {
@@ -42,10 +40,16 @@ import {
   KEEP_LAZY_DELETE_SETTING,
 } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures';
 
-export interface ExtendedSystemSignature extends SystemSignature {
-  pendingDeletion?: boolean;
-  pendingUntil?: number;
-}
+import {
+  ExtendedSystemSignature,
+  FLASH_DURATION_MS,
+  FINAL_DURATION_MS,
+  scheduleLazyDeletionTimers,
+  prepareUpdatePayload,
+  mergeWithPendingFlags,
+  getRowClassName,
+} from '../helpers/contentHelpers';
+import { getRowColorByTimeLeft } from '../helpers';
 
 type SystemSignaturesSortSettings = {
   sortField: string;
@@ -65,7 +69,11 @@ interface SystemSignaturesContentProps {
   onSelect?: (signature: SystemSignature) => void;
   onLazyDeleteChange?: (value: boolean) => void;
   onCountChange: (count: number) => void;
-  onPendingDeletionChange?: (pending: ExtendedSystemSignature[], undo: () => void) => void;
+  /**
+   * If parent wants to show an "undo" button for lazy deletions, we call
+   *   onPendingChange(pendingUndoSignatures, undoPendingDeletions)
+   */
+  onPendingChange?: (pending: ExtendedSystemSignature[], undo: () => void) => void;
 }
 
 export const SystemSignaturesContent = ({
@@ -76,63 +84,82 @@ export const SystemSignaturesContent = ({
   onSelect,
   onLazyDeleteChange,
   onCountChange,
-  onPendingDeletionChange,
+  onPendingChange,
 }: SystemSignaturesContentProps) => {
   const { outCommand } = useMapRootState();
+
+  // Our list of extended signatures in the UI
   const [signatures, setSignatures, signaturesRef] = useRefState<ExtendedSystemSignature[]>([]);
+  // DataTable selection
   const [selectedSignatures, setSelectedSignatures] = useState<ExtendedSystemSignature[]>([]);
+  // For dynamic name column sizing
   const [nameColumnWidth, setNameColumnWidth] = useState('auto');
+
+  // For editing a signature in the "SignatureSettings" dialog
   const [selectedSignature, setSelectedSignature] = useState<SystemSignature | null>(null);
+  // For the hovered row tooltip
   const [hoveredSig, setHoveredSig] = useState<SystemSignature | null>(null);
+
+  // Sorting info from local storage
   const [sortSettings, setSortSettings] = useLocalStorageState<SystemSignaturesSortSettings>('window:signatures:sort', {
     defaultValue: SORT_DEFAULT_VALUES,
   });
 
+  // Refs for layout & tooltips
   const tableRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<WdTooltipHandlers>(null);
+
+  // For column hiding in small screens
   const compact = useMaxWidth(tableRef, 260);
   const medium = useMaxWidth(tableRef, 380);
 
+  // Because user can toggle "selectable" at runtime
   const refData = useRef({ selectable });
   refData.current = { selectable };
 
-  const tooltipRef = useRef<WdTooltipHandlers>(null);
+  // Clipboard
   const { clipboardContent, setClipboardContent } = useClipboard();
 
-  // Whether lazy-delete is currently active:
+  // Lazy delete settings
   const lazyDeleteValue = useMemo(
     () => settings.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)?.value ?? false,
     [settings],
   );
-  // Whether to remain in lazy-delete mode after a parse
   const keepLazyDeleteValue = useMemo(
     () => settings.find(s => s.key === KEEP_LAZY_DELETE_SETTING)?.value ?? false,
     [settings],
   );
 
-  const handleResize = useCallback(() => {
-    if (tableRef.current) {
-      const tableWidth = tableRef.current.offsetWidth;
-      const otherColumnsWidth = 276;
-      setNameColumnWidth(`${tableWidth - otherColumnsWidth}px`);
-    }
-  }, []);
-
-  const groupSettings = useMemo(() => settings.filter(s => (GROUPS_LIST as string[]).includes(s.key)), [settings]);
-  const showDescriptionColumn = useMemo(
-    () => settings.find(s => s.key === SHOW_DESCRIPTION_COLUMN_SETTING)?.value,
-    [settings],
-  );
-  const showUpdatedColumn = useMemo(() => settings.find(s => s.key === SHOW_UPDATED_COLUMN_SETTING)?.value, [settings]);
-
+  // track how many total signatures we have
   useEffect(() => {
     onCountChange(signatures.length);
-  }, [onCountChange, signatures]);
+  }, [signatures, onCountChange]);
 
-  const [pendingDeletions, setPendingDeletions] = useState<
-    Record<string, { flashUntil: number; finalUntil: number; flashTimeoutId: number; finalTimeoutId: number }>
+  /**
+   * This map tracks each signature that is in "pending deletion," along with
+   * its flashUntil/finalUntil times.
+   */
+  const [pendingDeletionMap, setPendingDeletionMap] = useState<
+    Record<
+      string,
+      {
+        flashUntil: number;
+        finalUntil: number;
+        flashTimeoutId: number;
+        finalTimeoutId: number;
+      }
+    >
   >({});
+
+  /**
+   * All signatures that have recently been removed but can still be undone
+   */
   const [pendingUndoSignatures, setPendingUndoSignatures] = useState<ExtendedSystemSignature[]>([]);
 
+  /**
+   * Called to fetch from the server. If lazy delete is on, we "mergeWithPendingFlags"
+   * so that things still pending remain highlighted for possible undo.
+   */
   const handleGetSignatures = useCallback(async () => {
     if (!systemId) {
       setSignatures([]);
@@ -142,27 +169,18 @@ export const SystemSignaturesContent = ({
       type: OutCommand.getSignatures,
       data: { system_id: systemId },
     });
-    const extendedServer = serverSignatures.map((s: SystemSignature) => ({ ...s })) as ExtendedSystemSignature[];
+
+    let extendedServer = (serverSignatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
 
     if (lazyDeleteValue) {
-      const now = Date.now();
-      const pendingMap = new Map<string, ExtendedSystemSignature>();
-      signaturesRef.current
-        .filter(sig => sig.pendingDeletion && sig.pendingUntil && sig.pendingUntil > now)
-        .forEach(sig => pendingMap.set(sig.eve_id, sig));
-
-      const merged = extendedServer.map(sig =>
-        pendingMap.has(sig.eve_id)
-          ? { ...sig, pendingDeletion: true, pendingUntil: pendingMap.get(sig.eve_id)!.pendingUntil }
-          : sig,
-      );
-      const extra = Array.from(pendingMap.values()).filter(sig => !merged.some(s => s.eve_id === sig.eve_id));
-      setSignatures([...merged, ...extra]);
-    } else {
-      setSignatures(extendedServer);
+      extendedServer = mergeWithPendingFlags(extendedServer, signaturesRef.current);
     }
-  }, [outCommand, systemId, lazyDeleteValue, signaturesRef, setSignatures]);
+    setSignatures(extendedServer);
+  }, [systemId, outCommand, lazyDeleteValue, signaturesRef, setSignatures]);
 
+  /**
+   * Called whenever we do a normal "update" (non-lazy).
+   */
   const handleUpdateSignatures = useCallback(
     async (newSignatures: ExtendedSystemSignature[], updateOnly: boolean, skipUpdateUntouched?: boolean) => {
       const { added, updated, removed } = getActualSigs(
@@ -171,22 +189,28 @@ export const SystemSignaturesContent = ({
         updateOnly,
         skipUpdateUntouched,
       );
-      const { signatures: updatedSigsFromServer } = await outCommand({
+
+      const resp = await outCommand({
         type: OutCommand.updateSignatures,
-        data: { system_id: systemId, added, updated, removed },
+        data: prepareUpdatePayload(systemId, added, updated, removed),
       });
-      const castedUpdated = updatedSigsFromServer.map((s: SystemSignature) => ({ ...s })) as ExtendedSystemSignature[];
-      setSignatures(() => castedUpdated);
+
+      const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      setSignatures(castedUpdated);
       setSelectedSignatures([]);
     },
-    [outCommand, setSignatures, signaturesRef, systemId],
+    [systemId, outCommand, signaturesRef, setSignatures],
   );
 
+  /**
+   * If user hits "delete" hotkey while some rows are selected, do a normal remove
+   */
   const handleDeleteSelected = useCallback(
     async (e: KeyboardEvent) => {
       if (selectable || selectedSignatures.length === 0) return;
       e.preventDefault();
       e.stopPropagation();
+
       const selectedIds = selectedSignatures.map(x => x.eve_id);
       await handleUpdateSignatures(
         signatures.filter(x => !selectedIds.includes(x.eve_id)),
@@ -194,13 +218,15 @@ export const SystemSignaturesContent = ({
         true,
       );
     },
-    [handleUpdateSignatures, selectable, signatures, selectedSignatures],
+    [handleUpdateSignatures, selectable, selectedSignatures, signatures],
   );
 
+  // "select all" key
   const handleSelectAll = useCallback(() => {
     setSelectedSignatures(signatures);
   }, [signatures]);
 
+  // table selection
   const handleSelectSignatures = useCallback(
     (e: { value: ExtendedSystemSignature[] }) => {
       if (selectable) {
@@ -209,42 +235,64 @@ export const SystemSignaturesContent = ({
         setSelectedSignatures(e.value);
       }
     },
-    [onSelect, selectable],
+    [selectable, onSelect],
   );
 
+  /**
+   * “Undo” everything in `pendingDeletionMap` or `pendingUndoSignatures`.
+   */
   const undoPendingDeletions = useCallback(() => {
-    Object.entries(pendingDeletions).forEach(([, timers]) => {
-      clearTimeout(timers.flashTimeoutId);
-      clearTimeout(timers.finalTimeoutId);
+    // stop the scheduled timeouts
+    Object.values(pendingDeletionMap).forEach(({ flashTimeoutId, finalTimeoutId }) => {
+      clearTimeout(flashTimeoutId);
+      clearTimeout(finalTimeoutId);
     });
+
+    // revert all
     setSignatures(prev => {
       const existingIds = new Set(prev.map(sig => sig.eve_id));
+      // if any were fully removed from the table, re-add them
       const toReAdd = pendingUndoSignatures.filter(sig => !existingIds.has(sig.eve_id));
+
+      // revert the "pendingDeletion" on the ones that remain
       const updated = prev.map(sig =>
-        pendingDeletions[sig.eve_id] ? { ...sig, pendingDeletion: false, pendingUntil: undefined } : sig,
+        pendingDeletionMap[sig.eve_id] ? { ...sig, pendingDeletion: false, pendingUntil: undefined } : sig,
       );
+
       return [...updated, ...toReAdd];
     });
-    setPendingDeletions({});
+
+    // clear out
+    setPendingDeletionMap({});
     setPendingUndoSignatures([]);
-  }, [pendingDeletions, pendingUndoSignatures, setSignatures]);
+  }, [pendingDeletionMap, pendingUndoSignatures, setSignatures]);
 
+  /**
+   * Whenever the list of "pendingUndoSignatures" changes, we inform the parent we can undo
+   */
   useEffect(() => {
-    if (onPendingDeletionChange) {
-      onPendingDeletionChange(pendingUndoSignatures, undoPendingDeletions);
-    }
-  }, [pendingUndoSignatures, onPendingDeletionChange, undoPendingDeletions]);
+    onPendingChange?.(pendingUndoSignatures, undoPendingDeletions);
+  }, [pendingUndoSignatures, onPendingChange, undoPendingDeletions]);
 
+  /**
+   * Called upon paste: parse any new signatures. If lazy delete is on, do partial updates for
+   * "added"/"updated" and schedule lazy deletion for "removed."
+   */
   const handlePaste = useCallback(
     async (clipboardString: string) => {
-      if (lazyDeleteValue) {
-        const newSignatures = parseSignatures(
-          clipboardString,
-          settings.map(x => x.key),
-          undefined,
-        ).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      const parsed = parseSignatures(
+        clipboardString,
+        settings.map(x => x.key),
+      ).map(s => ({ ...s })) as ExtendedSystemSignature[];
 
-        const filteredNew = newSignatures.filter(sig => {
+      // if no valid signatures found, do nothing
+      if (parsed.length === 0) {
+        return;
+      }
+
+      if (lazyDeleteValue) {
+        // handle partial cosmic duplicates (like you do)
+        const filteredNew = parsed.filter(sig => {
           if (sig.kind === COSMIC_SIGNATURE && sig.eve_id.length === 3) {
             const prefix = sig.eve_id.substring(0, 3).toUpperCase();
             return !signaturesRef.current.some(
@@ -257,69 +305,64 @@ export const SystemSignaturesContent = ({
           return true;
         });
 
+        // compare with current "non-pending"
         const currentNonPending = signaturesRef.current.filter(sig => !sig.pendingDeletion);
         const { added, updated, removed } = getActualSigs(currentNonPending, filteredNew, false, true);
 
+        // Mark these removed items in our "undo" list so we can re-add them
         setPendingUndoSignatures(prev => [...prev, ...removed]);
 
-        const { signatures: updatedSignatures } = await outCommand({
+        // Send partial update for "added"/"updated"
+        const resp = await outCommand({
           type: OutCommand.updateSignatures,
-          data: { system_id: systemId, added, updated, removed: [] },
+          data: prepareUpdatePayload(systemId, added, updated, []),
         });
-        const castedUpdated = updatedSignatures.map((s: SystemSignature) => ({ ...s })) as ExtendedSystemSignature[];
+        const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
 
-        const now = Date.now();
-        removed.forEach(sig => {
-          const flashTimeoutId = window.setTimeout(() => {
-            setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
-          }, 7000);
+        if (removed.length > 0) {
+          // schedule lazy removal from UI + server
+          scheduleLazyDeletionTimers(
+            removed,
+            setPendingDeletionMap,
+            async sig => {
+              // final removal from the server
+              await outCommand({
+                type: OutCommand.updateSignatures,
+                data: prepareUpdatePayload(systemId, [], [], [sig]),
+              });
+              // remove from the "undo" array so it's no longer restorable
+              setPendingUndoSignatures(pu => pu.filter(x => x.eve_id !== sig.eve_id));
+            },
+            setSignatures,
+            FLASH_DURATION_MS,
+            FINAL_DURATION_MS,
+          );
 
-          const finalTimeoutId = window.setTimeout(async () => {
-            const baseSig: SystemSignature = {
-              ...sig,
-            };
-            await outCommand({
-              type: OutCommand.updateSignatures,
-              data: { system_id: systemId, added: [], updated: [], removed: [baseSig] },
-            });
+          // Mark them as “pendingDeletion: true” so row is highlighted
+          const now = Date.now();
+          const updatedWithRemoval = castedUpdated.map(sig =>
+            removed.some(r => r.eve_id === sig.eve_id)
+              ? { ...sig, pendingDeletion: true, pendingUntil: now + FLASH_DURATION_MS }
+              : sig,
+          );
+          // If the server doesn't return them at all, add them manually
+          const onlyRemoved = removed
+            .map(r => ({ ...r, pendingDeletion: true, pendingUntil: now + FLASH_DURATION_MS }))
+            .filter(r => !updatedWithRemoval.some(m => m.eve_id === r.eve_id));
 
-            setPendingDeletions(prev => {
-              const newPending = { ...prev };
-              delete newPending[sig.eve_id];
-              return newPending;
-            });
-            setPendingUndoSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
-          }, 60000);
+          setSignatures([...updatedWithRemoval, ...onlyRemoved]);
+        } else {
+          // no items were removed, just set the updated array
+          setSignatures(castedUpdated);
+        }
 
-          setPendingDeletions(prev => ({
-            ...prev,
-            [sig.eve_id]: { flashUntil: now + 7000, finalUntil: now + 60000, flashTimeoutId, finalTimeoutId },
-          }));
-        });
-
-        const merged = castedUpdated.map(sig =>
-          removed.some(r => r.eve_id === sig.eve_id)
-            ? { ...sig, pendingDeletion: true, pendingUntil: now + 7000 }
-            : sig,
-        );
-        const pendingRemoved = removed
-          .map(sig => ({ ...sig, pendingDeletion: true, pendingUntil: now + 7000 }))
-          .filter(p => !merged.some(s => s.eve_id === p.eve_id));
-        const finalArr = [...merged, ...pendingRemoved];
-        setSignatures(finalArr);
-
+        // optionally disable lazy
         if (!keepLazyDeleteValue) {
           onLazyDeleteChange?.(false);
         }
       } else {
-        const existing = signaturesRef.current;
-        const newSignatures = parseSignatures(
-          clipboardString,
-          settings.map(x => x.key),
-          existing,
-        ).map(s => ({ ...s })) as ExtendedSystemSignature[];
-
-        const filteredNew = newSignatures.filter(sig => {
+        // no lazy logic
+        const filteredNew = parsed.filter(sig => {
           if (sig.kind === COSMIC_SIGNATURE && sig.eve_id.length === 3) {
             const prefix = sig.eve_id.substring(0, 3).toUpperCase();
             return !signaturesRef.current.some(
@@ -331,8 +374,7 @@ export const SystemSignaturesContent = ({
           }
           return true;
         });
-
-        handleUpdateSignatures(filteredNew, true);
+        await handleUpdateSignatures(filteredNew, true);
       }
     },
     [
@@ -348,6 +390,7 @@ export const SystemSignaturesContent = ({
     ],
   );
 
+  // If user physically pastes and we have text
   useEffect(() => {
     if (refData.current.selectable) return;
     if (!clipboardContent?.text) return;
@@ -355,17 +398,20 @@ export const SystemSignaturesContent = ({
     setClipboardContent(null);
   }, [clipboardContent, selectable, handlePaste, setClipboardContent]);
 
+  // "A" => select all, "Delete"/"Backspace" => delete selected
   useHotkey(true, ['a'], handleSelectAll);
   useHotkey(false, ['Backspace', 'Delete'], handleDeleteSelected);
 
+  // On mount or system change
   useEffect(() => {
     if (!systemId) {
       setSignatures([]);
       return;
     }
     handleGetSignatures();
-  }, [handleGetSignatures, setSignatures, systemId]);
+  }, [systemId, handleGetSignatures, setSignatures]);
 
+  // Listen for "signaturesUpdated" events
   useMapEventListener(event => {
     if (event.name === Commands.signaturesUpdated && event.data?.toString() === systemId.toString()) {
       handleGetSignatures();
@@ -373,6 +419,19 @@ export const SystemSignaturesContent = ({
     }
   });
 
+  /**
+   * We define the handleResize function to fix the "Cannot find name 'handleResize'" error.
+   * Called by the ResizeObserver below.
+   */
+  const handleResize = useCallback(() => {
+    if (tableRef.current) {
+      const tableWidth = tableRef.current.offsetWidth;
+      const otherColumnsWidth = 276;
+      setNameColumnWidth(`${tableWidth - otherColumnsWidth}px`);
+    }
+  }, []);
+
+  // Observe table resize for dynamic columns
   useEffect(() => {
     const observer = new ResizeObserver(handleResize);
     if (tableRef.current) observer.observe(tableRef.current);
@@ -382,6 +441,11 @@ export const SystemSignaturesContent = ({
     };
   }, [handleResize]);
 
+  /**
+   * Periodically remove old signatures:
+   *  - wormholes older than 1 day
+   *  - everything else older than 1 week
+   */
   useEffect(() => {
     const currentTime = Date.now();
     const signaturesToDelete = signaturesRef.current.filter(sig => {
@@ -406,10 +470,17 @@ export const SystemSignaturesContent = ({
 
   const [showSignatureSettings, setShowSignatureSettings] = useState(false);
   const handleRowClick = (e: DataTableRowClickEvent) => {
-    // @ts-ignore
-    setSelectedSignature(e.data);
+    setSelectedSignature(e.data as SystemSignature);
     setShowSignatureSettings(true);
   };
+
+  // Filter hidden or cosmic signatures, then sort
+  const groupSettings = useMemo(() => settings.filter(s => (GROUPS_LIST as string[]).includes(s.key)), [settings]);
+  const showDescriptionColumn = useMemo(
+    () => settings.find(s => s.key === SHOW_DESCRIPTION_COLUMN_SETTING)?.value,
+    [settings],
+  );
+  const showUpdatedColumn = useMemo(() => settings.find(s => s.key === SHOW_UPDATED_COLUMN_SETTING)?.value, [settings]);
 
   const filteredSignatures = useMemo(() => {
     return signatures
@@ -469,15 +540,7 @@ export const SystemSignaturesContent = ({
                 }
               : undefined
           }
-          rowClassName={row => {
-            const isPending = pendingDeletions[row.eve_id] && pendingDeletions[row.eve_id].flashUntil > Date.now();
-            if (isPending) return clsx(classes.TableRowCompact, classes.flashPending);
-
-            if (selectedSignatures.some(s => s.eve_id === row.eve_id)) {
-              return clsx(classes.TableRowCompact, 'bg-amber-500/50 hover:bg-amber-500/70 transition');
-            }
-            return clsx(classes.TableRowCompact, 'hover:bg-purple-400/20 transition');
-          }}
+          rowClassName={row => getRowClassName(row, pendingDeletionMap, selectedSignatures, getRowColorByTimeLeft)}
         >
           <Column
             bodyClassName="p-0 px-1"
@@ -551,6 +614,7 @@ export const SystemSignaturesContent = ({
         ref={tooltipRef}
         content={hoveredSig ? <SignatureView {...hoveredSig} /> : null}
       />
+
       {showSignatureSettings && (
         <SignatureSettings
           systemId={systemId}
