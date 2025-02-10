@@ -649,8 +649,8 @@ export enum LABELS {
   clear = 'clear',
   la = 'de',
   lb = 'gas',
-  lc = 'prime',
-  l1 = '1',
+  lc = 'eol',
+  l1 = 'crit',
   l2 = '2',
   l3 = '3',
 }
@@ -671,8 +671,8 @@ export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
   // [LABELS.clear]: 'pi pi-times', // Example icon for "clear"
   [LABELS.la]: { icon: 'pi-directions-alt', colorClass: 'text-white' },
   [LABELS.lb]: { icon: 'pi-cloud', colorClass: 'text-teal-500' },
-  [LABELS.lc]: { icon: 'pi-prime', colorClass: 'text-white' },
-  // [LABELS.l1]: 'pi pi-check', // Example icon for Label 1
+  [LABELS.lc]: { icon: 'pi-stopwatch', colorClass: 'text-white' },
+  [LABELS.l1]: { icon: 'pi-info-circle', colorClass: 'text-white' },
   // [LABELS.l2]: 'pi pi-plus', // Example icon for Label 2
   // [LABELS.l3]: 'pi pi-minus', // Example icon for Label 3
 };
@@ -681,8 +681,8 @@ export const LABELS_INFO: Record<string, LabelInfo> = {
   [LABELS.clear]: { id: 'clear', name: 'Clear', shortName: '', icon: '' },
   [LABELS.la]: { id: 'de', name: 'Dead End', shortName: 'DE', icon: '' },
   [LABELS.lb]: { id: 'gas', name: 'Gas', shortName: 'GAS', icon: '' },
-  [LABELS.lc]: { id: 'prime', name: 'Optimus', shortName: 'prime', icon: '' },
-  [LABELS.l1]: { id: 'l1', name: 'Label 1', shortName: '1', icon: '' },
+  [LABELS.lc]: { id: 'eol', name: 'Eol', shortName: 'EOL', icon: '' },
+  [LABELS.l1]: { id: 'crit', name: 'Crit', shortName: 'CRIT', icon: '' },
   [LABELS.l2]: { id: 'l2', name: 'Label 2', shortName: '2', icon: '' },
   [LABELS.l3]: { id: 'l3', name: 'Label 3', shortName: '3', icon: '' },
 };

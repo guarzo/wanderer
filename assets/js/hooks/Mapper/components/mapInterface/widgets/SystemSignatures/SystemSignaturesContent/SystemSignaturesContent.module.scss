@@ -5,22 +5,18 @@
   line-height: 8px;
 }
 
-.Table {
-
+.flashPending td {
+  animation: flashPending 1.2s linear infinite;
 }
 
-.flashPending {
-  animation: flashRedRed 1s infinite;
-}
-
-@keyframes flashRedRed {
+@keyframes flashPending {
   0% {
-    background-color: #f87171; /* lighter red */
+    background-color: #f87171;
   }
   50% {
-    background-color: #ef4444; /* slightly darker red */
+    background-color: #dc2626;
   }
   100% {
-    background-color: #f87171; /* back to lighter red */
+    background-color: #f87171;
   }
 }

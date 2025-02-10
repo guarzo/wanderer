@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
-import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo';
 import { OutCommand, SystemSignature } from '@/hooks/Mapper/types';
-import { LabelInfo } from './useSolarSystemLogic';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 
 function safeString(value?: string | null, fallback = ''): string {
@@ -61,46 +59,13 @@ export function useZooLabels(
   {
     unsplashedLeft,
     unsplashedRight,
-    systemSigs,
-    labelInfo,
   }: {
     unsplashedLeft: SystemSignature[];
     unsplashedRight: SystemSignature[];
-    systemSigs?: SystemSignature[] | null;
-    labelInfo: LabelInfo[];
   },
 ) {
   const unsplashedCount = unsplashedLeft.length + unsplashedRight.length - connectionCount;
-
-  const hasGasLabel = labelInfo.some(label => label.id === 'gas');
-
-  let hasEol = false;
-  let isDeadEnd = true;
-  let hasGas = false;
-  let hasCrit = false;
-
-  if (systemSigs) {
-    for (const s of systemSigs) {
-      const customInfo = parseSignatureCustomInfo(s.custom_info);
-      if (s.group === 'Wormhole' || s.group === 'Cosmic Signature') {
-        isDeadEnd = false;
-      }
-      if (s.group === 'Wormhole' && customInfo?.isEOL) {
-        hasEol = true;
-      }
-      if (s.group === 'Wormhole' && customInfo?.isCrit) {
-        hasCrit = true;
-      }
-      if (!hasGasLabel && s.group && s.group.trim().toLowerCase().includes('gas')) {
-        hasGas = true;
-      }
-      if (!isDeadEnd && hasEol && hasGas && hasCrit) {
-        break;
-      }
-    }
-  }
-
-  return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
+  return { unsplashedCount };
 }
 
 export function useGetSignatures(systemId: string): SystemSignature[] {
@@ -127,6 +92,37 @@ export function useGetSignatures(systemId: string): SystemSignature[] {
   }, [handleGetSignatures]);
 
   return signatures;
+}
+
+export function useFetchSignaturesForNodes(
+  systemIds: string[],
+  onFetched: (systemId: string, signatures: SystemSignature[]) => void,
+) {
+  const { outCommand } = useMapRootState();
+
+  const fetchSignatures = useCallback(async () => {
+    for (const systemId of systemIds) {
+      try {
+        const response = await outCommand({
+          type: OutCommand.getSignatures,
+          data: { system_id: systemId },
+        });
+        const signatures = response.signatures ?? [];
+
+        // Let the caller update node data state
+        onFetched(systemId, signatures);
+      } catch (error) {
+        console.error(`Failed to fetch signatures for system ${systemId}`, error);
+      }
+    }
+  }, [systemIds, outCommand, onFetched]);
+
+  // fetch when systemIds changes (or on mount)
+  useEffect(() => {
+    if (systemIds.length > 0) {
+      fetchSignatures();
+    }
+  }, [systemIds, fetchSignatures]);
 }
 
 export function useSignatureAge(systemSigs?: SystemSignature[] | null) {

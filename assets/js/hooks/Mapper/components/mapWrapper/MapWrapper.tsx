@@ -109,7 +109,7 @@ export const MapWrapper = () => {
 
       open(ev, systemId);
     },
-    [open],
+    [handleSystemMultipleContext, open],
   );
 
   const handleConnectionDbClick = useCallback((e: SolarSystemConnection) => setSelectedConnection(e), []);
@@ -167,13 +167,13 @@ export const MapWrapper = () => {
         <CustomSystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
       )}
 
-    {openCustomLabel != null && (
+      {openCustomLabel != null && (
         <SystemCustomLabelDialog systemId={openCustomLabel} visible setVisible={() => setOpenCustomLabel(null)} />
-    )}
+      )}
 
-    {linkSignatureToSystem != null && (
-      <SystemLinkSignatureDialog data={linkSignatureToSystem} setVisible={() => updateLinkSignatureToSystem(null)} />
-    )}
+      {linkSignatureToSystem != null && (
+        <SystemLinkSignatureDialog data={linkSignatureToSystem} setVisible={() => updateLinkSignatureToSystem(null)} />
+      )}
 
       <AddSystemDialog
         visible={!!openAddSystem}

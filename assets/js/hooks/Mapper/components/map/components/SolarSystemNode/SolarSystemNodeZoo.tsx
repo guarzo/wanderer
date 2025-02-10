@@ -20,15 +20,8 @@ import { LocalCounter } from './SolarSystemLocalCounter';
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
 
-  // CHANGED: Instead of mutating nodeVars, we just store the updated signatures
-  // in a local variable here:
   const updatedSignatures = useGetSignatures(nodeVars.solarSystemId);
 
-  // If your node needs the system signatures for other logic, you can
-  // pass them into nodeVars as a "new" field — but do NOT mutate in place:
-  // e.g. const nodeVarsWithSigs = { ...nodeVars, systemSigs: updatedSignatures };
-
-  // Count edges:
   const { getEdges } = useReactFlow();
   const edges = getEdges();
   const connectionCount = edges.filter(edge => edge.source === props.id || edge.target === props.id).length;
@@ -36,12 +29,9 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
 
-  // CHANGED: Pass updatedSignatures directly to useZooLabels.
-  const { unsplashedCount, hasEol, hasGas, hasCrit } = useZooLabels(connectionCount, {
+  const { unsplashedCount } = useZooLabels(connectionCount, {
     unsplashedLeft: nodeVars.unsplashedLeft,
     unsplashedRight: nodeVars.unsplashedRight,
-    systemSigs: updatedSignatures,
-    labelInfo: nodeVars.labelsInfo,
   });
 
   const { systemName, customLabel, customName } = useZooNames(
@@ -58,7 +48,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
   const { localCounterCharacters } = useLocalCounter(nodeVars);
 
-  // CHANGED: pass updatedSignatures here
   const { signatureAgeHours, bookmarkColor } = useSignatureAge(updatedSignatures);
 
   return (
@@ -120,25 +109,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {hasEol && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.eol)}>
-              <span className={clsx('pi pi-stopwatch', classes.icon)} />
-            </div>
-          )}
-
-          {hasGas && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.gas)}>
-              <span className={clsx('pi pi-cloud', classes.icon)} style={{ color: 'black', fontSize: '8px' }} />
-            </div>
-          )}
-
-          {hasCrit && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.crit)}>
-              <span className={clsx('pi pi-info-circle', classes.icon)} />
-            </div>
-          )}
-
-          {/* Only display signatureAge if we have signatures and the age is >= 0 */}
           {updatedSignatures.length > 0 && signatureAgeHours >= 0 && (
             <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
               <span
