@@ -20,7 +20,7 @@ import {
   SystemSignatureSettingsDialog,
 } from './SystemSignatureSettingsDialog';
 import { SignatureGroup } from '@/hooks/Mapper/types';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { PrimeIcons } from 'primereact/api';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { CheckboxChangeEvent } from 'primereact/checkbox';
@@ -28,12 +28,13 @@ import useMaxWidth from '@/hooks/Mapper/hooks/useMaxWidth';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
 
 const SIGNATURE_SETTINGS_KEY = 'wanderer_system_signature_settings_v5_2';
+
 export const SHOW_DESCRIPTION_COLUMN_SETTING = 'show_description_column_setting';
 export const SHOW_UPDATED_COLUMN_SETTING = 'SHOW_UPDATED_COLUMN_SETTING';
 export const LAZY_DELETE_SIGNATURES_SETTING = 'LAZY_DELETE_SIGNATURES_SETTING';
 export const KEEP_LAZY_DELETE_SETTING = 'KEEP_LAZY_DELETE_ENABLED_SETTING';
 
-const settings: Setting[] = [
+const INITIAL_SETTINGS_SCHEMA: Setting[] = [
   { key: SHOW_UPDATED_COLUMN_SETTING, name: 'Show Updated Column', value: false, isFilter: false },
   { key: SHOW_DESCRIPTION_COLUMN_SETTING, name: 'Show Description Column', value: false, isFilter: false },
   { key: LAZY_DELETE_SIGNATURES_SETTING, name: 'Lazy Delete Signatures', value: false, isFilter: false },
@@ -53,9 +54,9 @@ const settings: Setting[] = [
   { key: SignatureGroup.CombatSite, name: 'Show Combat Sites', value: true, isFilter: true },
 ];
 
-const defaultSettings = () => {
-  return [...settings];
-};
+function updateSettingsInStorage(newSettings: Setting[]): void {
+  localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(newSettings));
+}
 
 export const SystemSignatures = () => {
   const {
@@ -63,10 +64,16 @@ export const SystemSignatures = () => {
   } = useMapRootState();
 
   const [visible, setVisible] = useState(false);
-  const [settings, setSettings] = useState<Setting[]>(defaultSettings);
+
+  const [settings, setSettings] = useState<Setting[]>(() => {
+    const restored = localStorage.getItem(SIGNATURE_SETTINGS_KEY);
+    return restored ? JSON.parse(restored) : [...INITIAL_SETTINGS_SCHEMA];
+  });
+
   const [sigCount, setSigCount] = useState<number>(0);
   const [systemId] = selectedSystems;
   const isNotSelectedSystem = selectedSystems.length !== 1;
+
   const lazyDeleteValue = useMemo(
     () => settings.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)!.value,
     [settings],
@@ -77,7 +84,7 @@ export const SystemSignatures = () => {
 
   const handleSettingsChange = useCallback((newSettings: Setting[]) => {
     setSettings(newSettings);
-    localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(newSettings));
+    updateSettingsInStorage(newSettings);
     setVisible(false);
   }, []);
 
@@ -85,20 +92,14 @@ export const SystemSignatures = () => {
     setSettings(prev => {
       const lazy = prev.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)!;
       lazy.value = value;
-      localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(prev));
-      return [...prev];
+      const updated = [...prev];
+      updateSettingsInStorage(updated);
+      return updated;
     });
   }, []);
 
   const handleSigCountChange = useCallback((count: number) => {
     setSigCount(count);
-  }, []);
-
-  useEffect(() => {
-    const restored = localStorage.getItem(SIGNATURE_SETTINGS_KEY);
-    if (restored) {
-      setSettings(JSON.parse(restored));
-    }
   }, []);
 
   const ref = useRef<HTMLDivElement>(null);
@@ -110,7 +111,8 @@ export const SystemSignatures = () => {
         <div className="flex justify-between items-center text-xs w-full h-full" ref={ref}>
           <div className="flex justify-between items-center gap-1">
             <div className="flex whitespace-nowrap text-ellipsis overflow-hidden text-stone-400">
-              {`[${sigCount}] Signatures ${isNotSelectedSystem ? '' : 'in'}`}
+              [{sigCount}] Signatures
+              {!isNotSelectedSystem && ' in'}
             </div>
             {!isNotSelectedSystem && <SystemView systemId={systemId} className="select-none text-center" hideRegion />}
           </div>
@@ -128,7 +130,7 @@ export const SystemSignatures = () => {
             {pendingSigs.length > 0 && (
               <WdImgButton
                 className={`${PrimeIcons.UNDO} hover:text-red-700`}
-                tooltip={{ content: `Undo pending deletions (${pendingSigs.length})` }}
+                tooltip={{ content: `Undo pending actions (${pendingSigs.length})` }}
                 onClick={() => {
                   undoPending();
                   setPendingSigs([]);
@@ -173,7 +175,7 @@ export const SystemSignatures = () => {
           systemId={systemId}
           settings={settings}
           onLazyDeleteChange={handleLazyDeleteChange}
-          onPendingDeletionChange={(pending, undo) => {
+          onPendingChange={(pending, undo) => {
             setPendingSigs(pending);
             setUndoPending(() => undo);
           }}

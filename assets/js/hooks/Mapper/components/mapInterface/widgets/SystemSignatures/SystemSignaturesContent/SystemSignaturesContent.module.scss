@@ -1,25 +1,2 @@
-.TableRowCompact {
-  height: 8px;
-  max-height: 8px;
-  font-size: 12px !important;
-  line-height: 8px;
-}
-
 .Table {
-}
-
-.flashPending td {
-  animation: flashPending 1.2s linear infinite;
-}
-
-@keyframes flashPending {
-  0% {
-    background-color: #f87171;
-  }
-  50% {
-    background-color: #dc2626;
-  }
-  100% {
-    background-color: #f87171;
-  }
 }
