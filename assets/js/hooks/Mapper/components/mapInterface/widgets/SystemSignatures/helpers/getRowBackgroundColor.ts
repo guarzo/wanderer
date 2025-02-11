@@ -9,7 +9,6 @@ export const getRowBackgroundColor = (date: Date | undefined): string => {
   }
 
   const currentDate = new Date();
-  // Adjust: using 60000 for one minute in ms if TIME_ONE_MINUTE isn’t already in ms.
   const diff = currentDate.getTime() + currentDate.getTimezoneOffset() * 60000 - date.getTime();
 
   if (diff < TIME_ONE_MINUTE) {
@@ -20,5 +19,5 @@ export const getRowBackgroundColor = (date: Date | undefined): string => {
     return 'bg-lime-700/40 transition hover:bg-lime-700/50';
   }
 
-  return ''; // Default (no extra background)
+  return '';
 };
