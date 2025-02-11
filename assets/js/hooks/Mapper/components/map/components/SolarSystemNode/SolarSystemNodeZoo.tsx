@@ -4,7 +4,7 @@ import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
-import { GiConcentrationOrb, GiSpiralLollipop } from 'react-icons/gi';
+import { GiVortex } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
 import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
 import {
@@ -97,8 +97,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           )}
 
           {unsplashedCount > 0 && (
-            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)} style={{ display: 'flex' }}>
-              <GiSpiralLollipop
+            <div
+              className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)}
+              style={{ display: 'flex', transform: 'rotate(-90dg)' }}
+            >
+              <GiVortex
                 size={8}
                 color="#38bdf8"
                 style={{
