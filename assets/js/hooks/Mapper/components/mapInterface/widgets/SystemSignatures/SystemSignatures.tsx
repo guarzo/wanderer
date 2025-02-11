@@ -29,6 +29,7 @@ import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { CheckboxChangeEvent } from 'primereact/checkbox';
 import useMaxWidth from '@/hooks/Mapper/hooks/useMaxWidth';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
+import { useHotkey } from '@/hooks/Mapper/hooks';
 
 const SIGNATURE_SETTINGS_KEY = 'wanderer_system_signature_settings_v5_2';
 export const SHOW_DESCRIPTION_COLUMN_SETTING = 'show_description_column_setting';
@@ -66,7 +67,7 @@ export const SystemSignatures = () => {
   } = useMapRootState();
 
   const [visible, setVisible] = useState(false);
-  const [settings, setSettings] = useState<Setting[]>(defaultSettings);
+  const [currentSettings, setSettings] = useState<Setting[]>(defaultSettings);
   const [sigCount, setSigCount] = useState<number>(0);
   const [pendingSigs, setPendingSigs] = useState<SystemSignature[]>([]);
   const [undoPending, setUndoPending] = useState<() => void>(() => () => {});
@@ -79,8 +80,8 @@ export const SystemSignatures = () => {
   const isNotSelectedSystem = selectedSystems.length !== 1;
 
   const lazyDeleteValue = useMemo(() => {
-    return settings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!.value;
-  }, [settings]);
+    return currentSettings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!.value;
+  }, [currentSettings]);
 
   const handleSettingsChange = useCallback((newSettings: Setting[]) => {
     setSettings(newSettings);
@@ -107,6 +108,15 @@ export const SystemSignatures = () => {
   const ref = useRef<HTMLDivElement>(null);
   const compact = useMaxWidth(ref, 260);
 
+  useHotkey(true, ['z'], (event: KeyboardEvent) => {
+    if (pendingSigs.length > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      undoPending();
+      setPendingSigs([]);
+    }
+  });
+
   return (
     <Widget
       label={
@@ -114,7 +124,7 @@ export const SystemSignatures = () => {
           <div className="flex justify-between items-center gap-1">
             {!compact && (
               <div className="flex whitespace-nowrap text-ellipsis overflow-hidden text-stone-400">
-                {!sigCount ? '' : ` [${sigCount}]`} Signatures {isNotSelectedSystem ? '' : 'in'}
+                {!sigCount ? '' : `[${sigCount}]`} Signatures {isNotSelectedSystem ? '' : 'in'}
               </div>
             )}
             {!isNotSelectedSystem && <SystemView systemId={systemId} className="select-none text-center" hideRegion />}
@@ -182,7 +192,7 @@ export const SystemSignatures = () => {
       ) : (
         <SystemSignaturesContent
           systemId={systemId}
-          settings={settings}
+          settings={currentSettings}
           onLazyDeleteChange={handleLazyDeleteChange}
           onCountChange={handleSigCountChange}
           onPendingChange={(pending, undo) => {
@@ -193,7 +203,7 @@ export const SystemSignatures = () => {
       )}
       {visible && (
         <SystemSignatureSettingsDialog
-          settings={settings}
+          settings={currentSettings}
           onCancel={() => setVisible(false)}
           onSave={handleSettingsChange}
         />
