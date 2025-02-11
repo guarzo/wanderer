@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
-import { OutCommand, SystemSignature } from '@/hooks/Mapper/types';
+import { Commands, OutCommand, SystemSignature } from '@/hooks/Mapper/types';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { useMapEventListener } from '@/hooks/Mapper/events';
 
 function safeString(value?: string | null, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
@@ -68,11 +69,12 @@ export function useZooLabels(
   return { unsplashedCount };
 }
 
-export function useGetSignatures(systemId: string) {
+export function useNodeSignatures(systemId: string): SystemSignature[] {
   const { outCommand } = useMapRootState();
   const [signatures, setSignatures] = useState<SystemSignature[]>([]);
 
-  const handleGetSignatures = useCallback(async () => {
+  // Define a function to fetch the signatures for a system.
+  const fetchSignatures = useCallback(async () => {
     try {
       const response = await outCommand({
         type: OutCommand.getSignatures,
@@ -84,13 +86,27 @@ export function useGetSignatures(systemId: string) {
     }
   }, [outCommand, systemId]);
 
-  // Fetch once when mounted or if systemId changes:
+  // Fetch signatures once when the systemId changes.
   useEffect(() => {
-    handleGetSignatures();
-  }, [handleGetSignatures]);
+    fetchSignatures();
+  }, [fetchSignatures]);
 
-  // Return both the signatures and a way to refetch them:
-  return [signatures, handleGetSignatures] as const;
+  // Listen for a signaturesUpdated event for this system.
+  useMapEventListener(event => {
+    if (event.name === Commands.signaturesUpdated && event.data?.toString() === systemId.toString()) {
+      const data = event.data as Record<string, SystemSignature[]>;
+      if (data && data[systemId]) {
+        const newSignatures = data[systemId];
+        if (Array.isArray(newSignatures)) {
+          setSignatures(newSignatures);
+        }
+      }
+      return true;
+    }
+    return false;
+  });
+
+  return signatures;
 }
 
 export function useSignatureAge(systemSigs?: SystemSignature[] | null) {

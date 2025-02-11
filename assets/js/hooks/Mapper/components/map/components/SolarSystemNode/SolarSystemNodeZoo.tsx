@@ -6,7 +6,7 @@ import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { GiVortex } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
-import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
+import { useZooNames, useZooLabels, useSignatureAge, useNodeSignatures } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
@@ -16,13 +16,11 @@ import {
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
 import { KillsCounter } from './SolarSystemKillsCounter';
 import { LocalCounter } from './SolarSystemLocalCounter';
-import { useMapEventListener } from '@/hooks/Mapper/events';
-import { Commands } from '@/hooks/Mapper/types';
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
 
-  const [updatedSignatures, refreshSignatures] = useGetSignatures(nodeVars.solarSystemId);
+  const updatedSignatures = useNodeSignatures(nodeVars.solarSystemId);
 
   const { getEdges } = useReactFlow();
   const edges = getEdges();
@@ -47,14 +45,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
     },
     props,
   );
-
-  useMapEventListener(event => {
-    if (event.name === Commands.signaturesUpdated && event.data?.toString() === nodeVars.solarSystemId.toString()) {
-      refreshSignatures();
-      return true;
-    }
-    return false;
-  });
 
   const { signatureAgeHours, bookmarkColor } = useSignatureAge(updatedSignatures);
 
