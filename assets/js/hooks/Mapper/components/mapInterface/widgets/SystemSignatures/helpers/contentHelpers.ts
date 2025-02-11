@@ -30,22 +30,28 @@ export function prepareUpdatePayload(
 
 export function scheduleLazyDeletionTimers(
   toRemove: ExtendedSystemSignature[],
-  setPendingMap: React.Dispatch<React.SetStateAction<Record<string, { finalUntil: number; finalTimeoutId: number }>>>,
+  setPendingMap: React.Dispatch<
+    React.SetStateAction<
+      Record<
+        string,
+        {
+          finalUntil: number;
+          finalTimeoutId: number;
+        }
+      >
+    >
+  >,
   removeSignaturePermanently: (sig: ExtendedSystemSignature) => Promise<void>,
-  finalMs: number,
+  setSignatures: React.Dispatch<React.SetStateAction<ExtendedSystemSignature[]>>,
+  finalMs = FINAL_DURATION_MS,
 ) {
   const now = Date.now();
-  console.debug('scheduleLazyDeletionTimers: Scheduling lazy deletion for:', toRemove);
   toRemove.forEach(sig => {
     const finalTimeoutId = window.setTimeout(async () => {
-      console.debug(`scheduleLazyDeletionTimers: Final timer fired for signature ${sig.eve_id}`);
       await removeSignaturePermanently(sig);
-      setPendingMap(prev => {
-        const updated = { ...prev };
-        delete updated[sig.eve_id];
-        return updated;
-      });
+      setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
     }, finalMs);
+
     setPendingMap(prev => ({
       ...prev,
       [sig.eve_id]: {
@@ -53,7 +59,6 @@ export function scheduleLazyDeletionTimers(
         finalTimeoutId,
       },
     }));
-    console.debug(`scheduleLazyDeletionTimers: Scheduled deletion for ${sig.eve_id} at ${now + finalMs}`);
   });
 }
 
