@@ -165,11 +165,10 @@ export function useSystemSignaturesData({
       console.debug('handlePaste: Received text:', clipboardString);
       if (lazyDeleteValue) {
         console.debug('handlePaste: Running lazy-delete branch');
-        // Lazy-delete branch: merge pasted data with existing signatures.
         const newSignatures = parseSignatures(
           clipboardString,
           settings.map(x => x.key),
-          signaturesRef.current, // pass for merging
+          undefined,
         ).map(s => ({ ...s })) as ExtendedSystemSignature[];
         console.debug('handlePaste: Parsed new signatures:', newSignatures);
         if (newSignatures.length === 0) return;
