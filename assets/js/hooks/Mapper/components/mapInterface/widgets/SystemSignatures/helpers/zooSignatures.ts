@@ -309,8 +309,8 @@ export function parseSignatures(
   for (const row of rows) {
     if (!row.trim()) continue;
     const tokens = row.split('\t').map(t => t.trim());
-    // Check if the first token matches the probe scanner pattern and the final token ends with "AU"
-    if (/^[A-Za-z]{3}-[A-Za-z0-9]{3}$/.test(tokens[0]) && tokens[tokens.length - 1].toUpperCase().endsWith('AU')) {
+    // Check if the first token matches the probe scanner pattern and the final token ends with "AU/K/M"
+    if (/^[A-Za-z]{3}-[A-Za-z0-9]{3}$/.test(tokens[0]) && /(?:AU|K|M)$/i.test(tokens[tokens.length - 1])) {
       // Probe scanner format.
       // Token order: [full ID, kind, group, name, ...]
       const [eve_id, kindToken, groupToken, nameToken] = tokens;
