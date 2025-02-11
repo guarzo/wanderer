@@ -4,7 +4,7 @@ import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
-import { GiConcentrationOrb } from 'react-icons/gi';
+import { GiPortal } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
 import { useZooNames, useZooLabels, useSignatureAge, useNodeSignatures } from '../../hooks/useZooLogic';
 import {
@@ -91,7 +91,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
               className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)}
               style={{ display: 'flex', transform: 'rotate(-90dg)' }}
             >
-              <GiConcentrationOrb
+              <GiPortal
                 size={8}
                 color="#38bdf8"
                 style={{
