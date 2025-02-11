@@ -140,9 +140,9 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
     if (signatureAgeHours < 4) {
       bookmarkColor = '#388E3C';
     } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
-      bookmarkColor = '#F57C00';
-    } else if (signatureAgeHours > 8 && signatureAgeHours <= 24) {
-      bookmarkColor = '#D32F2F';
+      bookmarkColor = '#E65100';
+    } else if (signatureAgeHours > 8 && signatureAgeHours <= 12) {
+      bookmarkColor = '#B71C1C';
     } else {
       signatureAgeHours = -1;
     }

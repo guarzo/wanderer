@@ -3,7 +3,7 @@ import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper
 import clsx from 'clsx';
 
 interface WormholeClassComp {
-  id: string;
+  id: string | number;
 }
 export const WormholeClassComp = ({ id }: WormholeClassComp) => {
   const {

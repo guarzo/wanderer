@@ -1,5 +1,8 @@
 import { ConnectionType, MassState, ShipSizeStatus } from '@/hooks/Mapper/types';
-import { FlyGdIcon, WormHoleIcon } from './components/ZooIcons';
+import { MonkeIcon } from './components/ZooIcons';
+import { FaIndustry, FaExclamationTriangle, FaHourglassEnd } from "react-icons/fa";
+import { MdOutlineBlock, MdHourglassFull, MdLocalFireDepartment } from "react-icons/md";
+
 
 export enum SOLAR_SYSTEM_CLASS_IDS {
   ccp1 = -1,
@@ -654,13 +657,14 @@ export enum LABELS {
   lb = 'gas',
   lc = 'eol',
   l1 = 'crit',
-  l2 = 'wormhole',
+  l2 = 'structure',
   l3 = 'flygd',
 }
 
 export type LabelIcon = {
   icon: React.ReactNode;
   colorClass: string;
+  backgroundColor: string;
 };
 
 export type LabelInfo = {
@@ -671,18 +675,44 @@ export type LabelInfo = {
 };
 
 export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
-  // [LABELS.clear]: 'pi pi-times', // Example icon for "clear"
-  [LABELS.la]: { icon: 'pi-directions-alt', colorClass: 'text-white' },
-  [LABELS.lb]: { icon: 'pi-cloud', colorClass: 'text-teal-500' },
-  [LABELS.lc]: { icon: 'pi-stopwatch', colorClass: 'text-white' },
-  [LABELS.l1]: { icon: 'pi-info-circle', colorClass: 'text-white' },
-  [LABELS.l2]: {
-    icon: <FlyGdIcon fill="#00008B" />,
-    colorClass: 'text-teal-500',
+  // Dead End: 🚫 "No Entry"
+  [LABELS.la]: {
+    icon: <MdOutlineBlock size={8} color="#FFFFFF" />,
+    colorClass: 'text-white',
+    backgroundColor: '#8B0000', // Dark Red
   },
+  // Gas Cloud: 🏭 "Harvestable Resource"
+  [LABELS.lb]: {
+    icon: <FaIndustry size={8} color="#004D40" />, // Dark Cyan
+    colorClass: 'text-cyan-900',
+    backgroundColor: '#00BFA5', // Greenish-Cyan
+  },
+
+  // End of Life (EOL): ⏳ "Fading Time"
+  [LABELS.lc]: {
+    icon: <FaHourglassEnd size={8} color="#FFFFFF" />, // White hourglass
+    colorClass: 'text-white',
+    backgroundColor: '#FF4500', // Orange-Red
+  },
+
+  // Critically Closing (CRIT): ⚠️ "Danger, Closing Soon"
+  [LABELS.l1]: {
+    icon: <FaExclamationTriangle size={8} color="#FFFFFF" />,
+    colorClass: 'text-white',
+    backgroundColor: '#B22222', // Firebrick Red (Slightly Lighter)
+  },
+
+  // Low Power Structure (🔥 More Contrast)
+  [LABELS.l2]: {
+    icon: <MdLocalFireDepartment size={8} color="#FFD700" />, // Bright Gold Fire
+    colorClass: 'text-yellow-500',
+    backgroundColor: '#5D1E1E', // Deep Maroon (Better Contrast)
+  },
+
   [LABELS.l3]: {
-    icon: <WormHoleIcon fill="#8B0000" />,
-    colorClass: 'text-teal-500',
+    icon: <MonkeIcon fill="#FFD700" />, // Gold Icon
+    colorClass: 'text-yellow-500',
+    backgroundColor: '#1E3A8A', // Dark Blue (Better contrast than Black)
   },
 };
 
@@ -692,7 +722,7 @@ export const LABELS_INFO: Record<string, LabelInfo> = {
   [LABELS.lb]: { id: 'gas', name: 'Gas', shortName: 'GAS', icon: '' },
   [LABELS.lc]: { id: 'eol', name: 'Eol', shortName: 'EOL', icon: '' },
   [LABELS.l1]: { id: 'crit', name: 'Crit', shortName: 'CRIT', icon: '' },
-  [LABELS.l2]: { id: 'wormhole', name: 'Wormhole', shortName: 'WH', icon: '' },
+  [LABELS.l2]: { id: 'structure', name: 'Sturcture', shortName: 'LP', icon: '' },
   [LABELS.l3]: { id: 'flygd', name: 'Flygd', shortName: 'FLYGD', icon: '' },
 };
 
