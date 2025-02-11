@@ -1,25 +1,19 @@
-// contentHelpers.ts
-
-import clsx from 'clsx';
-import classes from './contentHelpers.module.scss';
 import { SystemSignature } from '@/hooks/Mapper/types';
+import { getRowBackgroundColor } from './getRowBackgroundColor';
 
 export interface ExtendedSystemSignature extends SystemSignature {
   pendingDeletion?: boolean;
   pendingUntil?: number;
+  pendingAddition?: boolean;
+  pendingAdditionFinal?: boolean;
 }
 
-export const FLASH_DURATION_MS = 5000;
 export const FINAL_DURATION_MS = 30000;
 
 export function toSystemSignature(sig: ExtendedSystemSignature): SystemSignature {
-  // Simple cast: ensures we strip "pendingDeletion" fields
   return sig as SystemSignature;
 }
 
-/**
- * Build the payload for an "updateSignatures" command: add/update/remove.
- */
 export function prepareUpdatePayload(
   systemId: string,
   added: ExtendedSystemSignature[],
@@ -34,40 +28,17 @@ export function prepareUpdatePayload(
   };
 }
 
-/**
- * Schedules two timers for each signature:
- *  - after flashMs: remove from local UI
- *  - after finalMs: remove from the server
- */
 export function scheduleLazyDeletionTimers(
   toRemove: ExtendedSystemSignature[],
-  setPendingMap: React.Dispatch<
-    React.SetStateAction<
-      Record<
-        string,
-        {
-          flashUntil: number;
-          finalUntil: number;
-          flashTimeoutId: number;
-          finalTimeoutId: number;
-        }
-      >
-    >
-  >,
+  setPendingMap: React.Dispatch<React.SetStateAction<Record<string, { finalUntil: number; finalTimeoutId: number }>>>,
   removeSignaturePermanently: (sig: ExtendedSystemSignature) => Promise<void>,
-  setSignatures: React.Dispatch<React.SetStateAction<ExtendedSystemSignature[]>>,
-  flashMs = FLASH_DURATION_MS,
-  finalMs = FINAL_DURATION_MS,
+  finalMs: number,
 ) {
   const now = Date.now();
+  console.debug('scheduleLazyDeletionTimers: Scheduling lazy deletion for:', toRemove);
   toRemove.forEach(sig => {
-    const flashTimeoutId = window.setTimeout(() => {
-      // Remove from UI after flashMs
-      setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
-    }, flashMs);
-
     const finalTimeoutId = window.setTimeout(async () => {
-      // Actually remove from server after finalMs
+      console.debug(`scheduleLazyDeletionTimers: Final timer fired for signature ${sig.eve_id}`);
       await removeSignaturePermanently(sig);
       setPendingMap(prev => {
         const updated = { ...prev };
@@ -75,23 +46,17 @@ export function scheduleLazyDeletionTimers(
         return updated;
       });
     }, finalMs);
-
     setPendingMap(prev => ({
       ...prev,
       [sig.eve_id]: {
-        flashUntil: now + flashMs,
         finalUntil: now + finalMs,
-        flashTimeoutId,
         finalTimeoutId,
       },
     }));
+    console.debug(`scheduleLazyDeletionTimers: Scheduled deletion for ${sig.eve_id} at ${now + finalMs}`);
   });
 }
 
-/**
- * Merges "pendingDeletion" flags from local into the newly fetched server list,
- * so that signatures still pending a possible undo remain "highlighted" or "flash".
- */
 export function mergeWithPendingFlags(
   server: ExtendedSystemSignature[],
   local: ExtendedSystemSignature[],
@@ -109,7 +74,6 @@ export function mergeWithPendingFlags(
     const localSig = localMap.get(sig.eve_id);
     if (!localSig) return sig;
 
-    // If local was still pending and not expired, restore that status
     const stillPending = localSig.pendingUntil && localSig.pendingUntil > now;
     if (stillPending) {
       return { ...sig, pendingDeletion: true, pendingUntil: localSig.pendingUntil };
@@ -117,37 +81,22 @@ export function mergeWithPendingFlags(
     return sig;
   });
 
-  // If there were some local pending that didn't appear in the server list, keep them
   const extraPending = Array.from(localMap.values()).filter(p => !merged.some(m => m.eve_id === p.eve_id));
 
   return [...merged, ...extraPending];
 }
 
-export function getRowClassName(
-  row: ExtendedSystemSignature,
-  pendingDeletionMap: Record<
-    string,
-    {
-      flashUntil: number;
-      finalUntil: number;
-      flashTimeoutId: number;
-      finalTimeoutId: number;
-    }
-  >,
-  selectedSignatures: ExtendedSystemSignature[],
-  getRowColorByTimeLeft: (date?: Date) => string | null | undefined,
-): string {
-  const isFlashingDeletion =
-    pendingDeletionMap[row.eve_id]?.flashUntil && pendingDeletionMap[row.eve_id].flashUntil > Date.now();
-
-  if (isFlashingDeletion || row.pendingDeletion) {
-    return clsx(classes.TableRowCompact, classes.flashPending);
-  }
+export function getRowClassName(row: ExtendedSystemSignature, selectedSignatures: ExtendedSystemSignature[]): string {
+  const baseClasses = 'h-2 text-[12px] leading-2';
 
   if (selectedSignatures.some(s => s.eve_id === row.eve_id)) {
-    return clsx(classes.TableRowCompact, 'bg-amber-500/50 hover:bg-amber-500/70 transition duration-200');
+    return `${baseClasses} bg-amber-500/50 hover:bg-amber-500/70 transition duration-200`;
   }
 
-  const dateClass = getRowColorByTimeLeft(row.inserted_at ? new Date(row.inserted_at) : undefined) ?? '';
-  return clsx(classes.TableRowCompact, dateClass || 'hover:bg-purple-400/20 transition duration-200');
+  if (row.pendingDeletion) {
+    return `${baseClasses} bg-red-500/50 hover:bg-red-500/60 transition duration-200`;
+  }
+
+  const bgClass = getRowBackgroundColor(row.inserted_at ? new Date(row.inserted_at) : undefined);
+  return `${baseClasses} ${bgClass || 'hover:bg-purple-400/20 transition duration-200'}`;
 }
