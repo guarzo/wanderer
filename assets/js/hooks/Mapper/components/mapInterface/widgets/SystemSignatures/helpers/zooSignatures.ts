@@ -319,7 +319,7 @@ export function parseSignatures(
       newArr.push({
         eve_id: eve_id,
         kind: kind,
-        group: groupToken ? (groupToken as SignatureGroup) : SignatureGroup.Wormhole,
+        group: groupToken ? (groupToken as SignatureGroup) : SignatureGroup.CosmicSignature,
         name: nameToken || eve_id,
         type: '',
         custom_info: JSON.stringify({ dest: eve_id, full_id: eve_id }),
