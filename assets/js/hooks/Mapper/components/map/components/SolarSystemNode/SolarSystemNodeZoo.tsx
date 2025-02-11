@@ -4,7 +4,7 @@ import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
-import { GiConcentrationOrb } from 'react-icons/gi';
+import { GiConcentrationOrb, GiSpiralLollipop } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter } from '../../hooks/useSolarSystemLogic';
 import { useZooNames, useZooLabels, useGetSignatures, useSignatureAge } from '../../hooks/useZooLogic';
 import {
@@ -98,7 +98,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
 
           {unsplashedCount > 0 && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)} style={{ display: 'flex' }}>
-              <GiConcentrationOrb
+              <GiSpiralLollipop
                 size={8}
                 color="#38bdf8"
                 style={{
@@ -125,13 +125,6 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                 className={clsx(classes.text)}
                 style={{
                   color: '#FFFFFF',
-                  fontSize: '8px',
-                  marginLeft: '1px',
-                  marginRight: '1px',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginTop: '-1px',
                 }}
               >
                 {signatureAgeHours}h
@@ -142,7 +135,13 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           {nodeVars.labelsInfo.map(x => {
             const iconData = LABEL_ICON_MAP[x.id];
             return (
-              <div key={x.id} className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[x.id])}>
+              <div
+                key={x.id}
+                className={clsx(classes.Bookmark)}
+                style={{
+                  backgroundColor: iconData?.backgroundColor || '#444',
+                }}
+              >
                 {iconData ? (
                   React.isValidElement(iconData.icon) ? (
                     <span className={clsx(classes.icon, iconData.colorClass)}>{iconData.icon}</span>
@@ -150,14 +149,13 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                     <i className={clsx(`pi ${iconData.icon} ${iconData.colorClass}`, classes.icon)} />
                   )
                 ) : (
-                  x.shortName
+                  <span className="text-white">{x.shortName}</span>
                 )}
               </div>
             );
           })}
         </div>
       )}
-
       <div
         className={clsx(
           classes.RootCustomNode,
