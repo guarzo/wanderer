@@ -12,12 +12,9 @@ import {
 } from '../helpers/contentHelpers';
 import { getActualSigs } from '../helpers';
 import { useMapEventListener } from '@/hooks/Mapper/events';
-import { parseSignatures } from '@/hooks/Mapper/helpers';
-import {
-  TIME_ONE_DAY,
-  TIME_ONE_WEEK,
-} from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants.ts';
-import { LAZY_DELETE_SIGNATURES_SETTING } from '@/hooks/Mapper/components/mapInterface/widgets';
+import { parseSignatures, parseBookmarkFormatSignatures } from '../helpers/parseSignatures.ts';
+import { TIME_ONE_DAY, TIME_ONE_WEEK } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants';
+import { LAZY_DELETE_SIGNATURES_SETTING, BOOKMARK_PASTE_SETTING } from '@/hooks/Mapper/components/mapInterface/widgets';
 
 export interface UseSystemSignaturesDataProps {
   systemId: string;
@@ -25,16 +22,63 @@ export interface UseSystemSignaturesDataProps {
   hideLinkedSignatures?: boolean;
   onCountChange: (count: number) => void;
   onPendingChange?: (pending: ExtendedSystemSignature[], undo: () => void) => void;
+  onBookmarkPasteComplete?: () => void; // callback to uncheck bookmark paste after paste
 }
 
+/**
+ * Updated filter: For any signature whose eve_id is shorter than 7 characters,
+ * if there is any other signature whose ID is longer and starts with the same prefix,
+ * then filter out the shorter version.
+ */
+function filterShortSignatures(sigs: ExtendedSystemSignature[]): ExtendedSystemSignature[] {
+  console.debug('[filterShortSignatures] Starting with', sigs.length, 'signatures.');
+  const filtered = sigs.filter(sig => {
+    if (sig.eve_id.length < 7) {
+      const prefix = sig.eve_id.toUpperCase();
+      const found = sigs.some(
+        other =>
+          other.eve_id.length > sig.eve_id.length &&
+          other.eve_id.substring(0, sig.eve_id.length).toUpperCase() === prefix,
+      );
+      if (found) {
+        console.debug(`[filterShortSignatures] Filtering out short signature: ${sig.eve_id}`);
+        return false;
+      }
+    }
+    return true;
+  });
+  console.debug('[filterShortSignatures] Filtered down to', filtered.length, 'signatures.');
+  return filtered;
+}
+
+/**
+ * Merges incoming signatures with existing (non‑deleted) signatures.
+ * For an incoming signature with a full (7+ character) ID, if no exact match is found,
+ * then look for an existing signature whose ID equals the first few characters.
+ * If such an existing signature is found and its kind isn’t the default (CosmicSignature),
+ * then preserve its kind and name.
+ */
 function mergeIncomingSignatures(
   incoming: ExtendedSystemSignature[],
-  currentNonPending: ExtendedSystemSignature[],
+  currentForMerge: ExtendedSystemSignature[],
 ): ExtendedSystemSignature[] {
+  console.debug('[mergeIncomingSignatures] Incoming signatures count:', incoming.length);
   return incoming.map(newSig => {
-    const existingSig = currentNonPending.find(sig => sig.eve_id === newSig.eve_id);
+    let existingSig = currentForMerge.find(sig => sig.eve_id === newSig.eve_id);
+    if (!existingSig && newSig.eve_id.length >= 7) {
+      const prefix = newSig.eve_id.substring(0, 3);
+      existingSig = currentForMerge.find(sig => sig.eve_id === prefix);
+      if (existingSig) {
+        console.debug(
+          `[mergeIncomingSignatures] Found pending/old signature with short id "${existingSig.eve_id}" matching incoming "${newSig.eve_id}".`,
+        );
+      }
+    }
     if (existingSig && existingSig.kind && existingSig.kind !== SignatureKind.CosmicSignature) {
-      return { ...newSig, kind: existingSig.kind };
+      console.debug(
+        `[mergeIncomingSignatures] Merging incoming "${newSig.eve_id}" with existing "${existingSig.eve_id}" preserving kind "${existingSig.kind}" and name "${existingSig.name}".`,
+      );
+      return { ...newSig, kind: existingSig.kind, name: existingSig.name };
     }
     return newSig;
   });
@@ -45,6 +89,7 @@ export function useSystemSignaturesData({
   settings,
   onCountChange,
   onPendingChange,
+  onBookmarkPasteComplete,
 }: UseSystemSignaturesDataProps) {
   const { outCommand } = useMapRootState();
 
@@ -65,6 +110,7 @@ export function useSystemSignaturesData({
       setSignatures([]);
       return;
     }
+    console.debug('[handleGetSignatures] Requesting signatures for system', systemId);
     const { signatures: serverSignatures } = await outCommand({
       type: OutCommand.getSignatures,
       data: { system_id: systemId },
@@ -74,22 +120,34 @@ export function useSystemSignaturesData({
     if (lazyDeleteValue) {
       extendedServer = mergeWithPendingFlags(extendedServer, signaturesRef.current);
     }
-    setSignatures(extendedServer);
+    console.debug('[handleGetSignatures] Received', extendedServer.length, 'signatures from server.');
+    setSignatures(filterShortSignatures(extendedServer));
   }, [systemId, outCommand, settings, signaturesRef, setSignatures]);
 
   const handleUpdateSignatures = useCallback(
     async (newSignatures: ExtendedSystemSignature[], updateOnly: boolean, skipUpdateUntouched?: boolean) => {
+      console.debug('[handleUpdateSignatures] Updating signatures with', newSignatures.length, 'new signatures.');
       const { added, updated, removed } = getActualSigs(
         signaturesRef.current,
         newSignatures,
         updateOnly,
         skipUpdateUntouched,
       );
+      console.debug(
+        '[handleUpdateSignatures] Changes - Added:',
+        added.length,
+        ', Updated:',
+        updated.length,
+        ', Removed:',
+        removed.length,
+      );
       const resp = await outCommand({
         type: OutCommand.updateSignatures,
         data: prepareUpdatePayload(systemId, added, updated, removed),
       });
-      const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      let castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      castedUpdated = filterShortSignatures(castedUpdated);
+      console.debug('[handleUpdateSignatures] Updated server signatures count after filtering:', castedUpdated.length);
       setSignatures(castedUpdated);
       setSelectedSignatures([]);
     },
@@ -114,27 +172,27 @@ export function useSystemSignaturesData({
   const handleDeleteSelected = useCallback(async () => {
     if (selectedSignatures.length === 0) return;
     const selectedIds = getSelectedIds(selectedSignatures);
+    console.debug('[handleDeleteSelected] Deleting signatures with IDs:', selectedIds);
     await handleUpdateSignatures(
       signatures.filter(signature => !selectedIds.includes(signature.eve_id)),
       false,
       true,
     );
   }, [selectedSignatures, signatures, handleUpdateSignatures]);
+
   const handleSelectAll = useCallback(() => {
     setSelectedSignatures(signatures);
   }, [signatures]);
 
   const undoPending = useCallback(() => {
-    // Clear any pending timers.
+    console.debug('[undoPending] Clearing pending timers and resetting pending flags.');
     Object.values(pendingDeletionMap).forEach(({ finalTimeoutId }) => clearTimeout(finalTimeoutId));
     Object.values(pendingAdditionMap).forEach(({ finalTimeoutId }) => clearTimeout(finalTimeoutId));
 
-    // Reset pending deletion flags.
     setSignatures(prev =>
       prev.map(sig => (sig.pendingDeletion ? { ...sig, pendingDeletion: false, pendingUntil: undefined } : sig)),
     );
 
-    // Process pending additions undo.
     Promise.all(
       pendingUndoAdditions.map(async sig => {
         await outCommand({
@@ -147,7 +205,7 @@ export function useSystemSignaturesData({
         setSignatures(prev => prev.filter(sig => !pendingUndoAdditions.some(p => p.eve_id === sig.eve_id)));
       })
       .catch(err => {
-        console.error('undoPending: Error undoing pending additions', err);
+        console.error('[undoPending] Error undoing pending additions', err);
       });
 
     setPendingDeletionMap({});
@@ -161,15 +219,13 @@ export function useSystemSignaturesData({
     onPendingChange?.(combinedPending, undoPending);
   }, [pendingUndoDeletions, pendingUndoAdditions, onPendingChange, undoPending]);
 
-  /**
-   * Processes the added signatures by setting pending flags and scheduling
-   * their removal after the final duration.
-   */
   const processAddedSignatures = useCallback(
     (added: ExtendedSystemSignature[]) => {
+      console.debug('[processAddedSignatures] Processing', added.length, 'added signatures.');
       if (added.length === 0) return;
       setPendingUndoAdditions(prev => [...prev, ...added]);
       added.forEach((sig: SystemSignature) => {
+        console.debug('[processAddedSignatures] Scheduling pending addition for', sig.eve_id);
         const finalTimeoutId = window.setTimeout(() => {
           setSignatures(prev =>
             prev.map(s => (s.eve_id === sig.eve_id ? { ...s, pendingAddition: false, pendingUntil: undefined } : s)),
@@ -180,6 +236,7 @@ export function useSystemSignaturesData({
             return newMap;
           });
           setPendingUndoAdditions(prev => prev.filter(x => x.eve_id !== sig.eve_id));
+          console.debug('[processAddedSignatures] Pending addition cleared for', sig.eve_id);
         }, FINAL_DURATION_MS);
         const now = Date.now();
         setPendingAdditionMap(map => ({
@@ -199,23 +256,22 @@ export function useSystemSignaturesData({
     [setSignatures, setPendingAdditionMap, setPendingUndoAdditions],
   );
 
-  /**
-   * Processes the removed signatures by updating the server and scheduling
-   * lazy deletion timers.
-   */
   const processRemovedSignatures = useCallback(
     async (
       removed: ExtendedSystemSignature[],
       added: ExtendedSystemSignature[],
       updated: ExtendedSystemSignature[],
     ) => {
+      console.debug('[processRemovedSignatures] Processing', removed.length, 'removed signatures.');
       if (removed.length === 0) return;
       setPendingUndoDeletions(prev => [...prev, ...removed]);
       const resp = await outCommand({
         type: OutCommand.updateSignatures,
         data: prepareUpdatePayload(systemId, added, updated, []),
       });
-      const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      let castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      castedUpdated = filterShortSignatures(castedUpdated);
+      console.debug('[processRemovedSignatures] Updated signature count after filtering:', castedUpdated.length);
       scheduleLazyDeletionTimers(
         removed,
         setPendingDeletionMap,
@@ -226,6 +282,7 @@ export function useSystemSignaturesData({
           });
           setPendingUndoDeletions(pu => pu.filter(x => x.eve_id !== sig.eve_id));
           setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
+          console.debug('[processRemovedSignatures] Removed signature', sig.eve_id);
         },
         setSignatures,
         FINAL_DURATION_MS,
@@ -244,28 +301,45 @@ export function useSystemSignaturesData({
     [outCommand, systemId, setSignatures, setPendingDeletionMap, setPendingUndoDeletions],
   );
 
-  /**
-   * Handle paste action by parsing the clipboard string, merging incoming
-   * signatures with existing ones, and then processing added or removed signatures.
-   */
   const handlePaste = useCallback(
     async (clipboardString: string) => {
-      // Parse incoming signatures from the clipboard.
-      const incomingSignatures = parseSignatures(
-        clipboardString,
-        settings.map(x => x.key),
-      )
-        .map(s => ({ ...s }))
-        .filter(Boolean) as ExtendedSystemSignature[];
+      console.debug('[handlePaste] Clipboard content:', clipboardString);
+      const bookmarkPasteSetting = settings.find(s => s.key === BOOKMARK_PASTE_SETTING)?.value;
+      let incomingSignatures: ExtendedSystemSignature[];
+      if (bookmarkPasteSetting) {
+        console.debug('[handlePaste] Using bookmark parser.');
+        incomingSignatures = parseBookmarkFormatSignatures(
+          clipboardString,
+          settings.map(x => x.key),
+        );
+      } else {
+        console.debug('[handlePaste] Using normal parser.');
+        incomingSignatures = parseSignatures(
+          clipboardString,
+          settings.map(x => x.key),
+        )
+          .map(s => ({ ...s }))
+          .filter(Boolean) as ExtendedSystemSignature[];
+      }
+      incomingSignatures = incomingSignatures.filter(sig => typeof sig === 'object' && sig !== null);
+      console.debug('[handlePaste] Parsed incoming signatures count:', incomingSignatures.length);
 
-      // Filter out signatures that are not pending deletion or addition.
-      const currentNonPending = signaturesRef.current.filter(sig => !sig.pendingDeletion && !sig.pendingAddition);
-
-      // Merge incoming signatures with existing ones to preserve non-"CosmicSignature" kinds.
-      const mergedIncomingSignatures = mergeIncomingSignatures(incomingSignatures, currentNonPending);
-
-      // Determine the differences between the current and incoming signatures.
-      const { added, updated, removed } = getActualSigs(currentNonPending, mergedIncomingSignatures, false, true);
+      // Include pending additions (do not filter them out) so that merging works.
+      const currentForMerge = signaturesRef.current.filter(sig => !sig.pendingDeletion);
+      console.debug('[handlePaste] Current signatures count for merging:', currentForMerge.length);
+      const mergedIncoming = mergeIncomingSignatures(incomingSignatures, currentForMerge);
+      console.debug('[handlePaste] Merged incoming signatures count:', mergedIncoming.length);
+      const mergedIncomingSignatures = mergeWithPendingFlags(mergedIncoming, currentForMerge);
+      console.debug('[handlePaste] Final merged incoming signatures count:', mergedIncomingSignatures.length);
+      const { added, updated, removed } = getActualSigs(currentForMerge, mergedIncomingSignatures, false, true);
+      console.debug(
+        '[handlePaste] getActualSigs results - Added:',
+        added.length,
+        ', Updated:',
+        updated.length,
+        ', Removed:',
+        removed.length,
+      );
 
       if (added.length > 0) {
         processAddedSignatures(added);
@@ -278,11 +352,28 @@ export function useSystemSignaturesData({
           type: OutCommand.updateSignatures,
           data: prepareUpdatePayload(systemId, added, updated, []),
         });
-        const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+        let castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+        castedUpdated = filterShortSignatures(castedUpdated);
+        console.debug('[handlePaste] Updated signatures count from server after paste:', castedUpdated.length);
         setSignatures(castedUpdated);
       }
+
+      // Uncheck bookmark paste after a successful paste.
+      if (bookmarkPasteSetting && onBookmarkPasteComplete) {
+        console.debug('[handlePaste] Calling onBookmarkPasteComplete callback.');
+        onBookmarkPasteComplete();
+      }
     },
-    [settings, outCommand, systemId, signaturesRef, setSignatures, processAddedSignatures, processRemovedSignatures],
+    [
+      settings,
+      outCommand,
+      systemId,
+      signaturesRef,
+      setSignatures,
+      processAddedSignatures,
+      processRemovedSignatures,
+      onBookmarkPasteComplete,
+    ],
   );
 
   useEffect(() => {

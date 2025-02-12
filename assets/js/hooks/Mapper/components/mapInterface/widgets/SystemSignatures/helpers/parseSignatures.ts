@@ -1,9 +1,5 @@
 import { SystemSignature, SignatureKind, SignatureGroup } from '@/hooks/Mapper/types';
-import {
-  MAPPING_TYPE_TO_ENG,
-  GROUPS_LIST,
-} from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants';
-import { getState } from './getState';
+import { MAPPING_TYPE_TO_ENG } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants';
 
 /**
  * Parses a wormhole line.
@@ -21,13 +17,12 @@ export function parseWormholeLine(value: string): {
   let isEOL = false;
   let isCrit = false;
 
-  // First regex: matches a numeric prefix, a hyphen, then a 3-letter token,
-  // an optional number, and an optional trailing sequence of 1–2 letters.
+  // First regex.
   let match = value.match(/^(\d+)-([A-Za-z]{3})(?:\s+(\d+))?(?:\s*([EeCc]{1,2}))?$/);
   if (match) {
-    wormholeSignature = match[2]; // e.g. "ERU"
+    wormholeSignature = match[2];
     description = match[3] || '';
-    name = match[2]; // default name equals the signature
+    name = match[2];
     const trailing = match[4] || '';
     isEOL = /E/i.test(trailing);
     isCrit = /C/i.test(trailing);
@@ -184,8 +179,6 @@ export function parseSignatureLine(line: string): SystemSignature | null {
 
 /**
  * Groups and merges signatures.
- * For wormhole bookmarks, if there exists a full record (with a hyphen),
- * then the full record is preferred and the bookmark's signature kind and name are preserved.
  */
 export function mergeSignatures(existing: SystemSignature[], incoming: SystemSignature[]): SystemSignature[] {
   const combined = existing.concat(incoming);
@@ -207,27 +200,18 @@ export function mergeSignatures(existing: SystemSignature[], incoming: SystemSig
 
   const mergedWormholes: SystemSignature[] = [];
   for (const [, group] of wormholeGroups.entries()) {
-    // Prefer a probe scanner candidate: one whose eve_id matches the pattern AAA-BBB.
     let full = group.find(s => /^[A-Za-z]{3}-[A-Za-z0-9]{3}$/.test(s.eve_id));
     if (!full) {
       full = { ...group[0] };
     } else {
       full = { ...full };
     }
-    // For merging: if there are any bookmark entries (IDs not matching the probe pattern)
-    // whose prefix matches the full record's prefix, then:
-    // • We want to send a deletion for the bookmark record.
-    // • And send an addition for the merged record, using the full record’s fields but preserving the bookmark’s kind and name.
     for (const cand of group) {
       if (cand.eve_id.length !== 7 && cand.eve_id.toUpperCase() === full.eve_id.substring(0, 3).toUpperCase()) {
-        // Preserve bookmark's signature kind and name.
         full.kind = cand.kind;
         full.name = cand.name;
-        // Mark this bookmark for deletion later.
-        // (We won’t add it to the final merged output.)
         continue;
       }
-      // Otherwise, merge other fields.
       if (cand.group && cand.group.trim() !== '') {
         full.group = cand.group;
       }
@@ -255,8 +239,6 @@ export function mergeSignatures(existing: SystemSignature[], incoming: SystemSig
 
   const merged = nonWormholes.concat(mergedWormholes);
 
-  // Final filtering: Remove any leftover bookmark entries (IDs not matching the probe pattern)
-  // that have a matching full record.
   const final = merged.filter(sig => {
     if (
       sig.kind === SignatureKind.CosmicSignature &&
@@ -276,7 +258,6 @@ export function mergeSignatures(existing: SystemSignature[], incoming: SystemSig
     return true;
   });
 
-  // Ensure valid custom_info.
   for (const sig of final) {
     try {
       const info = JSON.parse(sig.custom_info || '{}');
@@ -294,10 +275,8 @@ export function mergeSignatures(existing: SystemSignature[], incoming: SystemSig
 
 /**
  * Parses multiple lines of system signature data.
- * If the first token matches the probe scanner pattern (AAA-BBB) and the final token ends with "AU" (case-insensitive),
- * the row is assumed to be in the probe scanner format.
- * Otherwise, the line is assumed to be in bookmark format.
- * For bookmark lines, we use only the first three tokens.
+ * For probe scanner format, if the first token matches the pattern and the final token ends with "AU", use that.
+ * Otherwise, assume bookmark format.
  */
 export function parseSignatures(
   value: string,
@@ -312,7 +291,6 @@ export function parseSignatures(
     // Check if the first token matches the probe scanner pattern and the final token ends with "AU/K/M"
     if (/^[A-Za-z]{3}-[A-Za-z0-9]{3}$/.test(tokens[0]) && /(?:AU|K|M)$/i.test(tokens[tokens.length - 1])) {
       // Probe scanner format.
-      // Token order: [full ID, kind, group, name, ...]
       const [eve_id, kindToken, groupToken, nameToken] = tokens;
       const mappedKind = MAPPING_TYPE_TO_ENG[kindToken as SystemSignature['kind']];
       const kind = availableKeys && availableKeys.includes(mappedKind) ? mappedKind : SignatureKind.CosmicSignature;
@@ -344,114 +322,69 @@ export function parseSignatures(
 }
 
 /**
- * Computes differences between old and new signatures.
- * For wormhole bookmarks (IDs not matching the probe scanner pattern) that have a matching full record
- * (i.e. whose ID starts with the bookmark plus '-'),
- * this function creates a merged record that uses the full record’s ID and fields
- * (but preserves the bookmark’s signature kind and name),
- * and **sends an explicit deletion for the bookmark record**.
+ * Merges an existing bookmark signature with a new full id signature.
  */
-export const getActualSigs = (
-  oldSignatures: SystemSignature[],
-  newSignatures: SystemSignature[],
-  updateOnly: boolean,
-  skipUpdateUntouched?: boolean,
-): { added: SystemSignature[]; updated: SystemSignature[]; removed: SystemSignature[] } => {
-  console.debug('getActualSigs: Starting merge process');
-  console.debug('Old signatures:', oldSignatures);
-  console.debug('New signatures:', newSignatures);
+function mergeBookmarkSignature(existing: SystemSignature, fullSig: SystemSignature): SystemSignature {
+  const merged = { ...fullSig };
+  if (existing.kind !== SignatureKind.CosmicSignature) {
+    merged.kind = existing.kind;
+  }
+  if (existing.name && existing.name !== existing.eve_id) {
+    merged.name = existing.name;
+  }
+  try {
+    const existingInfo = JSON.parse(existing.custom_info || '{}');
+    const fullInfo = JSON.parse(fullSig.custom_info || '{}');
+    merged.custom_info = JSON.stringify({ ...fullInfo, ...existingInfo });
+  } catch (e) {
+    merged.custom_info = fullSig.custom_info;
+  }
+  return merged;
+}
 
-  const updated: SystemSignature[] = [];
-  const removed: SystemSignature[] = [];
-  const added: SystemSignature[] = [];
-  const mergedNewIds = new Set<string>();
-
-  oldSignatures.forEach(oldSig => {
-    let newSig: SystemSignature | undefined;
-    // For wormhole bookmarks (IDs not matching the probe scanner pattern, i.e. length !== 7).
-    if (
-      oldSig.kind === SignatureKind.CosmicSignature &&
-      oldSig.group === SignatureGroup.Wormhole &&
-      oldSig.eve_id.length !== 7
-    ) {
-      console.debug(`getActualSigs: Processing bookmark signature: ${oldSig.eve_id}`);
-      newSig = newSignatures.find(
-        s =>
-          s.kind === SignatureKind.CosmicSignature &&
-          s.group === SignatureGroup.Wormhole &&
-          s.eve_id.toUpperCase().startsWith(oldSig.eve_id.toUpperCase() + '-'),
-      );
-      if (newSig) {
-        console.debug(`getActualSigs: Found full record ${newSig.eve_id} matching bookmark ${oldSig.eve_id}`);
-        // Create merged record: use newSig's fields but preserve the bookmark's signature kind and name.
-        const mergedSig: SystemSignature = { ...newSig, kind: oldSig.kind, name: oldSig.name };
-        console.debug('getActualSigs: Merged record (to be added):', mergedSig);
-        // Instead of updating, we will add the merged record and remove the bookmark.
-        added.push(mergedSig);
-        removed.push(oldSig);
-        mergedNewIds.add(newSig.eve_id);
-        return;
+/**
+ * Parses multiple lines of system signature data in bookmark format only.
+ * Assumes each line is in bookmark format (tab-separated, first three tokens).
+ * Merges entries among themselves (without taking existing signatures into account).
+ */
+export function parseBookmarkFormatSignatures(value: string): SystemSignature[] {
+  const newArr: SystemSignature[] = [];
+  const rows = value.split('\n');
+  for (const row of rows) {
+    if (!row.trim()) continue;
+    const tokens = row.split('\t').map(t => t.trim());
+    if (tokens.length < 3) continue;
+    const newLine = tokens.slice(0, 3).join('\t');
+    const parsed = parseSignatureLine(newLine);
+    if (parsed) {
+      newArr.push(parsed);
+    }
+  }
+  // Merge among the bookmark entries.
+  const mergedMap: { [id: string]: SystemSignature } = {};
+  for (const sig of newArr) {
+    // Use the full 7-character ID if available.
+    if (sig.eve_id.length === 7) {
+      const prefix = sig.eve_id.substring(0, 3);
+      let merged = sig;
+      // Look for an existing bookmark entry with a 3-character id that matches the prefix.
+      for (const existingId in mergedMap) {
+        if (existingId.length === 3 && existingId.toUpperCase() === prefix.toUpperCase()) {
+          merged = mergeBookmarkSignature(mergedMap[existingId], sig);
+          delete mergedMap[existingId];
+          break;
+        }
+      }
+      mergedMap[merged.eve_id] = merged;
+    } else {
+      // For entries that already have a 3-character id.
+      if (!mergedMap[sig.eve_id]) {
+        mergedMap[sig.eve_id] = sig;
       } else {
-        console.debug(`getActualSigs: No full record found for bookmark ${oldSig.eve_id}`);
-      }
-    } else {
-      newSig = newSignatures.find(s => s.eve_id === oldSig.eve_id);
-    }
-    if (newSig) {
-      const needUpgrade = getState(GROUPS_LIST, newSig) > getState(GROUPS_LIST, oldSig);
-      const mergedSig = { ...oldSig };
-      let changed = false;
-      if (needUpgrade) {
-        mergedSig.group = newSig.group;
-        mergedSig.name = newSig.name;
-        changed = true;
-        console.debug(`getActualSigs: Upgrading signature ${oldSig.eve_id} -> group: ${newSig.group}`);
-      }
-      if (newSig.description && newSig.description !== oldSig.description) {
-        mergedSig.description = newSig.description;
-        changed = true;
-        console.debug(`getActualSigs: Updating description for ${oldSig.eve_id}`);
-      }
-      try {
-        const oldInfo = JSON.parse(oldSig.custom_info || '{}');
-        const newInfo = JSON.parse(newSig.custom_info || '{}');
-        let infoChanged = false;
-        for (const key in newInfo) {
-          if (oldInfo[key] !== newInfo[key]) {
-            oldInfo[key] = newInfo[key];
-            infoChanged = true;
-            console.debug(`getActualSigs: Updating custom_info field ${key} for ${oldSig.eve_id}`);
-          }
-        }
-        if (infoChanged) {
-          mergedSig.custom_info = JSON.stringify(oldInfo);
-          changed = true;
-        }
-      } catch (e) {
-        console.debug(`getActualSigs: Error merging custom_info for ${oldSig.eve_id}`, e);
-      }
-      if (changed) {
-        updated.push(mergedSig);
-      } else if (!skipUpdateUntouched) {
-        updated.push({ ...oldSig });
-      }
-    } else {
-      if (!updateOnly) {
-        removed.push(oldSig);
-        console.debug(`getActualSigs: Removing signature ${oldSig.eve_id} (not found in new signatures)`);
+        mergedMap[sig.eve_id] = mergeBookmarkSignature(mergedMap[sig.eve_id], sig);
       }
     }
-  });
-
-  // Now, add any new signatures that do not match any old signature.
-  const oldIds = new Set(oldSignatures.map(x => x.eve_id));
-  newSignatures.forEach(s => {
-    if (!oldIds.has(s.eve_id) && !mergedNewIds.has(s.eve_id)) {
-      added.push(s);
-    }
-  });
-
-  console.debug(`getActualSigs: Added signatures count: ${added.length}`);
-  console.debug('getActualSigs: Final output:', { added, updated, removed });
-  return { added, updated, removed };
-};
+  }
+  // Return only valid signature objects.
+  return Object.values(mergedMap).filter(sig => sig && typeof sig === 'object' && sig.eve_id);
+}
