@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import useRefState from 'react-usestateref';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { OutCommand, Commands } from '@/hooks/Mapper/types/mapHandlers';
-import { SignatureGroup, SystemSignature } from '@/hooks/Mapper/types';
+import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
+import { SignatureKind, SystemSignature, SignatureGroup } from '@/hooks/Mapper/types';
 import {
   ExtendedSystemSignature,
-  prepareUpdatePayload,
-  mergeWithPendingFlags,
-  scheduleLazyDeletionTimers,
   FINAL_DURATION_MS,
+  mergeWithPendingFlags,
+  prepareUpdatePayload,
+  scheduleLazyDeletionTimers,
 } from '../helpers/contentHelpers';
 import { getActualSigs } from '../helpers';
 import { useMapEventListener } from '@/hooks/Mapper/events';
@@ -17,6 +17,7 @@ import {
   TIME_ONE_DAY,
   TIME_ONE_WEEK,
 } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants.ts';
+import { LAZY_DELETE_SIGNATURES_SETTING } from '@/hooks/Mapper/components/mapInterface/widgets';
 
 export interface UseSystemSignaturesDataProps {
   systemId: string;
@@ -24,6 +25,19 @@ export interface UseSystemSignaturesDataProps {
   hideLinkedSignatures?: boolean;
   onCountChange: (count: number) => void;
   onPendingChange?: (pending: ExtendedSystemSignature[], undo: () => void) => void;
+}
+
+function mergeIncomingSignatures(
+  incoming: ExtendedSystemSignature[],
+  currentNonPending: ExtendedSystemSignature[],
+): ExtendedSystemSignature[] {
+  return incoming.map(newSig => {
+    const existingSig = currentNonPending.find(sig => sig.eve_id === newSig.eve_id);
+    if (existingSig && existingSig.kind && existingSig.kind !== SignatureKind.CosmicSignature) {
+      return { ...newSig, kind: existingSig.kind };
+    }
+    return newSig;
+  });
 }
 
 export function useSystemSignaturesData({
@@ -56,7 +70,7 @@ export function useSystemSignaturesData({
       data: { system_id: systemId },
     });
     let extendedServer = (serverSignatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
-    const lazyDeleteValue = settings.find(s => s.key === 'LAZY_DELETE_SIGNATURES_SETTING')?.value ?? false;
+    const lazyDeleteValue = settings.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)?.value ?? false;
     if (lazyDeleteValue) {
       extendedServer = mergeWithPendingFlags(extendedServer, signaturesRef.current);
     }
@@ -111,13 +125,16 @@ export function useSystemSignaturesData({
   }, [signatures]);
 
   const undoPending = useCallback(() => {
+    // Clear any pending timers.
     Object.values(pendingDeletionMap).forEach(({ finalTimeoutId }) => clearTimeout(finalTimeoutId));
     Object.values(pendingAdditionMap).forEach(({ finalTimeoutId }) => clearTimeout(finalTimeoutId));
 
+    // Reset pending deletion flags.
     setSignatures(prev =>
       prev.map(sig => (sig.pendingDeletion ? { ...sig, pendingDeletion: false, pendingUntil: undefined } : sig)),
     );
 
+    // Process pending additions undo.
     Promise.all(
       pendingUndoAdditions.map(async sig => {
         await outCommand({
@@ -144,76 +161,118 @@ export function useSystemSignaturesData({
     onPendingChange?.(combinedPending, undoPending);
   }, [pendingUndoDeletions, pendingUndoAdditions, onPendingChange, undoPending]);
 
+  /**
+   * Processes the added signatures by setting pending flags and scheduling
+   * their removal after the final duration.
+   */
+  const processAddedSignatures = useCallback(
+    (added: ExtendedSystemSignature[]) => {
+      if (added.length === 0) return;
+      setPendingUndoAdditions(prev => [...prev, ...added]);
+      added.forEach((sig: SystemSignature) => {
+        const finalTimeoutId = window.setTimeout(() => {
+          setSignatures(prev =>
+            prev.map(s => (s.eve_id === sig.eve_id ? { ...s, pendingAddition: false, pendingUntil: undefined } : s)),
+          );
+          setPendingAdditionMap(map => {
+            const newMap = { ...map };
+            delete newMap[sig.eve_id];
+            return newMap;
+          });
+          setPendingUndoAdditions(prev => prev.filter(x => x.eve_id !== sig.eve_id));
+        }, FINAL_DURATION_MS);
+        const now = Date.now();
+        setPendingAdditionMap(map => ({
+          ...map,
+          [sig.eve_id]: {
+            finalUntil: now + FINAL_DURATION_MS,
+            finalTimeoutId,
+          },
+        }));
+        setSignatures(prev =>
+          prev.map(s =>
+            s.eve_id === sig.eve_id ? { ...s, pendingAddition: true, pendingUntil: now + FINAL_DURATION_MS } : s,
+          ),
+        );
+      });
+    },
+    [setSignatures, setPendingAdditionMap, setPendingUndoAdditions],
+  );
+
+  /**
+   * Processes the removed signatures by updating the server and scheduling
+   * lazy deletion timers.
+   */
+  const processRemovedSignatures = useCallback(
+    async (
+      removed: ExtendedSystemSignature[],
+      added: ExtendedSystemSignature[],
+      updated: ExtendedSystemSignature[],
+    ) => {
+      if (removed.length === 0) return;
+      setPendingUndoDeletions(prev => [...prev, ...removed]);
+      const resp = await outCommand({
+        type: OutCommand.updateSignatures,
+        data: prepareUpdatePayload(systemId, added, updated, []),
+      });
+      const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      scheduleLazyDeletionTimers(
+        removed,
+        setPendingDeletionMap,
+        async (sig: SystemSignature) => {
+          await outCommand({
+            type: OutCommand.updateSignatures,
+            data: prepareUpdatePayload(systemId, [], [], [sig]),
+          });
+          setPendingUndoDeletions(pu => pu.filter(x => x.eve_id !== sig.eve_id));
+          setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
+        },
+        setSignatures,
+        FINAL_DURATION_MS,
+      );
+      const now = Date.now();
+      const updatedWithRemoval = castedUpdated.map(sig =>
+        removed.some(r => r.eve_id === sig.eve_id)
+          ? { ...sig, pendingDeletion: true, pendingUntil: now + FINAL_DURATION_MS }
+          : sig,
+      );
+      const onlyRemoved = removed
+        .map(r => ({ ...r, pendingDeletion: true, pendingUntil: now + FINAL_DURATION_MS }))
+        .filter(r => !updatedWithRemoval.some(m => m.eve_id === r.eve_id));
+      setSignatures([...updatedWithRemoval, ...onlyRemoved]);
+    },
+    [outCommand, systemId, setSignatures, setPendingDeletionMap, setPendingUndoDeletions],
+  );
+
+  /**
+   * Handle paste action by parsing the clipboard string, merging incoming
+   * signatures with existing ones, and then processing added or removed signatures.
+   */
   const handlePaste = useCallback(
     async (clipboardString: string) => {
-      const filteredNew = parseSignatures(
+      // Parse incoming signatures from the clipboard.
+      const incomingSignatures = parseSignatures(
         clipboardString,
         settings.map(x => x.key),
-      ).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      )
+        .map(s => ({ ...s }))
+        .filter(Boolean) as ExtendedSystemSignature[];
+
+      // Filter out signatures that are not pending deletion or addition.
       const currentNonPending = signaturesRef.current.filter(sig => !sig.pendingDeletion && !sig.pendingAddition);
-      const { added, updated, removed } = getActualSigs(currentNonPending, filteredNew, false, true);
+
+      // Merge incoming signatures with existing ones to preserve non-"CosmicSignature" kinds.
+      const mergedIncomingSignatures = mergeIncomingSignatures(incomingSignatures, currentNonPending);
+
+      // Determine the differences between the current and incoming signatures.
+      const { added, updated, removed } = getActualSigs(currentNonPending, mergedIncomingSignatures, false, true);
 
       if (added.length > 0) {
-        setPendingUndoAdditions(prev => [...prev, ...added]);
-        added.forEach((sig: SystemSignature) => {
-          const finalTimeoutId = window.setTimeout(() => {
-            setSignatures(prev =>
-              prev.map(s => (s.eve_id === sig.eve_id ? { ...s, pendingAddition: false, pendingUntil: undefined } : s)),
-            );
-            setPendingAdditionMap(map => {
-              const newMap = { ...map };
-              delete newMap[sig.eve_id];
-              return newMap;
-            });
-            setPendingUndoAdditions(prev => prev.filter(x => x.eve_id !== sig.eve_id));
-          }, FINAL_DURATION_MS);
-          const now = Date.now();
-          setPendingAdditionMap(map => ({
-            ...map,
-            [sig.eve_id]: {
-              finalUntil: now + FINAL_DURATION_MS,
-              finalTimeoutId,
-            },
-          }));
-          setSignatures(prev =>
-            prev.map(s =>
-              s.eve_id === sig.eve_id ? { ...s, pendingAddition: true, pendingUntil: now + FINAL_DURATION_MS } : s,
-            ),
-          );
-        });
+        processAddedSignatures(added);
       }
 
       if (removed.length > 0) {
-        setPendingUndoDeletions(prev => [...prev, ...removed]);
-        const resp = await outCommand({
-          type: OutCommand.updateSignatures,
-          data: prepareUpdatePayload(systemId, added, updated, []),
-        });
-        const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
-        scheduleLazyDeletionTimers(
-          removed,
-          setPendingDeletionMap,
-          async (sig: SystemSignature) => {
-            await outCommand({
-              type: OutCommand.updateSignatures,
-              data: prepareUpdatePayload(systemId, [], [], [sig]),
-            });
-            setPendingUndoDeletions(pu => pu.filter(x => x.eve_id !== sig.eve_id));
-            setSignatures(prev => prev.filter(s => s.eve_id !== sig.eve_id));
-          },
-          setSignatures,
-          FINAL_DURATION_MS,
-        );
-        const now3 = Date.now();
-        const updatedWithRemoval = castedUpdated.map(sig =>
-          removed.some(r => r.eve_id === sig.eve_id)
-            ? { ...sig, pendingDeletion: true, pendingUntil: now3 + FINAL_DURATION_MS }
-            : sig,
-        );
-        const onlyRemoved = removed
-          .map(r => ({ ...r, pendingDeletion: true, pendingUntil: now3 + FINAL_DURATION_MS }))
-          .filter(r => !updatedWithRemoval.some(m => m.eve_id === r.eve_id));
-        setSignatures([...updatedWithRemoval, ...onlyRemoved]);
+        await processRemovedSignatures(removed, added, updated);
       } else {
         const resp = await outCommand({
           type: OutCommand.updateSignatures,
@@ -223,7 +282,7 @@ export function useSystemSignaturesData({
         setSignatures(castedUpdated);
       }
     },
-    [settings, outCommand, systemId, signaturesRef, setSignatures],
+    [settings, outCommand, systemId, signaturesRef, setSignatures, processAddedSignatures, processRemovedSignatures],
   );
 
   useEffect(() => {
