@@ -37,7 +37,6 @@ interface SystemSignaturesContentProps {
   onLazyDeleteChange?: (value: boolean) => void;
   onCountChange: (count: number) => void;
   onPendingChange?: (pending: ExtendedSystemSignature[], undo: () => void) => void;
-  onBookmarkPasteComplete?: () => void;
 }
 
 export const SystemSignaturesContent = ({
@@ -48,17 +47,9 @@ export const SystemSignaturesContent = ({
   onSelect,
   onCountChange,
   onPendingChange,
-  onBookmarkPasteComplete,
 }: SystemSignaturesContentProps) => {
   const { signatures, selectedSignatures, setSelectedSignatures, handleDeleteSelected, handleSelectAll, handlePaste } =
-    useSystemSignaturesData({
-      systemId,
-      settings,
-      hideLinkedSignatures,
-      onCountChange,
-      onPendingChange,
-      onBookmarkPasteComplete,
-    });
+    useSystemSignaturesData({ systemId, settings, hideLinkedSignatures, onCountChange, onPendingChange });
 
   const [sortSettings, setSortSettings] = useLocalStorageState<{ sortField: string; sortOrder: SortOrder }>(
     'window:signatures:sort',

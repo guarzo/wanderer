@@ -36,14 +36,12 @@ export const SHOW_DESCRIPTION_COLUMN_SETTING = 'show_description_column_setting'
 export const SHOW_UPDATED_COLUMN_SETTING = 'SHOW_UPDATED_COLUMN_SETTING';
 export const LAZY_DELETE_SIGNATURES_SETTING = 'LAZY_DELETE_SIGNATURES_SETTING';
 export const KEEP_LAZY_DELETE_SETTING = 'KEEP_LAZY_DELETE_ENABLED_SETTING';
-export const BOOKMARK_PASTE_SETTING = 'BOOKMARK_PASTE_SETTING';
 
 const settings: Setting[] = [
   { key: SHOW_UPDATED_COLUMN_SETTING, name: 'Show Updated Column', value: false, isFilter: false },
   { key: SHOW_DESCRIPTION_COLUMN_SETTING, name: 'Show Description Column', value: false, isFilter: false },
   { key: LAZY_DELETE_SIGNATURES_SETTING, name: 'Lazy Delete Signatures', value: false, isFilter: false },
   { key: KEEP_LAZY_DELETE_SETTING, name: 'Keep "Lazy Delete" Enabled', value: false, isFilter: false },
-  { key: BOOKMARK_PASTE_SETTING, name: 'Bookmark Paste', value: false, isFilter: false },
   { key: COSMIC_ANOMALY, name: 'Show Anomalies', value: true, isFilter: true },
   { key: COSMIC_SIGNATURE, name: 'Show Cosmic Signatures', value: true, isFilter: true },
   { key: DEPLOYABLE, name: 'Show Deployables', value: true, isFilter: true },
@@ -85,10 +83,6 @@ export const SystemSignatures = () => {
     return currentSettings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!.value;
   }, [currentSettings]);
 
-  const bookmarkPasteValue = useMemo(() => {
-    return currentSettings.find(setting => setting.key === BOOKMARK_PASTE_SETTING)!.value;
-  }, [currentSettings]);
-
   const handleSettingsChange = useCallback((newSettings: Setting[]) => {
     setSettings(newSettings);
     localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(newSettings));
@@ -99,15 +93,6 @@ export const SystemSignatures = () => {
     setSettings(prevSettings => {
       const lazyDelete = prevSettings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!;
       lazyDelete.value = value;
-      localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(prevSettings));
-      return [...prevSettings];
-    });
-  }, []);
-
-  const handleBookmarkPasteChange = useCallback((value: boolean) => {
-    setSettings(prevSettings => {
-      const bookmarkPaste = prevSettings.find(setting => setting.key === BOOKMARK_PASTE_SETTING)!;
-      bookmarkPaste.value = value;
       localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(prevSettings));
       return [...prevSettings];
     });
@@ -149,20 +134,10 @@ export const SystemSignatures = () => {
               <WdCheckbox
                 size="xs"
                 labelSide="left"
-                label={compact ? '' : 'Lazy'}
+                label={compact ? '' : 'Lazy delete'}
                 value={lazyDeleteValue}
                 classNameLabel="text-stone-400 hover:text-stone-200 transition duration-300 whitespace-nowrap text-ellipsis overflow-hidden"
                 onChange={(event: CheckboxChangeEvent) => handleLazyDeleteChange(!!event.checked)}
-              />
-            </WdTooltipWrapper>
-            <WdTooltipWrapper content="Enable Bookmark Paste">
-              <WdCheckbox
-                size="xs"
-                labelSide="left"
-                label={compact ? '' : 'Bookmark'}
-                value={bookmarkPasteValue}
-                classNameLabel="text-stone-400 hover:text-stone-200 transition duration-300 whitespace-nowrap text-ellipsis overflow-hidden"
-                onChange={(event: CheckboxChangeEvent) => handleBookmarkPasteChange(!!event.checked)}
               />
             </WdTooltipWrapper>
             {pendingSigs.length > 0 && (
@@ -224,7 +199,6 @@ export const SystemSignatures = () => {
             setPendingSigs(pending);
             setUndoPending(() => undo);
           }}
-          onBookmarkPasteComplete={() => handleBookmarkPasteChange(false)}
         />
       )}
       {visible && (
