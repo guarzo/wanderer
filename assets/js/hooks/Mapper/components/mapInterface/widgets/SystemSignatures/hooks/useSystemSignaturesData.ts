@@ -146,12 +146,10 @@ export function useSystemSignaturesData({
 
   const handlePaste = useCallback(
     async (clipboardString: string) => {
-      const parsed = parseSignatures(
+      const filteredNew = parseSignatures(
         clipboardString,
         settings.map(x => x.key),
       ).map(s => ({ ...s })) as ExtendedSystemSignature[];
-      if (parsed.length === 0) return;
-      const filteredNew = parsed;
       const currentNonPending = signaturesRef.current.filter(sig => !sig.pendingDeletion && !sig.pendingAddition);
       const { added, updated, removed } = getActualSigs(currentNonPending, filteredNew, false, true);
 
