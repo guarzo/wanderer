@@ -15,14 +15,7 @@ type KillsBookmarkTooltipProps = {
 } & WithChildren &
   WithClassName;
 
-export const KillsCounter = ({
-  killsCount,
-  systemId,
-  className,
-  children,
-  size = 'xs',
-  timeRange = 1,
-}: KillsBookmarkTooltipProps) => {
+export const KillsCounter = ({ killsCount, systemId, className, children, size = 'xs' }: KillsBookmarkTooltipProps) => {
   const { isLoading, kills: detailedKills, systemNameMap } = useKillsCounter({ realSystemId: systemId });
 
   if (!killsCount || detailedKills.length === 0 || !systemId || isLoading) return null;
@@ -35,7 +28,6 @@ export const KillsCounter = ({
         compact={true}
         onlyOneSystem={true}
         autoSize={true}
-        timeRange={timeRange}
         limit={killsCount}
       />
     </div>
