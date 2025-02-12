@@ -149,7 +149,7 @@ export const SystemSignatures = () => {
               <WdCheckbox
                 size="xs"
                 labelSide="left"
-                label={compact ? '' : 'Lazy delete'}
+                label={compact ? '' : 'Lazy'}
                 value={lazyDeleteValue}
                 classNameLabel="text-stone-400 hover:text-stone-200 transition duration-300 whitespace-nowrap text-ellipsis overflow-hidden"
                 onChange={(event: CheckboxChangeEvent) => handleLazyDeleteChange(!!event.checked)}
@@ -159,7 +159,7 @@ export const SystemSignatures = () => {
               <WdCheckbox
                 size="xs"
                 labelSide="left"
-                label={compact ? '' : 'Bookmark Paste'}
+                label={compact ? '' : 'Bookmark'}
                 value={bookmarkPasteValue}
                 classNameLabel="text-stone-400 hover:text-stone-200 transition duration-300 whitespace-nowrap text-ellipsis overflow-hidden"
                 onChange={(event: CheckboxChangeEvent) => handleBookmarkPasteChange(!!event.checked)}
