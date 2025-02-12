@@ -8,7 +8,6 @@ import classes from './SystemKillsContent.module.scss';
 export interface SystemKillsContentProps {
   kills: DetailedKill[];
   systemNameMap: Record<string, string>;
-  compact?: boolean;
   onlyOneSystem?: boolean;
   autoSize?: boolean;
   timeRange?: number;

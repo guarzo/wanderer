@@ -11,7 +11,6 @@ type KillsBookmarkTooltipProps = {
   systemId: string;
   className?: string;
   size?: TooltipSize;
-  timeRange?: number;
 } & WithChildren &
   WithClassName;
 
