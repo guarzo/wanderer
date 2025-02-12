@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import useRefState from 'react-usestateref';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { OutCommand, Commands } from '@/hooks/Mapper/types/mapHandlers';
-import { SystemSignature } from '@/hooks/Mapper/types';
+import { SignatureGroup, SystemSignature } from '@/hooks/Mapper/types';
 import {
   ExtendedSystemSignature,
   prepareUpdatePayload,
@@ -13,6 +13,10 @@ import {
 import { getActualSigs } from '../helpers';
 import { useMapEventListener } from '@/hooks/Mapper/events';
 import { parseSignatures } from '@/hooks/Mapper/helpers';
+import {
+  TIME_ONE_DAY,
+  TIME_ONE_WEEK,
+} from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants.ts';
 
 export interface UseSystemSignaturesDataProps {
   systemId: string;
@@ -78,16 +82,30 @@ export function useSystemSignaturesData({
     [systemId, outCommand, signaturesRef, setSignatures],
   );
 
+  const isSignatureExpired = (signature: SystemSignature, currentTime: number): boolean => {
+    if (!signature.inserted_at) return false;
+    const insertedTime = new Date(signature.inserted_at).getTime();
+    const groupThreshold = signature.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_WEEK;
+    return currentTime - insertedTime > groupThreshold;
+  };
+
+  const getSelectedIds = (selectedSignatures: SystemSignature[]): string[] =>
+    selectedSignatures.map(signature => signature.eve_id);
+
+  useEffect(() => {
+    const currentTime = Date.now();
+    signaturesRef.current.filter(signature => isSignatureExpired(signature, currentTime));
+  }, [signaturesRef]);
+
   const handleDeleteSelected = useCallback(async () => {
     if (selectedSignatures.length === 0) return;
-    const selectedIds = selectedSignatures.map(x => x.eve_id);
+    const selectedIds = getSelectedIds(selectedSignatures);
     await handleUpdateSignatures(
-      signatures.filter(x => !selectedIds.includes(x.eve_id)),
+      signatures.filter(signature => !selectedIds.includes(signature.eve_id)),
       false,
       true,
     );
   }, [selectedSignatures, signatures, handleUpdateSignatures]);
-
   const handleSelectAll = useCallback(() => {
     setSelectedSignatures(signatures);
   }, [signatures]);
