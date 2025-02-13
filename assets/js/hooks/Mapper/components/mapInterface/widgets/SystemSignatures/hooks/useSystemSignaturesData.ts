@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import useRefState from 'react-usestateref';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
-import { SystemSignature } from '@/hooks/Mapper/types';
+import { SignatureGroup, SystemSignature } from '@/hooks/Mapper/types';
 import {
   ExtendedSystemSignature,
   FINAL_DURATION_MS,
@@ -14,6 +14,7 @@ import { getActualSigs } from '../helpers';
 import { useMapEventListener } from '@/hooks/Mapper/events';
 import { parseSignatures } from '@/hooks/Mapper/helpers';
 import { LAZY_DELETE_SIGNATURES_SETTING } from '@/hooks/Mapper/components/mapInterface/widgets';
+import { TIME_ONE_DAY, TIME_ONE_WEEK } from '../constants.ts';
 
 export interface UseSystemSignaturesDataProps {
   systemId: string;
@@ -235,6 +236,21 @@ export function useSystemSignaturesData({
     },
     [outCommand, systemId, setSignatures, setPendingDeletionMap, setPendingUndoDeletions],
   );
+
+  useEffect(() => {
+    const currentTime = Date.now();
+    const signaturesToDelete = signaturesRef.current.filter(sig => {
+      if (!sig.inserted_at) return false;
+      const insertedTime = new Date(sig.inserted_at).getTime();
+      const threshold = sig.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_WEEK;
+      return currentTime - insertedTime > threshold;
+    });
+    if (signaturesToDelete.length > 0) {
+      console.debug('[PeriodicDelete] Deleting', signaturesToDelete.length, 'old signatures.');
+      const remainingSignatures = signaturesRef.current.filter(sig => !signaturesToDelete.includes(sig));
+      handleUpdateSignatures(remainingSignatures, false, true);
+    }
+  }, [handleUpdateSignatures, signatures, signaturesRef]);
 
   /**
    * Handle paste action by parsing the clipboard string, merging incoming
