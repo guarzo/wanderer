@@ -3,7 +3,7 @@ import { Tooltip } from 'primereact/tooltip';
 import clsx from 'clsx';
 import { InfoDrawer } from '@/hooks/Mapper/components/ui-kit/InfoDrawer';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants.ts';
+import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants';
 import { useMemo } from 'react';
 
 const prepareMass = (mass: number) => {
