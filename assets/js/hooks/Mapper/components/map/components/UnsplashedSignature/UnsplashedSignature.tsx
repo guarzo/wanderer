@@ -4,7 +4,7 @@ import { InfoDrawer } from '@/hooks/Mapper/components/ui-kit';
 import classes from './UnsplashedSignature.module.scss';
 import { SystemSignature } from '@/hooks/Mapper/types/signatures';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants.ts';
+import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants';
 import { useMemo } from 'react';
 import clsx from 'clsx';
 import { renderInfoColumn } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/renders';

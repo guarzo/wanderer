@@ -11,10 +11,8 @@ export function useBackgroundVars(themeName?: string) {
 
 
   useEffect(() => {
-    // match any element whose entire `class` attribute ends with "-theme"
     let themeEl = document.querySelector('[class$="-theme"]');
 
-    // If none is found, fall back to the <html> element
     if (!themeEl) {
       themeEl = document.documentElement;
     }
@@ -39,9 +37,8 @@ export function useBackgroundVars(themeName?: string) {
 
     const gapNum = parseInt(cssVarGap, 10) || 16;
     const sizeNum = parseInt(cssVarSize, 10) || 1;
-    const snapSizeX = parseInt(cssVarSnapSizeX, 10) || 25; //react-flow default
-    const snapSizeY = parseInt(cssVarSnapSizeY, 10) || 25; //react-flow default
-
+    const snapSizeX = parseInt(cssVarSnapSizeX, 10) || 25;
+    const snapSizeY = parseInt(cssVarSnapSizeY, 10) || 25;
 
     setVariant(finalVariant);
     setGap(gapNum);
