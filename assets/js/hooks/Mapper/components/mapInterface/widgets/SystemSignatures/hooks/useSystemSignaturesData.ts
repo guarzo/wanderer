@@ -63,6 +63,7 @@ export function useSystemSignaturesData({
 
   const handleGetSignatures = useCallback(async () => {
     if (!systemId) {
+      console.debug('[handleGetSignatures] No systemId provided, clearing signatures.');
       setSignatures([]);
       return;
     }
@@ -76,6 +77,7 @@ export function useSystemSignaturesData({
     if (lazyDeleteValue) {
       extendedServer = mergeWithPendingFlags(extendedServer, signaturesRef.current);
     }
+    console.debug(`[handleGetSignatures] Fetched signatures from server, count: ${extendedServer.length}`);
     setSignatures(extendedServer);
   }, [systemId, outCommand, settings, signaturesRef, setSignatures]);
 
@@ -87,11 +89,15 @@ export function useSystemSignaturesData({
         updateOnly,
         skipUpdateUntouched,
       );
+      console.debug(
+        `[handleUpdateSignatures] Update requested. Added: ${added.length}, Updated: ${updated.length}, Removed: ${removed.length}`,
+      );
       const resp = await outCommand({
         type: OutCommand.updateSignatures,
         data: prepareUpdatePayload(systemId, added, updated, removed),
       });
       const castedUpdated = (resp.signatures as SystemSignature[]).map(s => ({ ...s })) as ExtendedSystemSignature[];
+      console.debug(`[handleUpdateSignatures] Updated signatures from server, count: ${castedUpdated.length}`);
       setSignatures(castedUpdated);
       setSelectedSignatures([]);
     },
@@ -101,6 +107,7 @@ export function useSystemSignaturesData({
   const handleDeleteSelected = useCallback(async () => {
     if (selectedSignatures.length === 0) return;
     const selectedIds = selectedSignatures.map(x => x.eve_id);
+    console.debug(`[handleDeleteSelected] Deleting selected signatures: ${selectedIds.join(', ')}`);
     await handleUpdateSignatures(
       signatures.filter(x => !selectedIds.includes(x.eve_id)),
       false,
@@ -113,8 +120,15 @@ export function useSystemSignaturesData({
   }, [signatures]);
 
   const undoPending = useCallback(() => {
-    Object.values(pendingDeletionMap).forEach(({ finalTimeoutId }) => clearTimeout(finalTimeoutId));
-    Object.values(pendingAdditionMap).forEach(({ finalTimeoutId }) => clearTimeout(finalTimeoutId));
+    console.debug('[undoPending] Initiating undo for pending actions.');
+    Object.values(pendingDeletionMap).forEach(({ finalTimeoutId }) => {
+      console.debug(`[undoPending] Clearing deletion timeout with id: ${finalTimeoutId}`);
+      clearTimeout(finalTimeoutId);
+    });
+    Object.values(pendingAdditionMap).forEach(({ finalTimeoutId }) => {
+      console.debug(`[undoPending] Clearing addition timeout with id: ${finalTimeoutId}`);
+      clearTimeout(finalTimeoutId);
+    });
 
     setSignatures(prev =>
       prev.map(sig => (sig.pendingDeletion ? { ...sig, pendingDeletion: false, pendingUntil: undefined } : sig)),
@@ -122,13 +136,15 @@ export function useSystemSignaturesData({
 
     Promise.all(
       pendingUndoAdditions.map(async sig => {
-        await outCommand({
+        console.debug(`[undoPending] Reverting pending addition for signature: ${sig.eve_id}`);
+        return outCommand({
           type: OutCommand.updateSignatures,
           data: prepareUpdatePayload(systemId, [], [], [sig]),
         });
       }),
     )
       .then(() => {
+        console.debug('[undoPending] Successfully undone pending additions. Updating signatures state.');
         setSignatures(prev => prev.filter(sig => !pendingUndoAdditions.some(p => p.eve_id === sig.eve_id)));
       })
       .catch(err => {
@@ -139,6 +155,7 @@ export function useSystemSignaturesData({
     setPendingUndoDeletions([]);
     setPendingAdditionMap({});
     setPendingUndoAdditions([]);
+    console.debug('[undoPending] Cleared all pending deletion and addition states.');
   }, [pendingDeletionMap, pendingAdditionMap, pendingUndoAdditions, outCommand, systemId, setSignatures]);
 
   useEffect(() => {
@@ -149,9 +166,20 @@ export function useSystemSignaturesData({
   const processAddedSignatures = useCallback(
     (added: ExtendedSystemSignature[]) => {
       if (added.length === 0) return;
+      console.debug(
+        `[processAddedSignatures] Processing ${added.length} added signatures: ${added.map(s => s.eve_id).join(', ')}`,
+      );
       setPendingUndoAdditions(prev => [...prev, ...added]);
       added.forEach((sig: SystemSignature) => {
+        const now = Date.now();
+        const finalTime = now + FINAL_DURATION_MS;
+        console.debug(
+          `[processAddedSignatures] Marking signature ${sig.eve_id} as pending addition until ${new Date(
+            finalTime,
+          ).toISOString()}`,
+        );
         const finalTimeoutId = window.setTimeout(() => {
+          console.debug(`[processAddedSignatures] Finalizing pending addition for signature ${sig.eve_id}`);
           setSignatures(prev =>
             prev.map(s => (s.eve_id === sig.eve_id ? { ...s, pendingAddition: false, pendingUntil: undefined } : s)),
           );
@@ -163,17 +191,16 @@ export function useSystemSignaturesData({
           setPendingUndoAdditions(prev => prev.filter(x => x.eve_id !== sig.eve_id));
         }, FINAL_DURATION_MS);
 
-        const now = Date.now();
         setPendingAdditionMap(map => ({
           ...map,
           [sig.eve_id]: {
-            finalUntil: now + FINAL_DURATION_MS,
+            finalUntil: finalTime,
             finalTimeoutId,
           },
         }));
         setSignatures(prev =>
           prev.map(s =>
-            s.eve_id === sig.eve_id ? { ...s, pendingAddition: true, pendingUntil: now + FINAL_DURATION_MS } : s,
+            s.eve_id === sig.eve_id ? { ...s, pendingAddition: true, pendingUntil: finalTime } : s,
           ),
         );
       });
@@ -188,6 +215,11 @@ export function useSystemSignaturesData({
       updated: ExtendedSystemSignature[],
     ) => {
       if (removed.length === 0) return;
+      console.debug(
+        `[processRemovedSignatures] Processing removal for ${removed.length} signatures: ${removed
+          .map(s => s.eve_id)
+          .join(', ')}`,
+      );
       setPendingUndoDeletions(prev => [...prev, ...removed]);
 
       const resp = await outCommand({
@@ -200,6 +232,7 @@ export function useSystemSignaturesData({
         removed,
         setPendingDeletionMap,
         async (sig: SystemSignature) => {
+          console.debug(`[processRemovedSignatures] Finalizing pending deletion for signature ${sig.eve_id}`);
           await outCommand({
             type: OutCommand.updateSignatures,
             data: prepareUpdatePayload(systemId, [], [], [sig]),
@@ -221,6 +254,14 @@ export function useSystemSignaturesData({
         .map(r => ({ ...r, pendingDeletion: true, pendingUntil: now + FINAL_DURATION_MS }))
         .filter(r => !updatedWithRemoval.some(m => m.eve_id === r.eve_id));
 
+      console.debug(
+        `[processRemovedSignatures] Updating signatures state after removal. Pending deletion signatures: ${[
+          ...updatedWithRemoval,
+          ...onlyRemoved,
+        ]
+          .map(s => s.eve_id)
+          .join(', ')}`,
+      );
       setSignatures([...updatedWithRemoval, ...onlyRemoved]);
     },
     [outCommand, systemId, setSignatures, setPendingDeletionMap, setPendingUndoDeletions],
@@ -244,6 +285,7 @@ export function useSystemSignaturesData({
 
   const handlePaste = useCallback(
     async (clipboardString: string) => {
+      console.debug('[handlePaste] Pasting signatures from clipboard.');
       const incomingSignatures = parseSignatures(
         clipboardString,
         settings.map(x => x.key),
@@ -256,6 +298,9 @@ export function useSystemSignaturesData({
       const mergedIncomingSignatures = mergeIncomingSignatures(incomingSignatures, currentNonPending);
 
       const { added, updated, removed } = getActualSigs(currentNonPending, mergedIncomingSignatures, false, true);
+      console.debug(
+        `[handlePaste] Parsed signatures. Incoming: ${incomingSignatures.length}, Merged: ${mergedIncomingSignatures.length}, Added: ${added.length}, Updated: ${updated.length}, Removed: ${removed.length}`,
+      );
 
       if (added.length > 0) {
         processAddedSignatures(added);
