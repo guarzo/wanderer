@@ -49,7 +49,7 @@ const INITIAL_DATA: MapRootData = {
 export enum AvailableThemes {
   default = 'default',
   pathfinder = 'pathfinder',
-  zoo = 'faoble',
+  zoo = 'zoo',
 }
 
 export enum InterfaceStoredSettingsProps {
@@ -82,7 +82,7 @@ export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
   isShowUnsplashedSignatures: true,
   isShowBackgroundPattern: true,
   isSoftBackground: false,
-  theme: AvailableThemes.zoo,
+  theme: AvailableThemes.default,
 };
 
 export interface MapRootContextProps {
