@@ -7,15 +7,14 @@
   --rf-snap-sizeY: 17;
   --rf-has-user-characters: #5cb85c;
 
-  /* Zoo Effect Color Classes */
   .eve-zoo-effect-color-has-eol {
     fill: #FF69B4;             // Pinker EOL
     background-color: #FF69B4;
   }
 
   .eve-zoo-effect-color-unsplashed {
-    fill: #CCCCCC;
-    background-color: #CCCCCC;
+    fill: #2C3E50;
+    background-color: #2C3E50;
   }
 
   .eve-zoo-effect-color-has-gas {
@@ -31,6 +30,16 @@
   .eve-zoo-effect-color-is-dead-end {
     fill: #34495E;
     background-color: #34495E;
+  }
+
+  .eve-zoo-effect-color-flygd {
+    fill: #F0F0F0;
+    background-color: #F0F0F0;
+  }
+
+  .eve-zoo-effect-color-wormhole {
+    fill: #FFFFE0;
+    background-color: #FFFFE0;
   }
 
   /* Zoo Text Color Classes */
