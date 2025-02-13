@@ -1,5 +1,6 @@
 # Wanderer
 
+
 [Wanderer](https://wanderer.ltd/) is an #1 EVE Online mapper tool, light and fast alternative to Pathfinder. You can self-host Wanderer Community Edition or have us manage Wanderer for you in the cloud. Made and hosted in the EU 🇪🇺
 
 ![Wanderer](https://wanderer.ltd/images/news/09-10-map-features-guide/cover.png)
