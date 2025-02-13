@@ -118,7 +118,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   const [ownerURL, setOwnerURL] = useState('');
 
   useEffect(() => {
-    // Reset or handle no owner
     if (!owner_id || !owner_type) {
       setOwnerTicker(null);
       setOwnerURL('');
@@ -213,25 +212,41 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     return null;
   }, [isTempSystemNameEnabled, computedTemporaryName, name, solar_system_name]);
 
-  const [unsplashedLeft, unsplashedRight] = useMemo(() => {
-    return prepareUnsplashedChunks(
-      systemSigs
-        .filter(s => s.group === 'Wormhole' && !s.linked_system)
-        .map(s => ({
-          eve_id: s.eve_id,
-          type: s.type,
-          custom_info: s.custom_info,
-          kind: s.kind,
-          name: s.name,
-          group: s.group,
-        })) as UnsplashedSignatureType[],
-    );
+  const { unsplashedLeft, unsplashedRight, newestUpdatedAt } = useMemo(() => {
+    const filteredSignatures = systemSigs.filter(s => s.group === 'Wormhole' && !s.linked_system);
+
+    const mappedSignatures = filteredSignatures.map(s => ({
+      eve_id: s.eve_id,
+      type: s.type,
+      custom_info: s.custom_info,
+      kind: s.kind,
+      name: s.name,
+      group: s.group,
+      updated_at: s.updated_at,
+    })) as UnsplashedSignatureType[];
+
+    const getSignatureTimestamp = (s: SystemSignature): number => {
+      if (s.updated_at) {
+        return new Date(s.updated_at).getTime();
+      } else if (s.inserted_at) {
+        return new Date(s.inserted_at).getTime();
+      }
+      return 0;
+    };
+
+    const newestTimestamp = filteredSignatures.reduce((max, s) => {
+      const current = getSignatureTimestamp(s);
+      return current > max ? current : max;
+    }, 0);
+
+    const [unsplashedLeft, unsplashedRight] = prepareUnsplashedChunks(mappedSignatures);
+
+    return { unsplashedLeft, unsplashedRight, newestUpdatedAt: newestTimestamp };
   }, [systemSigs]);
 
-  // Ensure hubs are always strings.
   const hubsAsStrings = useMemo(() => hubs.map(item => item.toString()), [hubs]);
 
-  const nodeVars: SolarSystemNodeVars = {
+  return {
     id,
     selected,
     visible,
@@ -270,9 +285,8 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     ownerTicker,
     ownerURL,
     systemSigs,
+    newestUpdatedAt,
   };
-
-  return nodeVars;
 }
 
 export interface SolarSystemNodeVars {
@@ -314,6 +328,7 @@ export interface SolarSystemNodeVars {
   ownerTicker?: string | null;
   ownerURL?: string | null;
   systemSigs?: SystemSignature[];
+  newestUpdatedAt: number;
 }
 
 export function useNodeKillsCount(systemId: number | string, initialKillsCount: number | null): number | null {
