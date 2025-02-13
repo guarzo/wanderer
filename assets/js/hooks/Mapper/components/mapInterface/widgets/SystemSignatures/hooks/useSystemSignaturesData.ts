@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import useRefState from 'react-usestateref';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
-import { SignatureKind, SystemSignature } from '@/hooks/Mapper/types';
+import { SystemSignature } from '@/hooks/Mapper/types';
 import {
   ExtendedSystemSignature,
   FINAL_DURATION_MS,
@@ -23,14 +23,24 @@ export interface UseSystemSignaturesDataProps {
   onPendingChange?: (pending: ExtendedSystemSignature[], undo: () => void) => void;
 }
 
+/**
+ * When pasting signatures, we merge incoming duplicates with those already in memory.
+ * To ensure that a duplicate paste refreshes the signature’s updated_at, we override
+ * that property with the current timestamp.
+ */
 function mergeIncomingSignatures(
   incoming: ExtendedSystemSignature[],
   currentNonPending: ExtendedSystemSignature[],
 ): ExtendedSystemSignature[] {
   return incoming.map(newSig => {
     const existingSig = currentNonPending.find(sig => sig.eve_id === newSig.eve_id);
-    if (existingSig && existingSig.kind && existingSig.kind !== SignatureKind.CosmicSignature) {
-      return { ...newSig, kind: existingSig.kind };
+    if (existingSig) {
+      return {
+        ...newSig,
+        kind: existingSig.kind,
+        // Reset updated_at to current time so that duplicates are refreshed
+        updated_at: new Date().toISOString(),
+      };
     }
     return newSig;
   });
@@ -243,7 +253,8 @@ export function useSystemSignaturesData({
       // Filter out signatures that are not pending deletion or addition.
       const currentNonPending = signaturesRef.current.filter(sig => !sig.pendingDeletion && !sig.pendingAddition);
 
-      // Merge incoming signatures with existing ones to preserve non-"CosmicSignature" kinds.
+      // Merge incoming signatures with existing ones.
+      // (Now duplicates will have their updated_at reset to the current time)
       const mergedIncomingSignatures = mergeIncomingSignatures(incomingSignatures, currentNonPending);
 
       // Determine the differences between the current and incoming signatures.

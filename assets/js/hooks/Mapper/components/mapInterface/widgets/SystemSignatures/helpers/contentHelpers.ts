@@ -8,7 +8,7 @@ export interface ExtendedSystemSignature extends SystemSignature {
   pendingAdditionFinal?: boolean;
 }
 
-export const FINAL_DURATION_MS = 30000;
+export const FINAL_DURATION_MS = 10000;
 
 export function toSystemSignature(sig: ExtendedSystemSignature): SystemSignature {
   return sig as SystemSignature;

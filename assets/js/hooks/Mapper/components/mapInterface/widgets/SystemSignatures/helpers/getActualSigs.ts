@@ -66,6 +66,11 @@ export const getActualSigs = (
       } catch (e) {
         console.error(`getActualSigs: Error merging custom_info for ${oldSig.eve_id}`, e);
       }
+      // NEW: Check if updated_at has changed
+      if (newSig.updated_at !== oldSig.updated_at) {
+        mergedSig.updated_at = newSig.updated_at;
+        changed = true;
+      }
       if (changed) {
         updated.push(mergedSig);
       } else if (!skipUpdateUntouched) {
