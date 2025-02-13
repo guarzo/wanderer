@@ -159,7 +159,7 @@ export enum OutCommand {
   getCorporationTicker = 'get_corporation_ticker',
   getSystemKills = 'get_system_kills',
   getSystemsKills = 'get_systems_kills',
-  updateSystemCustomFlags = "update_system_custom_flags",
+  updateSystemCustomFlags = 'update_system_custom_flags',
 
   getAllianceNames = 'get_alliance_names',
   getAllianceTicker = 'get_alliance_ticker',
