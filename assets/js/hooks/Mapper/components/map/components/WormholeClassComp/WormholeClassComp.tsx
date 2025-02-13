@@ -1,9 +1,9 @@
 import { useMapState } from '@/hooks/Mapper/components/map/MapProvider.tsx';
-import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants.ts';
+import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants';
 import clsx from 'clsx';
 
 interface WormholeClassComp {
-  id: string;
+  id: string | number;
 }
 export const WormholeClassComp = ({ id }: WormholeClassComp) => {
   const {
