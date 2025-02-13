@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import useRefState from 'react-usestateref';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
-import { SignatureKind, SystemSignature } from '@/hooks/Mapper/types';
+import { SystemSignature, SignatureGroup } from '@/hooks/Mapper/types';
 import {
   ExtendedSystemSignature,
   FINAL_DURATION_MS,
@@ -14,6 +14,7 @@ import { getActualSigs } from '../helpers';
 import { useMapEventListener } from '@/hooks/Mapper/events';
 import { parseSignatures } from '@/hooks/Mapper/helpers';
 import { LAZY_DELETE_SIGNATURES_SETTING } from '@/hooks/Mapper/components/mapInterface/widgets';
+import { TIME_ONE_DAY, TIME_ONE_WEEK } from '../constants.ts';
 
 export interface UseSystemSignaturesDataProps {
   systemId: string;
@@ -29,8 +30,12 @@ function mergeIncomingSignatures(
 ): ExtendedSystemSignature[] {
   return incoming.map(newSig => {
     const existingSig = currentNonPending.find(sig => sig.eve_id === newSig.eve_id);
-    if (existingSig && existingSig.kind && existingSig.kind !== SignatureKind.CosmicSignature) {
-      return { ...newSig, kind: existingSig.kind };
+    if (existingSig) {
+      return {
+        ...newSig,
+        kind: existingSig.kind,
+        updated_at: new Date().toISOString(),
+      };
     }
     return newSig;
   });
@@ -143,10 +148,6 @@ export function useSystemSignaturesData({
     onPendingChange?.(combinedPending, undoPending);
   }, [pendingUndoDeletions, pendingUndoAdditions, onPendingChange, undoPending]);
 
-  /**
-   * Processes the added signatures by setting pending flags and scheduling
-   * their removal after the final duration.
-   */
   const processAddedSignatures = useCallback(
     (added: ExtendedSystemSignature[]) => {
       if (added.length === 0) return;
@@ -181,10 +182,6 @@ export function useSystemSignaturesData({
     [setSignatures, setPendingAdditionMap, setPendingUndoAdditions],
   );
 
-  /**
-   * Processes the removed signatures by updating the server and scheduling
-   * lazy deletion timers.
-   */
   const processRemovedSignatures = useCallback(
     async (
       removed: ExtendedSystemSignature[],
@@ -226,10 +223,21 @@ export function useSystemSignaturesData({
     [outCommand, systemId, setSignatures, setPendingDeletionMap, setPendingUndoDeletions],
   );
 
-  /**
-   * Handle paste action by parsing the clipboard string, merging incoming
-   * signatures with existing ones, and then processing added or removed signatures.
-   */
+  -useEffect(() => {
+    const currentTime = Date.now();
+    const signaturesToDelete = signaturesRef.current.filter(sig => {
+      if (!sig.inserted_at) return false;
+      const insertedTime = new Date(sig.inserted_at).getTime();
+      const threshold = sig.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_WEEK;
+      return currentTime - insertedTime > threshold;
+    });
+    if (signaturesToDelete.length > 0) {
+      console.debug('[PeriodicDelete] Deleting', signaturesToDelete.length, 'old signatures.');
+      const remainingSignatures = signaturesRef.current.filter(sig => !signaturesToDelete.includes(sig));
+      handleUpdateSignatures(remainingSignatures, false, true);
+    }
+  }, [handleUpdateSignatures, signatures, signaturesRef]);
+
   const handlePaste = useCallback(
     async (clipboardString: string) => {
       // Parse incoming signatures from the clipboard.
@@ -243,7 +251,8 @@ export function useSystemSignaturesData({
       // Filter out signatures that are not pending deletion or addition.
       const currentNonPending = signaturesRef.current.filter(sig => !sig.pendingDeletion && !sig.pendingAddition);
 
-      // Merge incoming signatures with existing ones to preserve non-"CosmicSignature" kinds.
+      // Merge incoming signatures with existing ones.
+      // (Now duplicates will have their updated_at reset to the current time)
       const mergedIncomingSignatures = mergeIncomingSignatures(incomingSignatures, currentNonPending);
 
       // Determine the differences between the current and incoming signatures.
