@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
-import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo';
-import { useCommandsSystems } from '@/hooks/Mapper/mapRootProvider/hooks/api/useCommandsSystems';
-import { SystemSignature } from '@/hooks/Mapper/types';
+import { Commands, OutCommand, SystemSignature } from '@/hooks/Mapper/types';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { useMapEventListener } from '@/hooks/Mapper/events';
 
 function safeString(value?: string | null, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
@@ -25,7 +25,7 @@ export function useZooNames(
     ownerTicker?: string | null;
     isWormhole?: boolean;
   },
-  { data: { custom_flags } }: NodeProps<MapSolarSystemType>
+  { data: { custom_flags } }: NodeProps<MapSolarSystemType>,
 ) {
   return useMemo(() => {
     const safeSolarSystemName = safeString(solarSystemName);
@@ -34,7 +34,6 @@ export function useZooNames(
     const safeLabelCustom = safeString(labelCustom);
     const safeOwnerTicker = safeString(ownerTicker);
     const safeFlags = safeString(custom_flags);
-
 
     const computedSystemName = safeTemporaryName;
     const computedCustomLabel = isWormhole
@@ -53,15 +52,7 @@ export function useZooNames(
       customLabel: computedCustomLabel,
       customName: computedCustomName,
     };
-  }, [
-    temporaryName,
-    solarSystemName,
-    regionName,
-    labelCustom,
-    ownerTicker,
-    isWormhole,
-    custom_flags,
-  ]);
+  }, [temporaryName, solarSystemName, regionName, labelCustom, ownerTicker, isWormhole, custom_flags]);
 }
 
 export function useZooLabels(
@@ -69,53 +60,114 @@ export function useZooLabels(
   {
     unsplashedLeft,
     unsplashedRight,
-    systemSigs,
   }: {
-    unsplashedLeft: any[];  // type these properly
-    unsplashedRight: any[];
-    systemSigs?: SystemSignature[] | null;
-  }
+    unsplashedLeft: SystemSignature[];
+    unsplashedRight: SystemSignature[];
+  },
 ) {
-    const unsplashedCount =
-      unsplashedLeft.length + unsplashedRight.length - connectionCount;
-
-    let hasEol = false;
-    let isDeadEnd = true;
-    let hasGas = false;
-    let hasCrit = false;
-
-    if (systemSigs) {
-      for (const s of systemSigs) {
-        const customInfo = parseSignatureCustomInfo(s.custom_info);
-        if (s.group === 'Wormhole' || s.group === 'Cosmic Signature') {
-          isDeadEnd = false;
-        }
-        if (s.group === 'Wormhole' && customInfo?.isEOL) {
-          hasEol = true;
-        }
-        if (s.group === 'Wormhole' && customInfo?.isCrit) {
-          hasCrit = true;
-        }
-        if (s.group?.toLowerCase() === 'gas site') {
-          hasGas = true;
-        }
-        if (!isDeadEnd && hasEol && hasGas && hasCrit) {
-          break;
-        }
-      }
-    }
-
-    return { unsplashedCount, hasEol, hasGas, isDeadEnd, hasCrit };
+  const unsplashedCount = unsplashedLeft.length + unsplashedRight.length - connectionCount;
+  return { unsplashedCount };
 }
 
-export function useUpdateSignatures(systemId: string): void {
-  const { updateSystemSignatures } = useCommandsSystems();
-  const didFetchRef = useRef(false);
+export function useNodeSignatures(systemId: string): SystemSignature[] {
+  const { outCommand } = useMapRootState();
+  const [signatures, setSignatures] = useState<SystemSignature[]>([]);
+
+  // Define a function to fetch the signatures for a system.
+  const fetchSignatures = useCallback(async () => {
+    try {
+      const response = await outCommand({
+        type: OutCommand.getSignatures,
+        data: { system_id: systemId },
+      });
+      setSignatures(response.signatures ?? []);
+    } catch (error) {
+      console.error('Failed to fetch signatures', error);
+    }
+  }, [outCommand, systemId]);
+
+  // Fetch signatures once when the systemId changes.
+  useEffect(() => {
+    fetchSignatures();
+  }, [fetchSignatures]);
+
+  // Listen for a signaturesUpdated event for this system.
+  useMapEventListener(event => {
+    if (event.name === Commands.signaturesUpdated && event.data?.toString() === systemId.toString()) {
+      const data = event.data as Record<string, SystemSignature[]>;
+      if (data && data[systemId]) {
+        const newSignatures = data[systemId];
+        if (Array.isArray(newSignatures)) {
+          setSignatures(newSignatures);
+        }
+      }
+      return true;
+    }
+    return false;
+  });
+
+  return signatures;
+}
+
+export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    if (!didFetchRef.current) {
-      didFetchRef.current = true;
-      updateSystemSignatures(systemId)
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 3600000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return useMemo(() => {
+    if (!systemSigs || systemSigs.length === 0) {
+      return {
+        newestUpdatedAt: 0,
+        signatureAgeHours: 0,
+        bookmarkColor: '#388E3C',
+      };
     }
-  }, [systemId, updateSystemSignatures]);
+
+    const filteredSignatures = systemSigs.filter(s => s.group === 'Wormhole' && !s.linked_system);
+
+    const getSignatureTimestamp = (s: SystemSignature): number => {
+      if (s.updated_at) {
+        return new Date(s.updated_at).getTime();
+      } else if (s.inserted_at) {
+        return new Date(s.inserted_at).getTime();
+      }
+      return 0;
+    };
+
+    const newestTimestamp = filteredSignatures.reduce((max, s) => {
+      const ts = getSignatureTimestamp(s);
+      return ts > max ? ts : max;
+    }, 0);
+
+    let signatureAgeHours = 0;
+    if (newestTimestamp > 0) {
+      const adjustedNow = now + new Date().getTimezoneOffset() * 60000;
+      const ageMs = adjustedNow - newestTimestamp;
+      signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
+      signatureAgeHours = Math.max(0, signatureAgeHours);
+    }
+
+    let bookmarkColor = '#388E3C';
+    if (signatureAgeHours < 4) {
+      bookmarkColor = '#388E3C';
+    } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
+      bookmarkColor = '#E65100';
+    } else if (signatureAgeHours > 8 && signatureAgeHours <= 12) {
+      bookmarkColor = '#B71C1C';
+    } else {
+      signatureAgeHours = -1;
+    }
+
+    return {
+      newestUpdatedAt: newestTimestamp,
+      signatureAgeHours,
+      bookmarkColor,
+      now,
+    };
+  }, [systemSigs, now]);
 }
