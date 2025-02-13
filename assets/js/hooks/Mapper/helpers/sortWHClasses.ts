@@ -1,4 +1,4 @@
-import { WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants.ts';
+import { WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants';
 import { WormholeDataRaw } from '@/hooks/Mapper/types';
 
 export const sortWHClasses = (wormholesData: Record<string, WormholeDataRaw>, statics: string[]) => {
