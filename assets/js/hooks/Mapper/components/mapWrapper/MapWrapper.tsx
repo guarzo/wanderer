@@ -109,7 +109,7 @@ export const MapWrapper = () => {
 
       open(ev, systemId);
     },
-    [open],
+    [handleSystemMultipleContext, open],
   );
 
   const handleConnectionDbClick = useCallback((e: SolarSystemConnection) => setSelectedConnection(e), []);
@@ -164,7 +164,7 @@ export const MapWrapper = () => {
       />
 
       {openSettings != null && (
-        <SystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
+        <CustomSystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
       )}
 
       {openCustomLabel != null && (
