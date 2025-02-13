@@ -19,16 +19,15 @@ import {
   STRUCTURE,
   SystemSignatureSettingsDialog,
 } from './SystemSignatureSettingsDialog';
-import { SignatureGroup } from '@/hooks/Mapper/types';
+import { SignatureGroup, SystemSignature } from '@/hooks/Mapper/types';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
 import { PrimeIcons } from 'primereact/api';
-
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { CheckboxChangeEvent } from 'primereact/checkbox';
-import useMaxWidth from '@/hooks/Mapper/hooks/useMaxWidth.ts';
+import useMaxWidth from '@/hooks/Mapper/hooks/useMaxWidth';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
+import { useHotkey } from '@/hooks/Mapper/hooks';
 
 const SIGNATURE_SETTINGS_KEY = 'wanderer_system_signature_settings_v5_2';
 export const SHOW_DESCRIPTION_COLUMN_SETTING = 'show_description_column_setting';
@@ -41,6 +40,7 @@ const settings: Setting[] = [
   { key: SHOW_DESCRIPTION_COLUMN_SETTING, name: 'Show Description Column', value: false, isFilter: false },
   { key: LAZY_DELETE_SIGNATURES_SETTING, name: 'Lazy Delete Signatures', value: false, isFilter: false },
   { key: KEEP_LAZY_DELETE_SETTING, name: 'Keep "Lazy Delete" Enabled', value: false, isFilter: false },
+
   { key: COSMIC_ANOMALY, name: 'Show Anomalies', value: true, isFilter: true },
   { key: COSMIC_SIGNATURE, name: 'Show Cosmic Signatures', value: true, isFilter: true },
   { key: DEPLOYABLE, name: 'Show Deployables', value: true, isFilter: true },
@@ -66,34 +66,41 @@ export const SystemSignatures = () => {
   } = useMapRootState();
 
   const [visible, setVisible] = useState(false);
-  const [settings, setSettings] = useState<Setting[]>(defaultSettings);
+  const [currentSettings, setSettings] = useState<Setting[]>(defaultSettings);
+  const [sigCount, setSigCount] = useState<number>(0);
+  const [pendingSigs, setPendingSigs] = useState<SystemSignature[]>([]);
+  const [undoPending, setUndoPending] = useState<() => void>(() => () => {});
+
+  const [hideLinkedSignatures, setHideLinkedSignatures] = useState<boolean>(false); // <--- NEW
+
+  const handleSigCountChange = useCallback((count: number) => {
+    setSigCount(count);
+  }, []);
 
   const [systemId] = selectedSystems;
-
   const isNotSelectedSystem = selectedSystems.length !== 1;
 
   const lazyDeleteValue = useMemo(() => {
-    return settings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!.value;
-  }, [settings]);
+    return currentSettings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!.value;
+  }, [currentSettings]);
 
-  const handleSettingsChange = useCallback((settings: Setting[]) => {
-    setSettings(settings);
-    localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(settings));
+  const handleSettingsChange = useCallback((newSettings: Setting[]) => {
+    setSettings(newSettings);
+    localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(newSettings));
     setVisible(false);
   }, []);
 
   const handleLazyDeleteChange = useCallback((value: boolean) => {
-    setSettings(settings => {
-      const lazyDelete = settings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!;
+    setSettings(prevSettings => {
+      const lazyDelete = prevSettings.find(setting => setting.key === LAZY_DELETE_SIGNATURES_SETTING)!;
       lazyDelete.value = value;
-      localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(settings));
-      return [...settings];
+      localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(prevSettings));
+      return [...prevSettings];
     });
   }, []);
 
   useEffect(() => {
     const restoredSettings = localStorage.getItem(SIGNATURE_SETTINGS_KEY);
-
     if (restoredSettings) {
       setSettings(JSON.parse(restoredSettings));
     }
@@ -102,6 +109,16 @@ export const SystemSignatures = () => {
   const ref = useRef<HTMLDivElement>(null);
   const compact = useMaxWidth(ref, 260);
 
+  // Undo pending with hotkey 'z'
+  useHotkey(true, ['z'], (event: KeyboardEvent) => {
+    if (pendingSigs.length > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      undoPending();
+      setPendingSigs([]);
+    }
+  });
+
   return (
     <Widget
       label={
@@ -109,12 +126,11 @@ export const SystemSignatures = () => {
           <div className="flex justify-between items-center gap-1">
             {!compact && (
               <div className="flex whitespace-nowrap text-ellipsis overflow-hidden text-stone-400">
-                Signatures {isNotSelectedSystem ? '' : 'in'}
+                {!sigCount ? '' : `[${sigCount}]`} Signatures {isNotSelectedSystem ? '' : 'in'}
               </div>
             )}
             {!isNotSelectedSystem && <SystemView systemId={systemId} className="select-none text-center" hideRegion />}
           </div>
-
           <LayoutEventBlocker className="flex gap-2.5">
             <WdTooltipWrapper content="Enable Lazy delete">
               <WdCheckbox
@@ -127,6 +143,28 @@ export const SystemSignatures = () => {
               />
             </WdTooltipWrapper>
 
+            {/* Toggle for hideLinkedSignatures */}
+            <WdTooltipWrapper content="Hide signatures that are linked to another system">
+              <WdCheckbox
+                size="xs"
+                labelSide="left"
+                label={compact ? '' : 'Hide Linked'}
+                value={hideLinkedSignatures}
+                onChange={e => setHideLinkedSignatures(!!e.checked)}
+              />
+            </WdTooltipWrapper>
+
+            {pendingSigs.length > 0 && (
+              <WdImgButton
+                className={PrimeIcons.UNDO}
+                style={{ color: 'red' }}
+                tooltip={{ content: `Undo pending deletions (${pendingSigs.length})` }}
+                onClick={() => {
+                  undoPending();
+                  setPendingSigs([]);
+                }}
+              />
+            )}
             <WdImgButton
               className={PrimeIcons.QUESTION_CIRCLE}
               tooltip={{
@@ -166,11 +204,21 @@ export const SystemSignatures = () => {
           System is not selected
         </div>
       ) : (
-        <SystemSignaturesContent systemId={systemId} settings={settings} onLazyDeleteChange={handleLazyDeleteChange} />
+        <SystemSignaturesContent
+          systemId={systemId}
+          settings={currentSettings}
+          hideLinkedSignatures={hideLinkedSignatures}
+          onLazyDeleteChange={handleLazyDeleteChange}
+          onCountChange={handleSigCountChange}
+          onPendingChange={(pending, undo) => {
+            setPendingSigs(pending);
+            setUndoPending(() => undo);
+          }}
+        />
       )}
       {visible && (
         <SystemSignatureSettingsDialog
-          settings={settings}
+          settings={currentSettings}
           onCancel={() => setVisible(false)}
           onSave={handleSettingsChange}
         />
