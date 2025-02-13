@@ -75,7 +75,7 @@ export const useUpdateNodes = (nodes: Node<SolarSystemRawType>[]) => {
 
     const visibleNodes = new Set(nodes.filter(x => isNodeVisible(x, viewport)).map(x => x.id));
     update({ visibleNodes });
-  }, [nodes]);
+  }, [getViewport, nodes, update]);
 
   useOnViewportChange({
     onChange: () => throttle(updateNodesVisibility.bind(this)),
@@ -84,5 +84,5 @@ export const useUpdateNodes = (nodes: Node<SolarSystemRawType>[]) => {
 
   useEffect(() => {
     updateNodesVisibility();
-  }, [nodes]);
+  }, [nodes, updateNodesVisibility]);
 };
