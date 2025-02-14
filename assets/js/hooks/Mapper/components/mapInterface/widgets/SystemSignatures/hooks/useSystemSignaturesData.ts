@@ -61,7 +61,7 @@ function schedulePendingAdditionForSig(
   setPendingAdditionMap: React.Dispatch<
     React.SetStateAction<Record<string, { finalUntil: number; finalTimeoutId: number }>>
   >,
-  setPendingUndoAdditions: React.Dispatch<React.SetStateAction<ExtendedSystemSignature[]>>
+  setPendingUndoAdditions: React.Dispatch<React.SetStateAction<ExtendedSystemSignature[]>>,
 ) {
   const now = Date.now();
   const finalTimeoutId = window.setTimeout(() => {
@@ -86,9 +86,7 @@ function schedulePendingAdditionForSig(
   }));
 
   setSignatures(prev =>
-    prev.map(s =>
-      s.eve_id === sig.eve_id ? { ...s, pendingAddition: true, pendingUntil: now + finalDuration } : s,
-    ),
+    prev.map(s => (s.eve_id === sig.eve_id ? { ...s, pendingAddition: true, pendingUntil: now + finalDuration } : s)),
   );
 }
 
@@ -309,7 +307,14 @@ export function useSystemSignaturesData({
       const mergedIncomingSignatures = mergeIncomingSignatures(incomingSignatures, currentNonPending);
       console.debug('[handlePaste] Merged incoming signatures:', mergedIncomingSignatures);
 
-      const { added, updated, removed } = getActualSigs(currentNonPending, mergedIncomingSignatures, false, true);
+      // Use updateOnly = true when lazy delete is not selected
+      const lazyDeleteValue = settings.find(s => s.key === LAZY_DELETE_SIGNATURES_SETTING)?.value ?? false;
+      const { added, updated, removed } = getActualSigs(
+        currentNonPending,
+        mergedIncomingSignatures,
+        !lazyDeleteValue,
+        true,
+      );
       console.debug('[handlePaste] Diff results:', { added, updated, removed });
 
       if (added.length > 0) {

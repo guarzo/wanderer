@@ -142,18 +142,6 @@ export const SystemSignatures = () => {
                 onChange={(event: CheckboxChangeEvent) => handleLazyDeleteChange(!!event.checked)}
               />
             </WdTooltipWrapper>
-
-            {/* Toggle for hideLinkedSignatures */}
-            <WdTooltipWrapper content="Hide signatures that are linked to another system">
-              <WdCheckbox
-                size="xs"
-                labelSide="left"
-                label={compact ? '' : 'Hide Linked'}
-                value={hideLinkedSignatures}
-                onChange={e => setHideLinkedSignatures(!!e.checked)}
-              />
-            </WdTooltipWrapper>
-
             {pendingSigs.length > 0 && (
               <WdImgButton
                 className={PrimeIcons.UNDO}
