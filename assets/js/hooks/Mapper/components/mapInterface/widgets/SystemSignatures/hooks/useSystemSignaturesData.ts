@@ -201,7 +201,9 @@ export function useSystemSignaturesData({
 
   useEffect(() => {
     const combinedPending = [...pendingUndoDeletions, ...pendingUndoAdditions];
-    console.debug('[useEffect onPendingChange] Combined pending changes:', combinedPending);
+    if (combinedPending.length > 0) {
+      console.debug('[useEffect onPendingChange] Combined pending changes:', combinedPending);
+    }
     onPendingChange?.(combinedPending, undoPending);
   }, [pendingUndoDeletions, pendingUndoAdditions, onPendingChange, undoPending]);
 
