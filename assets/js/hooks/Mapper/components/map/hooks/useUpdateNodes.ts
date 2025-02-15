@@ -6,9 +6,9 @@ import { SolarSystemRawType } from '@/hooks/Mapper/types';
 const useThrottle = () => {
   const throttleSeed = useRef<number | null>(null);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const throttleFunction = useRef((func: any, delay = 200) => {
     if (!throttleSeed.current) {
-      // Call the callback immediately for the first time
       func();
       throttleSeed.current = setTimeout(() => {
         throttleSeed.current = null;
