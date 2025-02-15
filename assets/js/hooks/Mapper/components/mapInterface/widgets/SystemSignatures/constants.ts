@@ -10,6 +10,15 @@ import {
 
 export const TIME_ONE_MINUTE = 1000 * 60;
 export const TIME_TEN_MINUTES = 1000 * 60 * 10;
+export const TIME_ONE_DAY = 24 * 60 * 60 * 1000;
+export const TIME_ONE_WEEK = 7 * TIME_ONE_DAY;
+export const FINAL_DURATION_MS = 10000;
+
+export const COMPACT_MAX_WIDTH = 260;
+
+export const OTHER_COLUMNS_WIDTH = 276;
+export const COMPACT_COLUMN_WIDTH = 260;
+export const FULL_COLUMN_WIDTH = 380;
 
 export const GROUPS_LIST = [
   SignatureGroup.GasSite,
