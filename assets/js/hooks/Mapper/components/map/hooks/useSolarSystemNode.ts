@@ -51,8 +51,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     status,
     labels,
     temporary_name,
-    owner_id,
-    owner_type,
     linked_sig_eve_id: linkedSigEveId = '',
   } = data;
 
@@ -70,6 +68,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   } = system_static_info;
 
   const {
+    interfaceSettings: { isShowUnsplashedSignatures },
     data: { systemSignatures: mapSystemSignatures },
   } = useMapRootState();
 
@@ -99,34 +98,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     () => mapSystemSignatures[solar_system_id] || system_signatures,
     [system_signatures, solar_system_id, mapSystemSignatures],
   );
-
-  const [ownerTicker, setOwnerTicker] = useState(null);
-  const [ownerURL, setOwnerURL] = useState('');
-
-  useEffect(() => {
-    if (!owner_id || !owner_type) {
-      setOwnerTicker(null);
-      setOwnerURL('');
-      return;
-    }
-    if (owner_type === 'corp') {
-      outCommand({
-        type: OutCommand.getCorporationTicker,
-        data: { corp_id: owner_id },
-      }).then(({ ticker }) => {
-        setOwnerTicker(ticker);
-        setOwnerURL(`${zkillboardBaseURL}/corporation/${owner_id}`);
-      });
-    } else if (owner_type === 'alliance') {
-      outCommand({
-        type: OutCommand.getAllianceTicker,
-        data: { alliance_id: owner_id },
-      }).then(({ ticker }) => {
-        setOwnerTicker(ticker);
-        setOwnerURL(`${zkillboardBaseURL}/alliance/${owner_id}`);
-      });
-    }
-  }, [outCommand, owner_id, owner_type]);
 
   const charactersInSystem = useMemo(() => {
     return characters.filter(c => c.location?.solar_system_id === solar_system_id && c.online);
@@ -257,8 +228,4 @@ export interface SolarSystemNodeVars {
   isThickConnections: boolean;
   classTitle: string | null;
   temporaryName?: string | null;
-  ownerTicker?: string | null;
-  ownerURL?: string | null;
-  systemSigs?: SystemSignature[];
-  newestUpdatedAt: number;
 }
