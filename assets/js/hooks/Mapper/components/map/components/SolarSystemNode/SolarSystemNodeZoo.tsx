@@ -5,8 +5,8 @@ import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { GiConcentrationOrb } from 'react-icons/gi';
-import { useSolarSystemNode, useLocalCounter, useNodeKillsCount } from '../../hooks/useSolarSystemLogic';
-import { useZooNames, useZooLabels, useSignatureAge, useNodeSignatures } from '../../hooks/useZooLogic';
+import { useSolarSystemNode, useLocalCounter, useNodeKillsCount } from '../../hooks';
+import { useZooNames, useZooLabels, useSignatureAge, useNodeSignatures, useNodeOwnerTicker } from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,
@@ -30,10 +30,12 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';
 
-  const { unsplashedCount } = useZooLabels(connectionCount, {
-    unsplashedLeft: nodeVars.unsplashedLeft,
-    unsplashedRight: nodeVars.unsplashedRight,
-  });
+  const { unsplashedCount } = useZooLabels(connectionCount, updatedSignatures);
+
+  const { data } = props;
+  const { owner_id, owner_type } = data;
+
+  const { ownerTicker, ownerURL } = useNodeOwnerTicker(owner_id, owner_type);
 
   const { systemName, customLabel, customName } = useZooNames(
     {
@@ -41,7 +43,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
       solarSystemName: nodeVars.solarSystemName,
       regionName: nodeVars.regionName,
       labelCustom: nodeVars.labelCustom,
-      ownerTicker: nodeVars.ownerTicker,
+      ownerTicker: ownerTicker,
       isWormhole: nodeVars.isWormhole,
     },
     props,
@@ -57,9 +59,9 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
         <div className={classes.Bookmarks}>
           {customLabel !== '' && (
             <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.custom)}>
-              {nodeVars.ownerURL && nodeVars.ownerTicker ? (
+              {ownerURL && ownerTicker ? (
                 <a
-                  href={nodeVars.ownerURL}
+                  href={ownerURL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="[text-shadow:_0_1px_0_rgb(0_0_0_/_40%)]"
