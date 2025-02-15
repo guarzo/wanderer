@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { MapSolarSystemType } from '../map.types';
 import { NodeProps } from 'reactflow';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
@@ -13,8 +13,6 @@ import { CharacterTypeRaw, OutCommand, SystemSignature } from '@/hooks/Mapper/ty
 import { useUnsplashedSignatures } from './useUnsplashedSignatures';
 import { useSystemName } from './useSystemName';
 import { LabelInfo, useLabelsInfo } from './useLabelsInfo';
-
-const zkillboardBaseURL = 'https://zkillboard.com';
 
 function getActivityType(count: number): string {
   if (count <= 5) return 'activityNormal';
@@ -53,8 +51,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     status,
     labels,
     temporary_name,
-    owner_id,
-    owner_type,
     linked_sig_eve_id: linkedSigEveId = '',
   } = data;
 
@@ -114,34 +110,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     () => getSystemClassStyles({ systemClass: system_class, security }),
     [security, system_class],
   );
-
-  const [ownerTicker, setOwnerTicker] = useState(null);
-  const [ownerURL, setOwnerURL] = useState('');
-
-  useEffect(() => {
-    if (!owner_id || !owner_type) {
-      setOwnerTicker(null);
-      setOwnerURL('');
-      return;
-    }
-    if (owner_type === 'corp') {
-      outCommand({
-        type: OutCommand.getCorporationTicker,
-        data: { corp_id: owner_id },
-      }).then(({ ticker }) => {
-        setOwnerTicker(ticker);
-        setOwnerURL(`${zkillboardBaseURL}/corporation/${owner_id}`);
-      });
-    } else if (owner_type === 'alliance') {
-      outCommand({
-        type: OutCommand.getAllianceTicker,
-        data: { alliance_id: owner_id },
-      }).then(({ ticker }) => {
-        setOwnerTicker(ticker);
-        setOwnerURL(`${zkillboardBaseURL}/alliance/${owner_id}`);
-      });
-    }
-  }, [outCommand, owner_id, owner_type]);
 
   const sortedStatics = useMemo(() => sortWHClasses(wormholesData, statics), [wormholesData, statics]);
 
@@ -222,8 +190,6 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
     temporaryName: computedTemporaryName,
     regionName: region_name,
     solarSystemName: solar_system_name,
-    ownerURL,
-    ownerTicker,
   };
 
   return nodeVars;
@@ -265,6 +231,4 @@ export interface SolarSystemNodeVars {
   isThickConnections: boolean;
   classTitle: string | null;
   temporaryName?: string | null;
-  ownerURL?: string | null;
-  ownerTicker?: string | null;
 }
