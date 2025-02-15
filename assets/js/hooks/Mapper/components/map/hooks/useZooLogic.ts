@@ -1,14 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
-import { Commands, OutCommand, SystemSignature } from '@/hooks/Mapper/types';
+import { Commands, SystemSignature } from '@/hooks/Mapper/types';
+import { OutCommand } from '@/hooks/Mapper/types';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useMapEventListener } from '@/hooks/Mapper/events';
+import { useMapState } from '../MapProvider';
+import { useUnsplashedSignatures } from './useUnsplashedSignatures';
 
+const zkillboardBaseURL = 'https://zkillboard.com';
+
+/**
+ * Safely returns a string value or a fallback.
+ */
 function safeString(value?: string | null, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback;
+  return value ?? fallback;
 }
 
+/**
+ * Custom hook to listen for signature update notifications.
+ *
+ * Since the event only carries a systemId notification,
+ * we simply call the onUpdate callback to trigger a refetch.
+ */
+function useSignatureUpdateListener(systemId: string, onUpdate: () => void): void {
+  useMapEventListener(({ name, data }) => {
+    if (name === Commands.signaturesUpdated && String(data) === String(systemId)) {
+      onUpdate();
+      return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * Computes display names based on the provided values.
+ */
 export function useZooNames(
   {
     temporaryName,
@@ -24,6 +51,8 @@ export function useZooNames(
     labelCustom?: string | null;
     ownerTicker?: string | null;
     isWormhole?: boolean;
+    ownerId?: string | null;
+    ownerType?: string | null;
   },
   { data: { custom_flags } }: NodeProps<MapSolarSystemType>,
 ) {
@@ -52,28 +81,74 @@ export function useZooNames(
       customLabel: computedCustomLabel,
       customName: computedCustomName,
     };
-  }, [temporaryName, solarSystemName, regionName, labelCustom, ownerTicker, isWormhole, custom_flags]);
+  }, [solarSystemName, temporaryName, regionName, labelCustom, ownerTicker, custom_flags, isWormhole]);
 }
 
-export function useZooLabels(
-  connectionCount: number,
-  {
-    unsplashedLeft,
-    unsplashedRight,
-  }: {
-    unsplashedLeft: SystemSignature[];
-    unsplashedRight: SystemSignature[];
-  },
-) {
-  const unsplashedCount = unsplashedLeft.length + unsplashedRight.length - connectionCount;
+/**
+ * Computes the number of unsplashed signatures adjusted by the number of connections.
+ */
+export function useZooLabels(connectionCount: number, systemSigs?: SystemSignature[] | null) {
+  const { unsplashedLeft, unsplashedRight } = useUnsplashedSignatures(systemSigs ?? [], true);
+  const unsplashedCount = useMemo(
+    () => unsplashedLeft.length + unsplashedRight.length - connectionCount,
+    [unsplashedLeft, unsplashedRight, connectionCount],
+  );
   return { unsplashedCount };
 }
 
+/**
+ * Fetches and maintains the ticker and URL for a node owner.
+ */
+export function useNodeOwnerTicker(ownerId?: string | null, ownerType?: string | null) {
+  const [ownerTicker, setOwnerTicker] = useState<string | null>(null);
+  const [ownerURL, setOwnerURL] = useState('');
+  const { outCommand } = useMapState();
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!ownerId || !ownerType) {
+      setOwnerTicker(null);
+      setOwnerURL('');
+      return;
+    }
+    if (ownerType === 'corp') {
+      outCommand({
+        type: OutCommand.getCorporationTicker,
+        data: { corp_id: ownerId },
+      }).then(({ ticker }) => {
+        if (isMounted) {
+          setOwnerTicker(ticker);
+          setOwnerURL(`${zkillboardBaseURL}/corporation/${ownerId}`);
+        }
+      });
+    } else if (ownerType === 'alliance') {
+      outCommand({
+        type: OutCommand.getAllianceTicker,
+        data: { alliance_id: ownerId },
+      }).then(({ ticker }) => {
+        if (isMounted) {
+          setOwnerTicker(ticker);
+          setOwnerURL(`${zkillboardBaseURL}/alliance/${ownerId}`);
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [outCommand, ownerId, ownerType]);
+
+  return { ownerTicker, ownerURL };
+}
+
+/**
+ * Fetches and maintains signatures for a given system.
+ *
+ * On receiving a signaturesUpdated notification, we refetch signatures.
+ */
 export function useNodeSignatures(systemId: string): SystemSignature[] {
   const { outCommand } = useMapRootState();
   const [signatures, setSignatures] = useState<SystemSignature[]>([]);
 
-  // Define a function to fetch the signatures for a system.
   const fetchSignatures = useCallback(async () => {
     try {
       const response = await outCommand({
@@ -86,36 +161,43 @@ export function useNodeSignatures(systemId: string): SystemSignature[] {
     }
   }, [outCommand, systemId]);
 
-  // Fetch signatures once when the systemId changes.
   useEffect(() => {
     fetchSignatures();
   }, [fetchSignatures]);
 
-  // Listen for a signaturesUpdated event for this system.
-  useMapEventListener(event => {
-    if (event.name === Commands.signaturesUpdated && event.data?.toString() === systemId.toString()) {
-      const data = event.data as Record<string, SystemSignature[]>;
-      if (data && data[systemId]) {
-        const newSignatures = data[systemId];
-        if (Array.isArray(newSignatures)) {
-          setSignatures(newSignatures);
-        }
-      }
-      return true;
-    }
-    return false;
+  // When a signaturesUpdated event is fired for this system, refetch signatures.
+  useSignatureUpdateListener(systemId, () => {
+    fetchSignatures();
   });
 
   return signatures;
 }
 
+/**
+ * Helper to map signature age (in hours) to a bookmark color.
+ */
+function getBookmarkColor(signatureAgeHours: number): { color: string; age: number } {
+  if (signatureAgeHours < 4) {
+    return { color: '#388E3C', age: signatureAgeHours };
+  } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
+    return { color: '#E65100', age: signatureAgeHours };
+  } else if (signatureAgeHours > 8 && signatureAgeHours <= 12) {
+    return { color: '#B71C1C', age: signatureAgeHours };
+  } else {
+    return { color: '#388E3C', age: -1 };
+  }
+}
+
+/**
+ * Computes the age of the most recently updated wormhole signature.
+ */
 export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     const interval = setInterval(() => {
       setNow(Date.now());
-    }, 3600000);
+    }, 3600000); // update every hour
     return () => clearInterval(interval);
   }, []);
 
@@ -146,26 +228,18 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
 
     let signatureAgeHours = 0;
     if (newestTimestamp > 0) {
+      // Adjust for timezone offset.
       const adjustedNow = now + new Date().getTimezoneOffset() * 60000;
       const ageMs = adjustedNow - newestTimestamp;
       signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
       signatureAgeHours = Math.max(0, signatureAgeHours);
     }
 
-    let bookmarkColor = '#388E3C';
-    if (signatureAgeHours < 4) {
-      bookmarkColor = '#388E3C';
-    } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
-      bookmarkColor = '#E65100';
-    } else if (signatureAgeHours > 8 && signatureAgeHours <= 12) {
-      bookmarkColor = '#B71C1C';
-    } else {
-      signatureAgeHours = -1;
-    }
+    const { color: bookmarkColor, age: computedAge } = getBookmarkColor(signatureAgeHours);
 
     return {
       newestUpdatedAt: newestTimestamp,
-      signatureAgeHours,
+      signatureAgeHours: computedAge,
       bookmarkColor,
       now,
     };
