@@ -81,8 +81,8 @@ export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
   isThickConnections: true,
   isShowUnsplashedSignatures: true,
   isShowBackgroundPattern: true,
-  isSoftBackground: false,
-  theme: AvailableThemes.default,
+  isSoftBackground: true,
+  theme: AvailableThemes.zoo,
 };
 
 export interface MapRootContextProps {
