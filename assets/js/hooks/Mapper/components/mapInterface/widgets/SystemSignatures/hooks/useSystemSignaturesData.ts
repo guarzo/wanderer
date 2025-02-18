@@ -163,7 +163,7 @@ export function useSystemSignaturesData({
     const oldOnes = signaturesRef.current.filter(sig => {
       if (!sig.inserted_at) return false;
       const inserted = new Date(sig.inserted_at).getTime();
-      const threshold = sig.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_WEEK;
+      const threshold = sig.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_DAY * 3;
       return now - inserted > threshold;
     });
     if (oldOnes.length) {
