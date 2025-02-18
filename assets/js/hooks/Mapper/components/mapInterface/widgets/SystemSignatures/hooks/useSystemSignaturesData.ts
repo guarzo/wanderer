@@ -14,7 +14,11 @@ import { usePendingAdditions } from './usePendingAdditions';
 import { usePendingDeletions } from './usePendingDeletions';
 import { UseSystemSignaturesDataProps } from './types';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+<<<<<<< HEAD
 import { TIME_ONE_DAY, TIME_ONE_WEEK } from '../constants';
+=======
+import { TIME_ONE_DAY } from '../constants';
+>>>>>>> 78987d5 (zoo: adjust signature expiration)
 
 export function useSystemSignaturesData({
   systemId,
@@ -164,7 +168,11 @@ export function useSystemSignaturesData({
     const oldOnes = signaturesRef.current.filter(sig => {
       if (!sig.inserted_at) return false;
       const inserted = new Date(sig.inserted_at).getTime();
+<<<<<<< HEAD
       const threshold = sig.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_WEEK;
+=======
+      const threshold = sig.group === SignatureGroup.Wormhole ? TIME_ONE_DAY : TIME_ONE_DAY * 3;
+>>>>>>> 78987d5 (zoo: adjust signature expiration)
       return now - inserted > threshold;
     });
     if (oldOnes.length) {
