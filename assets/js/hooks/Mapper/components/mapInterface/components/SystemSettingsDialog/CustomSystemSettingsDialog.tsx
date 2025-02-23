@@ -68,11 +68,7 @@ interface CustomSystemSettingsDialogProps {
   setVisible: (visible: boolean) => void;
 }
 
-export const CustomSystemSettingsDialog = ({
-  systemId,
-  visible,
-  setVisible,
-}: CustomSystemSettingsDialogProps) => {
+export const CustomSystemSettingsDialog = ({ systemId, visible, setVisible }: CustomSystemSettingsDialogProps) => {
   const {
     data: { systems },
     outCommand,
@@ -94,9 +90,6 @@ export const CustomSystemSettingsDialog = ({
   const [prevOwnerResults, setPrevOwnerResults] = useState<OwnerSuggestion[]>([]);
 
   const [selectedFlags, setSelectedFlags] = useState<string[]>([]);
-
-  const tickerSearchRegex = /^[A-Za-z0-9 .]{1,5}$/;
-
   const tickerCacheRef = useRef<Record<string, string>>({});
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +150,7 @@ export const CustomSystemSettingsDialog = ({
 
   const searchOwners = useCallback(
     async (e: { query: string }) => {
+      const tickerSearchRegex = /^[A-Za-z0-9 .]{1,5}$/;
       const newQuery = e.query.trim();
       if (!newQuery) {
         setOwnerSuggestions([]);
@@ -166,10 +160,11 @@ export const CustomSystemSettingsDialog = ({
       }
 
       if (prevOwnerQuery && newQuery.startsWith(prevOwnerQuery)) {
-        const filtered = prevOwnerResults.filter(s =>
-          s.formatted.toLowerCase().includes(newQuery.toLowerCase()) ||
-          s.name.toLowerCase().includes(newQuery.toLowerCase()) ||
-          s.ticker.toLowerCase().includes(newQuery.toLowerCase())
+        const filtered = prevOwnerResults.filter(
+          s =>
+            s.formatted.toLowerCase().includes(newQuery.toLowerCase()) ||
+            s.name.toLowerCase().includes(newQuery.toLowerCase()) ||
+            s.ticker.toLowerCase().includes(newQuery.toLowerCase()),
         );
         if (
           filtered.length > 0 ||
@@ -234,7 +229,7 @@ export const CustomSystemSettingsDialog = ({
             }
             suggestion.formatted = suggestion.ticker ? `(${suggestion.ticker}) ${suggestion.name}` : suggestion.name;
             return suggestion;
-          })
+          }),
         );
         console.log('Updated suggestions with ticker:', merged);
         setOwnerSuggestions(merged);
@@ -245,7 +240,7 @@ export const CustomSystemSettingsDialog = ({
         setOwnerSuggestions([]);
       }
     },
-    [outCommand, prevOwnerQuery, prevOwnerResults, tickerSearchRegex]
+    [outCommand, prevOwnerQuery, prevOwnerResults],
   );
 
   const handleCustomLabelInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -262,7 +257,7 @@ export const CustomSystemSettingsDialog = ({
     setSelectedFlags(prev => (checked ? [...prev, code] : prev.filter(item => item !== code)));
   }, []);
 
-  const validTickerRegex = useMemo(() => /^[A-Z0-9a-z\-[\](){} \.]+$/, []);
+  const validTickerRegex = useMemo(() => /^[A-Z0-9a-z\-[\](){} .]+$/, []);
 
   const handleOwnerBlur = useCallback(() => {
     if (ownerName) {
@@ -429,9 +424,7 @@ export const CustomSystemSettingsDialog = ({
                       value={ownerName}
                       forceSelection={true}
                       onInput={handleInput}
-                      itemTemplate={(item: OwnerSuggestion) => (
-                        <div>{item.formatted}</div>
-                      )}
+                      itemTemplate={(item: OwnerSuggestion) => <div>{item.formatted}</div>}
                       onSelect={e => {
                         const selected = e.value as OwnerSuggestion;
                         setOwnerName(selected.formatted);
@@ -464,7 +457,7 @@ export const CustomSystemSettingsDialog = ({
                           <Checkbox
                             inputId={item.code}
                             checked={checked}
-                            onChange={e => handleCheckboxChange(item.code, e.checked)}
+                            onChange={e => handleCheckboxChange(item.code, e.checked ?? false)}
                           />
                           <label htmlFor={item.code}>{item.label}</label>
                         </div>
