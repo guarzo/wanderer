@@ -422,7 +422,7 @@ export const CustomSystemSettingsDialog = ({ systemId, visible, setVisible }: Cu
                       suggestions={ownerSuggestions}
                       completeMethod={searchOwners}
                       value={ownerName}
-                      forceSelection={true}
+                      forceSelection={false}  // <-- Allow free text entry
                       onInput={handleInput}
                       itemTemplate={(item: OwnerSuggestion) => <div>{item.formatted}</div>}
                       onSelect={e => {
