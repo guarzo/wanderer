@@ -98,32 +98,30 @@ defmodule WandererAppWeb.MapLive do
   def handle_event(event, body, socket),
     do: WandererAppWeb.MapEventHandler.handle_ui_event(event, body, socket)
 
-  def handle_info({:show_activity, _}, socket) do
-    user_with_activities =
-      socket.assigns.current_user
-      |> Ash.load!([
-        :connections_count,
-        :passages_count,
-        :signatures_count,
-        characters: [:name]
-      ])
+  def handle_info({:show_activity, _}, %{assigns: %{map_id: map_id}} = socket) do
+    Logger.info("Show activity called for map #{map_id}")
 
     {:noreply,
      socket
-     |> assign(
-       show_activity?: true,
-       character_activity: [%{
-         character: %{
-           name: "Total Activity",
-           corporation_ticker: "",
-           alliance_ticker: nil,
-           eve_id: nil
-         },
-         connections: user_with_activities.connections_count,
-         passages: user_with_activities.passages_count,
-         signatures: user_with_activities.signatures_count
-       }]
-     )}
+     |> assign(:show_activity?, true)
+     |> assign_async(:character_activity, fn ->
+       Logger.info("Starting async activity load for map #{map_id}")
+       with {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
+            {:ok, activities} <-
+              WandererApp.Api.UserActivity.base_activity_query(map_id)
+              |> tap(fn query -> Logger.info("Activity query built: #{inspect(query)}") end)
+              |> WandererApp.Api.read() do
+         Logger.info("Got passages: #{inspect(passages)}")
+         Logger.info("Got activities: #{inspect(activities)}")
+         summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages)
+         Logger.info("Generated summaries: #{inspect(summaries)}")
+         {:ok, summaries}
+       else
+         error ->
+           Logger.error("Failed to get activities: #{inspect(error)}")
+           {:error, "Failed to get activities"}
+       end
+     end)}
   end
 
   defp apply_action(socket, :index, _params) do

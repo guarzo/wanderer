@@ -16,7 +16,7 @@ defmodule WandererAppWeb.CharacterActivity do
 
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
+    <div class="flex flex-col gap-4 max-h-[70vh] overflow-y-auto overflow-x-hidden">
       <.table id="activity-tbl" rows={@sorted_activity} sort_by={@sort_by} sort_dir={@sort_dir} myself={@myself}>
         <:col :let={row} label="Character" sortable sort_by={:character_name}>
           <div class="flex items-center gap-2 whitespace-nowrap">
