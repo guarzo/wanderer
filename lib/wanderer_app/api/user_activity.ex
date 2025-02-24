@@ -133,20 +133,26 @@ defmodule WandererApp.Api.UserActivity do
         Ash.load!(records, character: [:id, :name, :corporation_ticker, :alliance_ticker, :eve_id])
 
       records
-      |> Enum.group_by(& &1.character)
+      |> Enum.group_by(& &1.user_id)
       |> Enum.reject(fn {character, _} -> is_nil(character) end)
-      |> Enum.map(fn {character, char_activities} ->
+      |> Enum.map(fn {user_id, user_activities} ->
+        # Group activities by character
+        character_activities = Enum.group_by(user_activities, & &1.character)
+
+        # Get the first character as the representative
+        {primary_character, _} = Enum.at(character_activities, 0)
+
         %{
           character: %{
-            id: character.id,
-            name: character.name,
-            corporation_ticker: character.corporation_ticker,
-            alliance_ticker: character.alliance_ticker,
-            eve_id: character.eve_id
+            id: primary_character.id,
+            name: primary_character.name,
+            corporation_ticker: primary_character.corporation_ticker,
+            alliance_ticker: primary_character.alliance_ticker,
+            eve_id: primary_character.eve_id
           },
           passages: 0,
-          connections: Enum.count(char_activities, &(&1.event_type == :map_connection_added)),
-          signatures: Enum.count(char_activities, &(&1.event_type == :signatures_added))
+          connections: Enum.count(user_activities, &(&1.event_type == :map_connection_added)),
+          signatures: Enum.count(user_activities, &(&1.event_type == :signatures_added))
         }
       end)
       |> Enum.sort_by(& &1.character.name)
