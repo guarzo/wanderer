@@ -29,13 +29,13 @@ defmodule WandererApp.Map.Audit do
   end
 
   def archive() do
-    Logger.info("Start map audit arhiving...")
+    Logger.info("Start map audit archiving...")
 
     WandererApp.Api.UserActivity
     |> Ash.Query.filter(inserted_at: [less_than: get_expired_at()])
     |> Ash.bulk_destroy!(:archive, %{}, batch_size: 100)
 
-    Logger.info(fn -> "Audit arhived" end)
+    Logger.info(fn -> "Audit archived" end)
     :ok
   end
 
@@ -76,7 +76,7 @@ defmodule WandererApp.Map.Audit do
         %{user_id: user_id, acl_id: acl_id} = metadata
       ),
       do:
-        WandererApp.Api.UserActivity.new(%{
+        WandererApp.Api.UserActivity.new!(%{
           user_id: user_id,
           entity_type: :access_list,
           entity_id: acl_id,
@@ -89,16 +89,20 @@ defmodule WandererApp.Map.Audit do
   def track_map_event(
         event_type,
         %{character_id: character_id, user_id: user_id, map_id: map_id} = metadata
-      ),
-      do:
-        WandererApp.Api.UserActivity.new(%{
-          character_id: character_id,
-          user_id: user_id,
-          entity_type: :map,
-          entity_id: map_id,
-          event_type: event_type,
-          event_data: metadata |> Map.drop([:character_id, :user_id, :map_id]) |> Jason.encode!()
-        })
+      ) do
+
+    result =
+      WandererApp.Api.UserActivity.new!(%{
+        character_id: character_id,
+        user_id: user_id,
+        entity_type: :map,
+        entity_id: map_id,
+        event_type: event_type,
+        event_data: metadata |> Map.drop([:character_id, :user_id, :map_id]) |> Jason.encode!()
+      })
+
+    result
+  end
 
   def track_map_event(_event_type, _metadata), do: {:ok, nil}
 

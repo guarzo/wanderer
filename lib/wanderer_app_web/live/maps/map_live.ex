@@ -98,6 +98,34 @@ defmodule WandererAppWeb.MapLive do
   def handle_event(event, body, socket),
     do: WandererAppWeb.MapEventHandler.handle_ui_event(event, body, socket)
 
+  def handle_info({:show_activity, _}, socket) do
+    user_with_activities =
+      socket.assigns.current_user
+      |> Ash.load!([
+        :connections_count,
+        :passages_count,
+        :signatures_count,
+        characters: [:name]
+      ])
+
+    {:noreply,
+     socket
+     |> assign(
+       show_activity?: true,
+       character_activity: [%{
+         character: %{
+           name: "Total Activity",
+           corporation_ticker: "",
+           alliance_ticker: nil,
+           eve_id: nil
+         },
+         connections: user_with_activities.connections_count,
+         passages: user_with_activities.passages_count,
+         signatures: user_with_activities.signatures_count
+       }]
+     )}
+  end
+
   defp apply_action(socket, :index, _params) do
     socket
     |> assign(:active_page, :map)

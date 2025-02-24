@@ -128,4 +128,13 @@ defmodule WandererApp.Api.MapChainPassages do
       allow_nil?: false,
       attribute_writable?: true
   end
+
+  def get_passages_by_character(map_id) do
+    case by_map_id(%{map_id: map_id}) do
+      {:ok, jumps} ->
+        passages = jumps |> Enum.map(fn p -> {p.character.id, p.count} end) |> Map.new()
+        {:ok, passages}
+      error -> error
+    end
+  end
 end
