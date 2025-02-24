@@ -128,15 +128,12 @@ defmodule WandererApp.Api.UserActivity do
 
   calculations do
     calculate :character_activity_summary, :map, fn records, _opts ->
-      # Ensure character relationship is loaded
+      # Ensure character relationship is loaded with all needed fields
       records =
-        Ash.load!(records,
-          character: [:id, :name, :corporation_ticker, :alliance_ticker, :eve_id]
-        )
+        Ash.load!(records, character: [:id, :name, :corporation_ticker, :alliance_ticker, :eve_id])
 
       records
       |> Enum.group_by(& &1.character)
-      # Skip records with no character
       |> Enum.reject(fn {character, _} -> is_nil(character) end)
       |> Enum.map(fn {character, char_activities} ->
         %{
@@ -165,11 +162,23 @@ defmodule WandererApp.Api.UserActivity do
   end
 
   def merge_passages(activities, passages_map) do
-    activities.results
-    |> Enum.map(& &1.character_activity_summary)
-    |> List.flatten()
-    |> Enum.map(fn summary ->
-      Map.put(summary, :passages, Map.get(passages_map, summary.character.id, 0))
-    end)
+    require Logger
+
+    Logger.debug("Activities: #{inspect(activities)}")
+    Logger.debug("Passages map: #{inspect(passages_map)}")
+
+    summaries =
+      activities.results
+      |> tap(&Logger.debug("Results: #{inspect(&1)}"))
+      |> Enum.map(& &1.character_activity_summary)
+      |> tap(&Logger.debug("After map: #{inspect(&1)}"))
+      |> List.flatten()
+      |> tap(&Logger.debug("After flatten: #{inspect(&1)}"))
+      |> Enum.map(fn summary ->
+        Map.put(summary, :passages, Map.get(passages_map, summary.character.id, 0))
+      end)
+      |> tap(&Logger.debug("Final summaries: #{inspect(&1)}"))
+
+    summaries
   end
 end

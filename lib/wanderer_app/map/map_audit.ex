@@ -90,18 +90,14 @@ defmodule WandererApp.Map.Audit do
         event_type,
         %{character_id: character_id, user_id: user_id, map_id: map_id} = metadata
       ) do
-
-    result =
-      WandererApp.Api.UserActivity.new!(%{
-        character_id: character_id,
-        user_id: user_id,
-        entity_type: :map,
-        entity_id: map_id,
-        event_type: event_type,
-        event_data: metadata |> Map.drop([:character_id, :user_id, :map_id]) |> Jason.encode!()
-      })
-
-    result
+    {:ok, WandererApp.Api.UserActivity.new!(%{
+      character_id: character_id,
+      user_id: user_id,
+      entity_type: :map,
+      entity_id: map_id,
+      event_type: event_type,
+      event_data: metadata |> Map.drop([:character_id, :user_id, :map_id]) |> Jason.encode!()
+    })}
   end
 
   def track_map_event(_event_type, _metadata), do: {:ok, nil}
