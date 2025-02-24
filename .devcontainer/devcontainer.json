@@ -6,7 +6,8 @@
     "JakeBecker.elixir-ls",
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
-    "rvest.vs-code-prettier-eslint"
+    "rvest.vs-code-prettier-eslint",
+    "pantajoe.vscode-elixir-credo"
   ],
   "service": "wanderer",
   "workspaceFolder": "/app",
