@@ -217,14 +217,13 @@ defmodule WandererApp.Api.Character do
   end
 
   # Helper to map character data to UI format
-  defp map_ui_character(character, current_user) do
+  defp map_ui_character(character, _current_user) do
     %{
       id: character.id,
       name: character.name,
       eve_id: character.eve_id,
       corporation_ticker: character.corporation_ticker,
       alliance_ticker: character.alliance_ticker,
-      # ... other fields you need
     }
   end
 end

@@ -58,7 +58,7 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
       character_id: tracked_character_ids |> List.first()
     })
 
-    result = WandererApp.User.ActivityTracker.track_map_event(:map_connection_added, %{
+    WandererApp.User.ActivityTracker.track_map_event(:map_connection_added, %{
       character_id: tracked_character_ids |> List.first(),
       user_id: current_user.id,
       map_id: map_id,

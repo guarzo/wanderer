@@ -2,7 +2,6 @@ defmodule WandererAppWeb.MapAPIController do
   use WandererAppWeb, :controller
 
   import Ash.Query, only: [filter: 2]
-  import Ash.Expr, only: [expr: 1, count: 1]
   require Logger
 
   alias WandererApp.Api
@@ -285,9 +284,6 @@ defmodule WandererAppWeb.MapAPIController do
         |> json(%{error: "Could not fetch activity summary: #{inspect(reason)}"})
     end
   end
-
-  # Helper to filter activities by time if hours_ago is provided
-  defp maybe_filter_by_time(activities, nil), do: activities
 
   defp maybe_filter_by_time(activities, hours_ago) do
     cutoff = DateTime.utc_now() |> DateTime.add(-hours_ago * 3600, :second)

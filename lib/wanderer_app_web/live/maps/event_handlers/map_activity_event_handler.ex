@@ -3,10 +3,7 @@ defmodule WandererAppWeb.MapActivityEventHandler do
   use Phoenix.Component
   require Logger
 
-  import Ash.Query
-  import Ash.Expr, only: [expr: 1]
-
-  alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
+  alias WandererAppWeb.MapCoreEventHandler
 
   def handle_server_event(
         %{
