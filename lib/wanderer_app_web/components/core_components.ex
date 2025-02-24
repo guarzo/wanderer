@@ -642,7 +642,7 @@ defmodule WandererAppWeb.CoreComponents do
       end
 
     ~H"""
-    <div class={["overflow-y-auto px-4 sm:overflow-visible sm:px-0", @class]}>
+    <div class={["px-4 sm:px-0", @class]}>
       <table class="table overflow-y-auto">
         <thead>
           <tr>

@@ -130,23 +130,40 @@ defmodule WandererApp.Api.UserActivity do
     calculate :character_activity_summary, :map, fn records, _opts ->
       # Ensure character relationship is loaded with all needed fields
       records =
-        Ash.load!(records, character: [:id, :name, :corporation_ticker, :alliance_ticker, :eve_id])
+        Ash.load!(records, [
+          character: [:id, :name, :corporation_ticker, :alliance_ticker, :eve_id],
+          user: [:primary_character]
+        ])
 
       records
-      |> Enum.group_by(& &1.character)
+      |> Enum.group_by(& &1.user_id)
       |> Enum.reject(fn {character, _} -> is_nil(character) end)
-      |> Enum.map(fn {character, char_activities} ->
+      |> Enum.map(fn {user_id, user_activities} ->
+        # Get the user's primary character
+        user = user_activities |> Enum.at(0) |> Map.get(:user)
+        primary_character = user.primary_character
+
+        # Get all character IDs for this user
+        user_character_ids = records
+          |> Enum.filter(& &1.user_id == user_id)
+          |> Enum.map(& &1.character_id)
+          |> Enum.uniq()
+
+        # Get all activities for all characters of this user
+        all_user_activities = records
+          |> Enum.filter(& &1.character_id in user_character_ids)
+
         %{
           character: %{
-            id: character.id,
-            name: character.name,
-            corporation_ticker: character.corporation_ticker,
-            alliance_ticker: character.alliance_ticker,
-            eve_id: character.eve_id
+            id: primary_character.id,
+            name: primary_character.name,
+            corporation_ticker: primary_character.corporation_ticker,
+            alliance_ticker: primary_character.alliance_ticker,
+            eve_id: primary_character.eve_id
           },
-          passages: 0,
-          connections: Enum.count(char_activities, &(&1.event_type == :map_connection_added)),
-          signatures: Enum.count(char_activities, &(&1.event_type == :signatures_added))
+          passages: 0,  # This gets overridden by merge_passages later
+          connections: Enum.count(all_user_activities, &(&1.event_type == :map_connection_added)),
+          signatures: Enum.count(all_user_activities, &(&1.event_type == :signatures_added))
         }
       end)
       |> Enum.sort_by(& &1.character.name)
@@ -157,6 +174,7 @@ defmodule WandererApp.Api.UserActivity do
     __MODULE__
     |> filter(expr(entity_id == ^map_id and entity_type == :map))
     |> load(character: [:name, :corporation_ticker, :alliance_ticker, :eve_id])
+    |> load(user: [characters: [:id]])
     |> load(:character_activity_summary)
     |> sort(inserted_at: :desc)
     |> page(limit: limit)
@@ -165,20 +183,32 @@ defmodule WandererApp.Api.UserActivity do
   def merge_passages(activities, passages_map) do
     require Logger
 
-    Logger.debug("Activities: #{inspect(activities)}")
-    Logger.debug("Passages map: #{inspect(passages_map)}")
-
     summaries =
       activities.results
-      |> tap(&Logger.debug("Results: #{inspect(&1)}"))
       |> Enum.map(& &1.character_activity_summary)
-      |> tap(&Logger.debug("After map: #{inspect(&1)}"))
       |> List.flatten()
-      |> tap(&Logger.debug("After flatten: #{inspect(&1)}"))
-      |> Enum.map(fn summary ->
-        Map.put(summary, :passages, Map.get(passages_map, summary.character.id, 0))
+      |> Enum.map(fn %{character: %{id: primary_char_id}} = summary ->
+        # Get all character IDs for this user from the activities
+        user_character_ids = activities.results
+          |> Enum.find(& &1.character_id == primary_char_id)
+          |> case do
+            nil -> []
+            activity ->
+              activity.user
+              |> Map.get(:characters, [])
+              |> Enum.map(& &1.id)
+          end
+
+        # Sum up passages for all characters belonging to this user
+        total_passages = passages_map
+          |> Enum.filter(fn {char_id, _count} ->
+            char_id in user_character_ids
+          end)
+          |> Enum.map(fn {_char_id, count} -> count end)
+          |> Enum.sum()
+
+        Map.put(summary, :passages, total_passages)
       end)
-      |> tap(&Logger.debug("Final summaries: #{inspect(&1)}"))
 
     summaries
   end
