@@ -194,30 +194,31 @@ defmodule WandererApp.Api.UserActivity do
   end
 
   def merge_passages(activities, passages_map) do
-    summaries =
-      activities.results
-      |> Enum.map(& &1.character_activity_summary)
-      |> List.flatten()
-      |> Enum.map(fn %{character: %{id: primary_char_id}} = summary ->
-        # Get all character IDs for this user from the activities
-        user_character_ids = activities.results
-          |> Enum.find(& &1.character_id == primary_char_id)
-          |> case do
-            nil -> []
-            activity -> activity.user |> Map.get(:characters, []) |> Enum.map(& &1.id)
-          end
-
-        # Sum up passages for all characters belonging to this user
-        total_passages = passages_map
-          |> Enum.filter(fn {char_id, _count} ->
-            char_id in user_character_ids
-          end)
-          |> Enum.map(fn {_char_id, count} -> count end)
-          |> Enum.sum()
-
-        Map.put(summary, :passages, total_passages)
+    # First, build a map of character_id -> user's character list
+    character_to_user_chars = activities.results
+      |> Enum.reduce(%{}, fn activity, acc ->
+        if activity.character_id && activity.user && activity.user.characters do
+          # For each character in activities, store all characters belonging to their user
+          Map.put(acc, activity.character_id, activity.user.characters |> Enum.map(& &1.id))
+        else
+          acc
+        end
       end)
 
-    summaries
+    activities.results
+    |> Enum.map(& &1.character_activity_summary)
+    |> List.flatten()
+    |> Enum.map(fn %{character: %{id: primary_char_id}} = summary ->
+      # Get all character IDs for this user using our prebuilt map
+      user_character_ids = character_to_user_chars[primary_char_id] || []
+
+      # Sum up passages for all characters belonging to this user
+      total_passages = passages_map
+        |> Enum.filter(fn {char_id, _count} -> char_id in user_character_ids end)
+        |> Enum.map(fn {_char_id, count} -> count end)
+        |> Enum.sum()
+
+      Map.put(summary, :passages, total_passages)
+    end)
   end
 end
