@@ -144,6 +144,7 @@ defmodule WandererApp.Api.UserActivity do
             alliance_ticker: character.alliance_ticker,
             eve_id: character.eve_id
           },
+          passages: 0,
           connections: Enum.count(char_activities, &(&1.event_type == :map_connection_added)),
           signatures: Enum.count(char_activities, &(&1.event_type == :signatures_added))
         }

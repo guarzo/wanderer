@@ -4,40 +4,61 @@ defmodule WandererAppWeb.CharacterActivity do
 
   @impl true
   def mount(socket) do
-    {:ok, socket}
+    {:ok, assign(socket, sort_by: :character_name, sort_dir: :asc)}
   end
 
   @impl true
-  def update(
-        assigns,
-        socket
-      ) do
-    {:ok,
-     socket
-     |> handle_info_or_assign(assigns)}
+  def update(assigns, socket) do
+    socket = assign(socket, assigns)
+    sorted_activity = sort_activity(assigns.activity, socket.assigns.sort_by, socket.assigns.sort_dir)
+    {:ok, assign(socket, sorted_activity: sorted_activity)}
   end
 
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col gap-4">
-      <.table id="activity-tbl" rows={@activity}>
-        <:col :let={row} label="Character">
+    <div class="flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
+      <.table id="activity-tbl" rows={@sorted_activity} sort_by={@sort_by} sort_dir={@sort_dir} myself={@myself}>
+        <:col :let={row} label="Character" sortable sort_by={:character_name}>
           <div class="flex items-center gap-2 whitespace-nowrap">
             <.character_item character={row.character} />
           </div>
         </:col>
-        <:col :let={row} label="Connections">
-          <%= Map.get(row, :connections, 0) %>
-        </:col>
-        <:col :let={row} label="Passages">
+        <:col :let={row} label="Passages" sortable sort_by={:passages}>
           <%= Map.get(row, :passages, 0) %>
         </:col>
-        <:col :let={row} label="Signatures">
+        <:col :let={row} label="Connections" sortable sort_by={:connections}>
+          <%= Map.get(row, :connections, 0) %>
+        </:col>
+        <:col :let={row} label="Signatures" sortable sort_by={:signatures}>
           <%= Map.get(row, :signatures, 0) %>
         </:col>
       </.table>
     </div>
     """
+  end
+
+  @impl true
+  def handle_event("sort", %{"field" => field}, socket) do
+    {sort_by, sort_dir} = get_sort_params(field, socket.assigns)
+    sorted_activity = sort_activity(socket.assigns.activity, sort_by, sort_dir)
+
+    {:noreply, assign(socket, sorted_activity: sorted_activity, sort_by: sort_by, sort_dir: sort_dir)}
+  end
+
+  defp get_sort_params(field, %{sort_by: current_field, sort_dir: current_dir}) do
+    field = String.to_atom(field)
+    case {field, current_field, current_dir} do
+      {field, field, :asc} -> {field, :desc}
+      _ -> {field, :asc}
+    end
+  end
+
+  defp sort_activity(activity, :character_name, dir) do
+    Enum.sort_by(activity, & &1.character.name, dir)
+  end
+
+  defp sort_activity(activity, field, dir) do
+    Enum.sort_by(activity, &Map.get(&1, field, 0), dir)
   end
 
   def format_event_type(:map_connection_added), do: "Connection Added"
