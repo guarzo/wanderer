@@ -262,6 +262,17 @@ defmodule WandererApp.Api.UserActivity do
     if length(missing_chars) > 0 do
       Logger.warning("Found #{length(missing_chars)} characters with passages but no activity summary")
       Logger.debug("Missing character IDs (first 10): #{inspect(Enum.take(missing_chars, 10))}")
+
+      # Load the missing characters to create summaries for them
+      missing_char_data = load_missing_characters(missing_chars)
+      Logger.info("Loaded #{length(missing_char_data)} missing characters")
+
+      # Create summaries for missing characters
+      missing_summaries = create_summaries_for_missing_characters(missing_char_data, passages_map)
+      Logger.info("Created #{length(missing_summaries)} additional summaries for characters with passages")
+
+      # Add the new summaries to our existing ones
+      summaries = summaries ++ missing_summaries
     end
 
     # Process each summary
@@ -292,5 +303,61 @@ defmodule WandererApp.Api.UserActivity do
 
     Logger.info("Final activity summaries count: #{length(result)}")
     result
+  end
+
+  # Helper function to load character data for characters with passages but no activity
+  defp load_missing_characters(character_ids) do
+    require Logger
+
+    if Enum.empty?(character_ids) do
+      []
+    else
+      # Take only the first 100 characters to avoid overloading the query
+      ids_to_load = Enum.take(character_ids, 100)
+      Logger.info("Loading data for #{length(ids_to_load)} missing characters")
+
+      try do
+        WandererApp.Api.Character
+        |> Ash.Query.filter(id in ^ids_to_load)
+        |> Ash.Query.load([:user])
+        |> WandererApp.Api.read!()
+      rescue
+        e ->
+          Logger.error("Error loading missing characters: #{inspect(e)}")
+          []
+      end
+    end
+  end
+
+  # Helper function to create summaries for characters with passages but no activity
+  defp create_summaries_for_missing_characters(characters, passages_map) do
+    require Logger
+
+    characters
+    |> Enum.map(fn character ->
+      # Only create summaries for characters that have passages
+      if Map.has_key?(passages_map, character.id) do
+        passage_count = Map.get(passages_map, character.id, 0)
+
+        # Create a basic summary with just the character and passage count
+        %{
+          character: %{
+            id: character.id,
+            name: character.name,
+            corporation_ticker: character.corporation_ticker,
+            alliance_ticker: character.alliance_ticker,
+            eve_id: character.eve_id
+          },
+          user_id: character.user_id,
+          character_ids: [character.id],
+          passages: passage_count,
+          connections: 0,
+          signatures: 0
+        }
+      else
+        nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 end

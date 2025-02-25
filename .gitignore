@@ -47,6 +47,7 @@ erl_crash.dump
 .cursorrules
 .cursorignore
 .notes/
+.notes/*
 
 # Editor directories and files
 .vscode/*
