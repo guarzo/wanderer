@@ -1,0 +1,71 @@
+# Cursor Project Rules
+
+## Context Initialization
+Starting point for each interaction:
+- ALWAYS read `.notes/project_overview.md` and `.notes/task_list.md`
+- ALWAYS read `.notes/conversation_summary.md` for context
+- PERIODICALLY update `.notes/conversation_summary.md` with key discussion points and decisions
+
+## Operational Protocol
+How to approach tasks:
+
+### Before Action
+- Create a MECE task breakdown
+- Think step-by-step and describe plans in pseudocode
+- Confirm approach before implementation
+
+### Code Changes
+- Read relevant code sections before editing
+- Preserve existing functionality
+- Maintain type safety
+- Follow DRY principles
+- Focus on readability over performance
+- Leave no TODOs or placeholders
+
+## Technology-Specific Guidelines
+
+### Backend (Elixir/Phoenix)
+- Write idiomatic Elixir code following functional programming patterns
+- Use snake_case for files, functions, variables
+- Use PascalCase for module names
+- Leverage pattern matching and guards
+- Follow "let it crash" philosophy with proper supervision
+- Use Ecto changesets for validation
+- Implement proper caching strategies
+- Follow Phoenix conventions for contexts, schemas, controllers
+
+### Frontend (React/Next.js)
+- Use functional components with TypeScript
+- Implement early returns for readability
+- Use descriptive names with proper prefixes (handle- for events)
+- Follow accessibility best practices
+- Use Tailwind classes for styling
+- Prefer named exports
+
+
+### UI/UX
+- Implement responsive design with Tailwind
+
+## Safety Requirements
+- NEVER break type safety
+- ALWAYS maintain proper error handling
+- ALWAYS document new code
+- Implement proper authentication/authorization
+- Protect against common web vulnerabilities
+- Use environment variables for sensitive data
+
+## Priorities
+| Source   | Weight |
+|----------|--------|
+| .notes/  | 1.0    |
+
+## Modes
+### Base Mode
+For routine tasks
+
+### Enhanced Mode
+For complex problems
+
+## Project Directives
+- Project Name: wanderer
+- AI First: true 
