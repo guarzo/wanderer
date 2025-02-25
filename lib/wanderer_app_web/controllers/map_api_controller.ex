@@ -457,4 +457,15 @@ defmodule WandererAppWeb.MapAPIController do
       :updated_at
     ])
   end
+
+  defp load_missing_characters(character_ids) do
+    character_ids
+    |> Enum.chunk_every(50)  # Process in batches of 50
+    |> Enum.flat_map(fn batch ->
+      WandererApp.Api.Character
+      |> Ash.Query.filter(id in ^batch)
+      |> Ash.Query.load([:user])
+      |> WandererApp.Api.read!()
+    end)
+  end
 end

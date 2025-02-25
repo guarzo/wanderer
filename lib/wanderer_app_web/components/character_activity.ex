@@ -1,6 +1,7 @@
 defmodule WandererAppWeb.CharacterActivity do
   use WandererAppWeb, :live_component
   use LiveViewEvents
+  require Logger
 
   @impl true
   def mount(socket) do
@@ -9,8 +10,18 @@ defmodule WandererAppWeb.CharacterActivity do
 
   @impl true
   def update(assigns, socket) do
+    Logger.info("CharacterActivity component received #{length(assigns.activity)} activity entries")
+
+    # Log each character in the received activity
+    Enum.each(assigns.activity, fn summary ->
+      Logger.info("Activity entry received: #{summary.character.name} - Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures}")
+    end)
+
     socket = assign(socket, assigns)
     sorted_activity = sort_activity(assigns.activity, socket.assigns.sort_by, socket.assigns.sort_dir)
+
+    Logger.info("CharacterActivity component sorted #{length(sorted_activity)} activity entries")
+
     {:ok, assign(socket, sorted_activity: sorted_activity)}
   end
 

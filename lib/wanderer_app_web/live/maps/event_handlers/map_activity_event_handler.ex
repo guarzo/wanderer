@@ -40,12 +40,24 @@ defmodule WandererAppWeb.MapActivityEventHandler do
     # Use a 30-day window for activity to show more historical data
     hours_ago = 720  # 30 days * 24 hours
 
+    Logger.info("Starting character activity retrieval for map #{map_id} with #{hours_ago} hours window")
+
     with {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
          {:ok, activities} <-
            WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, hours_ago)
+           |> tap(fn query -> Logger.info("Activity query built: #{inspect(query)}") end)
            |> WandererApp.Api.read() do
 
+      Logger.info("Retrieved #{map_size(passages)} passages and #{length(activities.results)} activities")
+
       summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages)
+      Logger.info("Final character activity summaries count: #{length(summaries)}")
+
+      # Log each character in the final result
+      Enum.each(summaries, fn summary ->
+        Logger.info("Character in final result: #{summary.character.name} - Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures}")
+      end)
+
       {:ok, %{character_activity: summaries}}
     else
       error ->

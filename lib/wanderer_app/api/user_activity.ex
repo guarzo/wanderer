@@ -136,6 +136,16 @@ defmodule WandererApp.Api.UserActivity do
           user: [:primary_character, characters: [:id, :name, :corporation_ticker, :alliance_ticker, :eve_id]]
         ])
 
+      Logger.info("Processing #{length(records)} activity records for character_activity_summary")
+
+      # Log all users found in the records
+      all_user_ids = records
+        |> Enum.map(& &1.user_id)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      Logger.info("Found #{length(all_user_ids)} unique users in activity records")
+
       # Create a comprehensive user_id -> characters map first
       user_to_characters = records
         |> Enum.reduce(%{}, fn record, acc ->
@@ -148,18 +158,35 @@ defmodule WandererApp.Api.UserActivity do
 
       Logger.info("Found #{map_size(user_to_characters)} users with characters")
 
-      records
-      |> Enum.group_by(& &1.user_id)
-      |> Enum.reject(fn {user_id, _} -> is_nil(user_id) end)
+      # Log details about each user's characters
+      Enum.each(user_to_characters, fn {user_id, characters} ->
+        character_names = Enum.map(characters, & &1.name) |> Enum.join(", ")
+        Logger.info("User #{user_id} has #{length(characters)} characters: #{character_names}")
+      end)
+
+      # Group activities by user_id
+      user_activities = records
+        |> Enum.group_by(& &1.user_id)
+        |> Enum.reject(fn {user_id, _} -> is_nil(user_id) end)
+
+      Logger.info("After grouping by user_id, found #{length(user_activities)} users with activities")
+
+      user_activities
       |> Enum.map(fn {user_id, user_activities} ->
         # Get the user from the first activity
         user = user_activities |> Enum.at(0) |> Map.get(:user)
 
         # Try to get the primary character first, then fall back to any character from activities
         display_character = cond do
-          user && user.primary_character -> user.primary_character
-          first_with_char = Enum.find(user_activities, & &1.character) -> first_with_char.character
-          true -> nil
+          user && user.primary_character ->
+            Logger.debug("User #{user_id} using primary character: #{user.primary_character.name}")
+            user.primary_character
+          first_with_char = Enum.find(user_activities, & &1.character) ->
+            Logger.debug("User #{user_id} using character from activity: #{first_with_char.character.name}")
+            first_with_char.character
+          true ->
+            Logger.warn("No display character found for user #{user_id}")
+            nil
         end
 
         if is_nil(display_character) do
@@ -175,6 +202,11 @@ defmodule WandererApp.Api.UserActivity do
           all_user_activities = records
             |> Enum.filter(& &1.user_id == user_id)
 
+          connections_count = Enum.count(all_user_activities, &(&1.event_type == :map_connection_added))
+          signatures_count = Enum.count(all_user_activities, &(&1.event_type == :signatures_added))
+
+          Logger.info("User #{user_id} (#{display_character.name}) has #{connections_count} connections and #{signatures_count} signatures")
+
           %{
             character: %{
               id: display_character.id,
@@ -186,8 +218,8 @@ defmodule WandererApp.Api.UserActivity do
             user_id: user_id,
             character_ids: user_character_ids,
             passages: 0,  # This gets overridden by merge_passages later
-            connections: Enum.count(all_user_activities, &(&1.event_type == :map_connection_added)),
-            signatures: Enum.count(all_user_activities, &(&1.event_type == :signatures_added))
+            connections: connections_count,
+            signatures: signatures_count
           }
         end
       end)
@@ -239,6 +271,20 @@ defmodule WandererApp.Api.UserActivity do
 
     Logger.info("Flattened summaries count: #{length(summaries)}")
 
+    # Get unique user IDs from summaries
+    unique_user_ids = summaries |> Enum.map(& &1.user_id) |> Enum.uniq()
+    Logger.info("Number of unique users in summaries: #{length(unique_user_ids)}")
+
+    # Log details about each user and their characters
+    Enum.each(summaries, fn summary ->
+      user_id = summary.user_id
+      character_ids = Map.get(summary, :character_ids, [])
+      character_name = summary.character.name
+
+      Logger.info("User #{user_id} has primary character #{character_name} with #{length(character_ids)} total characters")
+      Logger.debug("User #{user_id} character IDs: #{inspect(character_ids)}")
+    end)
+
     # Create a map of character IDs to their summaries for quick lookup
     char_id_to_summary = summaries
       |> Enum.reduce(%{}, fn summary, acc ->
@@ -266,6 +312,11 @@ defmodule WandererApp.Api.UserActivity do
       # Load the missing characters to create summaries for them
       missing_char_data = load_missing_characters(missing_chars)
       Logger.info("Loaded #{length(missing_char_data)} missing characters")
+
+      # Log details about missing characters
+      Enum.each(missing_char_data, fn character ->
+        Logger.info("Missing character: #{character.name} (ID: #{character.id}, User ID: #{character.user_id})")
+      end)
 
       # Create summaries for missing characters
       missing_summaries = create_summaries_for_missing_characters(missing_char_data, passages_map)
@@ -302,6 +353,12 @@ defmodule WandererApp.Api.UserActivity do
       end)
 
     Logger.info("Final activity summaries count: #{length(result)}")
+
+    # Log final result details
+    Enum.each(Enum.with_index(result), fn {summary, index} ->
+      Logger.info("Result #{index + 1}: Character #{summary.character.name} - Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures}")
+    end)
+
     result
   end
 
