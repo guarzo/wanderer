@@ -5,7 +5,7 @@ A React component for displaying character activity data in the EVE Online mappi
 ## Features
 
 - Displays character activity data including passages, connections, and signatures
-- Implements virtual scrolling for efficient rendering of large datasets using PrimeReact's VirtualScroller
+- Implements efficient data display using PrimeReact's DataTable component
 - Supports sorting by different columns
 - Responsive design with proper scrollbar handling
 
@@ -23,15 +23,15 @@ The component is integrated with Phoenix LiveView through a hook:
 
 ## Implementation Details
 
-- Uses PrimeReact's VirtualScroller for efficient virtual scrolling
-- Maintains sorting state within the component
+- Uses PrimeReact's DataTable for efficient data display and built-in sorting
 - Renders character avatars from EVE Online image server
 - Styled with a custom CSS file for consistent appearance
+- Integrates seamlessly with the LiveView modal
 
 ## Dependencies
 
 - React
-- PrimeReact (VirtualScroller)
+- PrimeReact (DataTable, Column)
 - Phoenix LiveView (for integration)
 
 ## Migration from LiveView

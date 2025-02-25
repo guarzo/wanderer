@@ -8,121 +8,48 @@
   overflow: hidden;
 }
 
-.character-activity-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #313244;
-}
-
-.character-activity-header h2 {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #cdd6f4;
-}
-
-.close-button {
-  background: none;
-  border: none;
-  color: #7f849c;
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-}
-
-.close-button:hover {
-  background-color: #313244;
-  color: #cdd6f4;
-}
-
-.table-header {
-  display: flex;
-  background-color: #1e1e2e;
-  border-bottom: 1px solid #313244;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.header-cell {
-  padding: 12px 16px;
-  font-weight: 600;
-  color: #cdd6f4;
-}
-
-.character-header {
-  flex: 1;
-  min-width: 200px;
-}
-
-.header-cell.sortable {
-  cursor: pointer;
-  user-select: none;
-}
-
-.header-cell.sortable:hover {
-  background-color: #313244;
-}
-
-.header-cell.sorted {
-  color: #89b4fa;
-}
-
-.sort-indicator {
-  margin-left: 8px;
-  display: inline-block;
-}
-
-.virtual-scroller-container {
-  flex: 1;
-  overflow: hidden;
-  padding-right: 16px; /* Space for scrollbar */
-}
-
-.virtual-scroller {
-  width: 100%;
+/* DataTable styles */
+.character-activity-table {
   height: 100%;
 }
 
-/* Override PrimeReact VirtualScroller styles */
-.p-virtualscroller {
-  background-color: transparent !important;
+.character-activity-table .p-datatable-wrapper {
+  height: 100%;
 }
 
-.p-virtualscroller-content {
-  background-color: transparent !important;
-}
-
-.activity-row {
-  padding: 0;
-  border-bottom: 1px solid #313244;
-}
-
-.activity-row-content {
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  color: #cdd6f4;
+.character-activity-table .p-datatable-thead > tr > th {
   background-color: #1e1e2e;
+  color: #cdd6f4;
+  font-weight: 600;
+  border-color: #313244;
+  padding: 12px 16px;
 }
 
-.activity-row-content:hover {
+.character-activity-table .p-datatable-tbody > tr {
+  background-color: #1e1e2e;
+  color: #cdd6f4;
+  border-color: #313244;
+}
+
+.character-activity-table .p-datatable-tbody > tr:hover {
   background-color: #313244;
 }
 
-.character-cell {
-  flex: 1;
-  min-width: 200px;
+.character-activity-table .p-datatable-tbody > tr > td {
+  padding: 8px 16px;
+  border-color: #313244;
 }
 
+/* Column styles */
+.character-column {
+  min-width: 250px;
+}
+
+.numeric-column {
+  width: 110px;
+}
+
+/* Character info styles */
 .character-info {
   display: flex;
   align-items: center;
@@ -140,7 +67,19 @@
   margin-left: 4px;
 }
 
+/* Override PrimeReact default styles */
+.p-datatable .p-sortable-column.p-highlight {
+  color: #89b4fa;
+}
+
+.p-datatable .p-sortable-column.p-highlight .p-sortable-column-icon {
+  color: #89b4fa;
+}
+
+.p-datatable .p-sortable-column:hover {
+  background-color: #313244;
+}
+
 .text-center {
   text-align: center;
-  flex: 0 0 100px;
 } 
