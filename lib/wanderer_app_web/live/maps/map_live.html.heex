@@ -52,11 +52,11 @@
     <:loading>Loading...</:loading>
     <:failed>Failed to load activity data</:failed>
 
-    <.live_component
-      module={WandererAppWeb.CharacterActivity}
-      id="character-activity"
-      activity={result}
-    />
+    <div 
+      id="character-activity-react" 
+      phx-hook="CharacterActivity"
+      data-activity={Jason.encode!(result)}
+    ></div>
   </.async_result>
 </.modal>
 

@@ -10,6 +10,7 @@ import NewVersionUpdate from './newVersionUpdate';
 import MapAction from './maps/mapAction';
 import ShowCharactersAddAlert from './showCharactersAddAlert';
 import VirtualScroll from './virtualScroll';
+import CharacterActivityHook from './characterActivity';
 
 export default {
   DownloadJson,
@@ -24,4 +25,5 @@ export default {
   NewVersionUpdate,
   ShowCharactersAddAlert,
   VirtualScroll,
+  CharacterActivity: CharacterActivityHook,
 };

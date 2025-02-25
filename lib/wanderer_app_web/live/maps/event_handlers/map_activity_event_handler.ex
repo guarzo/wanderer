@@ -11,8 +11,26 @@ defmodule WandererAppWeb.MapActivityEventHandler do
           payload: character_activity
         },
         socket
-      ),
-      do: socket |> assign(:character_activity, character_activity)
+      ) do
+    socket = socket |> assign(:character_activity, character_activity)
+
+    if connected?(socket) do
+      # Push the updated activity data to the React component
+      # Ensure we're sending the data in the expected format
+      activity_data = cond do
+        is_map(character_activity) && Map.has_key?(character_activity, :character_activity) ->
+          character_activity.character_activity
+        is_map(character_activity) && Map.has_key?(character_activity, :summaries) ->
+          character_activity.summaries
+        true ->
+          character_activity
+      end
+
+      push_event(socket, "update_activity", %{activity: activity_data})
+    else
+      socket
+    end
+  end
 
   def handle_server_event(event, socket),
     do: MapCoreEventHandler.handle_server_event(event, socket)
@@ -22,6 +40,8 @@ defmodule WandererAppWeb.MapActivityEventHandler do
         _,
         %{assigns: %{map_id: map_id, current_user: current_user}} = socket
       ) do
+    Logger.info("Show activity UI event triggered for map #{map_id}")
+
     {:noreply,
      socket
      |> assign(:show_activity?, true)
@@ -30,8 +50,10 @@ defmodule WandererAppWeb.MapActivityEventHandler do
      end)}
   end
 
-  def handle_ui_event("hide_activity", _, socket),
-    do: {:noreply, socket |> assign(show_activity?: false)}
+  def handle_ui_event("hide_activity", _, socket) do
+    Logger.info("Hide activity UI event triggered")
+    {:noreply, socket |> assign(show_activity?: false)}
+  end
 
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
@@ -59,6 +81,7 @@ defmodule WandererAppWeb.MapActivityEventHandler do
         Logger.info("Character in final result: #{summary.character.name} - Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures}")
       end)
 
+      # Return a map with character_activity as the key instead of summaries
       {:ok, %{character_activity: summaries}}
     else
       error ->

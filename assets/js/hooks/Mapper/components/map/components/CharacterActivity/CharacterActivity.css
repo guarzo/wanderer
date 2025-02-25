@@ -1,0 +1,146 @@
+.character-activity-container {
+  display: flex;
+  flex-direction: column;
+  height: 60vh;
+  width: 100%;
+  background-color: #1e1e2e;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.character-activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #313244;
+}
+
+.character-activity-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: #7f849c;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.close-button:hover {
+  background-color: #313244;
+  color: #cdd6f4;
+}
+
+.table-header {
+  display: flex;
+  background-color: #1e1e2e;
+  border-bottom: 1px solid #313244;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-cell {
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.character-header {
+  flex: 1;
+  min-width: 200px;
+}
+
+.header-cell.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.header-cell.sortable:hover {
+  background-color: #313244;
+}
+
+.header-cell.sorted {
+  color: #89b4fa;
+}
+
+.sort-indicator {
+  margin-left: 8px;
+  display: inline-block;
+}
+
+.virtual-scroller-container {
+  flex: 1;
+  overflow: hidden;
+  padding-right: 16px; /* Space for scrollbar */
+}
+
+.virtual-scroller {
+  width: 100%;
+  height: 100%;
+}
+
+/* Override PrimeReact VirtualScroller styles */
+.p-virtualscroller {
+  background-color: transparent !important;
+}
+
+.p-virtualscroller-content {
+  background-color: transparent !important;
+}
+
+.activity-row {
+  padding: 0;
+  border-bottom: 1px solid #313244;
+}
+
+.activity-row-content {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  color: #cdd6f4;
+  background-color: #1e1e2e;
+}
+
+.activity-row-content:hover {
+  background-color: #313244;
+}
+
+.character-cell {
+  flex: 1;
+  min-width: 200px;
+}
+
+.character-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.character-name {
+  display: flex;
+  flex-direction: column;
+}
+
+.ticker {
+  color: #7f849c;
+  font-size: 0.875rem;
+  margin-left: 4px;
+}
+
+.text-center {
+  text-align: center;
+  flex: 0 0 100px;
+} 

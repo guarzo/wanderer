@@ -15,7 +15,8 @@ defmodule WandererAppWeb.MapLive do
        map_loaded?: false,
        server_online: false,
        selected_subscription: nil,
-       user_permissions: nil
+       user_permissions: nil,
+       show_activity?: false
      )
      |> push_event("js-exec", %{
        to: "#map-loader",
@@ -33,7 +34,8 @@ defmodule WandererAppWeb.MapLive do
        map_loaded?: false,
        server_online: false,
        selected_subscription: nil,
-       user_permissions: nil
+       user_permissions: nil,
+       show_activity?: false
      )}
   end
 
@@ -114,11 +116,21 @@ defmodule WandererAppWeb.MapLive do
               WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, hours_ago)
               |> tap(fn query -> Logger.info("Activity query built: #{inspect(query)}") end)
               |> WandererApp.Api.read() do
-         Logger.info("Got passages: #{inspect(passages)}")
-         Logger.info("Got activities: #{inspect(activities)}")
+         Logger.info("Got passages: #{length(Map.keys(passages))} characters")
+         Logger.info("Got activities: #{length(activities.results)} records")
+
+         # Pass nil as the limit to ensure all results are returned
          summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages, nil)
-         Logger.info("Generated summaries: #{inspect(summaries)}")
-         {:ok, summaries}
+         Logger.info("Generated #{length(summaries)} character activity summaries")
+
+         # Log a sample of the summaries for debugging
+         if length(summaries) > 0 do
+           sample = Enum.take(summaries, min(3, length(summaries)))
+           Logger.info("Sample summaries: #{inspect(sample)}")
+         end
+
+         # Return a map with character_activity as the key instead of summaries
+         {:ok, %{character_activity: summaries}}
        else
          error ->
            Logger.error("Failed to get activities: #{inspect(error)}")
