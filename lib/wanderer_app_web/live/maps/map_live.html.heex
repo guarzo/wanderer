@@ -14,9 +14,9 @@
   />
 
   <.button
-    :if={(@user_permissions || %{}) |> Map.get(:view_character, false)}
     phx-click="show_activity"
     class="btn-link -mt-1 text-gray-400 hover:text-white"
+    title="Show Character Activity"
   >
     <.icon name="hero-chart-bar-solid" class="w-6 h-6" />
   </.button>
@@ -40,28 +40,101 @@
   </.link>
 </div>
 
-<.modal
-  :if={assigns |> Map.get(:show_activity?, false)}
-  id="map-activity-modal"
-  title="Activity of Characters"
-  class="!w-[500px]"
-  show
-  on_cancel={JS.push("hide_activity")}
->
-  <.async_result :let={character_activity} assign={@character_activity}>
-    <:loading>Loading...</:loading>
-    <:failed :let={reason}><%= reason %></:failed>
+<!-- Persistent container for React component -->
+<div id="character-activity-container" 
+     phx-hook="CharacterActivity" 
+     phx-update="ignore"
+     data-activity={Jason.encode!(@character_activity || [])}
+     style="display: none;"
+     class="w-full h-[400px] overflow-auto border border-gray-700 rounded-lg">
+</div>
 
-    <span :if={character_activity}>
-      <.live_component
-        module={WandererAppWeb.CharacterActivity}
-        id="character-activity"
-        activity={character_activity}
-        notify_to={self()}
-      />
-    </span>
-  </.async_result>
-</.modal>
+<!-- Character Activity Modal -->
+<%= if assigns |> Map.get(:show_activity?, false) do %>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+    <div class="relative w-full max-w-4xl bg-[#1e1e2e] rounded-lg shadow-lg overflow-hidden border border-[#313244]">
+      <div class="character-activity-modal-header">
+        <h2>Character Activity</h2>
+        <button phx-click="hide_activity" class="character-activity-modal-close" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Container for React component with continuous border -->
+      <div id="character-activity-modal-container" class="w-full h-[400px] overflow-hidden">
+        <div class="flex items-center justify-center h-full">
+          <p class="text-gray-400">Loading character activity data...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+<% end %>
+
+<!-- JavaScript to handle the React component in the modal -->
+<script>
+  // Store activity data globally for persistence
+  window.lastActivityData = null;
+  
+  // Listen for DOM updates from Phoenix
+  document.addEventListener('phx:update', function() {
+    // Check if modal is open
+    const modalContainer = document.getElementById('character-activity-modal-container');
+    
+    if (modalContainer) {
+      // Create a new React component directly in the modal container
+      if (window.lastActivityData && window.React && window.ReactDOM && window.CharacterActivity) {
+        try {
+          const activityData = JSON.parse(window.lastActivityData);
+          
+          // Clear the container first
+          modalContainer.innerHTML = '';
+          
+          // Create a new root and render the component
+          const root = window.ReactDOM.createRoot(modalContainer);
+          root.render(window.React.createElement(window.CharacterActivity, { activity: activityData }));
+        } catch (error) {
+          console.error('Error creating React component in modal:', error);
+          modalContainer.innerHTML = '<div class="p-4 text-red-500">Error rendering activity data</div>';
+        }
+      } else {
+        if (!window.lastActivityData) {
+          modalContainer.innerHTML = '<div class="p-4">No activity data available</div>';
+        }
+      }
+    }
+  });
+  
+  // Listen for the update_activity event from the server
+  window.addEventListener('phx:update_activity', function(e) {
+    if (e.detail && e.detail.activity) {
+      try {
+        // Store the activity data for later use
+        window.lastActivityData = JSON.stringify(e.detail.activity);
+        
+        // If the modal is open, update it immediately
+        const modalContainer = document.getElementById('character-activity-modal-container');
+        if (modalContainer && window.React && window.ReactDOM && window.CharacterActivity) {
+          try {
+            const activityData = e.detail.activity;
+            
+            // Clear the container first
+            modalContainer.innerHTML = '';
+            
+            // Create a new root and render the component
+            const root = window.ReactDOM.createRoot(modalContainer);
+            root.render(window.React.createElement(window.CharacterActivity, { activity: activityData }));
+          } catch (error) {
+            console.error('Error updating React component in modal:', error);
+          }
+        }
+      } catch (error) {
+        console.error('Error handling update_activity event:', error);
+      }
+    }
+  });
+</script>
 
 <.modal
   :if={assigns |> Map.get(:show_tracking?, false)}

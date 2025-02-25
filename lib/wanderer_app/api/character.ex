@@ -208,4 +208,22 @@ defmodule WandererApp.Api.Character do
   identities do
     identity :unique_eve_id, [:eve_id]
   end
+
+  def load_user_characters(user_id, current_user) do
+    with {:ok, characters} <- active_by_user(%{user_id: user_id}) do
+      mapped_characters = Enum.map(characters, &map_ui_character(&1, current_user))
+      {:ok, mapped_characters}
+    end
+  end
+
+  # Helper to map character data to UI format
+  defp map_ui_character(character, _current_user) do
+    %{
+      id: character.id,
+      name: character.name,
+      eve_id: character.eve_id,
+      corporation_ticker: character.corporation_ticker,
+      alliance_ticker: character.alliance_ticker,
+    }
+  end
 end
