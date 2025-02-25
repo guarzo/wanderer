@@ -265,18 +265,18 @@ defmodule WandererApp.Api.UserActivity do
     Logger.debug("Passage character IDs (first 10): #{inspect(Enum.take(passage_char_ids, 10))}")
 
     # Get the activity summaries
-    summaries = activities.results
+    activity_summaries = activities.results
       |> Enum.map(& &1.character_activity_summary)
       |> List.flatten()
 
-    Logger.info("Flattened summaries count: #{length(summaries)}")
+    Logger.info("Flattened summaries count: #{length(activity_summaries)}")
 
     # Get unique user IDs from summaries
-    unique_user_ids = summaries |> Enum.map(& &1.user_id) |> Enum.uniq()
+    unique_user_ids = activity_summaries |> Enum.map(& &1.user_id) |> Enum.uniq()
     Logger.info("Number of unique users in summaries: #{length(unique_user_ids)}")
 
     # Log details about each user and their characters
-    Enum.each(summaries, fn summary ->
+    Enum.each(activity_summaries, fn summary ->
       user_id = summary.user_id
       character_ids = Map.get(summary, :character_ids, [])
       character_name = summary.character.name
@@ -286,7 +286,7 @@ defmodule WandererApp.Api.UserActivity do
     end)
 
     # Create a map of character IDs to their summaries for quick lookup
-    char_id_to_summary = summaries
+    char_id_to_summary = activity_summaries
       |> Enum.reduce(%{}, fn summary, acc ->
         # Add the primary character ID mapping
         acc = Map.put(acc, summary.character.id, summary)
@@ -305,6 +305,10 @@ defmodule WandererApp.Api.UserActivity do
 
     # Check for characters in passages_map that aren't in char_id_to_summary
     missing_chars = passage_char_ids -- Map.keys(char_id_to_summary)
+
+    # Initialize missing_summaries
+    missing_summaries = []
+
     if length(missing_chars) > 0 do
       Logger.warning("Found #{length(missing_chars)} characters with passages but no activity summary")
       Logger.debug("Missing character IDs (first 10): #{inspect(Enum.take(missing_chars, 10))}")
@@ -321,13 +325,10 @@ defmodule WandererApp.Api.UserActivity do
       # Create summaries for missing characters
       missing_summaries = create_summaries_for_missing_characters(missing_char_data, passages_map)
       Logger.info("Created #{length(missing_summaries)} additional summaries for characters with passages")
-
-      # Add the new summaries to our existing ones
-      summaries = summaries ++ missing_summaries
     end
 
-    # Process each summary
-    result = summaries
+    # Process activity summaries to add passage counts
+    processed_activity_summaries = activity_summaries
       |> Enum.map(fn summary ->
         # Use the character_ids directly from the summary
         user_character_ids = Map.get(summary, :character_ids, [])
@@ -352,14 +353,23 @@ defmodule WandererApp.Api.UserActivity do
         |> Map.drop([:user_id, :character_ids])
       end)
 
-    Logger.info("Final activity summaries count: #{length(result)}")
+    # Combine the processed activity summaries with the missing character summaries
+    result = processed_activity_summaries ++ missing_summaries
+
+    # Sort the results by total activity (passages + connections + signatures) in descending order
+    sorted_result = result
+      |> Enum.sort_by(fn summary ->
+        summary.passages + summary.connections + summary.signatures
+      end, :desc)
+
+    Logger.info("Final activity summaries count: #{length(sorted_result)}")
 
     # Log final result details
-    Enum.each(Enum.with_index(result), fn {summary, index} ->
+    Enum.each(Enum.with_index(sorted_result), fn {summary, index} ->
       Logger.info("Result #{index + 1}: Character #{summary.character.name} - Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures}")
     end)
 
-    result
+    sorted_result
   end
 
   # Helper function to load character data for characters with passages but no activity
@@ -395,6 +405,7 @@ defmodule WandererApp.Api.UserActivity do
       # Only create summaries for characters that have passages
       if Map.has_key?(passages_map, character.id) do
         passage_count = Map.get(passages_map, character.id, 0)
+        Logger.debug("Creating summary for missing character #{character.name} with #{passage_count} passages")
 
         # Create a basic summary with just the character and passage count
         %{
