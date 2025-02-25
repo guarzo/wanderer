@@ -10,6 +10,12 @@ defmodule WandererApp.Api.MapChainPassages do
   postgres do
     repo(WandererApp.Repo)
     table("map_chain_passages_v1")
+
+    custom_indexes do
+      index [:map_id, :character_id]
+      index [:map_id, :solar_system_source_id, :solar_system_target_id]
+      index [:inserted_at]
+    end
   end
 
   code_interface do
@@ -130,11 +136,28 @@ defmodule WandererApp.Api.MapChainPassages do
   end
 
   def get_passages_by_character(map_id) do
+    require Logger
+
+    Logger.info("Getting passages by character for map #{map_id}")
+
     case by_map_id(%{map_id: map_id}) do
       {:ok, jumps} ->
+        Logger.info("Found #{length(jumps)} characters with passages")
         passages = jumps |> Enum.map(fn p -> {p.character.id, p.count} end) |> Map.new()
+        Logger.info("Created passages map with #{map_size(passages)} entries")
+
+        # Log the top 5 characters with the most passages
+        top_passages =
+          passages
+          |> Enum.sort_by(fn {_id, count} -> count end, :desc)
+          |> Enum.take(5)
+
+        Logger.debug("Top 5 characters with passages: #{inspect(top_passages)}")
+
         {:ok, passages}
-      error -> error
+      error ->
+        Logger.error("Error getting passages: #{inspect(error)}")
+        error
     end
   end
 end

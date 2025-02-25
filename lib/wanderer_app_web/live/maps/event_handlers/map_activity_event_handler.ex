@@ -37,9 +37,12 @@ defmodule WandererAppWeb.MapActivityEventHandler do
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
 
   defp get_character_activity(map_id, _current_user) do
+    # Use a 30-day window for activity to show more historical data
+    hours_ago = 720  # 30 days * 24 hours
+
     with {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
          {:ok, activities} <-
-           WandererApp.Api.UserActivity.base_activity_query(map_id)
+           WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, hours_ago)
            |> WandererApp.Api.read() do
 
       summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages)

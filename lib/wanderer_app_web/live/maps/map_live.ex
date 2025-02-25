@@ -106,9 +106,12 @@ defmodule WandererAppWeb.MapLive do
      |> assign(:show_activity?, true)
      |> assign_async(:character_activity, fn ->
        Logger.info("Starting async activity load for map #{map_id}")
+       # Use a 30-day window for activity to show more historical data
+       hours_ago = 720  # 30 days * 24 hours
+
        with {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
             {:ok, activities} <-
-              WandererApp.Api.UserActivity.base_activity_query(map_id)
+              WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, hours_ago)
               |> tap(fn query -> Logger.info("Activity query built: #{inspect(query)}") end)
               |> WandererApp.Api.read() do
          Logger.info("Got passages: #{inspect(passages)}")

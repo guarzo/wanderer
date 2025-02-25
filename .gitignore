@@ -43,6 +43,11 @@ erl_crash.dump
 /config/*.secret.exs
 .elixir_ls/
 
+# Other files
+.cursorrules
+.cursorignore
+.notes/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

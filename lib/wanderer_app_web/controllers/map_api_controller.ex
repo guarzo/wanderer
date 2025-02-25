@@ -257,7 +257,7 @@ defmodule WandererAppWeb.MapAPIController do
   - map_id: UUID of the map
 
   Optional params:
-  - hours_ago: Integer, filter to activities within last N hours
+  - hours_ago: Integer, filter to activities within last N hours (defaults to 720 hours/30 days if not specified)
 
   Example:
       GET /api/map/activity?map_id=<uuid>
@@ -265,9 +265,11 @@ defmodule WandererAppWeb.MapAPIController do
   """
   def user_activity_summary(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
+         # Parse the hours_ago param if present, default to 30 days if not specified
+         hours_ago <- parse_hours_ago(params["hours_ago"]) || 720,  # 30 days * 24 hours
          {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
          {:ok, activities} <-
-           WandererApp.Api.UserActivity.base_activity_query(map_id)
+           WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, hours_ago)
            |> WandererApp.Api.read() do
 
       summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages)
