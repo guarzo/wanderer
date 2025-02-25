@@ -27,23 +27,25 @@ defmodule WandererAppWeb.CharacterActivity do
 
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col gap-4 max-h-[70vh] overflow-y-auto overflow-x-hidden">
-      <.table id="activity-tbl" rows={@sorted_activity} sort_by={@sort_by} sort_dir={@sort_dir} myself={@myself}>
-        <:col :let={row} label="Character" sortable sort_by={:character_name}>
-          <div class="flex items-center gap-2 whitespace-nowrap">
-            <.character_item character={row.character} />
-          </div>
-        </:col>
-        <:col :let={row} label="Passages" sortable sort_by={:passages}>
-          <%= Map.get(row, :passages, 0) %>
-        </:col>
-        <:col :let={row} label="Connections" sortable sort_by={:connections}>
-          <%= Map.get(row, :connections, 0) %>
-        </:col>
-        <:col :let={row} label="Signatures" sortable sort_by={:signatures}>
-          <%= Map.get(row, :signatures, 0) %>
-        </:col>
-      </.table>
+    <div class="flex flex-col gap-4 h-[60vh] pr-4">
+      <div id="activity-virtual-scroll" phx-hook="VirtualScroll" class="overflow-y-auto overflow-x-hidden h-full">
+        <.table id="activity-tbl" rows={@sorted_activity} sort_by={@sort_by} sort_dir={@sort_dir} myself={@myself} class="relative">
+          <:col :let={row} label="Character" sortable sort_by={:character_name}>
+            <div class="flex items-center gap-2 whitespace-nowrap">
+              <.character_item character={row.character} />
+            </div>
+          </:col>
+          <:col :let={row} label="Passages" sortable sort_by={:passages} class="text-center">
+            <%= Map.get(row, :passages, 0) %>
+          </:col>
+          <:col :let={row} label="Connections" sortable sort_by={:connections} class="text-center">
+            <%= Map.get(row, :connections, 0) %>
+          </:col>
+          <:col :let={row} label="Signatures" sortable sort_by={:signatures} class="text-center">
+            <%= Map.get(row, :signatures, 0) %>
+          </:col>
+        </.table>
+      </div>
     </div>
     """
   end
