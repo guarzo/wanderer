@@ -116,7 +116,7 @@ defmodule WandererAppWeb.MapLive do
               |> WandererApp.Api.read() do
          Logger.info("Got passages: #{inspect(passages)}")
          Logger.info("Got activities: #{inspect(activities)}")
-         summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages)
+         summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages, nil)
          Logger.info("Generated summaries: #{inspect(summaries)}")
          {:ok, summaries}
        else

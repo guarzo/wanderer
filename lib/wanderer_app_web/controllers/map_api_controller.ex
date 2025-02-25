@@ -272,7 +272,7 @@ defmodule WandererAppWeb.MapAPIController do
            WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, hours_ago)
            |> WandererApp.Api.read() do
 
-      summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages)
+      summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages, nil)
       json(conn, %{data: summaries})
     else
       {:error, msg} when is_binary(msg) ->

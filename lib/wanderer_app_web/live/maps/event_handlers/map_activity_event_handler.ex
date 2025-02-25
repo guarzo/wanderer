@@ -50,7 +50,8 @@ defmodule WandererAppWeb.MapActivityEventHandler do
 
       Logger.info("Retrieved #{map_size(passages)} passages and #{length(activities.results)} activities")
 
-      summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages)
+      # Pass nil as the limit to ensure all results are returned
+      summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages, nil)
       Logger.info("Final character activity summaries count: #{length(summaries)}")
 
       # Log each character in the final result

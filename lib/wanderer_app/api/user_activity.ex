@@ -253,7 +253,7 @@ defmodule WandererApp.Api.UserActivity do
     |> page(limit: limit)
   end
 
-  def merge_passages(activities, passages_map) do
+  def merge_passages(activities, passages_map, limit \\ nil) do
     require Logger
 
     # Log the input data
@@ -306,10 +306,8 @@ defmodule WandererApp.Api.UserActivity do
     # Check for characters in passages_map that aren't in char_id_to_summary
     missing_chars = passage_char_ids -- Map.keys(char_id_to_summary)
 
-    # Initialize missing_summaries
-    missing_summaries = []
-
-    if length(missing_chars) > 0 do
+    # Get missing character summaries
+    missing_summaries = if length(missing_chars) > 0 do
       Logger.warning("Found #{length(missing_chars)} characters with passages but no activity summary")
       Logger.debug("Missing character IDs (first 10): #{inspect(Enum.take(missing_chars, 10))}")
 
@@ -336,8 +334,12 @@ defmodule WandererApp.Api.UserActivity do
       end)
 
       # Create summaries for missing characters
-      missing_summaries = create_summaries_for_missing_characters(missing_char_data, passages_map)
-      Logger.info("Created #{length(missing_summaries)} additional summaries for characters with passages")
+      summaries = create_summaries_for_missing_characters(missing_char_data, passages_map)
+      Logger.info("Created #{length(summaries)} additional summaries for characters with passages")
+      summaries
+    else
+      Logger.info("No characters with passages but no activity summary")
+      []
     end
 
     # Process activity summaries to add passage counts
@@ -377,15 +379,23 @@ defmodule WandererApp.Api.UserActivity do
         summary.passages + summary.connections + summary.signatures
       end, :desc)
 
-    Logger.info("Final activity summaries count: #{length(sorted_result)}")
+    # Apply limit if specified
+    final_result = if limit do
+      Logger.info("Limiting results to #{limit} entries")
+      Enum.take(sorted_result, limit)
+    else
+      sorted_result
+    end
+
+    Logger.info("Final activity summaries count: #{length(final_result)}")
 
     # Log final result details
-    Enum.each(Enum.with_index(sorted_result), fn {summary, index} ->
+    Enum.each(Enum.with_index(final_result), fn {summary, index} ->
       total_activity = summary.passages + summary.connections + summary.signatures
       Logger.info("Result #{index + 1}: Character #{summary.character.name} - Total: #{total_activity} (Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures})")
     end)
 
-    sorted_result
+    final_result
   end
 
   # Helper function to load character data for characters with passages but no activity
@@ -420,7 +430,9 @@ defmodule WandererApp.Api.UserActivity do
   defp create_summaries_for_missing_characters(characters, passages_map) do
     require Logger
 
-    characters
+    Logger.info("Creating summaries for #{length(characters)} missing characters")
+
+    result = characters
     |> Enum.map(fn character ->
       # Only create summaries for characters that have passages
       if Map.has_key?(passages_map, character.id) do
@@ -436,16 +448,18 @@ defmodule WandererApp.Api.UserActivity do
             alliance_ticker: character.alliance_ticker,
             eve_id: character.eve_id
           },
-          user_id: character.user_id,
-          character_ids: [character.id],
           passages: passage_count,
           connections: 0,
           signatures: 0
         }
       else
+        Logger.debug("Skipping character #{character.name} as it has no passages")
         nil
       end
     end)
     |> Enum.reject(&is_nil/1)
+
+    Logger.info("Created #{length(result)} summaries for missing characters")
+    result
   end
 end
