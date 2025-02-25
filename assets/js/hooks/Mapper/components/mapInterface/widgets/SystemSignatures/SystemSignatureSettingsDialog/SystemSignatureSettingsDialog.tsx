@@ -36,6 +36,9 @@ export const SystemSignatureSettingsDialog = ({
   const [activeIndex, setActiveIndex] = useState(0);
   const [settings, setSettings] = useState<Setting[]>(defaultSettings);
 
+  // Debug log to check settings
+  console.log('Settings in dialog:', settings);
+
   const filterSettings = settings.filter(setting => setting.isFilter);
   const userSettings = settings.filter(setting => !setting.isFilter);
 
@@ -56,6 +59,8 @@ export const SystemSignatureSettingsDialog = ({
   }, [onSave, settings]);
 
   const renderSetting = (setting: Setting) => {
+    // Debug log to check each setting
+    console.log('Rendering setting:', setting);
     if (setting.options) {
       return (
         <div key={setting.key} className="flex items-center justify-between gap-2 mb-2">
