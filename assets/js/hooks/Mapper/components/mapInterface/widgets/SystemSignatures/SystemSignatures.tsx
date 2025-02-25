@@ -32,10 +32,7 @@ export const SHOW_UPDATED_COLUMN_SETTING = 'SHOW_UPDATED_COLUMN_SETTING';
 export const SHOW_CHARACTER_COLUMN_SETTING = 'SHOW_CHARACTER_COLUMN_SETTING';
 export const LAZY_DELETE_SIGNATURES_SETTING = 'LAZY_DELETE_SIGNATURES_SETTING';
 export const KEEP_LAZY_DELETE_SETTING = 'KEEP_LAZY_DELETE_ENABLED_SETTING';
-// eslint-disable-next-line react-refresh/only-export-components
 export const DELETION_TIMING_SETTING = DELETION_TIMING_SETTING_KEY;
-export const COLOR_BY_TYPE_SETTING = 'COLOR_BY_TYPE_SETTING';
-export const SHOW_CHARACTER_PORTRAIT_SETTING = 'SHOW_CHARACTER_PORTRAIT_SETTING';
 
 // Extend the Setting type to include options for dropdown settings
 type ExtendedSetting = Setting & {
@@ -46,10 +43,8 @@ const SETTINGS: ExtendedSetting[] = [
   { key: SHOW_UPDATED_COLUMN_SETTING, name: 'Show Updated Column', value: false, isFilter: false },
   { key: SHOW_DESCRIPTION_COLUMN_SETTING, name: 'Show Description Column', value: false, isFilter: false },
   { key: SHOW_CHARACTER_COLUMN_SETTING, name: 'Show Character Column', value: false, isFilter: false },
-  { key: SHOW_CHARACTER_PORTRAIT_SETTING, name: 'Show Character Portrait in Tooltip', value: false, isFilter: false },
   { key: LAZY_DELETE_SIGNATURES_SETTING, name: 'Lazy Delete Signatures', value: false, isFilter: false },
   { key: KEEP_LAZY_DELETE_SETTING, name: 'Keep "Lazy Delete" Enabled', value: false, isFilter: false },
-  { key: COLOR_BY_TYPE_SETTING, name: 'Color Signatures by Type', value: false, isFilter: false },
   {
     key: DELETION_TIMING_SETTING,
     name: 'Deletion Timing',
@@ -81,32 +76,6 @@ function getDefaultSettings(): ExtendedSetting[] {
   return [...SETTINGS];
 }
 
-function getInitialSettings(): ExtendedSetting[] {
-  const stored = localStorage.getItem(SIGNATURE_SETTINGS_KEY);
-  if (stored) {
-    try {
-      const parsedSettings = JSON.parse(stored) as ExtendedSetting[];
-      // Merge stored settings with default settings to ensure new settings are included
-      const defaultSettings = getDefaultSettings();
-      const mergedSettings = defaultSettings.map(defaultSetting => {
-        const storedSetting = parsedSettings.find(s => s.key === defaultSetting.key);
-        if (storedSetting) {
-          // Keep the stored value but ensure options are from default settings
-          return {
-            ...defaultSetting,
-            value: storedSetting.value,
-          };
-        }
-        return defaultSetting;
-      });
-      return mergedSettings;
-    } catch (error) {
-      console.error('Error parsing stored settings', error);
-    }
-  }
-  return getDefaultSettings();
-}
-
 export const SystemSignatures: React.FC = () => {
   const {
     data: { selectedSystems },
@@ -114,7 +83,31 @@ export const SystemSignatures: React.FC = () => {
 
   const [visible, setVisible] = useState(false);
 
-  const [currentSettings, setCurrentSettings] = useState<ExtendedSetting[]>(getInitialSettings);
+  const [currentSettings, setCurrentSettings] = useState<ExtendedSetting[]>(() => {
+    const stored = localStorage.getItem(SIGNATURE_SETTINGS_KEY);
+    if (stored) {
+      try {
+        const parsedSettings = JSON.parse(stored) as ExtendedSetting[];
+        // Merge stored settings with default settings to ensure new settings are included
+        const defaultSettings = getDefaultSettings();
+        const mergedSettings = defaultSettings.map(defaultSetting => {
+          const storedSetting = parsedSettings.find(s => s.key === defaultSetting.key);
+          if (storedSetting) {
+            // Keep the stored value but ensure options are from default settings
+            return {
+              ...defaultSetting,
+              value: storedSetting.value,
+            };
+          }
+          return defaultSetting;
+        });
+        return mergedSettings;
+      } catch (error) {
+        console.error('Error parsing stored settings', error);
+      }
+    }
+    return getDefaultSettings();
+  });
 
   useEffect(() => {
     localStorage.setItem(SIGNATURE_SETTINGS_KEY, JSON.stringify(currentSettings));
@@ -140,17 +133,13 @@ export const SystemSignatures: React.FC = () => {
 
   const deletionTimingValue = useMemo(() => {
     const setting = currentSettings.find(setting => setting.key === DELETION_TIMING_SETTING);
-    return typeof setting?.value === 'number' ? setting.value : DELETION_TIMING_IMMEDIATE;
-  }, [currentSettings]);
-
-  const colorByTypeValue = useMemo(() => {
-    const setting = currentSettings.find(setting => setting.key === COLOR_BY_TYPE_SETTING);
-    return typeof setting?.value === 'boolean' ? setting.value : false;
+    return typeof setting?.value === 'number' ? setting.value : DELETION_TIMING_DEFAULT;
   }, [currentSettings]);
 
   const handleSettingsChange = useCallback((newSettings: Setting[]) => {
     setCurrentSettings(newSettings as ExtendedSetting[]);
     setVisible(false);
+    console.log('Settings changed:', newSettings);
   }, []);
 
   const handleLazyDeleteChange = useCallback((value: boolean) => {
@@ -179,8 +168,9 @@ export const SystemSignatures: React.FC = () => {
   }, []);
 
   const handleSettingsButtonClick = useCallback(() => {
+    console.log('Opening settings dialog with settings:', currentSettings);
     setVisible(true);
-  }, []);
+  }, [currentSettings]);
 
   const handlePendingChange = useCallback((newPending: SystemSignature[], newUndo: () => void) => {
     setPendingSigs(prev => {
@@ -250,7 +240,6 @@ export const SystemSignatures: React.FC = () => {
           onCountChange={handleSigCountChange}
           onPendingChange={handlePendingChange}
           deletionTiming={deletionTimingValue}
-          colorByType={colorByTypeValue}
         />
       )}
       {visible && (
