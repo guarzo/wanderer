@@ -313,13 +313,26 @@ defmodule WandererApp.Api.UserActivity do
       Logger.warning("Found #{length(missing_chars)} characters with passages but no activity summary")
       Logger.debug("Missing character IDs (first 10): #{inspect(Enum.take(missing_chars, 10))}")
 
+      # Log the total number of characters with passages
+      Logger.info("Total characters with passages: #{length(passage_char_ids)}")
+
+      # Log the distribution of passage counts
+      passage_counts = passages_map |> Enum.map(fn {_, count} -> count end) |> Enum.sort(:desc)
+      Logger.info("Passage count distribution (first 10): #{inspect(Enum.take(passage_counts, 10))}")
+
+      # Log the minimum passage count
+      if length(passage_counts) > 0 do
+        Logger.info("Minimum passage count: #{List.last(passage_counts)}")
+      end
+
       # Load the missing characters to create summaries for them
       missing_char_data = load_missing_characters(missing_chars)
       Logger.info("Loaded #{length(missing_char_data)} missing characters")
 
       # Log details about missing characters
       Enum.each(missing_char_data, fn character ->
-        Logger.info("Missing character: #{character.name} (ID: #{character.id}, User ID: #{character.user_id})")
+        passage_count = Map.get(passages_map, character.id, 0)
+        Logger.info("Missing character: #{character.name} (ID: #{character.id}, User ID: #{character.user_id}, Passages: #{passage_count})")
       end)
 
       # Create summaries for missing characters
@@ -356,6 +369,8 @@ defmodule WandererApp.Api.UserActivity do
     # Combine the processed activity summaries with the missing character summaries
     result = processed_activity_summaries ++ missing_summaries
 
+    Logger.info("Combined #{length(processed_activity_summaries)} processed summaries with #{length(missing_summaries)} missing summaries")
+
     # Sort the results by total activity (passages + connections + signatures) in descending order
     sorted_result = result
       |> Enum.sort_by(fn summary ->
@@ -366,7 +381,8 @@ defmodule WandererApp.Api.UserActivity do
 
     # Log final result details
     Enum.each(Enum.with_index(sorted_result), fn {summary, index} ->
-      Logger.info("Result #{index + 1}: Character #{summary.character.name} - Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures}")
+      total_activity = summary.passages + summary.connections + summary.signatures
+      Logger.info("Result #{index + 1}: Character #{summary.character.name} - Total: #{total_activity} (Passages: #{summary.passages}, Connections: #{summary.connections}, Signatures: #{summary.signatures})")
     end)
 
     sorted_result
@@ -379,20 +395,24 @@ defmodule WandererApp.Api.UserActivity do
     if Enum.empty?(character_ids) do
       []
     else
-      # Take only the first 100 characters to avoid overloading the query
-      ids_to_load = Enum.take(character_ids, 100)
-      Logger.info("Loading data for #{length(ids_to_load)} missing characters")
+      # Process all character IDs in batches of 50 to avoid overloading the query
+      Logger.info("Loading data for #{length(character_ids)} missing characters in batches")
 
-      try do
-        WandererApp.Api.Character
-        |> Ash.Query.filter(id in ^ids_to_load)
-        |> Ash.Query.load([:user])
-        |> WandererApp.Api.read!()
-      rescue
-        e ->
-          Logger.error("Error loading missing characters: #{inspect(e)}")
-          []
-      end
+      character_ids
+      |> Enum.chunk_every(50)  # Process in batches of 50
+      |> Enum.flat_map(fn batch ->
+        try do
+          Logger.debug("Loading batch of #{length(batch)} characters")
+          WandererApp.Api.Character
+          |> Ash.Query.filter(id in ^batch)
+          |> Ash.Query.load([:user])
+          |> WandererApp.Api.read!()
+        rescue
+          e ->
+            Logger.error("Error loading batch of missing characters: #{inspect(e)}")
+            []
+        end
+      end)
     end
   end
 
