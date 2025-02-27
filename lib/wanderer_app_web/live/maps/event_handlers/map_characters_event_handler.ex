@@ -365,51 +365,7 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
     end
   end
 
-  def handle_ui_event(
-        "refresh_characters",
-        _,
-        %{
-          assigns: %{
-            map_id: map_id,
-            current_user: current_user
-          }
-        } = socket
-      ) do
-    # Get the current user's characters
-    user_characters = current_user.characters |> Enum.map(& &1.id)
-
-    # Get the tracked characters for this map
-    {:ok, tracked_characters} =
-      WandererApp.MapCharacterSettingsRepo.get_tracked_by_map_filtered(
-        map_id,
-        user_characters
-      )
-
-    # Format the tracking data for the client
-    tracking_data =
-      tracked_characters
-      |> Enum.map(fn {char, tracked, followed} ->
-        %{
-          id: char.eve_id,
-          name: char.name,
-          corporation_ticker: Map.get(char, :corporation_ticker, ""),
-          alliance_ticker: Map.get(char, :alliance_ticker, ""),
-          portrait_url: WandererApp.Character.get_portrait_url(char.eve_id),
-          tracked: tracked,
-          followed: followed
-        }
-      end)
-
-    # Send the updated tracking data to the client
-    {:noreply,
-     socket
-     |> MapEventHandler.push_map_event(
-       "tracking_characters_data",
-       %{characters: tracking_data}
-     )}
-  end
-
-  # Catch-all handler for unmatched events
+    # Catch-all handler for unmatched events
   def handle_ui_event(event, params, socket) do
     Logger.warning("Unhandled event in MapCharactersEventHandler: #{inspect(event)} with params: #{inspect(params)}")
     {:noreply, socket}
