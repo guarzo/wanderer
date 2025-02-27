@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useEffect } from 'react';
+import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -78,6 +78,17 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
+  // Create a local state to store the activity data
+  const [localActivity, setLocalActivity] = useState<ActivitySummary[]>([]);
+
+  // Update local state when activity prop changes
+  useEffect(() => {
+    if (activity && Array.isArray(activity) && activity.length > 0) {
+      console.log('Setting local activity data:', activity.length, 'items');
+      setLocalActivity(activity);
+    }
+  }, [activity]);
+
   // Log activity data for debugging
   useEffect(() => {
     if (show) {
@@ -85,6 +96,7 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
       console.log('Activity data type:', typeof activity);
       console.log('Activity is array:', Array.isArray(activity));
       console.log('Activity length:', activity?.length || 0);
+      console.log('Local activity length:', localActivity?.length || 0);
       
       if (activity && activity.length > 0) {
         console.log('First activity item:', activity[0]);
@@ -95,26 +107,19 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
         );
         
         console.log('Data has expected structure:', hasExpectedStructure);
-        
-        // Log any items that don't have the expected structure
-        if (!hasExpectedStructure) {
-          const invalidItems = activity.filter(
-            item => typeof item !== 'object' || item === null || !('character_name' in item),
-          );
-          console.log('Invalid items:', invalidItems);
-        }
       }
     }
-  }, [show, activity]);
+  }, [show, activity, localActivity]);
 
   // Sort activity by character name
   const sortedActivity = useMemo(() => {
-    if (!activity || !Array.isArray(activity)) {
-      console.warn('Activity is not an array:', activity);
+    if (!localActivity || !Array.isArray(localActivity) || localActivity.length === 0) {
+      console.warn('No local activity data to sort');
       return [];
     }
-    return [...activity].sort((a, b) => a.character_name.localeCompare(b.character_name));
-  }, [activity]);
+    console.log('Sorting activity data, length:', localActivity.length);
+    return [...localActivity].sort((a, b) => a.character_name.localeCompare(b.character_name));
+  }, [localActivity]);
 
   // Determine if we should use virtual scroller based on row count
   const useVirtualScroller = useMemo(() => {
@@ -224,6 +229,18 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     [formatNumber],
   );
 
+  // Force re-render when dialog is shown
+  useEffect(() => {
+    if (show) {
+      // Force a re-render by setting a timeout
+      const timer = setTimeout(() => {
+        console.log('Forcing re-render of CharacterActivity');
+        setLocalActivity(prev => [...prev]);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [show]);
+
   return (
     <Dialog
       className="character-activity-modal"
@@ -245,7 +262,7 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
           overflow: 'hidden',
         }}
       >
-        {activity && activity.length > 0 ? (
+        {sortedActivity.length > 0 ? (
           <DataTable
             value={sortedActivity}
             className={`character-activity-datatable ${shouldShowScrollbar ? '' : 'no-scrollbar'}`}
