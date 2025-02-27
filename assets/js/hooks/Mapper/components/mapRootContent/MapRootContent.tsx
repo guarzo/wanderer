@@ -93,12 +93,23 @@ export const MapRootContent = ({ eventHandlers }: MapRootContentProps) => {
 
   const handleUpdateActivity = useCallback(
     (activityData: { activity: ActivitySummary[] }) => {
+      console.log('handleUpdateActivity called with:', activityData);
+      
       if (activityData && activityData.activity) {
+        console.log('Activity data received:', activityData.activity);
+        console.log('Activity data length:', activityData.activity.length);
+        
+        if (activityData.activity.length > 0) {
+          console.log('First activity item:', activityData.activity[0]);
+        }
+        
         update(state => ({
           ...state,
           characterActivityData: activityData.activity,
           showCharacterActivity: true,
         }));
+      } else {
+        console.warn('Activity data is missing or invalid:', activityData);
       }
     },
     [update],

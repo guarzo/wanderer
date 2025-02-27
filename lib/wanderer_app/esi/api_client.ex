@@ -65,8 +65,10 @@ defmodule WandererApp.Esi.ApiClient do
         )
 
   def find_routes(map_id, origin, hubs, routes_settings) do
-    origin = origin |> String.to_integer()
-    hubs = hubs |> Enum.map(&(&1 |> String.to_integer()))
+    origin = if is_binary(origin), do: String.to_integer(origin), else: origin
+    hubs = Enum.map(hubs, fn hub ->
+      if is_binary(hub), do: String.to_integer(hub), else: hub
+    end)
 
     routes_settings = @default_routes_settings |> Map.merge(routes_settings)
 

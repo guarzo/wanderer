@@ -35,6 +35,14 @@ defmodule WandererAppWeb.MapRoutesEventHandler do
     Task.async(fn ->
       {:ok, hubs} = map_id |> WandererApp.Map.list_hubs()
 
+      # Ensure solar_system_id is properly formatted
+      # It could be a string, integer, or atom depending on the source
+      solar_system_id = cond do
+        is_binary(solar_system_id) -> solar_system_id
+        is_integer(solar_system_id) -> Integer.to_string(solar_system_id)
+        true -> to_string(solar_system_id)
+      end
+
       {:ok, routes} =
         WandererApp.Maps.find_routes(
           map_id,

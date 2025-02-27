@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -50,9 +50,9 @@ export interface ActivitySummary {
   passages_traveled?: number;
   connections_created?: number;
   signatures_scanned?: number;
-  passages?: Passage[];
-  connections?: Connection[];
-  signatures?: Signature[];
+  passages?: Passage[] | number;
+  connections?: Connection[] | number;
+  signatures?: Signature[] | number;
   timestamp?: string;
 }
 
@@ -78,8 +78,41 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
+  // Log activity data for debugging
+  useEffect(() => {
+    if (show) {
+      console.log('CharacterActivity dialog shown');
+      console.log('Activity data type:', typeof activity);
+      console.log('Activity is array:', Array.isArray(activity));
+      console.log('Activity length:', activity?.length || 0);
+      
+      if (activity && activity.length > 0) {
+        console.log('First activity item:', activity[0]);
+        
+        // Check if the data has the expected structure
+        const hasExpectedStructure = activity.every(
+          item => typeof item === 'object' && item !== null && 'character_name' in item,
+        );
+        
+        console.log('Data has expected structure:', hasExpectedStructure);
+        
+        // Log any items that don't have the expected structure
+        if (!hasExpectedStructure) {
+          const invalidItems = activity.filter(
+            item => typeof item !== 'object' || item === null || !('character_name' in item),
+          );
+          console.log('Invalid items:', invalidItems);
+        }
+      }
+    }
+  }, [show, activity]);
+
   // Sort activity by character name
   const sortedActivity = useMemo(() => {
+    if (!activity || !Array.isArray(activity)) {
+      console.warn('Activity is not an array:', activity);
+      return [];
+    }
     return [...activity].sort((a, b) => a.character_name.localeCompare(b.character_name));
   }, [activity]);
 
@@ -147,17 +180,47 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
 
   // Templates for numeric columns
   const passagesTemplate = useCallback(
-    (rowData: ActivitySummary) => <div className="text-center">{formatNumber(rowData.passages_traveled)}</div>,
+    (rowData: ActivitySummary) => {
+      // Handle both number and array formats
+      const passages =
+        typeof rowData.passages_traveled === 'number'
+          ? rowData.passages_traveled
+          : typeof rowData.passages === 'number'
+            ? rowData.passages
+            : 0;
+      
+      return <div className="text-center">{formatNumber(passages)}</div>;
+    },
     [formatNumber],
   );
 
   const connectionsTemplate = useCallback(
-    (rowData: ActivitySummary) => <div className="text-center">{formatNumber(rowData.connections_created)}</div>,
+    (rowData: ActivitySummary) => {
+      // Handle both number and array formats
+      const connections =
+        typeof rowData.connections_created === 'number'
+          ? rowData.connections_created
+          : typeof rowData.connections === 'number'
+            ? rowData.connections
+            : 0;
+      
+      return <div className="text-center">{formatNumber(connections)}</div>;
+    },
     [formatNumber],
   );
 
   const signaturesTemplate = useCallback(
-    (rowData: ActivitySummary) => <div className="text-center">{formatNumber(rowData.signatures_scanned)}</div>,
+    (rowData: ActivitySummary) => {
+      // Handle both number and array formats
+      const signatures =
+        typeof rowData.signatures_scanned === 'number'
+          ? rowData.signatures_scanned
+          : typeof rowData.signatures === 'number'
+            ? rowData.signatures
+            : 0;
+      
+      return <div className="text-center">{formatNumber(signatures)}</div>;
+    },
     [formatNumber],
   );
 
@@ -172,13 +235,16 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
       resizable={false}
       modal={true}
     >
-      <div className="character-activity-container" style={{ 
-        height: 'auto',
-        minHeight: '100px',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden'
-      }}>
+      <div 
+        className="character-activity-container"
+        style={{
+          height: 'auto',
+          minHeight: '100px',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         {activity && activity.length > 0 ? (
           <DataTable
             value={sortedActivity}

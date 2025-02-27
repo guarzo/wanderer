@@ -370,14 +370,20 @@ defmodule WandererApp.Api.UserActivity do
 
     # Transform the result for the React component
     transformed_result = Enum.map(result, fn summary ->
+      # Ensure character data exists and has required fields
+      character_data = case summary.character do
+        nil -> %{name: "Unknown", eve_id: nil, corporation_ticker: nil, alliance_ticker: nil}
+        char -> char
+      end
+
       %{
-        "character_name" => summary.character.name,
-        "eve_id" => summary.character.eve_id,
-        "corporation_ticker" => summary.character.corporation_ticker || "",
-        "alliance_ticker" => summary.character.alliance_ticker || "",
-        "passages_traveled" => summary.passages,
-        "connections_created" => summary.connections,
-        "signatures_scanned" => summary.signatures
+        "character_name" => character_data.name,
+        "eve_id" => character_data.eve_id || "",
+        "corporation_ticker" => character_data.corporation_ticker || "",
+        "alliance_ticker" => character_data.alliance_ticker || "",
+        "passages_traveled" => summary.passages || 0,
+        "connections_created" => summary.connections || 0,
+        "signatures_scanned" => summary.signatures || 0
       }
     end)
 

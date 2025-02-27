@@ -1,6 +1,12 @@
 defmodule WandererAppWeb.MapLive do
   use WandererAppWeb, :live_view
   use LiveViewEvents
+  require Logger
+
+  alias WandererApp.Api.MapChainPassages
+  alias WandererApp.Api.UserActivity
+  alias WandererAppWeb.MapPicker
+  alias WandererAppWeb.MapLoader
 
   @impl true
   def mount(%{"slug" => map_slug} = _params, _session, socket) when is_connected?(socket) do
@@ -121,6 +127,17 @@ defmodule WandererAppWeb.MapLive do
 
       case result do
         {:ok, summaries} ->
+          # Log the summaries for debugging
+          Logger.info("Character activity summaries count: #{inspect(length(summaries))}")
+
+          # Log a sample of the summaries
+          if length(summaries) > 0 do
+            Logger.info("Sample summary: #{inspect(Enum.at(summaries, 0), pretty: true)}")
+          end
+
+          # Ensure summaries is a list
+          summaries = if is_list(summaries), do: summaries, else: []
+
           # Send the activity data to the client
           socket = socket
             |> assign(:character_activity, %{summaries: summaries})
