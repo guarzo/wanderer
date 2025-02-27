@@ -119,12 +119,26 @@ defmodule WandererApp.Maps do
         followed: followed
       }
 
-  @decorate cacheable(
-              cache: WandererApp.Cache,
-              key: "map_characters-#{map_id}",
-              opts: [ttl: :timer.seconds(5)]
-            )
+  # Helper function to generate cache key for map characters
+  def map_characters_cache_key(map_id) do
+    "map_characters-#{map_id}"
+  end
+
+  # Replace the decorated function with a direct cache implementation
   defp _get_map_characters(%{id: map_id} = map) do
+    cache_key = map_characters_cache_key(map_id)
+
+    case WandererApp.Cache.lookup(cache_key) do
+      {:ok, result} when not is_nil(result) ->
+        result
+      _ ->
+        result = _calculate_map_characters(map)
+        WandererApp.Cache.put(cache_key, result, ttl: :timer.seconds(5))
+        result
+    end
+  end
+
+  defp _calculate_map_characters(map) do
     map_acls =
       map.acls
       |> Enum.map(fn acl -> acl |> Ash.load!(:members) end)

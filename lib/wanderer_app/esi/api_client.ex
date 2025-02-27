@@ -366,16 +366,16 @@ defmodule WandererApp.Esi.ApiClient do
     ]
 
     merged_opts = Keyword.put(opts, :params, query_params)
-    _search(character_eve_id, search_val, categories_val, merged_opts)
-  end
+    cache_key = "search-#{character_eve_id}-#{categories_val}-#{search_val |> Slug.slugify()}"
 
-  @decorate cacheable(
-    cache: Cache,
-    key: "search-#{character_eve_id}-#{categories_val}-#{search_val |> Slug.slugify()}",
-    opts: [ttl: @ttl]
-  )
-  defp _search(character_eve_id, search_val, categories_val, merged_opts) do
-    _get_character_auth_data(character_eve_id, "search", merged_opts)
+    case Cache.lookup(cache_key) do
+      {:ok, result} when not is_nil(result) ->
+        result
+      _ ->
+        result = _get_character_auth_data(character_eve_id, "search", merged_opts)
+        Cache.put(cache_key, result, ttl: @ttl)
+        result
+    end
   end
 
   defp _remove_intersection(pairs_arr) do

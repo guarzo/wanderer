@@ -208,14 +208,4 @@ defmodule WandererAppWeb.CharactersLive do
 
   defp maybe_add_wallet_balance(map, _character, _can_track_wallet?),
     do: Map.put_new(map, :eve_wallet_balance, 0.0)
-
-  defp reload_characters(socket) do
-    case WandererApp.Api.Character.load_user_characters(
-      socket.assigns.user_id,
-      socket.assigns.current_user
-    ) do
-      {:ok, characters} -> assign(socket, characters: characters)
-      _ -> socket
-    end
-  end
 end

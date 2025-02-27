@@ -7,6 +7,7 @@ defmodule WandererApp.Api.UserActivity do
 
   import Ash.Query
   import Ash.Expr
+  require Logger
 
   postgres do
     repo(WandererApp.Repo)
@@ -134,56 +135,76 @@ defmodule WandererApp.Api.UserActivity do
           user: [:primary_character, characters: [:id, :name, :corporation_ticker, :alliance_ticker, :eve_id]]
         ])
 
-      # Log all users found in the records
+      # Get all unique user IDs from the records
       all_user_ids = records
         |> Enum.map(& &1.user_id)
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq()
 
-      # Create a comprehensive user_id -> characters map first
-      user_to_characters = records
-        |> Enum.reduce(%{}, fn record, acc ->
-          if record.user_id && record.user && record.user.characters do
-            Map.put(acc, record.user_id, record.user.characters)
-          else
-            acc
-          end
+      # First, build a comprehensive map of user_id -> all character IDs
+      user_to_character_ids = %{}
+      user_to_character_ids = Enum.reduce(records, user_to_character_ids, fn record, acc ->
+        if record.user_id && record.user && record.user.characters do
+          character_ids = record.user.characters |> Enum.map(& &1.id)
+          Map.put(acc, record.user_id, character_ids)
+        else
+          acc
+        end
+      end)
+
+      # Next, determine the display character for each user (primary or oldest)
+      user_to_display_character = %{}
+      user_to_display_character = Enum.reduce(all_user_ids, user_to_display_character, fn user_id, acc ->
+        # Get all records for this user
+        user_records = Enum.filter(records, & &1.user_id == user_id)
+
+        # Get the first record with a user that has a primary_character
+        record_with_primary = Enum.find(user_records, fn r ->
+          r.user && r.user.primary_character
         end)
 
-      # Group activities by user_id
-      user_activities = records
-        |> Enum.group_by(& &1.user_id)
-        |> Enum.reject(fn {user_id, _} -> is_nil(user_id) end)
-
-      user_activities
-      |> Enum.map(fn {user_id, user_activities} ->
-        # Get the user from the first activity
-        user = user_activities |> Enum.at(0) |> Map.get(:user)
-
-        # Try to get the primary character first, then fall back to any character from activities
         display_character = cond do
-          user && user.primary_character ->
-            user.primary_character
-          first_with_char = Enum.find(user_activities, & &1.character) ->
+          # Use primary character if available
+          record_with_primary ->
+            record_with_primary.user.primary_character
+
+          # Otherwise use the first character with a record
+          first_with_char = Enum.find(user_records, & &1.character) ->
             first_with_char.character
+
+          # Fallback to nil if no character found
           true ->
             nil
         end
 
+        if display_character do
+          Map.put(acc, user_id, display_character)
+        else
+          acc
+        end
+      end)
+
+      # Now create summaries for each user
+      Enum.map(all_user_ids, fn user_id ->
+        # Get the display character for this user
+        display_character = Map.get(user_to_display_character, user_id)
+
+        # Skip if no display character found
         if is_nil(display_character) do
           nil
         else
-          # Get all character IDs for this user from our comprehensive map
-          user_character_ids = Map.get(user_to_characters, user_id, []) |> Enum.map(& &1.id)
+          # Get all character IDs for this user
+          user_character_ids = Map.get(user_to_character_ids, user_id, [])
 
           # Get all activities for all characters of this user
           all_user_activities = records
             |> Enum.filter(& &1.user_id == user_id)
 
+          # Count activities by type
           connections_count = Enum.count(all_user_activities, &(&1.event_type == :map_connection_added))
           signatures_count = Enum.count(all_user_activities, &(&1.event_type == :signatures_added))
 
-
+          # Create the summary
           %{
             character: %{
               id: display_character.id,
@@ -230,95 +251,113 @@ defmodule WandererApp.Api.UserActivity do
     |> page(limit: limit)
   end
 
-  def merge_passages(activities, passages_map, limit \\ nil) do
-    require Logger
-
-    # Log passage map keys to help debug
-    passage_char_ids = Map.keys(passages_map)
-    Logger.debug("Passage map contains #{length(passage_char_ids)} character IDs")
-
-    # Get the activity summaries
+  def merge_passages(activities, passages_map, _limit \\ nil) do
     activity_summaries = activities.results
       |> Enum.map(& &1.character_activity_summary)
       |> List.flatten()
 
-    Logger.debug("Activity summaries count: #{length(activity_summaries)}")
+    # First, check for duplicate characters across all users
+    # Extract all character IDs from all users
+    all_character_ids = activity_summaries
+      |> Enum.flat_map(& &1.character_ids)
 
-    # Get unique user IDs from summaries
-    unique_user_ids = activity_summaries |> Enum.map(& &1.user_id) |> Enum.uniq()
-    Logger.debug("Unique user IDs count: #{length(unique_user_ids)}")
+    # Find duplicate character IDs (characters that appear in multiple users)
+    _duplicate_character_ids = all_character_ids
+      |> Enum.frequencies()
+      |> Enum.filter(fn {_, count} -> count > 1 end)
+      |> Enum.map(fn {id, count} -> {id, count} end)
 
-    # Log details about each user and their characters
-    Enum.each(activity_summaries, fn summary ->
-      user_id = summary.user_id
-      character_ids = Map.get(summary, :character_ids, [])
-      character_name = summary.character.name
-      Logger.debug("User #{user_id} has character #{character_name} with #{length(character_ids)} associated character IDs")
-    end)
+    # Group summaries by character name to detect duplicates
+    _character_name_groups = activity_summaries
+      |> Enum.group_by(& &1.character.name)
+
+
+    # Group summaries by user_id to ensure we have one summary per user
+    user_summaries = activity_summaries
+      |> Enum.group_by(& &1.user_id)
+
+    # Convert to consolidated summaries - one per user
+    user_summaries = user_summaries
+      |> Enum.map(fn {user_id, summaries} ->
+        # Find the primary summary for this user
+        # Sort summaries to prioritize those with primary characters
+        sorted_summaries = Enum.sort_by(summaries, fn summary ->
+          # Prioritize summaries where the character is the primary character
+          # This ensures we use the primary character as the display character
+          is_primary = Enum.any?(summaries, fn s ->
+            s.user_id == user_id &&
+            s.character &&
+            summary.character &&
+            s.character.id == summary.character.id
+          end)
+          if is_primary, do: 0, else: 1
+        end)
+
+        primary_summary = List.first(sorted_summaries)
+
+        # Collect all character IDs across all summaries for this user
+        all_character_ids = summaries
+          |> Enum.flat_map(& &1.character_ids)
+          |> Enum.uniq()
+
+        %{
+          primary_summary |
+          character_ids: all_character_ids,
+          connections: Enum.sum(Enum.map(summaries, & &1.connections)),
+          signatures: Enum.sum(Enum.map(summaries, & &1.signatures))
+        }
+      end)
 
     # Create a map of character IDs to their summaries for quick lookup
-    char_id_to_summary = activity_summaries
-      |> Enum.reduce(%{}, fn summary, acc ->
-        # Add the primary character ID mapping
-        acc = Map.put(acc, summary.character.id, summary)
+    char_id_to_summary = %{}
 
-        # Add mappings for all character IDs associated with this user
-        Enum.reduce(Map.get(summary, :character_ids, []), acc, fn char_id, inner_acc ->
-          if char_id != summary.character.id do
-            Map.put_new(inner_acc, char_id, summary)
-          else
-            inner_acc
-          end
-        end)
+    # Add mappings for all character IDs to their respective user summary
+    char_id_to_summary = Enum.reduce(user_summaries, char_id_to_summary, fn summary, acc ->
+      # First add the primary character mapping
+      acc = Map.put(acc, summary.character.id, summary)
+
+      # Then add mappings for all other character IDs to the same summary
+      result = Enum.reduce(summary.character_ids, acc, fn char_id, inner_acc ->
+        if char_id != summary.character.id do
+          Map.put_new(inner_acc, char_id, summary)
+        else
+          inner_acc
+        end
       end)
 
-    # Check for characters in passages_map that aren't in char_id_to_summary
-    missing_chars = passage_char_ids -- Map.keys(char_id_to_summary)
-    Logger.debug("Found #{length(missing_chars)} characters with passages but no activity summary")
+      result
+    end)
 
-    # Get missing character summaries
+    # Find characters in passages_map that aren't in char_id_to_summary
+    missing_chars = Map.keys(passages_map) -- Map.keys(char_id_to_summary)
     missing_summaries = if length(missing_chars) > 0 do
-      Logger.debug("Loading missing characters: #{inspect(missing_chars, limit: 5)}")
-
-      # Log the total number of characters with passages
-      Logger.debug("Total characters with passages: #{length(passage_char_ids)}")
-
-      # Log the distribution of passage counts
-      passage_counts = passages_map |> Enum.map(fn {_, count} -> count end) |> Enum.sort(:desc)
-      Logger.debug("Passage counts distribution: #{inspect(passage_counts, limit: 10)}")
-
       # Load the missing characters to create summaries for them
       missing_char_data = load_missing_characters(missing_chars)
-      Logger.debug("Loaded #{length(missing_char_data)} missing characters")
+      associated_missing_chars = associate_missing_characters(missing_char_data, char_id_to_summary)
 
-      # Log details about missing characters
-      Enum.each(missing_char_data, fn character ->
-        passage_count = Map.get(passages_map, character.id, 0)
-        Logger.debug("Missing character #{character.name} has #{passage_count} passages")
-      end)
+      # Create summaries only for truly missing characters (not associated with any user)
+      truly_missing_chars = missing_char_data -- associated_missing_chars
 
-      # Create summaries for missing characters
-      summaries = create_summaries_for_missing_characters(missing_char_data, passages_map)
-      Logger.debug("Created #{length(summaries)} summaries for missing characters")
+      summaries = create_summaries_for_missing_characters(truly_missing_chars, passages_map)
       summaries
     else
       []
     end
 
-    # Process activity summaries to add passage counts
-    processed_activity_summaries = activity_summaries
+    # Process user summaries to add passage counts
+    processed_user_summaries = user_summaries
       |> Enum.map(fn summary ->
-        # Use the character_ids directly from the summary
-        user_character_ids = Map.get(summary, :character_ids, [])
-        Logger.debug("Processing summary for character #{summary.character.name} with #{length(user_character_ids)} character IDs")
+        # Get all character IDs for this summary
+        user_character_ids = summary.character_ids
+
+        # Find the relevant passages
+        relevant_passages = passages_map
+          |> Enum.filter(fn {char_id, _count} -> char_id in user_character_ids end)
 
         # Sum up passages for all characters belonging to this user
-        total_passages = passages_map
-          |> Enum.filter(fn {char_id, _count} -> char_id in user_character_ids end)
+        total_passages = relevant_passages
           |> Enum.map(fn {_char_id, count} -> count end)
           |> Enum.sum()
-
-        Logger.debug("Character #{summary.character.name} has #{total_passages} total passages")
 
         # Remove the temporary fields we added
         summary
@@ -326,32 +365,66 @@ defmodule WandererApp.Api.UserActivity do
         |> Map.drop([:user_id, :character_ids])
       end)
 
-    # Combine the processed activity summaries with the missing character summaries
-    result = processed_activity_summaries ++ missing_summaries
-    Logger.debug("Combined result count: #{length(result)}")
+    result = processed_user_summaries ++ missing_summaries
 
-    # Sort the results by total activity (passages + connections + signatures) in descending order
-    sorted_result = result
-      |> Enum.sort_by(fn summary ->
-        summary.passages + summary.connections + summary.signatures
-      end, :desc)
+    # This line is only for logging/debugging purposes, so we prefix the variable with underscore
+    Enum.each(result, fn summary ->
+      _total_activity = summary.passages + summary.connections + summary.signatures
+    end)
 
-    # Apply limit if specified
-    final_result = if limit do
-      Logger.debug("Applying limit of #{limit} to result")
-      Enum.take(sorted_result, limit)
-    else
-      sorted_result
-    end
+    most_active_summary = Enum.max_by(result, fn summary ->
+      summary.passages + summary.connections + summary.signatures
+    end)
 
-    # Log final result details
-    Logger.debug("Final result count: #{length(final_result)}")
-    if length(final_result) > 0 do
-      first_item = List.first(final_result)
-      Logger.debug("First item in result: #{inspect(first_item, pretty: true)}")
-    end
+    # Combine all activity under the most active character
+    total_passages = Enum.sum(Enum.map(result, & &1.passages))
+    total_connections = Enum.sum(Enum.map(result, & &1.connections))
+    total_signatures = Enum.sum(Enum.map(result, & &1.signatures))
 
-    final_result
+    # Create a single combined summary
+    combined_summary = %{
+      most_active_summary |
+      passages: total_passages,
+      connections: total_connections,
+      signatures: total_signatures
+    }
+
+    # Use the combined summary as the final result
+    final_result = [combined_summary]
+
+    # Transform the final result for the React component
+    transformed_result = Enum.map(final_result, fn summary ->
+      %{
+        "character_name" => summary.character.name,
+        "eve_id" => summary.character.eve_id,
+        "corporation_ticker" => summary.character.corporation_ticker || "",
+        "alliance_ticker" => summary.character.alliance_ticker || "",
+        "passages_traveled" => summary.passages,
+        "connections_created" => summary.connections,
+        "signatures_scanned" => summary.signatures
+      }
+    end)
+
+    transformed_result
+  end
+
+  # Helper function to associate missing characters with existing users if possible
+  defp associate_missing_characters(missing_char_data, char_id_to_summary) do
+
+    # Try to load user information for missing characters
+    missing_char_data_with_users = missing_char_data
+      |> Enum.filter(& &1.user_id)
+
+    # Find characters that can be associated with existing summaries
+    associated_chars = Enum.filter(missing_char_data_with_users, fn char ->
+      # Check if any existing summary is for the same user
+      result = Enum.any?(char_id_to_summary, fn {_, summary} ->
+        summary.user_id == char.user_id
+      end)
+      result
+    end)
+
+    associated_chars
   end
 
   # Helper function to load character data for characters with passages but no activity
@@ -366,9 +439,10 @@ defmodule WandererApp.Api.UserActivity do
           WandererApp.Api.Character
           |> Ash.Query.filter(id in ^batch)
           |> Ash.Query.load([:user])
-          |> WandererApp.Api.read!()
+          |> Ash.read!()
         rescue
           e ->
+            # Log error but continue processing
             Logger.error("Error loading batch of missing characters: #{inspect(e)}")
             []
         end
@@ -378,8 +452,7 @@ defmodule WandererApp.Api.UserActivity do
 
   # Helper function to create summaries for characters with passages but no activity
   defp create_summaries_for_missing_characters(characters, passages_map) do
-
-    result = characters
+    characters
     |> Enum.map(fn character ->
       # Only create summaries for characters that have passages
       if Map.has_key?(passages_map, character.id) do
@@ -390,8 +463,8 @@ defmodule WandererApp.Api.UserActivity do
           character: %{
             id: character.id,
             name: character.name,
-            corporation_ticker: character.corporation_ticker,
-            alliance_ticker: character.alliance_ticker,
+            corporation_ticker: character.corporation_ticker || "",
+            alliance_ticker: character.alliance_ticker || "",
             eve_id: character.eve_id
           },
           passages: passage_count,
@@ -403,7 +476,5 @@ defmodule WandererApp.Api.UserActivity do
       end
     end)
     |> Enum.reject(&is_nil/1)
-
-    result
   end
 end

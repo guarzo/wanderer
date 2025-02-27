@@ -20,6 +20,7 @@ defmodule WandererAppWeb.MapCharacters do
   # attr(:groups, :any, required: true)
   # attr(:character_settings, :any, required: true)
 
+  @impl true
   def render(assigns) do
     ~H"""
     <div id={@id}>
