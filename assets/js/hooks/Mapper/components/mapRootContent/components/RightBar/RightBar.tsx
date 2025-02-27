@@ -1,7 +1,7 @@
-import classes from './RightBar.module.scss';
+// import classes from './RightBar.module.scss';
 import clsx from 'clsx';
 import { useCallback } from 'react';
-import { OutCommand } from '@/hooks/Mapper/types';
+import { OutCommand, CommandEmptyData } from '@/hooks/Mapper/types';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
 import { TooltipPosition } from '@/hooks/Mapper/components/ui-kit';
@@ -12,9 +12,16 @@ import { UserPermission } from '@/hooks/Mapper/types/permissions.ts';
 interface RightBarProps {
   onShowOnTheMap?: () => void;
   onShowMapSettings?: () => void;
+  onShowTrackAndFollow?: () => void;
+  onAddCharacter?: () => void;
 }
 
-export const RightBar = ({ onShowOnTheMap, onShowMapSettings }: RightBarProps) => {
+export const RightBar = ({
+  onShowOnTheMap,
+  onShowMapSettings,
+  onShowTrackAndFollow,
+  onAddCharacter,
+}: RightBarProps) => {
   const { outCommand, interfaceSettings, setInterfaceSettings } = useMapRootState();
 
   const canTrackCharacters = useMapCheckPermissions([UserPermission.TRACK_CHARACTER]);
@@ -22,11 +29,15 @@ export const RightBar = ({ onShowOnTheMap, onShowMapSettings }: RightBarProps) =
   const isShowMinimap = interfaceSettings.isShowMinimap === undefined ? true : interfaceSettings.isShowMinimap;
 
   const handleAddCharacter = useCallback(() => {
-    outCommand({
-      type: OutCommand.addCharacter,
-      data: null,
-    });
-  }, [outCommand]);
+    if (onAddCharacter) {
+      onAddCharacter();
+    } else {
+      outCommand({
+        type: OutCommand.addCharacter,
+        data: {} as CommandEmptyData,
+      });
+    }
+  }, [outCommand, onAddCharacter]);
 
   const toggleMinimap = useCallback(() => {
     setInterfaceSettings(x => ({
@@ -52,7 +63,6 @@ export const RightBar = ({ onShowOnTheMap, onShowMapSettings }: RightBarProps) =
   return (
     <div
       className={clsx(
-        classes.RightBarRoot,
         'w-full h-full',
         'text-gray-200 shadow-lg border-l border-zinc-800 border-opacity-70 bg-opacity-70 bg-neutral-900',
         'flex flex-col items-center justify-between',
@@ -63,22 +73,46 @@ export const RightBar = ({ onShowOnTheMap, onShowMapSettings }: RightBarProps) =
           <button
             className="btn bg-transparent text-gray-400 hover:text-white border-transparent hover:bg-transparent py-2 h-auto min-h-auto"
             type="button"
-            onClick={handleAddCharacter}
+            onClick={() => {
+              handleAddCharacter();
+            }}
+            id="add-character-button"
           >
             <i className="pi pi-user-plus"></i>
           </button>
         </WdTooltipWrapper>
 
         {canTrackCharacters && (
-          <WdTooltipWrapper content="Show on the map" position={TooltipPosition.left}>
-            <button
-              className="btn bg-transparent text-gray-400 hover:text-white border-transparent hover:bg-transparent py-2 h-auto min-h-auto"
-              type="button"
-              onClick={onShowOnTheMap}
-            >
-              <i className="pi pi-hashtag"></i>
-            </button>
-          </WdTooltipWrapper>
+          <>
+            <WdTooltipWrapper content="Show on the map" position={TooltipPosition.left}>
+              <button
+                className="btn bg-transparent text-gray-400 hover:text-white border-transparent hover:bg-transparent py-2 h-auto min-h-auto"
+                type="button"
+                onClick={() => {
+                  if (onShowOnTheMap) onShowOnTheMap();
+                }}
+              >
+                <i className="pi pi-hashtag"></i>
+              </button>
+            </WdTooltipWrapper>
+
+            <WdTooltipWrapper content="Track and follow characters" position={TooltipPosition.left}>
+              <button
+                className="btn bg-transparent text-gray-400 hover:text-white border-transparent hover:bg-transparent py-2 h-auto min-h-auto"
+                type="button"
+                onClick={() => {
+                  if (onShowTrackAndFollow) {
+                    onShowTrackAndFollow();
+                  } else {
+                    console.error('RightBar: onShowTrackAndFollow callback is not defined');
+                  }
+                }}
+                id="track-and-follow-button"
+              >
+                <i className="pi pi-compass"></i>
+              </button>
+            </WdTooltipWrapper>
+          </>
         )}
       </div>
 

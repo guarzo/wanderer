@@ -18,12 +18,8 @@ const SHIP_NAME_RX = /u'|'/g;
 export const getShipName = (name: string) => {
   return name
     .replace(SHIP_NAME_RX, '')
-    .replace(/\\u([\dA-Fa-f]{4})/g, (_, grp) =>
-      String.fromCharCode(parseInt(grp, 16))
-    )
-    .replace(/\\x([\dA-Fa-f]{2})/g, (_, grp) =>
-      String.fromCharCode(parseInt(grp, 16))
-    );
+    .replace(/\\u([\dA-Fa-f]{4})/g, (_, grp) => String.fromCharCode(parseInt(grp, 16)))
+    .replace(/\\x([\dA-Fa-f]{2})/g, (_, grp) => String.fromCharCode(parseInt(grp, 16)));
 };
 
 export const CharacterCard = ({
@@ -48,10 +44,7 @@ export const CharacterCard = ({
 
   if (compact) {
     return (
-      <div
-        className={clsx(classes.CharacterCard, 'w-full text-xs box-border')}
-        onClick={handleSelect}
-      >
+      <div className={clsx(classes.CharacterCard, 'w-full text-xs box-border')} onClick={handleSelect}>
         <div className="w-full px-2 py-1 flex items-center gap-2" style={{ minWidth: 0 }}>
           <img
             src={`https://images.evetech.net/characters/${char.eve_id}/portrait`}
@@ -66,13 +59,9 @@ export const CharacterCard = ({
           />
           <div className="flex flex-grow overflow-hidden text-left" style={{ minWidth: 0 }}>
             <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-              <span className={clsx(isOwn ? 'text-orange-400' : 'text-gray-200')}>
-                {char.name}
-              </span>{" "}
+              <span className={clsx(isOwn ? 'text-orange-400' : 'text-gray-200')}>{char.name}</span>{' '}
               <span className="text-gray-400">
-                {(!locationShown && showShipName && shipNameText)
-                  ? `- ${shipNameText}`
-                  : `[${tickerText}]`}
+                {!locationShown && showShipName && shipNameText ? `- ${shipNameText}` : `[${tickerText}]`}
               </span>
             </div>
           </div>
@@ -90,10 +79,7 @@ export const CharacterCard = ({
     );
   } else {
     return (
-      <div
-        className={clsx(classes.CharacterCard, 'w-full text-xs box-border')}
-        onClick={handleSelect}
-      >
+      <div className={clsx(classes.CharacterCard, 'w-full text-xs box-border')} onClick={handleSelect}>
         <div className="w-full px-2 py-1 flex items-center gap-2" style={{ minWidth: 0 }}>
           <span
             className={clsx(classes.EveIcon, classes.CharIcon, 'wd-bg-default')}
@@ -107,9 +93,7 @@ export const CharacterCard = ({
           />
           <div className="flex flex-col flex-grow overflow-hidden" style={{ minWidth: 0 }}>
             <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-              <span className={clsx(isOwn ? 'text-orange-400' : 'text-gray-200')}>
-                {char.name}
-              </span>{" "}
+              <span className={clsx(isOwn ? 'text-orange-400' : 'text-gray-200')}>{char.name}</span>{' '}
               <span className="text-gray-400">[{tickerText}]</span>
             </div>
             {locationShown ? (

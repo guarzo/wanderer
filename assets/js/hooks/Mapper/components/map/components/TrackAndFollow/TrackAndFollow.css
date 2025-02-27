@@ -1,0 +1,498 @@
+/* TrackAndFollow Dialog Styles */
+.DialogTrackAndFollow {
+  z-index: 9999 !important;
+  background-color: #1e1e1e !important;
+  color: #f0f0f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.DialogTrackAndFollow .p-dialog-header {
+  background-color: #262626 !important;
+  color: #f0f0f0;
+  border-bottom: 1px solid #3f3f3f;
+  padding: 1rem;
+}
+
+.DialogTrackAndFollow .p-dialog-content {
+  background-color: #1e1e1e !important;
+  color: #f0f0f0;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.track-follow-container {
+  padding: 0;
+  width: 100%;
+  height: auto;
+  overflow: hidden;
+}
+
+.track-follow-datatable {
+  width: 100%;
+  background-color: #1e1e1e !important;
+  border: none;
+}
+
+/* No scrollbar variant */
+.track-follow-datatable.no-scrollbar .p-datatable-wrapper {
+  overflow: visible !important;
+}
+
+.track-follow-datatable .p-datatable-wrapper {
+  border-radius: 0;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+}
+
+.track-follow-datatable .p-datatable-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.track-follow-datatable .p-datatable-header {
+  background-color: #262626 !important;
+  border: none;
+  color: #f0f0f0;
+  font-weight: bold;
+  padding: 0.75rem 1rem;
+  font-size: 14px;
+}
+
+.track-follow-datatable .p-datatable-thead > tr > th {
+  background-color: #262626 !important;
+  color: #f0f0f0;
+  border: none;
+  border-bottom: 1px solid #3f3f3f;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-follow-datatable .p-datatable-tbody > tr {
+  background-color: #1e1e1e !important;
+  transition: background-color 0.2s;
+}
+
+.track-follow-datatable .p-datatable-tbody > tr:nth-child(even) {
+  background-color: #262626 !important;
+}
+
+.track-follow-datatable .p-datatable-tbody > tr:hover {
+  background-color: #333333 !important;
+}
+
+.track-follow-datatable .p-datatable-tbody > tr > td {
+  padding: 0.75rem 1rem;
+  border-width: 0;
+  border-bottom: 1px solid #3f3f3f;
+}
+
+/* Remove border from last row */
+.track-follow-datatable .p-datatable-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+
+.character-name-cell {
+  display: flex;
+  align-items: center;
+}
+
+.character-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.character-portrait {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.character-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-name {
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.corporation-ticker {
+  color: #aaa;
+  font-size: 0.9em;
+  margin-left: 5px;
+}
+
+.alliance-ticker {
+  color: #888;
+  font-size: 0.85em;
+}
+
+.character-affiliation {
+  display: flex;
+  align-items: center;
+  font-size: 0.9rem;
+  color: #aaa;
+  margin-top: 2px;
+}
+
+.tracked-cell, .followed-cell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* WD Checkbox styles */
+.wd-checkbox-container, .wd-radio-container {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.wd-checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid #3f4b5b;
+  background-color: #20262e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.wd-checkbox-checked {
+  background-color: #3f4b5b;
+  border-color: #3f4b5b;
+}
+
+.wd-checkbox-icon {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+/* WD Radio styles */
+.wd-radio {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #3f4b5b;
+  background-color: #20262e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.wd-radio-checked {
+  background-color: #3f4b5b;
+  border-color: #3f4b5b;
+}
+
+.wd-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ffffff;
+}
+
+/* Hover effects */
+.wd-checkbox:hover, .wd-radio:hover {
+  border-color: #4f5b6b;
+}
+
+.wd-checkbox-checked:hover, .wd-radio-checked:hover {
+  background-color: #4f5b6b;
+  border-color: #4f5b6b;
+}
+
+/* Dialog styles */
+.p-dialog-mask.p-component-overlay {
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 9998 !important;
+}
+
+.empty-message {
+  padding: 2rem;
+  text-align: center;
+  color: #aaa;
+}
+
+.error-message {
+  padding: 1rem;
+  background-color: rgba(220, 53, 69, 0.2);
+  border: 1px solid rgba(220, 53, 69, 0.5);
+  border-radius: 4px;
+  color: #f8d7da;
+  margin-bottom: 1rem;
+}
+
+/* Fix for dialog positioning */
+.p-dialog-mask {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  pointer-events: auto !important;
+  z-index: 9998 !important;
+}
+
+/* Ensure dialog is visible */
+.p-dialog {
+  display: flex !important;
+  flex-direction: column !important;
+  max-height: 90vh !important;
+  transform: none !important;
+  z-index: 9999 !important;
+}
+
+/* Virtual scroller styles */
+.track-follow-datatable .p-virtualscroller {
+  height: 350px;
+}
+
+.track-follow-datatable .p-virtualscroller .p-virtualscroller-content {
+  background-color: transparent;
+}
+
+.track-follow-datatable .p-virtualscroller .p-virtualscroller-item {
+  height: 56px; /* Adjust based on your row height */
+}
+
+/* Loading indicator */
+.track-follow-datatable .p-datatable-loading-overlay {
+  background-color: rgba(30, 30, 30, 0.7);
+}
+
+.track-follow-datatable .p-datatable-loading-icon {
+  color: #4CAF50;
+}
+
+/* Add this to ensure the checkbox is visible when checked */
+.track-checkbox.p-checkbox-checked .p-checkbox-box {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+}
+
+.track-checkbox.p-checkbox-checked .p-checkbox-box .p-checkbox-icon {
+  color: #ffffff;
+}
+
+/* Custom checkbox styles that match WdCheckbox */
+.custom-checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid #3f4b5b;
+  background: #20262e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.custom-checkbox-checked {
+  border-color: #3f4b5b;
+  background: #3f4b5b;
+}
+
+.custom-checkbox-icon {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+/* Custom radio button styles that match WdCheckbox */
+.custom-radio {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #3f4b5b;
+  background: #20262e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.custom-radio-checked {
+  border-color: #3f4b5b;
+  background: #3f4b5b;
+}
+
+.custom-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ffffff;
+}
+
+/* Hover effects */
+.custom-checkbox:hover, .custom-radio:hover {
+  border-color: #4f5b6b;
+}
+
+.custom-checkbox-checked:hover, .custom-radio-checked:hover {
+  border-color: #4f5b6b;
+  background: #4f5b6b;
+}
+
+/* Fix for dialog mask */
+.p-dialog-mask {
+  background-color: rgba(0, 0, 0, 0.8) !important;
+  backdrop-filter: blur(2px);
+}
+
+/* Ensure dialog is visible */
+.DialogTrackAndFollow {
+  z-index: 1000 !important;
+}
+
+/* Scrollbar styling */
+.track-follow-datatable .p-datatable-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.track-follow-datatable .p-datatable-wrapper::-webkit-scrollbar-track {
+  background: #262626;
+  border-radius: 4px;
+}
+
+.track-follow-datatable .p-datatable-wrapper::-webkit-scrollbar-thumb {
+  background: #3f3f3f;
+  border-radius: 4px;
+}
+
+.track-follow-datatable .p-datatable-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #4f4f4f;
+}
+
+/* WdRadioButton styling */
+.followed-cell .p-radiobutton .p-radiobutton-box {
+  border-color: #3f4b5b;
+  background-color: transparent;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box.p-highlight {
+  border-color: #3f4b5b;
+  background-color: #3f4b5b;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box.p-highlight .p-radiobutton-icon {
+  background-color: #ffffff;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box:not(.p-disabled):hover {
+  border-color: #4f5b6b;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box.p-highlight:not(.p-disabled):hover {
+  border-color: #4f5b6b;
+  background-color: #4f5b6b;
+}
+
+/* Disabled state */
+.followed-cell .p-radiobutton .p-radiobutton-box.p-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Enhanced WdRadioButton styling */
+.followed-cell .p-radiobutton .p-radiobutton-box {
+  border: 2px solid #3f4b5b !important;
+  background-color: transparent !important;
+  width: 18px !important;
+  height: 18px !important;
+  transition: all 0.2s ease !important;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box.p-highlight {
+  border-color: #4CAF50 !important;
+  background-color: #3f4b5b !important;
+  box-shadow: 0 0 0 1px #3f4b5b !important;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box.p-highlight .p-radiobutton-icon {
+  background-color: #ffffff !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box:not(.p-disabled):hover {
+  border-color: #4f5b6b !important;
+  background-color: rgba(79, 91, 107, 0.1) !important;
+}
+
+.followed-cell .p-radiobutton .p-radiobutton-box.p-highlight:not(.p-disabled):hover {
+  border-color: #4CAF50 !important;
+  background-color: #4f5b6b !important;
+}
+
+/* Custom radio button styling */
+.custom-radio-button {
+  border: 2px solid rgb(56, 56, 56);
+  background-color: rgb(18, 18, 18);
+  transition: all 0.2s ease;
+}
+
+.custom-radio-button:hover:not([disabled]) {
+  border-color: rgb(100, 181, 246);
+  background-color: rgba(100, 181, 246, 0.05);
+}
+
+.custom-radio-button.Checked {
+  border-color: rgb(100, 181, 246);
+  background-color: rgb(100, 181, 246);
+}
+
+.custom-radio-button.Checked:hover:not([disabled]) {
+  border-color: rgb(100, 181, 246);
+  background-color: rgb(77, 171, 245);
+}
+
+.custom-radio-button.Disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.radio-dot {
+  background-color: rgba(254, 254, 254, 0.87);
+}
+
+/* Add styling for the inactive state of the custom radio button */
+.custom-radio-button.Inactive {
+  opacity: 0.7;
+}
+
+.custom-radio-button.Inactive:hover:not([disabled]) {
+  opacity: 0.9;
+  border-color: rgba(100, 181, 246, 0.7);
+} 

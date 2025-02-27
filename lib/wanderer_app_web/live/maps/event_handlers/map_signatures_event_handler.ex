@@ -143,13 +143,7 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
           "solar_system_source" => solar_system_source,
           "solar_system_target" => solar_system_target
         },
-        %{
-          assigns: %{
-            map_id: map_id,
-            user_characters: user_characters,
-            user_permissions: %{update_system: true}
-          }
-        } = socket
+        %{assigns: %{map_id: map_id, user_characters: user_characters}} = socket
       ) do
     case WandererApp.Api.MapSystem.read_by_map_and_solar_system(%{
            map_id: map_id,

@@ -17,6 +17,11 @@ import {
   CommandUpdateConnection,
   CommandUpdateSystems,
   MapHandlers,
+  OutCommand,
+  CommandUpdateActivity,
+  CommandUpdateTracking,
+  CommandCenterSystem,
+  CommandEmptyData,
 } from '@/hooks/Mapper/types/mapHandlers.ts';
 
 import {
@@ -31,6 +36,7 @@ import {
   useSelectSystem,
 } from './api';
 import { OnMapSelectionChange } from '@/hooks/Mapper/components/map/map.types.ts';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 
 export const useMapHandlers = (ref: ForwardedRef<MapHandlers>, onSelectionChange: OnMapSelectionChange) => {
   const mapInit = useMapInit();
@@ -47,6 +53,8 @@ export const useMapHandlers = (ref: ForwardedRef<MapHandlers>, onSelectionChange
   const { mapUpdated, killsUpdated } = useMapCommands();
   const { charactersUpdated, presentCharacters, characterAdded, characterRemoved, characterUpdated } =
     useCommandsCharacters();
+
+  const { update, outCommand } = useMapRootState();
 
   useImperativeHandle(
     ref,
@@ -99,20 +107,60 @@ export const useMapHandlers = (ref: ForwardedRef<MapHandlers>, onSelectionChange
 
             case Commands.centerSystem:
               setTimeout(() => {
-                const systemId = `${data}`;
-                centerSystem(systemId as CommandSelectSystem);
+                centerSystem(data as CommandCenterSystem);
               }, 100);
               break;
 
             case Commands.selectSystem:
               setTimeout(() => {
-                const systemId = `${data}`;
-                selectRef.current.onSelectionChange({
-                  systems: [systemId],
-                  connections: [],
-                });
-                selectSystem(systemId as CommandSelectSystem);
+                const systemId = data as CommandSelectSystem;
+                if (systemId) {
+                  selectRef.current.onSelectionChange({
+                    systems: [systemId],
+                    connections: [],
+                  });
+                  selectSystem(systemId);
+                }
               }, 500);
+              break;
+
+            case Commands.show_activity:
+              update(state => ({ ...state, showCharacterActivity: true }));
+              break;
+
+            case Commands.update_activity:
+              update(state => ({
+                ...state,
+                characterActivityData: (data as CommandUpdateActivity).activity,
+                showCharacterActivity: true,
+              }));
+              break;
+
+            case Commands.show_tracking:
+              update(state => ({ ...state, showTrackAndFollow: true }));
+              outCommand({
+                type: OutCommand.refreshCharacters,
+                data: {} as CommandEmptyData,
+              });
+              break;
+
+            case Commands.update_tracking:
+              update(state => ({
+                ...state,
+                trackingCharactersData: (data as CommandUpdateTracking).characters,
+                showTrackAndFollow: true,
+              }));
+              break;
+
+            case Commands.hide_tracking:
+              update(state => ({ ...state, showTrackAndFollow: false }));
+              break;
+
+            case Commands.refresh_characters:
+              outCommand({
+                type: OutCommand.refreshCharacters,
+                data: {} as CommandEmptyData,
+              });
               break;
 
             case Commands.routes:
@@ -138,6 +186,25 @@ export const useMapHandlers = (ref: ForwardedRef<MapHandlers>, onSelectionChange
         },
       };
     },
-    [],
+    [
+      mapInit,
+      mapAddSystems,
+      mapUpdateSystems,
+      removeSystems,
+      addConnections,
+      removeConnections,
+      charactersUpdated,
+      characterAdded,
+      characterRemoved,
+      characterUpdated,
+      presentCharacters,
+      updateConnection,
+      mapUpdated,
+      killsUpdated,
+      centerSystem,
+      selectSystem,
+      update,
+      outCommand,
+    ],
   );
 };
