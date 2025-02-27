@@ -103,106 +103,120 @@ defmodule WandererAppWeb.MapLive do
 
   @impl true
   def handle_event("show_activity", _params, socket) do
-    # Get the map_id from the socket assigns
-    map_id = socket.assigns.map_id
+    # Check if map_id is in the socket assigns
+    if Map.has_key?(socket.assigns, :map_id) do
+      # Get the map_id from the socket assigns
+      map_id = socket.assigns.map_id
 
-    # Fetch real activity data
-    result = with {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
-                  {:ok, activities} <-
-                    WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, 720) # Last 30 days
-                    |> WandererApp.Api.read() do
+      # Fetch real activity data
+      result = with {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
+                    {:ok, activities} <-
+                      WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, 720) # Last 30 days
+                      |> WandererApp.Api.read() do
 
-      # Merge passages with activities to get complete activity data
-      summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages, nil)
+        # The merge_passages function now returns data in the correct format for the React component
+        summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages, nil)
+        {:ok, summaries}
+      else
+        {:error, _reason} ->
+          # Fallback to sample data if there's an error
+          sample_data = [
+            %{
+              "character_name" => "Explorer Alpha",
+              "eve_id" => "95465499",
+              "corporation_ticker" => "EXPLO",
+              "alliance_ticker" => "",
+              "passages_traveled" => 15,
+              "connections_created" => 8,
+              "signatures_scanned" => 12
+            },
+            %{
+              "character_name" => "Wanderer Beta",
+              "eve_id" => "95465500",
+              "corporation_ticker" => "WAND",
+              "alliance_ticker" => "",
+              "passages_traveled" => 23,
+              "connections_created" => 5,
+              "signatures_scanned" => 19
+            },
+            %{
+              "character_name" => "Pathfinder Gamma",
+              "eve_id" => "95465501",
+              "corporation_ticker" => "PATH",
+              "alliance_ticker" => "",
+              "passages_traveled" => 7,
+              "connections_created" => 12,
+              "signatures_scanned" => 9
+            },
+            %{
+              "character_name" => "Scout Delta",
+              "eve_id" => "95465502",
+              "corporation_ticker" => "SCOUT",
+              "alliance_ticker" => "",
+              "passages_traveled" => 31,
+              "connections_created" => 3,
+              "signatures_scanned" => 27
+            },
+            %{
+              "character_name" => "Navigator Epsilon",
+              "eve_id" => "95465503",
+              "corporation_ticker" => "NAVI",
+              "alliance_ticker" => "",
+              "passages_traveled" => 18,
+              "connections_created" => 14,
+              "signatures_scanned" => 6
+            }
+          ]
+          {:ok, sample_data}
+      end
 
-      # Transform the data to match the expected format for the React component
-      transformed_data = Enum.map(summaries, fn summary ->
-        %{
-          "character_name" => summary.character.name,
-          "eve_id" => summary.character.eve_id,
-          "corporation_ticker" => summary.character.corporation_ticker,
-          "alliance_ticker" => summary.character.alliance_ticker,
-          "passages_traveled" => summary.passages,
-          "connections_created" => summary.connections,
-          "signatures_scanned" => summary.signatures
-        }
+      # Get the activity data from the result
+      {_status, activity_data} = result
+
+      # Sort the data by total activity (passages + connections + signatures) in descending order
+      sorted_data = Enum.sort_by(activity_data, fn item ->
+        passages = Map.get(item, "passages_traveled", 0)
+        connections = Map.get(item, "connections_created", 0)
+        signatures = Map.get(item, "signatures_scanned", 0)
+        -(passages + connections + signatures) # Negative to sort in descending order
       end)
 
-      {:ok, transformed_data}
+      # Update the socket assigns
+      socket = socket
+        |> assign(:show_activity?, true)
+        |> assign(:character_activity, sorted_data)
+
+      # Push the event to update the React component if connected
+      socket = if connected?(socket) do
+        # First, show the activity modal
+        socket = push_event(socket, "phx:show_activity", %{})
+
+        # Then, update the activity data
+        # Make sure the data is properly formatted for the React component
+        push_event(socket, "phx:update_activity", %{activity: sorted_data})
+      else
+        socket
+      end
+
+      {:noreply, socket}
     else
-      {:error, _reason} ->
-        # Fallback to sample data if there's an error
-        sample_data = [
-          %{
-            "character_name" => "Explorer Alpha",
-            "eve_id" => "95465499",
-            "corporation_ticker" => "EXPLO",
-            "passages_traveled" => 15,
-            "connections_created" => 8,
-            "signatures_scanned" => 12
-          },
-          %{
-            "character_name" => "Wanderer Beta",
-            "eve_id" => "95465500",
-            "corporation_ticker" => "WAND",
-            "passages_traveled" => 23,
-            "connections_created" => 5,
-            "signatures_scanned" => 19
-          },
-          %{
-            "character_name" => "Pathfinder Gamma",
-            "eve_id" => "95465501",
-            "corporation_ticker" => "PATH",
-            "passages_traveled" => 7,
-            "connections_created" => 12,
-            "signatures_scanned" => 9
-          },
-          %{
-            "character_name" => "Scout Delta",
-            "eve_id" => "95465502",
-            "corporation_ticker" => "SCOUT",
-            "passages_traveled" => 31,
-            "connections_created" => 3,
-            "signatures_scanned" => 27
-          },
-          %{
-            "character_name" => "Navigator Epsilon",
-            "eve_id" => "95465503",
-            "corporation_ticker" => "NAVI",
-            "passages_traveled" => 18,
-            "connections_created" => 14,
-            "signatures_scanned" => 6
-          }
-        ]
-        {:ok, sample_data}
+      # If map_id is not in the socket assigns, just show the activity modal with empty data
+      socket = socket
+        |> assign(:show_activity?, true)
+        |> assign(:character_activity, [])
+        |> put_flash(:info, "Map data is still loading. Please try again in a moment.")
+
+      # Push the event to show the empty activity modal if connected
+      socket = if connected?(socket) do
+        socket
+        |> push_event("phx:show_activity", %{})
+        |> push_event("phx:update_activity", %{activity: []})
+      else
+        socket
+      end
+
+      {:noreply, socket}
     end
-
-    # Get the activity data from the result
-    {_status, activity_data} = result
-
-    # Sort the data by total activity in descending order
-    sorted_data = Enum.sort_by(activity_data, fn item ->
-      passages = Map.get(item, "passages_traveled", 0)
-      connections = Map.get(item, "connections_created", 0)
-      signatures = Map.get(item, "signatures_scanned", 0)
-      -(passages + connections + signatures) # Negative to sort in descending order
-    end)
-
-    # Update the socket assigns
-    socket = socket
-      |> assign(:show_activity?, true)
-      |> assign(:character_activity, sorted_data)
-
-    # Push the event to update the React component if connected
-    socket = if connected?(socket) do
-      socket
-      |> push_event("show_activity", %{})
-      |> push_event("update_activity", %{activity: sorted_data})
-    else
-      socket
-    end
-
-    {:noreply, socket}
   end
 
   @impl true

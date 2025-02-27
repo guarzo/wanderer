@@ -22,6 +22,7 @@ defmodule WandererAppWeb.UserActivity do
   # attr(:page, :integer, required: true)
   # attr(:end_of_stream?, :boolean, required: true)
 
+  @impl true
   def render(assigns) do
     ~H"""
     <div id={@id}>
