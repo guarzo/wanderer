@@ -365,35 +365,11 @@ defmodule WandererApp.Api.UserActivity do
         |> Map.drop([:user_id, :character_ids])
       end)
 
+    # Combine processed user summaries with missing character summaries
     result = processed_user_summaries ++ missing_summaries
 
-    # This line is only for logging/debugging purposes, so we prefix the variable with underscore
-    Enum.each(result, fn summary ->
-      _total_activity = summary.passages + summary.connections + summary.signatures
-    end)
-
-    most_active_summary = Enum.max_by(result, fn summary ->
-      summary.passages + summary.connections + summary.signatures
-    end)
-
-    # Combine all activity under the most active character
-    total_passages = Enum.sum(Enum.map(result, & &1.passages))
-    total_connections = Enum.sum(Enum.map(result, & &1.connections))
-    total_signatures = Enum.sum(Enum.map(result, & &1.signatures))
-
-    # Create a single combined summary
-    combined_summary = %{
-      most_active_summary |
-      passages: total_passages,
-      connections: total_connections,
-      signatures: total_signatures
-    }
-
-    # Use the combined summary as the final result
-    final_result = [combined_summary]
-
-    # Transform the final result for the React component
-    transformed_result = Enum.map(final_result, fn summary ->
+    # Transform the result for the React component
+    transformed_result = Enum.map(result, fn summary ->
       %{
         "character_name" => summary.character.name,
         "eve_id" => summary.character.eve_id,

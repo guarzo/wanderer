@@ -19,19 +19,25 @@
   color: #f0f0f0;
   padding: 0 !important;
   overflow: hidden;
+  height: auto !important;
+  max-height: none !important;
 }
 
 .track-follow-container {
   padding: 0;
   width: 100%;
-  height: auto;
+  height: auto !important;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .track-follow-datatable {
   width: 100%;
   background-color: #1e1e1e !important;
   border: none;
+  flex: 1;
+  height: 100%;
 }
 
 /* No scrollbar variant */
@@ -44,6 +50,8 @@
   overflow: hidden;
   padding: 0;
   margin: 0;
+  height: 100% !important;
+  max-height: none !important;
 }
 
 .track-follow-datatable .p-datatable-table {
@@ -265,17 +273,42 @@
   z-index: 9999 !important;
 }
 
-/* Virtual scroller styles */
-.track-follow-datatable .p-virtualscroller {
-  height: 350px;
+/* PrimeReact 10.x Virtual Scroller Fixes */
+.p-datatable-virtualscroller-spacer {
+  display: none !important;
 }
 
-.track-follow-datatable .p-virtualscroller .p-virtualscroller-content {
-  background-color: transparent;
+.p-datatable-virtualscroller-loading {
+  display: none !important;
 }
 
-.track-follow-datatable .p-virtualscroller .p-virtualscroller-item {
-  height: 56px; /* Adjust based on your row height */
+.p-datatable-virtualscroller-wrapper {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.p-datatable-virtualscroller-table {
+  height: auto !important;
+  width: 100% !important;
+}
+
+.p-datatable-virtualscroller-stretchmode {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* Fix for PrimeReact 10.x virtual scroller */
+.p-datatable-wrapper .p-virtualscroller {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.p-datatable-wrapper .p-virtualscroller-content {
+  width: 100% !important;
+}
+
+.p-datatable-wrapper .p-virtualscroller-item {
+  height: 56px !important; /* Match the itemSize in virtualScrollerOptions */
 }
 
 /* Loading indicator */

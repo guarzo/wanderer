@@ -255,14 +255,20 @@ const TrackAndFollow: React.FC<TrackAndFollowProps> = ({
   const scrollHeight = useMemo(() => {
     const rowHeight = 56;
     const headerHeight = 43;
+    const maxVisibleRows = 10;
 
-    if (useVirtualScroller) {
-      return `${10 * rowHeight + headerHeight}px`;
+    if (displayCharacters.length === 0) {
+      // For empty state, show minimal height
+      return '300px';
+    } else if (displayCharacters.length <= maxVisibleRows) {
+      // For fewer rows, calculate based on actual count
+      const calculatedHeight = displayCharacters.length * rowHeight + headerHeight;
+      return `${calculatedHeight}px`;
+    } else {
+      // For more than maxVisibleRows, show exactly maxVisibleRows rows plus header
+      return `${maxVisibleRows * rowHeight + headerHeight}px`;
     }
-
-    const calculatedHeight = displayCharacters.length * rowHeight + headerHeight;
-    return `${calculatedHeight}px`;
-  }, [displayCharacters.length, useVirtualScroller]);
+  }, [displayCharacters.length]);
 
   if (!show) {
     return null;
@@ -279,15 +285,31 @@ const TrackAndFollow: React.FC<TrackAndFollowProps> = ({
       resizable={false}
       modal={true}
     >
-      <div className="track-follow-container">
+      <div className="track-follow-container" style={{ 
+        height: 'auto', 
+        minHeight: '100px',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}>
         <DataTable
           value={displayCharacters}
           className={`track-follow-datatable ${shouldShowScrollbar ? '' : 'no-scrollbar'}`}
           emptyMessage="No characters available for tracking"
-          scrollable={shouldShowScrollbar}
+          scrollable={true}
           scrollHeight={scrollHeight}
           stripedRows
-          virtualScrollerOptions={useVirtualScroller ? { itemSize: 56 } : undefined}
+          virtualScrollerOptions={
+            useVirtualScroller
+              ? {
+                  itemSize: 56,
+                  showLoader: false,
+                  loading: false,
+                  delay: 250,
+                  lazy: false,
+                }
+              : undefined
+          }
           loading={characters.length === 1 && characters[0].character_id === 'loading-indicator'}
         >
           <Column field="character_name" header="Character" body={characterNameTemplate} sortable />

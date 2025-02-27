@@ -29,6 +29,11 @@ body .p-dialog {
   }
 }
 
+/* Ensure autocomplete panels appear above dialogs */
+body .p-autocomplete-panel {
+  z-index: 10001 !important;
+}
+
 /* Стиль видимого диалога */
 .p-dialog-visible {
   visibility: visible;

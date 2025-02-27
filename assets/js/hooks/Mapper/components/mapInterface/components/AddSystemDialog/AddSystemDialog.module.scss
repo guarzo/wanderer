@@ -8,3 +8,8 @@
   font-weight: initial !important;
 }
 
+/* Fix for autocomplete suggestions appearing behind dialog */
+:global(.p-autocomplete-panel) {
+  z-index: 10000 !important; /* Higher than any other z-index in the application */
+}
+

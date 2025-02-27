@@ -98,16 +98,20 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     // Row height and header height in pixels
     const rowHeight = 56; // Height of each row in pixels
     const headerHeight = 43; // Height of the header in pixels
+    const maxVisibleRows = 10; // Maximum number of rows to show without scrolling
 
-    if (useVirtualScroller) {
+    if (sortedActivity.length === 0) {
+      // For empty state, show minimal height
+      return '300px';
+    } else if (sortedActivity.length <= maxVisibleRows) {
+      // For 10 or fewer rows, calculate based on actual count
+      const calculatedHeight = sortedActivity.length * rowHeight + headerHeight;
+      return `${calculatedHeight}px`;
+    } else {
       // For more than 10 rows, show exactly 10 rows plus header
-      return `${10 * rowHeight + headerHeight}px`;
+      return `${maxVisibleRows * rowHeight + headerHeight}px`;
     }
-
-    // For 10 or fewer rows, calculate based on actual count
-    const calculatedHeight = sortedActivity.length * rowHeight + headerHeight;
-    return `${calculatedHeight}px`;
-  }, [sortedActivity.length, useVirtualScroller]);
+  }, [sortedActivity.length]);
 
   // Format numbers with commas
   const formatNumber = useCallback((value: number | undefined) => {
@@ -168,16 +172,32 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
       resizable={false}
       modal={true}
     >
-      <div className="character-activity-container">
+      <div className="character-activity-container" style={{ 
+        height: 'auto',
+        minHeight: '100px',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}>
         {activity && activity.length > 0 ? (
           <DataTable
             value={sortedActivity}
             className={`character-activity-datatable ${shouldShowScrollbar ? '' : 'no-scrollbar'}`}
             emptyMessage="No activity data available"
-            scrollable={shouldShowScrollbar}
+            scrollable={true}
             scrollHeight={scrollHeight}
             stripedRows
-            virtualScrollerOptions={useVirtualScroller ? { itemSize: 56 } : undefined}
+            virtualScrollerOptions={
+              useVirtualScroller
+                ? {
+                    itemSize: 56,
+                    showLoader: false,
+                    loading: false,
+                    delay: 250,
+                    lazy: false,
+                  }
+                : undefined
+            }
           >
             <Column
               field="character_name"

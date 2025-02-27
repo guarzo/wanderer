@@ -103,7 +103,7 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
 
     map_id
     |> WandererApp.Map.Server.update_signatures(%{
-      solar_system_id: solar_system_id |> String.to_integer(),
+      solar_system_id: (if is_binary(solar_system_id), do: String.to_integer(solar_system_id), else: solar_system_id),
       character: character,
       user_id: current_user.id,
       delete_connection_with_sigs: delete_connection_with_sigs,
@@ -124,9 +124,12 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
           }
         } = socket
       ) do
+    # Convert solar_system_id to integer if it's a string, otherwise use as is
+    system_id_integer = if is_binary(solar_system_id), do: String.to_integer(solar_system_id), else: solar_system_id
+
     case WandererApp.Api.MapSystem.read_by_map_and_solar_system(%{
            map_id: map_id,
-           solar_system_id: solar_system_id |> String.to_integer()
+           solar_system_id: system_id_integer
          }) do
       {:ok, system} ->
         {:reply, %{signatures: get_system_signatures(system.id)}, socket}

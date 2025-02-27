@@ -7,9 +7,12 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
   alias WandererApp.Structure
 
   def handle_ui_event("get_structures", %{"system_id" => solar_system_id}, %{assigns: %{map_id: map_id}} = socket) do
+    # Convert solar_system_id to integer if it's a string, otherwise use as is
+    system_id_integer = if is_binary(solar_system_id), do: String.to_integer(solar_system_id), else: solar_system_id
+
     case MapSystem.read_by_map_and_solar_system(%{
            map_id: map_id,
-           solar_system_id: String.to_integer(solar_system_id)
+           solar_system_id: system_id_integer
          }) do
       {:ok, system} ->
         {:reply, %{structures: get_system_structures(system.id)}, socket}
@@ -91,9 +94,12 @@ defmodule WandererAppWeb.MapStructuresEventHandler do
   end
 
   defp get_map_system(map_id, solar_system_id) do
+    # Convert solar_system_id to integer if it's a string, otherwise use as is
+    system_id_integer = if is_binary(solar_system_id), do: String.to_integer(solar_system_id), else: solar_system_id
+
     case MapSystem.read_by_map_and_solar_system(%{
            map_id: map_id,
-           solar_system_id: String.to_integer(solar_system_id)
+           solar_system_id: system_id_integer
          }) do
       {:ok, system} -> {:ok, system}
       _ -> :error
