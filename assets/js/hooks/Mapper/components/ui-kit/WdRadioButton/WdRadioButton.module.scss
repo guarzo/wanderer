@@ -1,0 +1,62 @@
+.RadioButtonRoot {
+  &.SizeXS {
+    width: 14px !important;
+    height: 14px !important;
+
+    :global {
+      .p-radiobutton-box, .p-radiobutton-input {
+        width: 14px;
+        height: 14px;
+      }
+    }
+  }
+  &.SizeM {
+    width: 16px !important;
+    height: 16px !important;
+
+    :global {
+      .p-radiobutton-box, .p-radiobutton-input {
+        width: 16px;
+        height: 16px;
+      }
+    }
+  }
+  
+  &.SizeNormal {
+    width: 18px !important;
+    height: 18px !important;
+  }
+  
+  &.Checked {
+    background-color: rgb(100, 181, 246) !important;
+    border-color: rgb(100, 181, 246) !important;
+  }
+  
+  &.Disabled {
+    opacity: 0.5 !important;
+    cursor: default !important;
+  }
+  
+  &.Inactive {
+    opacity: 0.7 !important;
+    
+    &:hover:not(.Disabled) {
+      opacity: 0.9 !important;
+    }
+  }
+  
+  &:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(100, 181, 246, 0.3);
+  }
+  
+  &:hover:not(.Disabled) {
+    border-color: rgb(100, 181, 246) !important;
+  }
+  
+  &.Checked:hover:not(.Disabled) {
+    background-color: rgb(77, 171, 245) !important;
+  }
+}
+
+.Label {} 

@@ -66,7 +66,7 @@ defmodule WandererAppWeb.MapCharacters do
   end
 
   @impl true
-  def handle_event("undo", %{"event-data" => event_data} = _params, socket) do
+  def handle_event("undo", %{"event-data" => _event_data} = _params, socket) do
     # notify_to(socket.assigns.notify_to, socket.assigns.event_name, map_slug)
 
     {:noreply, socket}
@@ -77,8 +77,4 @@ defmodule WandererAppWeb.MapCharacters do
       setting.character_id == character_id && setting.tracked
     end)
   end
-
-  defp get_event_name(name), do: name
-
-  defp get_event_data(_name, data), do: Jason.encode!(data)
 end

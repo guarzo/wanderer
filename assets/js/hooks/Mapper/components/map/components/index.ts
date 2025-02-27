@@ -3,3 +3,4 @@ export * from './ContextMenuConnection';
 export * from '../../contexts/ContextMenuSystemMultiple';
 export * from './SolarSystemEdge';
 export * from './SolarSystemNode';
+export * from './CharacterActivity';

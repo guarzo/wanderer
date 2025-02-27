@@ -18,6 +18,7 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
         } =
           _signatures_update
       ) do
+
     WandererApp.Api.MapSystem.read_by_map_and_solar_system(%{
       map_id: map_id,
       solar_system_id: solar_system_id
@@ -91,8 +92,7 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
               added_signatures
               |> Enum.map(fn s -> s.eve_id end)
 
-            if not is_nil(character) &&
-                 not (added_signatures_eve_ids |> Enum.empty?()) do
+            if not is_nil(character) && not (added_signatures_eve_ids |> Enum.empty?()) do
               WandererApp.User.ActivityTracker.track_map_event(:signatures_added, %{
                 character_id: character.id,
                 user_id: user_id,

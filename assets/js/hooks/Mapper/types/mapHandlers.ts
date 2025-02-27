@@ -4,7 +4,10 @@ import { WormholeDataRaw } from '@/hooks/Mapper/types/wormholes.ts';
 import { CharacterTypeRaw } from '@/hooks/Mapper/types/character.ts';
 import { RoutesList } from '@/hooks/Mapper/types/routes.ts';
 import { DetailedKill, Kill } from '@/hooks/Mapper/types/kills.ts';
-import { SignatureGroup, UserPermissions } from '@/hooks/Mapper/types';
+import { UserPermissions } from '@/hooks/Mapper/types';
+import { ActivitySummary } from '../components/map/components';
+import { CharacterTrackingData } from '../components/map/components/TrackAndFollow';
+import { EffectRaw } from '@/hooks/Mapper/types/effect.ts';
 
 export enum Commands {
   init = 'init',
@@ -27,6 +30,12 @@ export enum Commands {
   selectSystem = 'select_system',
   linkSignatureToSystem = 'link_signature_to_system',
   signaturesUpdated = 'signatures_updated',
+  show_activity = 'show_activity',
+  update_activity = 'update_activity',
+  show_tracking = 'show_tracking',
+  update_tracking = 'update_tracking',
+  hide_tracking = 'hide_tracking',
+  refresh_characters = 'refresh_characters',
 }
 
 export type Command =
@@ -49,7 +58,13 @@ export type Command =
   | Commands.selectSystem
   | Commands.centerSystem
   | Commands.linkSignatureToSystem
-  | Commands.signaturesUpdated;
+  | Commands.signaturesUpdated
+  | Commands.show_activity
+  | Commands.update_activity
+  | Commands.show_tracking
+  | Commands.update_tracking
+  | Commands.hide_tracking
+  | Commands.refresh_characters;
 
 export type CommandInit = {
   systems: SolarSystemRawType[];
@@ -57,7 +72,7 @@ export type CommandInit = {
   system_static_infos: SolarSystemStaticInfoRaw[];
   connections: SolarSystemConnection[];
   wormholes: WormholeDataRaw[];
-  effects: any[];
+  effects: EffectRaw[];
   characters: CharacterTypeRaw[];
   present_characters: string[];
   user_characters: string[];
@@ -91,6 +106,9 @@ export type CommandLinkSignatureToSystem = {
   solar_system_target: number;
 };
 export type CommandLinkSignaturesUpdated = number;
+export type CommandUpdateActivity = { activity: ActivitySummary[] };
+export type CommandUpdateTracking = { characters: CharacterTrackingData[] };
+export type CommandEmptyData = Record<string, never>;
 
 export interface CommandData {
   [Commands.init]: CommandInit;
@@ -113,6 +131,12 @@ export interface CommandData {
   [Commands.centerSystem]: CommandCenterSystem;
   [Commands.linkSignatureToSystem]: CommandLinkSignatureToSystem;
   [Commands.signaturesUpdated]: CommandLinkSignaturesUpdated;
+  [Commands.show_activity]: CommandEmptyData;
+  [Commands.update_activity]: CommandUpdateActivity;
+  [Commands.show_tracking]: CommandEmptyData;
+  [Commands.update_tracking]: CommandUpdateTracking;
+  [Commands.hide_tracking]: CommandEmptyData;
+  [Commands.refresh_characters]: CommandEmptyData;
 }
 
 export interface MapHandlers {
@@ -167,7 +191,66 @@ export enum OutCommand {
   updateUserSettings = 'update_user_settings',
   unlinkSignature = 'unlink_signature',
   searchSystems = 'search_systems',
+
+  // Track and follow commands
+  toggleTrack = 'toggle_track',
+  toggleFollow = 'toggle_follow',
+  hideTracking = 'hide_tracking',
+  hideActivity = 'hide_activity',
+  refreshCharacters = 'refresh_characters',
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type OutCommandHandler = <T = any>(event: { type: OutCommand; data: any }) => Promise<T>;
+export type OutCommandHandler = <TResult = any>(event: { type: OutCommand; data: unknown }) => Promise<TResult>;
+
+export interface OutCommandData {
+  [OutCommand.addHub]: string;
+  [OutCommand.deleteHub]: string;
+  [OutCommand.getRoutes]: CommandEmptyData;
+  [OutCommand.getCharacterJumps]: { characterId: string };
+  [OutCommand.getStructures]: { systemId: string };
+  [OutCommand.getSignatures]: { systemId: string };
+  [OutCommand.getSystemStaticInfos]: CommandEmptyData;
+  [OutCommand.getConnectionInfo]: { source: string; target: string };
+  [OutCommand.updateConnectionTimeStatus]: { source: string; target: string; status: string };
+  [OutCommand.updateConnectionType]: { source: string; target: string; type: string };
+  [OutCommand.updateConnectionMassStatus]: { source: string; target: string; status: string };
+  [OutCommand.updateConnectionShipSizeType]: { source: string; target: string; type: string };
+  [OutCommand.updateConnectionLocked]: { source: string; target: string; locked: boolean };
+  [OutCommand.updateConnectionCustomInfo]: { source: string; target: string; info: string };
+  [OutCommand.updateStructures]: { systemId: string; structures: Record<string, unknown>[] }; // TODO: Define proper structure type
+  [OutCommand.updateSignatures]: { systemId: string; signatures: Record<string, unknown>[] }; // TODO: Define proper signature type
+  [OutCommand.updateSystemName]: { systemId: string; name: string };
+  [OutCommand.updateSystemTemporaryName]: { systemId: string; name: string };
+  [OutCommand.updateSystemDescription]: { systemId: string; description: string };
+  [OutCommand.updateSystemLabels]: { systemId: string; labels: string[] };
+  [OutCommand.updateSystemLocked]: { systemId: string; locked: boolean };
+  [OutCommand.updateSystemStatus]: { systemId: string; status: string };
+  [OutCommand.updateSystemTag]: { systemId: string; tag: string };
+  [OutCommand.updateSystemPosition]: { systemId: string; x: number; y: number };
+  [OutCommand.updateSystemPositions]: { systems: { id: string; x: number; y: number }[] };
+  [OutCommand.deleteSystems]: string[];
+  [OutCommand.manualAddSystem]: { name: string; class: string; effect?: string };
+  [OutCommand.manualAddConnection]: { source: string; target: string };
+  [OutCommand.manualDeleteConnection]: { source: string; target: string };
+  [OutCommand.setAutopilotWaypoint]: { systemId: string };
+  [OutCommand.addSystem]: { name: string; class: string };
+  [OutCommand.addCharacter]: CommandEmptyData;
+  [OutCommand.openUserSettings]: CommandEmptyData;
+  [OutCommand.getPassages]: { characterId: string };
+  [OutCommand.linkSignatureToSystem]: { signatureId: string; systemId: string };
+  [OutCommand.getCorporationNames]: string[];
+  [OutCommand.getCorporationTicker]: string;
+  [OutCommand.getSystemKills]: { systemId: string };
+  [OutCommand.getSystemsKills]: string[];
+  [OutCommand.openSettings]: CommandEmptyData;
+  [OutCommand.getUserSettings]: CommandEmptyData;
+  [OutCommand.updateUserSettings]: Record<string, boolean>;
+  [OutCommand.unlinkSignature]: { signatureId: string };
+  [OutCommand.searchSystems]: { query: string };
+  [OutCommand.toggleTrack]: { 'character-id': string };
+  [OutCommand.toggleFollow]: { 'character-id': string };
+  [OutCommand.hideTracking]: CommandEmptyData;
+  [OutCommand.hideActivity]: CommandEmptyData;
+  [OutCommand.refreshCharacters]: CommandEmptyData;
+}
