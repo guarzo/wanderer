@@ -143,7 +143,6 @@ defmodule WandererApp.Api.MapChainPassages do
         passages = jumps |> Enum.map(fn p -> {p.character.id, p.count} end) |> Map.new()
         {:ok, passages}
       error ->
-        Logger.error("Error getting passages: #{inspect(error)}")
         error
     end
   end
