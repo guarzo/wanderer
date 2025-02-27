@@ -98,102 +98,111 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
           }
         } = socket
       ) do
+    Logger.info("Handling toggle_track for character_id: #{character_id}")
+
+    # Get the character settings for the map
     {:ok, character_settings} =
       case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
-        {:ok, settings} -> {:ok, settings}
-        _ -> {:ok, []}
+        {:ok, settings} ->
+          Logger.info("Found #{length(settings)} character settings for map #{map_id}")
+          {:ok, settings}
+        _ ->
+          Logger.info("No character settings found for map #{map_id}")
+          {:ok, []}
       end
 
-    socket =
-      case character_settings |> Enum.find(&(&1.character_id == character_id)) do
+    # Find the character setting for the specified character
+    character_setting = character_settings |> Enum.find(&(&1.character_id == character_id))
+    Logger.info("Character setting found: #{inspect(character_setting)}")
+
+    # Determine if we're tracking or untracking the character
+    {action, socket} =
+      case character_setting do
         nil ->
-          {:ok, map_character_settings} =
+          # Create a new character setting with tracking enabled
+          Logger.info("Creating new character setting with tracking enabled")
+          {:ok, setting} =
             WandererApp.MapCharacterSettingsRepo.create(%{
               character_id: character_id,
               map_id: map_id,
               tracked: true,
               followed: false
             })
+          Logger.info("Created new setting: #{inspect(setting)}")
+          {:track, socket}
 
-          character = map_character_settings |> Ash.load!(:character) |> Map.get(:character)
+        %{tracked: true} = setting ->
+          # Untrack the character
+          Logger.info("Untracking character with setting: #{inspect(setting)}")
+          _result = WandererApp.MapCharacterSettingsRepo.untrack!(setting)
+          Logger.info("Character untracked")
+          {:untrack, socket}
 
-          :ok = track_characters([character], map_id, true)
-          :ok = add_characters([character], map_id, true)
-
-          socket
-
-        character_setting ->
-          case character_setting.tracked do
-            true ->
-              {:ok, map_character_settings} =
-                character_setting
-                |> WandererApp.MapCharacterSettingsRepo.untrack()
-
-              character = map_character_settings |> Ash.load!(:character) |> Map.get(:character)
-
-              :ok = untrack_characters([character], map_id)
-              :ok = remove_characters([character], map_id)
-
-              if only_tracked_characters do
-                Process.send_after(self(), :not_all_characters_tracked, 10)
-              end
-
-              socket
-
-            _ ->
-              {:ok, map_character_settings} =
-                character_setting
-                |> WandererApp.MapCharacterSettingsRepo.track()
-
-              character = map_character_settings |> Ash.load!(:character) |> Map.get(:character)
-
-              :ok = track_characters([character], map_id, true)
-              :ok = add_characters([character], map_id, true)
-
-              socket
-          end
+        setting ->
+          # Track the character
+          Logger.info("Tracking character with setting: #{inspect(setting)}")
+          _result = WandererApp.MapCharacterSettingsRepo.track!(setting)
+          Logger.info("Character tracked")
+          {:track, socket}
       end
 
-    %{result: characters} = socket.assigns.characters
+    Logger.info("Action taken: #{action}")
 
-    {:ok, map_characters} = WandererApp.Maps.get_tracked_map_characters(map_id, current_user)
-
-    user_character_eve_ids = map_characters |> Enum.map(& &1.eve_id)
-
-    {:ok, character_settings} =
+    # Get the updated character settings
+    {:ok, updated_character_settings} =
       case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
         {:ok, settings} -> {:ok, settings}
         _ -> {:ok, []}
       end
 
-    characters =
-      characters
-      |> Enum.map(fn c ->
-        WandererApp.Maps.map_character(
-          c,
-          character_settings |> Enum.find(&(&1.character_id == c.id))
-        )
-      end)
+    # Get the map
+    {:ok, map} =
+      map_id
+      |> WandererApp.MapRepo.get([:acls])
 
-    {:noreply,
-     socket
-     |> assign(user_characters: user_character_eve_ids)
-     |> assign(has_tracked_characters?: has_tracked_characters?(user_character_eve_ids))
-     |> assign_async(:characters, fn ->
-       {:ok, %{characters: characters}}
-     end)
-     |> MapEventHandler.push_map_event(
-       "init",
-       %{
-         user_characters: user_character_eve_ids,
-         reset: false
-       }
-     )}
+    # Load the characters with the updated settings
+    {:ok, %{characters: chars}} =
+      map
+      |> WandererApp.Maps.load_characters(
+        updated_character_settings,
+        current_user.id
+      )
+
+    # Log character tracking status
+    Logger.info("Character tracked status after update: #{inspect(Enum.map(chars, fn c -> {c.id, Map.get(c, :tracked, false)} end))}")
+
+    # Transform characters for the React component
+    react_characters = Enum.map(chars, fn char ->
+      %{
+        character_id: char.id,
+        character_name: char.name,
+        eve_id: char.eve_id,
+        corporation_ticker: char.corporation_ticker || "",
+        alliance_ticker: Map.get(char, :alliance_ticker, ""),
+        tracked: Map.get(char, :tracked, false),
+        followed: Map.get(char, :followed, false)
+      }
+    end)
+
+    # Log the transformed characters
+    Logger.info("Transformed characters for React: #{inspect(react_characters)}")
+
+    # Push the updated character data to the React component if connected
+    socket =
+      if connected?(socket) do
+        Logger.info("Socket connected, pushing #{length(react_characters)} characters after toggle_track")
+        socket |> push_event("update_tracking", %{characters: react_characters})
+      else
+        Logger.info("Socket not connected, not pushing events")
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_ui_event(
         "toggle_follow",
-        %{"character-id" => clicked_char_id},
+        %{"character-id" => character_id},
         %{
           assigns: %{
             map_id: map_id,
@@ -201,82 +210,199 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
           }
         } = socket
       ) do
-    {:ok, all_settings} = WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id)
+    Logger.info("Handling toggle_follow for character_id: #{character_id}")
 
-    # Find and filter user's characters
-    {:ok, user_characters} = WandererApp.Maps.get_tracked_map_characters(map_id, current_user)
-    user_char_ids = Enum.map(user_characters, & &1.id)
-
-    my_settings =
-      all_settings
-      |> Enum.filter(fn s ->
-        s.character_id in user_char_ids
-      end)
-
-    existing = Enum.find(all_settings, &(&1.character_id == clicked_char_id))
-
-    {:ok, target_setting} =
-      if not is_nil(existing) do
-        {:ok, existing}
-      else
-        WandererApp.MapCharacterSettingsRepo.create(%{
-          character_id: clicked_char_id,
-          map_id: map_id,
-          tracked: true,
-          followed: true
-        })
+    # Get the character settings for the map
+    {:ok, character_settings} =
+      case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
+        {:ok, settings} ->
+          Logger.info("Found #{length(settings)} character settings for map #{map_id}")
+          {:ok, settings}
+        _ ->
+          Logger.info("No character settings found for map #{map_id}")
+          {:ok, []}
       end
 
-    # If the target_setting is already followed => unfollow it
-    if target_setting.followed do
-      {:ok, _updated} = WandererApp.MapCharacterSettingsRepo.unfollow(target_setting)
-    else
-      # Only unfollow other rows from the current user
-      for s <- my_settings, s.id != target_setting.id, s.followed == true do
-        WandererApp.MapCharacterSettingsRepo.unfollow!(s)
+    # Find the character setting for the specified character
+    character_setting = character_settings |> Enum.find(&(&1.character_id == character_id))
+    Logger.info("Character setting found: #{inspect(character_setting)}")
+
+    # Find any currently followed character
+    currently_followed_setting = character_settings |> Enum.find(&(&1.followed))
+    Logger.info("Currently followed character: #{inspect(currently_followed_setting)}")
+
+    # Determine if we're following or unfollowing the character
+    {action, socket} =
+      case character_setting do
+        nil ->
+          # Create a new character setting with following enabled
+          Logger.info("Creating new character setting with following enabled")
+
+          # First, unfollow any currently followed character
+          if currently_followed_setting do
+            Logger.info("Unfollowing currently followed character: #{inspect(currently_followed_setting)}")
+            _result = WandererApp.MapCharacterSettingsRepo.unfollow!(currently_followed_setting)
+          end
+
+          # Then create the new setting
+          {:ok, setting} =
+            WandererApp.MapCharacterSettingsRepo.create(%{
+              character_id: character_id,
+              map_id: map_id,
+              tracked: true, # Ensure the character is tracked if followed
+              followed: true
+            })
+          Logger.info("Created new setting: #{inspect(setting)}")
+          {:follow, socket}
+
+        %{followed: true} = setting ->
+          # Unfollow the character
+          Logger.info("Unfollowing character with setting: #{inspect(setting)}")
+          _result = WandererApp.MapCharacterSettingsRepo.unfollow!(setting)
+          Logger.info("Character unfollowed")
+          {:unfollow, socket}
+
+        setting ->
+          # Follow the character and unfollow any currently followed character
+          Logger.info("Following character with setting: #{inspect(setting)}")
+
+          # First, unfollow any currently followed character
+          if currently_followed_setting && currently_followed_setting.id != setting.id do
+            Logger.info("Unfollowing currently followed character: #{inspect(currently_followed_setting)}")
+            _result = WandererApp.MapCharacterSettingsRepo.unfollow!(currently_followed_setting)
+          end
+
+          # Then follow the new character
+          _result = WandererApp.MapCharacterSettingsRepo.follow!(setting)
+          Logger.info("Character followed")
+          {:follow, socket}
       end
 
-      # Ensure the new followed char is tracked
-      if not target_setting.tracked do
-        WandererApp.MapCharacterSettingsRepo.track!(target_setting)
+    Logger.info("Action taken: #{action}")
 
-        char = target_setting |> Ash.load!(:character) |> Map.get(:character)
-        :ok = track_characters([char], map_id, true)
-        :ok = add_characters([char], map_id, true)
+    # Get the updated character settings
+    {:ok, updated_character_settings} =
+      case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
+        {:ok, settings} -> {:ok, settings}
+        _ -> {:ok, []}
       end
 
-      {:ok, _updated} = WandererApp.MapCharacterSettingsRepo.follow(target_setting)
-    end
+    # Get the map
+    {:ok, map} =
+      map_id
+      |> WandererApp.MapRepo.get([:acls])
 
-    # re-fetch or re-map to confirm final results in UI
-    %{result: characters} = socket.assigns.characters
+    # Load the characters with the updated settings
+    {:ok, %{characters: chars}} =
+      map
+      |> WandererApp.Maps.load_characters(
+        updated_character_settings,
+        current_user.id
+      )
 
-    {:ok, tracked_characters} = WandererApp.Maps.get_tracked_map_characters(map_id, current_user)
-    user_eve_ids = Enum.map(tracked_characters, & &1.eve_id)
+    # Log character following status
+    Logger.info("Character followed status after update: #{inspect(Enum.map(chars, fn c -> {c.id, Map.get(c, :followed, false)} end))}")
 
-    {:ok, final_settings} = WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id)
+    # Transform characters for the React component
+    react_characters = Enum.map(chars, fn char ->
+      %{
+        character_id: char.id,
+        character_name: char.name,
+        eve_id: char.eve_id,
+        corporation_ticker: char.corporation_ticker || "",
+        alliance_ticker: Map.get(char, :alliance_ticker, ""),
+        tracked: Map.get(char, :tracked, false),
+        followed: Map.get(char, :followed, false)
+      }
+    end)
 
-    updated_chars =
-      characters
-      |> Enum.map(fn c ->
-        s = Enum.find(final_settings, &(&1.character_id == c.id))
-        WandererApp.Maps.map_character(c, s)
-      end)
+    # Log the transformed characters
+    Logger.info("Transformed characters for React: #{inspect(react_characters)}")
 
+    # Push the updated character data to the React component if connected
     socket =
-      socket
-      |> assign(user_characters: user_eve_ids)
-      |> assign(has_tracked_characters?: has_tracked_characters?(user_eve_ids))
-      |> assign_async(:characters, fn ->
-        {:ok, %{characters: updated_chars}}
-      end)
-      |> MapEventHandler.push_map_event("init", %{user_characters: user_eve_ids, reset: false})
+      if connected?(socket) do
+        Logger.info("Socket connected, pushing #{length(react_characters)} characters after toggle_follow")
+        socket |> push_event("update_tracking", %{characters: react_characters})
+      else
+        Logger.info("Socket not connected, not pushing events")
+        socket
+      end
 
     {:noreply, socket}
   end
 
-  def handle_ui_event("hide_tracking", _, socket),
-    do: {:noreply, socket |> assign(show_tracking?: false)}
+  def handle_ui_event("hide_tracking", _, socket) do
+    socket = socket |> assign(show_tracking?: false, react_tracking_enabled: false)
+
+    # Push an event to the React component to hide the tracking modal if connected
+    socket = if connected?(socket) do
+      socket |> push_event("hide_tracking", %{})
+    else
+      socket
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_ui_event(
+    "refresh_characters",
+    _params,
+    %{
+      assigns: %{
+        map_id: map_id,
+        current_user: current_user
+      }
+    } = socket
+  ) do
+    Logger.info("Received refresh_characters command")
+
+    # Get the character settings for the map
+    {:ok, character_settings} =
+      case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
+        {:ok, settings} -> {:ok, settings}
+        _ -> {:ok, []}
+      end
+
+    # Load characters directly
+    {:ok, map} =
+      map_id
+      |> WandererApp.MapRepo.get([:acls])
+
+    # Load characters
+    {:ok, %{characters: chars}} =
+      map
+      |> WandererApp.Maps.load_characters(
+        character_settings,
+        current_user.id
+      )
+
+    # Transform characters to match the expected format for the React component
+    react_characters = Enum.map(chars, fn char ->
+      %{
+        character_id: char.id,
+        character_name: char.name,
+        eve_id: char.eve_id,
+        corporation_ticker: char.corporation_ticker || "",
+        alliance_ticker: Map.get(char, :alliance_ticker, ""),
+        tracked: Map.get(char, :tracked, false),
+        followed: Map.get(char, :followed, false)
+      }
+    end)
+
+    Logger.info("Loaded #{length(react_characters)} characters for map #{map_id}")
+
+    # If connected, push events to show the tracking modal with the characters
+    socket = if connected?(socket) do
+      socket = socket |> push_event("show_tracking", %{})
+      socket = socket |> push_event("update_tracking", %{characters: react_characters})
+      socket
+    else
+      socket
+    end
+
+    {:noreply, socket}
+  end
 
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
@@ -289,29 +415,121 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
             user_permissions: %{track_character: true}
           }
         } = socket
-      ),
-      do:
-        socket
-        |> assign(show_tracking?: true)
-        |> assign_async(:characters, fn ->
-          {:ok, map} =
-            map_id
-            |> WandererApp.MapRepo.get([:acls])
+      ) do
+    # Set react_tracking_enabled to true to use the React component
+    socket = socket |> assign(react_tracking_enabled: true, show_tracking?: true)
 
-          {:ok, character_settings} =
-            case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
-              {:ok, settings} -> {:ok, settings}
-              _ -> {:ok, []}
-            end
+    # Get the character settings for the map
+    {:ok, character_settings} =
+      case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
+        {:ok, settings} -> {:ok, settings}
+        _ -> {:ok, []}
+      end
 
-          map
-          |> WandererApp.Maps.load_characters(
-            character_settings,
-            current_user.id
-          )
-        end)
+    # Load characters directly
+    {:ok, map} =
+      map_id
+      |> WandererApp.MapRepo.get([:acls])
+
+    # Load characters
+    {:ok, %{characters: chars}} =
+      map
+      |> WandererApp.Maps.load_characters(
+        character_settings,
+        current_user.id
+      )
+
+    # Transform characters to match the expected format for the React component
+    react_characters = Enum.map(chars, fn char ->
+      %{
+        character_id: char.id,
+        character_name: char.name,
+        eve_id: char.eve_id,
+        corporation_ticker: char.corporation_ticker || "",
+        alliance_ticker: Map.get(char, :alliance_ticker, ""),
+        tracked: Map.get(char, :tracked, false),
+        followed: Map.get(char, :followed, false)
+      }
+    end)
+
+    Logger.info("Loaded #{length(react_characters)} characters for map #{map_id}")
+
+    # If connected, push events to show the tracking modal with the characters
+    socket = if connected?(socket) do
+      Logger.info("Socket connected, pushing #{length(react_characters)} characters")
+
+      # First push the show_tracking event to ensure the modal is visible
+      socket = socket |> push_event("show_tracking", %{})
+      Logger.info("Pushed show_tracking event")
+
+      # Then push the update_tracking event with the characters
+      socket = socket |> push_event("update_tracking", %{characters: react_characters})
+      Logger.info("Pushed update_tracking event with #{length(react_characters)} characters")
+
+      socket
+    else
+      Logger.info("Socket not connected, not pushing events")
+      socket
+    end
+
+    socket
+  end
 
   def add_character(socket), do: socket
+
+  # Handle the async result for characters and push the update_tracking event
+  def handle_info({:async_result, :characters, {:ok, %{characters: chars}}}, socket) when is_list(chars) do
+    # Create a list of characters to send to the client
+    react_characters = if length(chars) > 0 do
+      transformed_chars = Enum.map(chars, fn char ->
+        %{
+          character_id: char.id,
+          character_name: char.name,
+          eve_id: char.eve_id,
+          corporation_ticker: char.corporation_ticker || "",
+          alliance_ticker: Map.get(char, :alliance_ticker, ""),
+          tracked: Map.get(char, :tracked, false),
+          followed: Map.get(char, :followed, false)
+        }
+      end)
+
+      transformed_chars
+    else
+      Logger.warn("No characters found in async result, using placeholder")
+      [
+        %{
+          character_id: "no-characters-found", # Changed from "no-characters" to avoid confusion
+          character_name: "No Characters Found",
+          eve_id: "1",
+          corporation_ticker: "NONE",
+          alliance_ticker: "FOUND",
+          tracked: false,
+          followed: false
+        }
+      ]
+    end
+
+    socket = if connected?(socket) do
+      char_ids = Enum.map(react_characters, & &1.character_id)
+      socket = socket |> push_event("show_tracking", %{})
+      socket = socket |> push_event("update_tracking", %{characters: react_characters})
+      socket
+    else
+      socket
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:push_characters, react_characters}, socket) do
+    socket = socket |> push_event("show_tracking", %{})
+    socket = socket |> push_event("update_tracking", %{characters: react_characters})
+    {:noreply, socket}
+  end
+
+  def handle_info({:async_result, :characters, result}, socket) do
+    {:noreply, socket}
+  end
 
   def has_tracked_characters?([]), do: false
   def has_tracked_characters?(_user_characters), do: true

@@ -2,6 +2,7 @@ import { ContextStoreDataUpdate, useContextStore } from '@/hooks/Mapper/utils';
 import { createContext, Dispatch, ForwardedRef, forwardRef, SetStateAction, useContext, useEffect } from 'react';
 import {
   CommandLinkSignatureToSystem,
+  MapHandlers,
   MapUnionTypes,
   OutCommandHandler,
   SolarSystemConnection,
@@ -16,12 +17,18 @@ import {
 } from '@/hooks/Mapper/mapRootProvider/hooks/useStoreWidgets.ts';
 import { WindowsManagerOnChange } from '@/hooks/Mapper/components/ui-kit/WindowManager';
 import { DetailedKill } from '../types/kills';
+import { ActivitySummary } from '../components/map/components';
+import { CharacterTrackingData } from '../components/map/components/TrackAndFollow';
 
 export type MapRootData = MapUnionTypes & {
   selectedSystems: string[];
   selectedConnections: Pick<SolarSystemConnection, 'source' | 'target'>[];
   linkSignatureToSystem: CommandLinkSignatureToSystem | null;
   detailedKills: Record<string, DetailedKill[]>;
+  showCharacterActivity: boolean;
+  characterActivityData: ActivitySummary[];
+  showTrackAndFollow: boolean;
+  trackingCharactersData: CharacterTrackingData[];
 };
 
 const INITIAL_DATA: MapRootData = {
@@ -44,6 +51,10 @@ const INITIAL_DATA: MapRootData = {
   options: {},
   isSubscriptionActive: false,
   linkSignatureToSystem: null,
+  showCharacterActivity: false,
+  characterActivityData: [],
+  showTrackAndFollow: false,
+  trackingCharactersData: [],
 };
 
 export enum AvailableThemes {
@@ -111,11 +122,11 @@ type MapRootProviderProps = {
   outCommand: OutCommandHandler;
 } & WithChildren;
 
-// eslint-disable-next-line react/display-name
-const MapRootHandlers = forwardRef(({ children }: WithChildren, fwdRef: ForwardedRef<any>) => {
+const MapRootHandlers = forwardRef(({ children }: WithChildren, fwdRef: ForwardedRef<MapHandlers>) => {
   useMapRootHandlers(fwdRef);
   return <>{children}</>;
 });
+MapRootHandlers.displayName = 'MapRootHandlers';
 
 // eslint-disable-next-line react/display-name
 export const MapRootProvider = ({ children, fwdRef, outCommand }: MapRootProviderProps) => {

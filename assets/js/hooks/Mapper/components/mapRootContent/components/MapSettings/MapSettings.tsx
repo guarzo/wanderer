@@ -7,9 +7,9 @@ import {
   InterfaceStoredSettingsProps,
   useMapRootState,
   InterfaceStoredSettings,
-  AvailableThemes
+  AvailableThemes,
 } from '@/hooks/Mapper/mapRootProvider';
-import { OutCommand } from '@/hooks/Mapper/types';
+import { OutCommand, CommandEmptyData } from '@/hooks/Mapper/types';
 import { Dropdown } from 'primereact/dropdown';
 import { WidgetsSettings } from '@/hooks/Mapper/components/mapRootContent/components/MapSettings/components/WidgetsSettings/WidgetsSettings.tsx';
 
@@ -143,10 +143,11 @@ export const MapSettings = ({ show, onHide }: MapSettingsProps) => {
   }, [userRemoteSettings, interfaceSettings]);
 
   const handleShow = async () => {
-    const { user_settings } = await outCommand({
+    const response = await outCommand({
       type: OutCommand.getUserSettings,
-      data: null,
+      data: {} as CommandEmptyData,
     });
+    const { user_settings } = response as { user_settings: UserSettingsRemote };
     setUserRemoteSettings({
       ...user_settings,
     });
@@ -154,7 +155,7 @@ export const MapSettings = ({ show, onHide }: MapSettingsProps) => {
 
   const handleSettingChange = useCallback(
     async (prop: keyof UserSettings, value: boolean | string) => {
-      if (UserSettingsRemoteList.includes(prop as any)) {
+      if (UserSettingsRemoteList.includes(prop as UserSettingsRemoteProps)) {
         const newRemoteSettings = {
           ...userRemoteSettings,
           [prop]: value,

@@ -341,6 +341,17 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
             type: connection_type
           })
 
+        # Get user_id from character
+        {:ok, character} = WandererApp.Character.get_character(character_id)
+
+        WandererApp.User.ActivityTracker.track_map_event(:map_connection_added, %{
+          character_id: character_id,
+          user_id: character.user_id,
+          map_id: map_id,
+          solar_system_source_id: old_location.solar_system_id,
+          solar_system_target_id: location.solar_system_id
+        })
+
         WandererApp.Map.add_connection(map_id, connection)
 
         Impl.broadcast!(map_id, :maybe_select_system, %{

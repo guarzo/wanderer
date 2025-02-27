@@ -289,26 +289,17 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     Impl.broadcast!(map_id, :remove_connections, connections_to_remove)
     Impl.broadcast!(map_id, :systems_removed, solar_system_ids_to_remove)
 
-    case not is_nil(user_id) do
-      true ->
-        {:ok, _} =
-          WandererApp.User.ActivityTracker.track_map_event(:systems_removed, %{
-            character_id: character_id,
-            user_id: user_id,
-            map_id: map_id,
-            solar_system_ids: solar_system_ids_to_remove
-          })
+    WandererApp.User.ActivityTracker.track_map_event(:systems_removed, %{
+      character_id: character_id,
+      user_id: user_id,
+      map_id: state.map_id,
+      solar_system_ids: solar_system_ids_to_remove
+    })
 
-        :telemetry.execute(
-          [:wanderer_app, :map, :systems, :remove],
-          %{count: solar_system_ids_to_remove |> Enum.count()}
-        )
-
-        :ok
-
-      _ ->
-        :ok
-    end
+    :telemetry.execute(
+      [:wanderer_app, :map, :systems, :remove],
+      %{count: solar_system_ids_to_remove |> Enum.count()}
+    )
 
     state
   end

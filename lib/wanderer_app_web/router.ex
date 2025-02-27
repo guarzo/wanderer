@@ -4,7 +4,6 @@ defmodule WandererAppWeb.Router do
   use Plug.ErrorHandler
 
   import PlugDynamic.Builder
-  import Logger
 
   import WandererAppWeb.UserAuth,
     warn: false,
@@ -139,6 +138,7 @@ defmodule WandererAppWeb.Router do
     get "/system", MapAPIController, :show_system
     get "/characters", MapAPIController, :tracked_characters_with_info
     get "/structure-timers", MapAPIController, :show_structure_timers
+    get "/activity", MapAPIController, :user_activity_summary
     get "/acls", MapAccessListAPIController, :index
     post "/acls", MapAccessListAPIController, :create
   end

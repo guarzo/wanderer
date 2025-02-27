@@ -1,6 +1,6 @@
-<nav class="px-6 flex items-center justify-between w-full h-12 pointer-events-auto border-b border-stone-800  bg-opacity-70 bg-neutral-900">
+<nav class="px-6 flex items-center justify-between w-full h-12 pointer-events-auto border-b border-stone-800 bg-opacity-70 bg-neutral-900">
   <span className="w-full"></span>
-  <span className="mr-2"></span>
+  <span class="mr-2"></span>
   <div class="flex gap-2">
     <div class="form-control">
       <label class="label cursor-pointer gap-2">
@@ -49,8 +49,7 @@
         stroke-linejoin="round"
         stroke-width="2"
         d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-      >
-      </path>
+      />
     </svg>
     <span>
       All added characters will be automatically linked to your user account. You can't have same characters linked to several accounts.
@@ -74,7 +73,7 @@
         <div class="card-body justify-center items-center">
           <.icon name="hero-squares-plus-solid" class="w-20 h-20" />
           <h3 class="card-title text-center text-md">Authorize character</h3>
-          <p class="text-sm text-center ">* Using EVE-ONLINE SSO authorization</p>
+          <p class="text-sm text-center">* Using EVE-ONLINE SSO authorization</p>
         </div>
       </div>
     </.link>
@@ -88,49 +87,27 @@
           <h2 class="absolute w-full flex justify-between px-4 left-0 top-10 text-xs">
             Corporation:
             <span
-              :if={
-                is_nil(
-                  character
-                  |> get(
-                    path(:corporation_name),
-                    nil
-                  )
-                )
-              }
+              :if={is_nil(character |> get(path(:corporation_name), nil))}
               class="loading loading-dots loading-xs"
             />
             <span>
-              <%= character
-              |> get(
-                path(:corporation_name),
-                ""
-              ) %>
+              <%= character |> get(path(:corporation_name), "") %>
             </span>
           </h2>
           <h2 class="absolute w-full flex justify-between px-4 left-0 top-16 text-xs">
             Alliance:
             <span>
-              <%= character
-              |> get(path(:alliance_name), "-") || "-" %>
+              <%= character |> get(path(:alliance_name), "-") || "-" %>
             </span>
           </h2>
           <h2 class="absolute left-0 bottom-12 px-4 text-xs w-full flex justify-between">
             Location:
             <span
-              :if={
-                is_nil(
-                  character
-                  |> get(
-                    path(:location / :solar_system_info / :solar_system_name, :map),
-                    nil
-                  )
-                )
-              }
+              :if={is_nil(character |> get(path(:location / :solar_system_info / :solar_system_name, :map), nil))}
               class="loading loading-dots loading-xs"
             />
             <span>
-              <%= character
-              |> get(path(:location / :solar_system_info / :solar_system_name, :map), "") %>
+              <%= character |> get(path(:location / :solar_system_info / :solar_system_name, :map), "") %>
             </span>
           </h2>
           <h2
@@ -139,16 +116,14 @@
           >
             Balance:
             <span class="blur">
-              ISK <%= (character
-                       |> get(path(:eve_wallet_balance, :map), 0.0) || 0.0)
+              ISK <%= (character |> get(path(:eve_wallet_balance, :map), 0.0) || 0.0)
               |> Number.to_human(units: ["", "K", "M", "B", "T", "P"]) %>
             </span>
           </h2>
           <h2 class="absolute w-full flex justify-between px-4 left-0 bottom-2 text-xs">
             Ship:
             <span>
-              <%= character
-              |> get(path(:ship / :ship_type_info / :name, :map), "-") %>
+              <%= character |> get(path(:ship / :ship_type_info / :name, :map), "-") %>
             </span>
           </h2>
         </div>
@@ -167,14 +142,29 @@
             </div>
           </div>
           <div class="card-actions justify-end">
+            <!-- Primary Character Text Indicator -->
+            <button
+              type="button"
+              class="tooltip tooltip-bottom"
+              phx-click="set_primary"
+              phx-value-character_id={character.id}
+              data-tip="Set as Primary Character"
+            >
+              <%= if character.primary do %>
+                <.icon name="hero-star-solid" class="w-4 h-4" />
+              <% else %>
+                <.icon name="hero-star" class="w-4 h-4" />
+              <% end %>
+            </button>
             <.link
               patch={~p"/characters/authorize"}
               class="tooltip tooltip-bottom"
               data-tip="Refresh Authorization"
             >
-              <.icon name="hero-arrow-path-solid" class="w-4 h-4 hover:text-white " />
+              <.icon name="hero-arrow-path-solid" class="w-4 h-4 hover:text-white" />
             </.link>
             <button
+              type="button"
               class="tooltip tooltip-bottom"
               phx-click="delete"
               phx-value-character_id={character.id}
@@ -189,17 +179,32 @@
     </div>
   </div>
 
-  <div :if={@mode == :table} class="flex flex-col gap-4  mt-4">
+  <div :if={@mode == :table} class="flex flex-col gap-4 mt-4">
     <.link patch={~p"/characters/authorize"}>
       <button
         type="button"
-        class="btn h-10 rounded-none  hover:text-white bg-gradient-to-l from-stone-950 to-stone-900 transform transition duration-500"
+        class="btn h-10 rounded-none hover:text-white bg-gradient-to-l from-stone-950 to-stone-900 transform transition duration-500"
       >
         <.icon name="hero-squares-plus-solid" class="w-8 h-8" /> Authorize character
       </button>
     </.link>
 
     <.table class="!max-h-[80vh] !overflow-y-auto" id="characters-tbl" rows={@characters}>
+      <:col :let={character} label="Primary">
+        <button
+          type="button"
+          class="tooltip tooltip-bottom"
+          phx-click="set_primary"
+          phx-value-character_id={character.id}
+          data-tip="Set as Primary Character"
+        >
+          <%= if character.primary do %>
+            <.icon name="hero-star-solid" class="w-4 h-4" />
+          <% else %>
+            <.icon name="hero-star" class="w-4 h-4" />
+          <% end %>
+        </button>
+      </:col>
       <:col :let={character} label="Character">
         <figure class="avatar h-10 w-10">
           <img class="h-10 w-10" src={member_icon_url(character.eve_id)} alt={character.name} />
@@ -209,25 +214,20 @@
         <%= character.name %>
       </:col>
       <:col :let={character} label="Corporation">
-        <%= character
-        |> get(path(:corporation_name), "-") %>
+        <%= character |> get(path(:corporation_name), "-") %>
       </:col>
       <:col :let={character} label="Alliance">
-        <%= character
-        |> get(path(:alliance_name), "-") || "-" %>
+        <%= character |> get(path(:alliance_name), "-") || "-" %>
       </:col>
       <:col :let={character} label="Location">
-        <%= character
-        |> get(path(:location / :solar_system_info / :solar_system_name, :map), "-") %>
+        <%= character |> get(path(:location / :solar_system_info / :solar_system_name, :map), "-") %>
       </:col>
       <:col :let={character} label="Ship">
-        <%= character
-        |> get(path(:ship / :ship_type_info / :name, :map), "-") %>
+        <%= character |> get(path(:ship / :ship_type_info / :name, :map), "-") %>
       </:col>
       <:col :let={character} :if={@wallet_tracking_enabled?} label="Balance">
         <span :if={character.show_wallet_balance?} class="blur">
-          ISK <%= (character
-                   |> get(path(:eve_wallet_balance, :map), 0.0) || 0.0)
+          ISK <%= (character |> get(path(:eve_wallet_balance, :map), 0.0) || 0.0)
           |> Number.to_human(units: ["", "K", "M", "B", "T", "P"]) %>
         </span>
       </:col>
