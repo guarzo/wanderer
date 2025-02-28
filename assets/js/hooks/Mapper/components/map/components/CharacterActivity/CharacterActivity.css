@@ -3,6 +3,287 @@
   padding: 0;
   width: 100%;
   height: auto !important;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 0;
+  min-height: 100px;
+}
+
+/* Empty state message */
+.empty-message {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: var(--text-color-secondary, #9aa5ce);
+  font-style: italic;
+}
+
+/* Error message styling */
+.error-message {
+  color: var(--red-500, #ef4444);
+}
+
+/* Dialog component styling */
+.DialogCharacterActivity {
+  z-index: 9999 !important;
+  background-color: #1e1e1e !important;
+  color: #f0f0f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.DialogCharacterActivity .p-dialog-header {
+  background-color: #262626 !important;
+  color: #f0f0f0;
+  padding: 1rem;
+  border-bottom: 1px solid #3f3f3f;
+}
+
+.DialogCharacterActivity .p-dialog-content {
+  background-color: #1e1e1e !important;
+  color: #f0f0f0;
+  padding: 0 !important;
+  overflow: hidden;
+  height: auto !important;
+  max-height: none !important;
+}
+
+.DialogCharacterActivity .p-dialog-footer {
+  background-color: #1e1e1e !important;
+  border-top: 1px solid #3f3f3f;
+  padding: 1rem;
+}
+
+/* Character Activity Modal */
+.character-activity-modal {
+  background-color: #1e1e1e !important;
+  max-width: 800px !important;
+  width: 90vw !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  z-index: 9999 !important;
+}
+
+/* Character info styles */
+.character-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.character-portrait {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.character-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-name-container {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.character-name {
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.corporation-ticker {
+  color: #aaa;
+  font-size: 0.9em;
+  margin-left: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.alliance-ticker {
+  color: #888;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+/* Cell styling */
+.character-name-cell {
+  display: flex;
+  align-items: center;
+}
+
+.activity-value-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Column styles */
+.character-column {
+  min-width: 200px;
+  width: 30%;
+}
+
+.numeric-column {
+  width: 17.5%;
+}
+
+/* PrimeReact DataTable Styling */
+.character-activity-datatable {
+  width: 100%;
+  background-color: #1e1e1e !important;
+  border: none;
+  flex: 1;
+  height: 100%;
+}
+
+/* No scrollbar variant */
+.character-activity-datatable.no-scrollbar .p-datatable-wrapper {
+  overflow: visible !important;
+}
+
+.character-activity-datatable .p-datatable-wrapper {
+  border-radius: 0;
+  overflow: auto !important;
+  padding: 0;
+  margin: 0;
+  height: 100% !important;
+  max-height: none !important;
+}
+
+.character-activity-datatable .p-datatable-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+/* Header styling */
+.character-activity-datatable .p-datatable-thead > tr > th {
+  background-color: #262626 !important;
+  color: #f0f0f0;
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  border-width: 0;
+  border-bottom: 1px solid #3f3f3f;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Row styling */
+.character-activity-datatable .p-datatable-tbody > tr {
+  background-color: #1e1e1e !important;
+  transition: background-color 0.2s;
+}
+
+.character-activity-datatable .p-datatable-tbody > tr:nth-child(even) {
+  background-color: #262626 !important;
+}
+
+.character-activity-datatable .p-datatable-tbody > tr:hover {
+  background-color: #333333 !important;
+}
+
+.character-activity-datatable .p-datatable-tbody > tr > td {
+  padding: 0.75rem 1rem;
+  border-width: 0;
+  border-bottom: 1px solid #3f3f3f;
+}
+
+/* Remove border from last row */
+.character-activity-datatable .p-datatable-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+
+/* Scrollbar styling */
+.character-activity-datatable .p-datatable-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.character-activity-datatable .p-datatable-wrapper::-webkit-scrollbar-track {
+  background: #262626;
+  border-radius: 4px;
+}
+
+.character-activity-datatable .p-datatable-wrapper::-webkit-scrollbar-thumb {
+  background: #3f3f3f;
+  border-radius: 4px;
+}
+
+.character-activity-datatable .p-datatable-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #4f4f4f;
+}
+
+/* Empty state */
+.p-datatable-emptymessage td {
+  text-align: center;
+  color: #9aa5ce;
+  padding: 2rem;
+  font-style: italic;
+  font-size: 14px;
+}
+
+/* Make sure the dialog mask is visible */
+.p-dialog-mask.p-component-overlay {
+  background-color: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(2px);
+  z-index: 9998 !important;
+}
+
+/* Fix for dialog positioning */
+.p-dialog-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: auto;
+}
+
+/* Text alignment */
+.text-center {
+  text-align: center;
+}
+
+/* Ensure the dialog content is visible */
+.character-activity-modal .p-dialog-content {
+  padding: 0 !important;
+  overflow: hidden !important;
+  background-color: #1e1e1e !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Keep the rest of the CSS as is */
+/* Main container */
+.character-activity-container {
+  padding: 0;
+  width: 100%;
+  height: auto !important;
   overflow: visible !important;
   position: relative;
   display: flex;

@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Dialog } from 'primereact/dialog';
+import { DataTable } from 'primereact/datatable';
+import { Column } from 'primereact/column';
 import './CharacterActivity.css';
 
 /**
@@ -43,94 +45,60 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
-  // Simple state to force re-renders
-  const [, setForceUpdate] = useState<number>(0);
-  
-  // Force a re-render when the component is shown or activity changes
+  // Debug logging when the dialog is shown.
   useEffect(() => {
     if (show) {
       console.log('CharacterActivity shown with', activity.length, 'items');
-      
-      // Log a sample of the data to help with debugging
+
       if (activity.length > 0) {
         console.log('Sample activity item:', activity[0]);
-        
-        // Check for duplicate character names
+
+        // Check for duplicate character names.
         const characterNames = activity.map(item => item.character_name);
         const uniqueNames = new Set(characterNames);
         console.log(`Character names: ${characterNames.length} total, ${uniqueNames.size} unique`);
-        
+
         if (characterNames.length !== uniqueNames.size) {
           console.log('Duplicate character names detected:');
-          const nameCounts = characterNames.reduce((acc, name) => {
-            acc[name] = (acc[name] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-          
+          const nameCounts = characterNames.reduce(
+            (acc, name) => {
+              acc[name] = (acc[name] || 0) + 1;
+              return acc;
+            },
+            {} as Record<string, number>,
+          );
+
           Object.entries(nameCounts)
-            .filter(([_, count]) => count > 1)
+            .filter(entry => entry[1] > 1)
             .forEach(([name, count]) => {
               console.log(`  - ${name}: ${count} occurrences`);
             });
         }
-        
-        // Check for characters from the same user
-        const userGroups: Record<string, string[]> = {};
-        activity.forEach(item => {
-          if (item.user_id) {
-            if (!userGroups[item.user_id]) {
-              userGroups[item.user_id] = [];
-            }
-            userGroups[item.user_id].push(item.character_name);
-          }
-        });
-        
-        // Log users with multiple characters
-        const usersWithMultipleChars = Object.entries(userGroups)
-          .filter(([_, chars]) => chars.length > 1);
-        
-        if (usersWithMultipleChars.length > 0) {
-          console.log('Users with multiple characters:');
-          usersWithMultipleChars.forEach(([userId, chars]) => {
-            console.log(`  - User ${userId}: ${chars.join(', ')}`);
-          });
-        }
       }
-      
-      // Force a re-render after a short delay
-      const timer = setTimeout(() => {
-        setForceUpdate(prev => prev + 1);
-      }, 100);
-      return () => clearTimeout(timer);
     }
   }, [show, activity]);
 
-  // Format numbers with commas
+  // Utility to format numbers with commas.
   const formatNumber = (value: number | undefined) => {
     if (value === undefined) return '0';
     return value.toLocaleString();
   };
 
-  // Sort activity by character name
+  // Sort activity by character name.
   const sortedActivity = useMemo(() => {
     if (!activity || !Array.isArray(activity) || activity.length === 0) {
       return [];
     }
-
     console.log('Sorting activity data with', activity.length, 'items');
-    
-    // The backend now handles deduplication, so we just need to sort
-    return [...activity].sort((a, b) => 
-      a.character_name.localeCompare(b.character_name)
-    );
+    return [...activity].sort((a, b) => a.character_name.localeCompare(b.character_name));
   }, [activity]);
 
-  // Calculate the max height for the table container
+  // Calculate the maximum height for the table container.
   const calculateMaxHeight = () => {
-    const rowHeight = 56; // Height of each row in pixels
-    const headerHeight = 43; // Height of the header in pixels
-    const maxVisibleRows = 10; // Maximum number of rows to show without scrolling
-    const footerHeight = 20; // Extra padding at the bottom
+    const rowHeight = 56; // Height of each row in pixels.
+    const headerHeight = 43; // Height of the header in pixels.
+    const maxVisibleRows = 10; // Maximum rows to show without scrolling.
+    const footerHeight = 20; // Extra padding at the bottom.
 
     if (sortedActivity.length <= maxVisibleRows) {
       return `${sortedActivity.length * rowHeight + headerHeight + footerHeight}px`;
@@ -141,7 +109,7 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
 
   return (
     <Dialog
-      className="character-activity-modal"
+      className="character-activity-modal DialogCharacterActivity"
       visible={show}
       style={{ width: '800px', maxWidth: '90vw' }}
       onHide={onHide}
@@ -152,61 +120,90 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     >
       <div className="character-activity-container">
         {sortedActivity.length > 0 ? (
-          <div 
-            className="table-container" 
-            style={{ maxHeight: calculateMaxHeight() }}
+          <DataTable
+            value={sortedActivity}
+            className="character-activity-datatable"
+            scrollable
+            scrollHeight={calculateMaxHeight()}
+            emptyMessage="No activity data available"
+            // Use eve_id as the unique key to avoid conflicts if names are duplicated.
+            dataKey="eve_id"
           >
-            <table className="activity-table">
-              <thead>
-                <tr className="table-header">
-                  <th style={{ textAlign: 'left' }}>Character</th>
-                  <th style={{ textAlign: 'center' }}>Passages</th>
-                  <th style={{ textAlign: 'center' }}>Connections</th>
-                  <th style={{ textAlign: 'center' }}>Signatures</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedActivity.map((item, index) => (
-                  <tr 
-                    key={item.character_id || index} 
-                    className="table-row"
-                  >
-                    <td>
-                      <div className="character-info">
-                        <div className="character-portrait">
-                          <img 
-                            src={`https://images.evetech.net/characters/${item.eve_id}/portrait`} 
-                            alt={item.character_name}
-                          />
-                        </div>
-                        <div className="character-name-container">
-                          <div className="character-name">
-                            {item.character_name}
-                            {item.corporation_ticker && <span className="corporation-ticker">[{item.corporation_ticker}]</span>}
-                          </div>
-                          <div>
-                            {item.alliance_ticker && <span className="alliance-ticker">[{item.alliance_ticker}]</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="text-center">
-                      {formatNumber(typeof item.passages_traveled === 'number' ? item.passages_traveled : 
-                        (typeof item.passages === 'number' ? item.passages : 0))}
-                    </td>
-                    <td className="text-center">
-                      {formatNumber(typeof item.connections_created === 'number' ? item.connections_created : 
-                        (typeof item.connections === 'number' ? item.connections : 0))}
-                    </td>
-                    <td className="text-center">
-                      {formatNumber(typeof item.signatures_scanned === 'number' ? item.signatures_scanned : 
-                        (typeof item.signatures === 'number' ? item.signatures : 0))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+            <Column
+              field="character_name"
+              header="Character"
+              className="character-column"
+              body={rowData => (
+                <div className="character-info">
+                  <div className="character-portrait">
+                    <img
+                      src={`https://images.evetech.net/characters/${rowData.eve_id}/portrait`}
+                      alt={rowData.character_name}
+                    />
+                  </div>
+                  <div className="character-name-container">
+                    <div className="character-name">
+                      {rowData.character_name}
+                      {rowData.corporation_ticker && (
+                        <span className="corporation-ticker">[{rowData.corporation_ticker}]</span>
+                      )}
+                    </div>
+                    <div>
+                      {rowData.alliance_ticker && <span className="alliance-ticker">[{rowData.alliance_ticker}]</span>}
+                    </div>
+                  </div>
+                </div>
+              )}
+            />
+            <Column
+              field="passages_traveled"
+              header="Passages"
+              className="numeric-column"
+              headerClassName="text-center"
+              bodyClassName="text-center"
+              body={rowData =>
+                formatNumber(
+                  typeof rowData.passages_traveled === 'number'
+                    ? rowData.passages_traveled
+                    : typeof rowData.passages === 'number'
+                      ? rowData.passages
+                      : 0,
+                )
+              }
+            />
+            <Column
+              field="connections_created"
+              header="Connections"
+              className="numeric-column"
+              headerClassName="text-center"
+              bodyClassName="text-center"
+              body={rowData =>
+                formatNumber(
+                  typeof rowData.connections_created === 'number'
+                    ? rowData.connections_created
+                    : typeof rowData.connections === 'number'
+                      ? rowData.connections
+                      : 0,
+                )
+              }
+            />
+            <Column
+              field="signatures_scanned"
+              header="Signatures"
+              className="numeric-column"
+              headerClassName="text-center"
+              bodyClassName="text-center"
+              body={rowData =>
+                formatNumber(
+                  typeof rowData.signatures_scanned === 'number'
+                    ? rowData.signatures_scanned
+                    : typeof rowData.signatures === 'number'
+                      ? rowData.signatures
+                      : 0,
+                )
+              }
+            />
+          </DataTable>
         ) : (
           <div style={{ padding: '20px', textAlign: 'center' }}>
             <p style={{ fontSize: '1.125rem', marginBottom: '0.5rem' }}>No activity data available</p>
