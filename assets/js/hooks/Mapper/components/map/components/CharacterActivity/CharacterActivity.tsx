@@ -48,41 +48,11 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
   // State to control whether to use virtual scrolling
   const [useVirtualScroller, setUseVirtualScroller] = useState<boolean>(false);
 
-  // Debug logging when the dialog is shown.
+  // Set up virtual scroller when the dialog is shown
   useEffect(() => {
     if (show) {
-      console.log('CharacterActivity shown with', activity.length, 'items');
-
       // Only use virtual scroller for larger datasets
-      const shouldUseVirtualScroller = activity.length > 10;
-      console.log('Using virtual scroller:', shouldUseVirtualScroller);
-      setUseVirtualScroller(shouldUseVirtualScroller);
-
-      if (activity.length > 0) {
-        console.log('Sample activity item:', activity[0]);
-
-        // Check for duplicate character names.
-        const characterNames = activity.map(item => item.character_name);
-        const uniqueNames = new Set(characterNames);
-        console.log(`Character names: ${characterNames.length} total, ${uniqueNames.size} unique`);
-
-        if (characterNames.length !== uniqueNames.size) {
-          console.log('Duplicate character names detected:');
-          const nameCounts = characterNames.reduce(
-            (acc, name) => {
-              acc[name] = (acc[name] || 0) + 1;
-              return acc;
-            },
-            {} as Record<string, number>,
-          );
-
-          Object.entries(nameCounts)
-            .filter(entry => entry[1] > 1)
-            .forEach(([name, count]) => {
-              console.log(`  - ${name}: ${count} occurrences`);
-            });
-        }
-      }
+      setUseVirtualScroller(activity.length > 10);
     }
   }, [show, activity]);
 
@@ -97,7 +67,6 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     if (!activity || !Array.isArray(activity) || activity.length === 0) {
       return [];
     }
-    console.log('Sorting activity data with', activity.length, 'items');
     return [...activity].sort((a, b) => a.character_name.localeCompare(b.character_name));
   }, [activity]);
 
