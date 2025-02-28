@@ -374,8 +374,55 @@ defmodule WandererApp.Api.UserActivity do
       truly_missing_chars = missing_char_data -- associated_missing_chars
       Logger.info("Creating summaries for #{length(truly_missing_chars)} truly missing characters")
 
-      summaries = create_summaries_for_missing_characters(truly_missing_chars, passages_map)
-      summaries
+      # Group missing characters by user_id
+      missing_chars_by_user = truly_missing_chars
+        |> Enum.group_by(fn char ->
+          char.user_id || "unknown-#{char.id}"
+        end)
+
+      Logger.info("Grouped missing characters into #{map_size(missing_chars_by_user)} unique users")
+
+      # For each user, create a consolidated summary
+      user_missing_summaries = Enum.map(missing_chars_by_user, fn {user_id, user_chars} ->
+        Logger.info("Processing #{length(user_chars)} characters for user #{user_id}")
+
+        # Log the characters for this user
+        Enum.each(user_chars, fn char ->
+          Logger.info("  - Character: #{char.name} (#{char.id}), Eve ID: #{char.eve_id}")
+        end)
+
+        # Sort characters to prioritize those with more passages
+        sorted_chars = Enum.sort_by(user_chars, fn char ->
+          Map.get(passages_map, char.id, 0)
+        end, :desc)
+
+        # Use the character with the most passages as the primary character
+        primary_char = List.first(sorted_chars)
+
+        # Sum up passages for all characters of this user
+        total_passages = sorted_chars
+          |> Enum.map(fn char -> Map.get(passages_map, char.id, 0) end)
+          |> Enum.sum()
+
+        Logger.info("User #{user_id} - Primary character: #{primary_char.name}, Total passages: #{total_passages}")
+
+        # Create a consolidated summary for this user
+        %{
+          character: %{
+            id: primary_char.id,
+            name: primary_char.name,
+            corporation_ticker: primary_char.corporation_ticker || "",
+            alliance_ticker: primary_char.alliance_ticker || "",
+            eve_id: primary_char.eve_id
+          },
+          passages: total_passages,
+          connections: 0,
+          signatures: 0,
+          user_id: user_id
+        }
+      end)
+
+      user_missing_summaries
     else
       []
     end

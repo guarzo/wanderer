@@ -73,6 +73,28 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
               console.log(`  - ${name}: ${count} occurrences`);
             });
         }
+        
+        // Check for characters from the same user
+        const userGroups: Record<string, string[]> = {};
+        activity.forEach(item => {
+          if (item.user_id) {
+            if (!userGroups[item.user_id]) {
+              userGroups[item.user_id] = [];
+            }
+            userGroups[item.user_id].push(item.character_name);
+          }
+        });
+        
+        // Log users with multiple characters
+        const usersWithMultipleChars = Object.entries(userGroups)
+          .filter(([_, chars]) => chars.length > 1);
+        
+        if (usersWithMultipleChars.length > 0) {
+          console.log('Users with multiple characters:');
+          usersWithMultipleChars.forEach(([userId, chars]) => {
+            console.log(`  - User ${userId}: ${chars.join(', ')}`);
+          });
+        }
       }
       
       // Force a re-render after a short delay
