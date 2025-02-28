@@ -14,9 +14,9 @@ export interface ActivitySummary {
   passages_traveled?: number;
   connections_created?: number;
   signatures_scanned?: number;
-  passages?: any;
-  connections?: any;
-  signatures?: any;
+  passages?: number | unknown;
+  connections?: number | unknown;
+  signatures?: number | unknown;
   timestamp?: string;
 }
 
@@ -68,6 +68,20 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     a.character_name.localeCompare(b.character_name)
   );
 
+  // Calculate the max height for the table container
+  const calculateMaxHeight = () => {
+    const rowHeight = 56; // Height of each row in pixels
+    const headerHeight = 43; // Height of the header in pixels
+    const maxVisibleRows = 10; // Maximum number of rows to show without scrolling
+    const footerHeight = 20; // Extra padding at the bottom
+
+    if (sortedActivity.length <= maxVisibleRows) {
+      return `${sortedActivity.length * rowHeight + headerHeight + footerHeight}px`;
+    } else {
+      return `${maxVisibleRows * rowHeight + headerHeight + footerHeight}px`;
+    }
+  };
+
   return (
     <Dialog
       className="character-activity-modal"
@@ -79,63 +93,55 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
       resizable={false}
       modal={true}
     >
-      <div 
-        className="character-activity-container"
-        style={{
-          height: 'auto',
-          minHeight: '100px',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'visible',
-        }}
-      >
+      <div className="character-activity-container">
         {activity.length > 0 ? (
-          <div style={{ padding: '20px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div 
+            className="table-container" 
+            style={{ maxHeight: calculateMaxHeight() }}
+          >
+            <table className="activity-table">
               <thead>
-                <tr style={{ backgroundColor: '#262626', color: '#f0f0f0' }}>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Character</th>
-                  <th style={{ padding: '10px', textAlign: 'center' }}>Passages</th>
-                  <th style={{ padding: '10px', textAlign: 'center' }}>Connections</th>
-                  <th style={{ padding: '10px', textAlign: 'center' }}>Signatures</th>
+                <tr className="table-header">
+                  <th style={{ textAlign: 'left' }}>Character</th>
+                  <th style={{ textAlign: 'center' }}>Passages</th>
+                  <th style={{ textAlign: 'center' }}>Connections</th>
+                  <th style={{ textAlign: 'center' }}>Signatures</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedActivity.map((item, index) => (
                   <tr 
                     key={item.character_id || index} 
-                    style={{ 
-                      backgroundColor: index % 2 === 0 ? '#1e1e1e' : '#262626',
-                      color: '#f0f0f0'
-                    }}
+                    className="table-row"
                   >
-                    <td style={{ padding: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <img 
-                          src={`https://images.evetech.net/characters/${item.eve_id}/portrait`} 
-                          alt={item.character_name}
-                          style={{ width: '32px', height: '32px', borderRadius: '50%' }}
-                        />
+                    <td>
+                      <div className="character-info">
+                        <div className="character-portrait">
+                          <img 
+                            src={`https://images.evetech.net/characters/${item.eve_id}/portrait`} 
+                            alt={item.character_name}
+                          />
+                        </div>
                         <div>
-                          <div>
+                          <div className="character-name">
                             {item.character_name}
-                            {item.corporation_ticker && <span style={{ color: '#aaa', marginLeft: '5px' }}>[{item.corporation_ticker}]</span>}
+                            {item.corporation_ticker && <span className="corporation-ticker">[{item.corporation_ticker}]</span>}
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: '#aaa' }}>
-                            {item.alliance_ticker && <span>[{item.alliance_ticker}]</span>}
+                          <div>
+                            {item.alliance_ticker && <span className="alliance-ticker">[{item.alliance_ticker}]</span>}
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                    <td className="text-center">
                       {formatNumber(typeof item.passages_traveled === 'number' ? item.passages_traveled : 
                         (typeof item.passages === 'number' ? item.passages : 0))}
                     </td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                    <td className="text-center">
                       {formatNumber(typeof item.connections_created === 'number' ? item.connections_created : 
                         (typeof item.connections === 'number' ? item.connections : 0))}
                     </td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                    <td className="text-center">
                       {formatNumber(typeof item.signatures_scanned === 'number' ? item.signatures_scanned : 
                         (typeof item.signatures === 'number' ? item.signatures : 0))}
                     </td>
