@@ -3,12 +3,13 @@
   padding: 0;
   width: 100%;
   height: auto !important;
-  overflow: hidden;
+  overflow: visible !important;
   position: relative;
   display: flex;
   flex-direction: column;
   border: none;
   border-radius: 0;
+  min-height: 100px;
 }
 
 /* Empty state message */
@@ -29,7 +30,7 @@
 /* Dialog component styling */
 .character-activity-dialog {
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible !important;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
@@ -45,6 +46,7 @@
   color: #f0f0f0;
   padding: 0;
   border: none;
+  overflow: visible !important;
 }
 
 .character-activity-dialog .p-dialog-footer {
@@ -170,7 +172,7 @@
 
 .character-activity-datatable .p-datatable-wrapper {
   border-radius: 0;
-  overflow: hidden;
+  overflow: auto !important;
   padding: 0;
   margin: 0;
 }
@@ -189,6 +191,9 @@
   padding: 0.75rem 1rem;
   border-width: 0;
   border-bottom: 1px solid #3f3f3f;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 /* Row styling */
@@ -296,6 +301,7 @@
   width: 90vw !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   border-radius: 8px;
+  z-index: 1000 !important;
 }
 
 .character-activity-modal .p-dialog-header {
@@ -307,7 +313,7 @@
 
 .character-activity-modal .p-dialog-content {
   padding: 0 !important;
-  overflow: hidden !important;
+  overflow: visible !important;
   background-color: #1e1e1e !important;
   height: auto !important;
   max-height: none !important;
@@ -374,7 +380,7 @@
 
 .character-activity-datatable .p-datatable-wrapper {
   border-radius: 0;
-  overflow: auto;
+  overflow: auto !important;
 }
 
 .character-activity-datatable .p-datatable-table {
@@ -424,7 +430,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  overflow: hidden;
+  overflow: visible !important;
 }
 
 .character-activity-datatable {
@@ -512,6 +518,207 @@
 /* Fix for autocomplete panel z-index */
 .p-autocomplete-panel {
   z-index: 10000 !important;
+}
+
+/* Force visibility of table rows */
+.character-activity-datatable .p-datatable-tbody > tr {
+  display: table-row !important;
+  visibility: visible !important;
+}
+
+/* Force visibility of table cells */
+.character-activity-datatable .p-datatable-tbody > tr > td {
+  display: table-cell !important;
+  visibility: visible !important;
+}
+
+/* Ensure the dialog content is visible */
+.p-dialog-content {
+  overflow: visible !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Ensure the virtual scroller content is visible */
+.p-virtualscroller-content {
+  visibility: visible !important;
+  display: block !important;
+}
+
+/* Ensure the virtual scroller items are visible */
+.p-virtualscroller-item {
+  visibility: visible !important;
+  display: block !important;
+}
+
+/* Table container with proper scrolling */
+.table-container {
+  width: 100%;
+  border-radius: 4px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f3f #262626;
+  position: relative; /* Needed for sticky header positioning */
+}
+
+.table-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+  background: #262626;
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: #3f3f3f;
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+  background: #4f4f4f;
+}
+
+.activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.activity-table .table-header {
+  background-color: #262626;
+  color: #f0f0f0;
+}
+
+.activity-table .table-header th {
+  padding: 10px;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 10; /* Increased z-index to ensure header stays on top */
+  border-bottom: 1px solid #3f3f3f;
+  background-color: #262626; /* Ensure background color is set */
+}
+
+.activity-table .table-row {
+  transition: background-color 0.2s;
+}
+
+.activity-table .table-row:nth-child(even) {
+  background-color: #262626;
+}
+
+.activity-table .table-row:nth-child(odd) {
+  background-color: #1e1e1e;
+}
+
+.activity-table .table-row:hover {
+  background-color: #333333;
+}
+
+.activity-table .table-row td {
+  padding: 10px;
+  border-bottom: 1px solid #3f3f3f;
+}
+
+/* Remove border from last row */
+.activity-table .table-row:last-child td {
+  border-bottom: none;
+}
+
+/* Character info styling */
+.activity-table .character-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0; /* Allow container to shrink */
+  width: 100%;
+}
+
+.activity-table .character-portrait {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0; /* Prevent portrait from shrinking */
+}
+
+.activity-table .character-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.activity-table .character-name-container {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Allow container to shrink */
+  flex: 1; /* Take up remaining space */
+  overflow: hidden; /* Prevent overflow */
+}
+
+.activity-table .character-name {
+  font-weight: 500;
+  color: #f0f0f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.activity-table .corporation-ticker {
+  color: #aaa;
+  font-size: 0.9em;
+  margin-left: 5px;
+  white-space: nowrap;
+  flex-shrink: 0; /* Prevent ticker from shrinking */
+}
+
+.activity-table .alliance-ticker {
+  color: #888;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+/* Adjust table column widths */
+.activity-table th:first-child,
+.activity-table td:first-child {
+  width: 40%; /* Character column takes 40% of the table width */
+}
+
+.activity-table th:not(:first-child),
+.activity-table td:not(:first-child) {
+  width: 20%; /* Other columns take 20% each */
+}
+
+/* Text alignment */
+.text-center {
+  text-align: center;
+}
+
+/* Ensure the dialog content is visible */
+.character-activity-modal .p-dialog-content {
+  padding: 0 !important;
+  overflow: visible !important;
+  background-color: #1e1e1e !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Add a pseudo-element to create a shadow effect under the sticky header */
+.activity-table .table-header th::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background-color: #3f3f3f;
+  z-index: 11;
 }
 
 
