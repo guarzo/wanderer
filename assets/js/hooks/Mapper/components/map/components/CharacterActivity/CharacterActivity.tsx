@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog } from 'primereact/dialog';
 import './CharacterActivity.css';
 
@@ -18,6 +18,7 @@ export interface ActivitySummary {
   connections?: number | unknown;
   signatures?: number | unknown;
   timestamp?: string;
+  user_id?: string;
 }
 
 /**
@@ -63,10 +64,113 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     return value.toLocaleString();
   };
 
+  // Deduplicate activity by character name and user_id
+  const deduplicatedActivity = useMemo(() => {
+    if (!activity || !Array.isArray(activity) || activity.length === 0) {
+      return [];
+    }
+
+    console.log('Starting deduplication of', activity.length, 'items');
+
+    // First, group by user_id if available
+    const userGroupedActivity = new Map<string, ActivitySummary[]>();
+    
+    // Group characters by user_id
+    activity.forEach(item => {
+      const userId = item.user_id || 'unknown';
+      if (!userGroupedActivity.has(userId)) {
+        userGroupedActivity.set(userId, []);
+      }
+      userGroupedActivity.get(userId)!.push(item);
+    });
+
+    console.log('Grouped into', userGroupedActivity.size, 'unique users');
+
+    // For each user, consolidate their characters into one entry
+    const userConsolidated: ActivitySummary[] = [];
+    userGroupedActivity.forEach((userItems, userId) => {
+      if (userItems.length === 1) {
+        // If only one character for this user, add it directly
+        userConsolidated.push(userItems[0]);
+      } else {
+        // If multiple characters, consolidate them
+        const primaryItem = userItems[0]; // Use first character as primary
+        
+        // Sum up all activity
+        const passages = userItems.reduce(
+          (sum, item) => sum + (typeof item.passages_traveled === 'number' ? item.passages_traveled : 0), 
+          0
+        );
+        
+        const connections = userItems.reduce(
+          (sum, item) => sum + (typeof item.connections_created === 'number' ? item.connections_created : 0), 
+          0
+        );
+        
+        const signatures = userItems.reduce(
+          (sum, item) => sum + (typeof item.signatures_scanned === 'number' ? item.signatures_scanned : 0), 
+          0
+        );
+        
+        // Create consolidated entry
+        userConsolidated.push({
+          ...primaryItem,
+          passages_traveled: passages,
+          connections_created: connections,
+          signatures_scanned: signatures
+        });
+      }
+    });
+
+    console.log('Consolidated to', userConsolidated.length, 'entries after user grouping');
+
+    // Final deduplication by character name for any remaining duplicates
+    const activityMap = new Map<string, ActivitySummary>();
+    
+    userConsolidated.forEach(item => {
+      const key = item.character_name;
+      
+      if (activityMap.has(key)) {
+        const existingItem = activityMap.get(key)!;
+        
+        // Sum up the activity counts
+        const passages = 
+          (typeof existingItem.passages_traveled === 'number' ? existingItem.passages_traveled : 0) + 
+          (typeof item.passages_traveled === 'number' ? item.passages_traveled : 0);
+        
+        const connections = 
+          (typeof existingItem.connections_created === 'number' ? existingItem.connections_created : 0) + 
+          (typeof item.connections_created === 'number' ? item.connections_created : 0);
+        
+        const signatures = 
+          (typeof existingItem.signatures_scanned === 'number' ? existingItem.signatures_scanned : 0) + 
+          (typeof item.signatures_scanned === 'number' ? item.signatures_scanned : 0);
+        
+        // Update the existing item
+        activityMap.set(key, {
+          ...existingItem,
+          passages_traveled: passages,
+          connections_created: connections,
+          signatures_scanned: signatures
+        });
+      } else {
+        // Add the new item to the map
+        activityMap.set(key, item);
+      }
+    });
+
+    const result = Array.from(activityMap.values());
+    console.log('Final deduplication result:', result.length, 'unique characters');
+    
+    return result;
+  }, [activity]);
+
   // Sort activity by character name
-  const sortedActivity = [...activity].sort((a, b) => 
-    a.character_name.localeCompare(b.character_name)
-  );
+  const sortedActivity = useMemo(() => {
+    return [...deduplicatedActivity].sort((a, b) => 
+      a.character_name.localeCompare(b.character_name)
+    );
+  }, [deduplicatedActivity]);
 
   // Calculate the max height for the table container
   const calculateMaxHeight = () => {
@@ -88,13 +192,13 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
       visible={show}
       style={{ width: '800px', maxWidth: '90vw' }}
       onHide={onHide}
-      header={`Character Activity [${activity?.length || 0}]`}
+      header={`Character Activity [${deduplicatedActivity.length || 0}]`}
       draggable={false}
       resizable={false}
       modal={true}
     >
       <div className="character-activity-container">
-        {activity.length > 0 ? (
+        {sortedActivity.length > 0 ? (
           <div 
             className="table-container" 
             style={{ maxHeight: calculateMaxHeight() }}
@@ -122,7 +226,7 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
                             alt={item.character_name}
                           />
                         </div>
-                        <div>
+                        <div className="character-name-container">
                           <div className="character-name">
                             {item.character_name}
                             {item.corporation_ticker && <span className="corporation-ticker">[{item.corporation_ticker}]</span>}

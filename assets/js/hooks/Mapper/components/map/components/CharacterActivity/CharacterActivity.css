@@ -551,13 +551,14 @@
   display: block !important;
 }
 
-/* Add custom styles for the new table-based approach */
+/* Table container with proper scrolling */
 .table-container {
   width: 100%;
   border-radius: 4px;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: #3f3f3f #262626;
+  position: relative; /* Needed for sticky header positioning */
 }
 
 .table-container::-webkit-scrollbar {
@@ -595,8 +596,9 @@
   font-weight: 600;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 10; /* Increased z-index to ensure header stays on top */
   border-bottom: 1px solid #3f3f3f;
+  background-color: #262626; /* Ensure background color is set */
 }
 
 .activity-table .table-row {
@@ -630,6 +632,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0; /* Allow container to shrink */
+  width: 100%;
 }
 
 .activity-table .character-portrait {
@@ -637,6 +641,7 @@
   height: 32px;
   border-radius: 50%;
   overflow: hidden;
+  flex-shrink: 0; /* Prevent portrait from shrinking */
 }
 
 .activity-table .character-portrait img {
@@ -645,20 +650,49 @@
   object-fit: cover;
 }
 
+.activity-table .character-name-container {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Allow container to shrink */
+  flex: 1; /* Take up remaining space */
+  overflow: hidden; /* Prevent overflow */
+}
+
 .activity-table .character-name {
   font-weight: 500;
   color: #f0f0f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  width: 100%;
 }
 
 .activity-table .corporation-ticker {
   color: #aaa;
   font-size: 0.9em;
   margin-left: 5px;
+  white-space: nowrap;
+  flex-shrink: 0; /* Prevent ticker from shrinking */
 }
 
 .activity-table .alliance-ticker {
   color: #888;
   font-size: 0.85em;
+  white-space: nowrap;
+}
+
+/* Adjust table column widths */
+.activity-table th:first-child,
+.activity-table td:first-child {
+  width: 40%; /* Character column takes 40% of the table width */
+}
+
+.activity-table th:not(:first-child),
+.activity-table td:not(:first-child) {
+  width: 20%; /* Other columns take 20% each */
 }
 
 /* Text alignment */
@@ -673,6 +707,18 @@
   background-color: #1e1e1e !important;
   height: auto !important;
   max-height: none !important;
+}
+
+/* Add a pseudo-element to create a shadow effect under the sticky header */
+.activity-table .table-header th::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background-color: #3f3f3f;
+  z-index: 11;
 }
 
 

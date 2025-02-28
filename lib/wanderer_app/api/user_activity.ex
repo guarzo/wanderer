@@ -262,15 +262,15 @@ defmodule WandererApp.Api.UserActivity do
       |> Enum.flat_map(& &1.character_ids)
 
     # Find duplicate character IDs (characters that appear in multiple users)
-    _duplicate_character_ids = all_character_ids
+    duplicate_character_ids = all_character_ids
       |> Enum.frequencies()
       |> Enum.filter(fn {_, count} -> count > 1 end)
       |> Enum.map(fn {id, count} -> {id, count} end)
 
-    # Group summaries by character name to detect duplicates
-    _character_name_groups = activity_summaries
-      |> Enum.group_by(& &1.character.name)
-
+    # Log duplicate characters for debugging
+    if length(duplicate_character_ids) > 0 do
+      Logger.info("Found #{length(duplicate_character_ids)} duplicate character IDs across users")
+    end
 
     # Group summaries by user_id to ensure we have one summary per user
     user_summaries = activity_summaries
@@ -300,11 +300,16 @@ defmodule WandererApp.Api.UserActivity do
           |> Enum.flat_map(& &1.character_ids)
           |> Enum.uniq()
 
+        # Sum up all activity counts for this user
+        total_connections = Enum.sum(Enum.map(summaries, & &1.connections))
+        total_signatures = Enum.sum(Enum.map(summaries, & &1.signatures))
+
+        # Create a consolidated summary for this user
         %{
           primary_summary |
           character_ids: all_character_ids,
-          connections: Enum.sum(Enum.map(summaries, & &1.connections)),
-          signatures: Enum.sum(Enum.map(summaries, & &1.signatures))
+          connections: total_connections,
+          signatures: total_signatures
         }
       end)
 
@@ -370,24 +375,67 @@ defmodule WandererApp.Api.UserActivity do
 
     # Transform the result for the React component
     transformed_result = Enum.map(result, fn summary ->
-      # Ensure character data exists and has required fields
-      character_data = case summary.character do
-        nil -> %{name: "Unknown", eve_id: nil, corporation_ticker: nil, alliance_ticker: nil}
-        char -> char
-      end
-
       %{
-        "character_name" => character_data.name,
-        "eve_id" => character_data.eve_id || "",
-        "corporation_ticker" => character_data.corporation_ticker || "",
-        "alliance_ticker" => character_data.alliance_ticker || "",
+        "character_name" => summary.character.name,
+        "eve_id" => summary.character.eve_id || "",
+        "corporation_ticker" => summary.character.corporation_ticker || "",
+        "alliance_ticker" => summary.character.alliance_ticker || "",
         "passages_traveled" => summary.passages || 0,
         "connections_created" => summary.connections || 0,
-        "signatures_scanned" => summary.signatures || 0
+        "signatures_scanned" => summary.signatures || 0,
+        "user_id" => summary.user_id  # Include user_id for client-side grouping
       }
     end)
 
-    transformed_result
+    # Group by user_id first to ensure characters from the same account are aggregated
+    user_grouped_results = transformed_result
+      |> Enum.group_by(fn item ->
+        # Use user_id as the primary grouping key
+        item["user_id"]
+      end)
+      |> Enum.map(fn {_user_id, user_items} ->
+        # For each user, pick the primary character and sum up all activity
+        primary_item = List.first(user_items)
+
+        # Sum up all activity for this user
+        total_passages = Enum.sum(Enum.map(user_items, & &1["passages_traveled"] || 0))
+        total_connections = Enum.sum(Enum.map(user_items, & &1["connections_created"] || 0))
+        total_signatures = Enum.sum(Enum.map(user_items, & &1["signatures_scanned"] || 0))
+
+        # Return a single entry for this user with summed activity
+        %{
+          "character_name" => primary_item["character_name"],
+          "eve_id" => primary_item["eve_id"],
+          "corporation_ticker" => primary_item["corporation_ticker"],
+          "alliance_ticker" => primary_item["alliance_ticker"],
+          "passages_traveled" => total_passages,
+          "connections_created" => total_connections,
+          "signatures_scanned" => total_signatures,
+          "user_id" => primary_item["user_id"]
+        }
+      end)
+
+    # Final deduplication by character name for any remaining duplicates
+    user_grouped_results
+      |> Enum.group_by(fn item -> item["character_name"] end)
+      |> Enum.map(fn {_name, items} ->
+        # If there are multiple items with the same name, merge them
+        Enum.reduce(items, %{}, fn item, acc ->
+          if acc == %{} do
+            # First item becomes the base
+            item
+          else
+            # Merge activity counts
+            %{
+              acc |
+              "passages_traveled" => (acc["passages_traveled"] || 0) + (item["passages_traveled"] || 0),
+              "connections_created" => (acc["connections_created"] || 0) + (item["connections_created"] || 0),
+              "signatures_scanned" => (acc["signatures_scanned"] || 0) + (item["signatures_scanned"] || 0)
+            }
+          end
+        end)
+        |> Map.drop(["user_id"])  # Remove user_id from final result
+      end)
   end
 
   # Helper function to associate missing characters with existing users if possible
