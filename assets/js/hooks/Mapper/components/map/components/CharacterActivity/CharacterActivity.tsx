@@ -1,42 +1,6 @@
-import React, { useMemo, useCallback, useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog } from 'primereact/dialog';
-import { DataTable } from 'primereact/datatable';
-import { Column } from 'primereact/column';
 import './CharacterActivity.css';
-
-/**
- * Represents a system passage by a character
- */
-interface Passage {
-  id: string;
-  system_id: string;
-  system_name: string;
-  timestamp: string;
-}
-
-/**
- * Represents a connection created by a character
- */
-interface Connection {
-  id: string;
-  from_system_id: string;
-  to_system_id: string;
-  from_system_name: string;
-  to_system_name: string;
-  timestamp: string;
-}
-
-/**
- * Represents a signature scanned by a character
- */
-interface Signature {
-  id: string;
-  system_id: string;
-  system_name: string;
-  signature_id: string;
-  signature_type: string;
-  timestamp: string;
-}
 
 /**
  * Summary of a character's activity
@@ -50,9 +14,9 @@ export interface ActivitySummary {
   passages_traveled?: number;
   connections_created?: number;
   signatures_scanned?: number;
-  passages?: Passage[] | number;
-  connections?: Connection[] | number;
-  signatures?: Signature[] | number;
+  passages?: any;
+  connections?: any;
+  signatures?: any;
   timestamp?: string;
 }
 
@@ -78,168 +42,31 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
-  // Create a local state to store the activity data
-  const [localActivity, setLocalActivity] = useState<ActivitySummary[]>([]);
-
-  // Update local state when activity prop changes
-  useEffect(() => {
-    if (activity && Array.isArray(activity) && activity.length > 0) {
-      console.log('Setting local activity data:', activity.length, 'items');
-      setLocalActivity(activity);
-    }
-  }, [activity]);
-
-  // Log activity data for debugging
+  // Simple state to force re-renders
+  const [, setForceUpdate] = useState<number>(0);
+  
+  // Force a re-render when the component is shown or activity changes
   useEffect(() => {
     if (show) {
-      console.log('CharacterActivity dialog shown');
-      console.log('Activity data type:', typeof activity);
-      console.log('Activity is array:', Array.isArray(activity));
-      console.log('Activity length:', activity?.length || 0);
-      console.log('Local activity length:', localActivity?.length || 0);
-      
-      if (activity && activity.length > 0) {
-        console.log('First activity item:', activity[0]);
-        
-        // Check if the data has the expected structure
-        const hasExpectedStructure = activity.every(
-          item => typeof item === 'object' && item !== null && 'character_name' in item,
-        );
-        
-        console.log('Data has expected structure:', hasExpectedStructure);
-      }
-    }
-  }, [show, activity, localActivity]);
-
-  // Sort activity by character name
-  const sortedActivity = useMemo(() => {
-    if (!localActivity || !Array.isArray(localActivity) || localActivity.length === 0) {
-      console.warn('No local activity data to sort');
-      return [];
-    }
-    console.log('Sorting activity data, length:', localActivity.length);
-    return [...localActivity].sort((a, b) => a.character_name.localeCompare(b.character_name));
-  }, [localActivity]);
-
-  // Determine if we should use virtual scroller based on row count
-  const useVirtualScroller = useMemo(() => {
-    return sortedActivity.length > 10;
-  }, [sortedActivity.length]);
-
-  // Determine if we should show scrollbar
-  const shouldShowScrollbar = useMemo(() => {
-    return sortedActivity.length > 10;
-  }, [sortedActivity.length]);
-
-  // Calculate appropriate scrollHeight based on number of rows
-  const scrollHeight = useMemo(() => {
-    // Row height and header height in pixels
-    const rowHeight = 56; // Height of each row in pixels
-    const headerHeight = 43; // Height of the header in pixels
-    const maxVisibleRows = 10; // Maximum number of rows to show without scrolling
-
-    if (sortedActivity.length === 0) {
-      // For empty state, show minimal height
-      return '300px';
-    } else if (sortedActivity.length <= maxVisibleRows) {
-      // For 10 or fewer rows, calculate based on actual count
-      const calculatedHeight = sortedActivity.length * rowHeight + headerHeight;
-      return `${calculatedHeight}px`;
-    } else {
-      // For more than 10 rows, show exactly 10 rows plus header
-      return `${maxVisibleRows * rowHeight + headerHeight}px`;
-    }
-  }, [sortedActivity.length]);
-
-  // Format numbers with commas
-  const formatNumber = useCallback((value: number | undefined) => {
-    if (value === undefined) return '0';
-    return value.toLocaleString();
-  }, []);
-
-  // Character name template with portrait
-  const characterNameTemplate = useCallback((rowData: ActivitySummary) => {
-    const portraitUrl = rowData.eve_id
-      ? `https://images.evetech.net/characters/${rowData.eve_id}/portrait`
-      : 'https://images.evetech.net/characters/1/portrait';
-
-    return (
-      <div className="character-name-cell">
-        <div className="character-info">
-          <div className="character-portrait">
-            <img src={portraitUrl} alt={rowData.character_name} />
-          </div>
-          <div>
-            <div className="character-name">
-              {rowData.character_name}
-              {rowData.corporation_ticker && <span className="corporation-ticker">[{rowData.corporation_ticker}]</span>}
-            </div>
-            <div className="character-affiliation">
-              {rowData.alliance_ticker && <span className="alliance-ticker">[{rowData.alliance_ticker}]</span>}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }, []);
-
-  // Templates for numeric columns
-  const passagesTemplate = useCallback(
-    (rowData: ActivitySummary) => {
-      // Handle both number and array formats
-      const passages =
-        typeof rowData.passages_traveled === 'number'
-          ? rowData.passages_traveled
-          : typeof rowData.passages === 'number'
-            ? rowData.passages
-            : 0;
-      
-      return <div className="text-center">{formatNumber(passages)}</div>;
-    },
-    [formatNumber],
-  );
-
-  const connectionsTemplate = useCallback(
-    (rowData: ActivitySummary) => {
-      // Handle both number and array formats
-      const connections =
-        typeof rowData.connections_created === 'number'
-          ? rowData.connections_created
-          : typeof rowData.connections === 'number'
-            ? rowData.connections
-            : 0;
-      
-      return <div className="text-center">{formatNumber(connections)}</div>;
-    },
-    [formatNumber],
-  );
-
-  const signaturesTemplate = useCallback(
-    (rowData: ActivitySummary) => {
-      // Handle both number and array formats
-      const signatures =
-        typeof rowData.signatures_scanned === 'number'
-          ? rowData.signatures_scanned
-          : typeof rowData.signatures === 'number'
-            ? rowData.signatures
-            : 0;
-      
-      return <div className="text-center">{formatNumber(signatures)}</div>;
-    },
-    [formatNumber],
-  );
-
-  // Force re-render when dialog is shown
-  useEffect(() => {
-    if (show) {
-      // Force a re-render by setting a timeout
+      console.log('CharacterActivity shown with', activity.length, 'items');
+      // Force a re-render after a short delay
       const timer = setTimeout(() => {
-        console.log('Forcing re-render of CharacterActivity');
-        setLocalActivity(prev => [...prev]);
+        setForceUpdate(prev => prev + 1);
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [show]);
+  }, [show, activity]);
+
+  // Format numbers with commas
+  const formatNumber = (value: number | undefined) => {
+    if (value === undefined) return '0';
+    return value.toLocaleString();
+  };
+
+  // Sort activity by character name
+  const sortedActivity = [...activity].sort((a, b) => 
+    a.character_name.localeCompare(b.character_name)
+  );
 
   return (
     <Dialog
@@ -259,62 +86,68 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
           minHeight: '100px',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflow: 'visible',
         }}
       >
-        {sortedActivity.length > 0 ? (
-          <DataTable
-            value={sortedActivity}
-            className={`character-activity-datatable ${shouldShowScrollbar ? '' : 'no-scrollbar'}`}
-            emptyMessage="No activity data available"
-            scrollable={true}
-            scrollHeight={scrollHeight}
-            stripedRows
-            virtualScrollerOptions={
-              useVirtualScroller
-                ? {
-                    itemSize: 56,
-                    showLoader: false,
-                    loading: false,
-                    delay: 250,
-                    lazy: false,
-                  }
-                : undefined
-            }
-          >
-            <Column
-              field="character_name"
-              header="Character"
-              body={characterNameTemplate}
-              sortable
-              style={{ width: '40%' }}
-            />
-            <Column
-              field="passages_traveled"
-              header="Passages"
-              body={passagesTemplate}
-              sortable
-              style={{ width: '20%', textAlign: 'center' }}
-            />
-            <Column
-              field="connections_created"
-              header="Connections"
-              body={connectionsTemplate}
-              sortable
-              style={{ width: '20%', textAlign: 'center' }}
-            />
-            <Column
-              field="signatures_scanned"
-              header="Signatures"
-              body={signaturesTemplate}
-              sortable
-              style={{ width: '20%', textAlign: 'center' }}
-            />
-          </DataTable>
+        {activity.length > 0 ? (
+          <div style={{ padding: '20px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#262626', color: '#f0f0f0' }}>
+                  <th style={{ padding: '10px', textAlign: 'left' }}>Character</th>
+                  <th style={{ padding: '10px', textAlign: 'center' }}>Passages</th>
+                  <th style={{ padding: '10px', textAlign: 'center' }}>Connections</th>
+                  <th style={{ padding: '10px', textAlign: 'center' }}>Signatures</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedActivity.map((item, index) => (
+                  <tr 
+                    key={item.character_id || index} 
+                    style={{ 
+                      backgroundColor: index % 2 === 0 ? '#1e1e1e' : '#262626',
+                      color: '#f0f0f0'
+                    }}
+                  >
+                    <td style={{ padding: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <img 
+                          src={`https://images.evetech.net/characters/${item.eve_id}/portrait`} 
+                          alt={item.character_name}
+                          style={{ width: '32px', height: '32px', borderRadius: '50%' }}
+                        />
+                        <div>
+                          <div>
+                            {item.character_name}
+                            {item.corporation_ticker && <span style={{ color: '#aaa', marginLeft: '5px' }}>[{item.corporation_ticker}]</span>}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#aaa' }}>
+                            {item.alliance_ticker && <span>[{item.alliance_ticker}]</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                      {formatNumber(typeof item.passages_traveled === 'number' ? item.passages_traveled : 
+                        (typeof item.passages === 'number' ? item.passages : 0))}
+                    </td>
+                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                      {formatNumber(typeof item.connections_created === 'number' ? item.connections_created : 
+                        (typeof item.connections === 'number' ? item.connections : 0))}
+                    </td>
+                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                      {formatNumber(typeof item.signatures_scanned === 'number' ? item.signatures_scanned : 
+                        (typeof item.signatures === 'number' ? item.signatures : 0))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <div className="p-4 text-center">
-            <p className="text-lg mb-2">No activity data available</p>
-            <p className="text-sm text-gray-400">
+          <div style={{ padding: '20px', textAlign: 'center' }}>
+            <p style={{ fontSize: '1.125rem', marginBottom: '0.5rem' }}>No activity data available</p>
+            <p style={{ fontSize: '0.875rem', color: '#9aa5ce' }}>
               Character activity will appear here when your characters move around the map.
             </p>
           </div>

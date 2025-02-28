@@ -103,9 +103,12 @@ export const MapRootContent = ({ eventHandlers }: MapRootContentProps) => {
           console.log('First activity item:', activityData.activity[0]);
         }
         
+        // Make a deep copy of the activity data to ensure it's properly updated
+        const activityCopy = JSON.parse(JSON.stringify(activityData.activity));
+        
         update(state => ({
           ...state,
-          characterActivityData: activityData.activity,
+          characterActivityData: activityCopy,
           showCharacterActivity: true,
         }));
       } else {
@@ -227,7 +230,7 @@ export const MapRootContent = ({ eventHandlers }: MapRootContentProps) => {
         <CharacterActivity
           show={showCharacterActivity}
           onHide={handleHideCharacterActivity}
-          activity={characterActivityData}
+          activity={characterActivityData || []}
         />
         <div className="pointer-events-auto">
           <TrackAndFollow

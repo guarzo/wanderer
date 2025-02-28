@@ -3,12 +3,13 @@
   padding: 0;
   width: 100%;
   height: auto !important;
-  overflow: hidden;
+  overflow: visible !important;
   position: relative;
   display: flex;
   flex-direction: column;
   border: none;
   border-radius: 0;
+  min-height: 100px;
 }
 
 /* Empty state message */
@@ -29,7 +30,7 @@
 /* Dialog component styling */
 .character-activity-dialog {
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible !important;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
@@ -45,6 +46,7 @@
   color: #f0f0f0;
   padding: 0;
   border: none;
+  overflow: visible !important;
 }
 
 .character-activity-dialog .p-dialog-footer {
@@ -170,7 +172,7 @@
 
 .character-activity-datatable .p-datatable-wrapper {
   border-radius: 0;
-  overflow: hidden;
+  overflow: auto !important;
   padding: 0;
   margin: 0;
 }
@@ -189,6 +191,9 @@
   padding: 0.75rem 1rem;
   border-width: 0;
   border-bottom: 1px solid #3f3f3f;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 /* Row styling */
@@ -296,6 +301,7 @@
   width: 90vw !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   border-radius: 8px;
+  z-index: 1000 !important;
 }
 
 .character-activity-modal .p-dialog-header {
@@ -307,7 +313,7 @@
 
 .character-activity-modal .p-dialog-content {
   padding: 0 !important;
-  overflow: hidden !important;
+  overflow: visible !important;
   background-color: #1e1e1e !important;
   height: auto !important;
   max-height: none !important;
@@ -374,7 +380,7 @@
 
 .character-activity-datatable .p-datatable-wrapper {
   border-radius: 0;
-  overflow: auto;
+  overflow: auto !important;
 }
 
 .character-activity-datatable .p-datatable-table {
@@ -424,7 +430,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  overflow: hidden;
+  overflow: visible !important;
 }
 
 .character-activity-datatable {
@@ -512,6 +518,37 @@
 /* Fix for autocomplete panel z-index */
 .p-autocomplete-panel {
   z-index: 10000 !important;
+}
+
+/* Force visibility of table rows */
+.character-activity-datatable .p-datatable-tbody > tr {
+  display: table-row !important;
+  visibility: visible !important;
+}
+
+/* Force visibility of table cells */
+.character-activity-datatable .p-datatable-tbody > tr > td {
+  display: table-cell !important;
+  visibility: visible !important;
+}
+
+/* Ensure the dialog content is visible */
+.p-dialog-content {
+  overflow: visible !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Ensure the virtual scroller content is visible */
+.p-virtualscroller-content {
+  visibility: visible !important;
+  display: block !important;
+}
+
+/* Ensure the virtual scroller items are visible */
+.p-virtualscroller-item {
+  visibility: visible !important;
+  display: block !important;
 }
 
 
