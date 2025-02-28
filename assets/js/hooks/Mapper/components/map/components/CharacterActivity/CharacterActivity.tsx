@@ -37,37 +37,23 @@ export interface CharacterActivityProps {
 
 /**
  * Component that displays character activity in a dialog.
- *
- * This component shows a table of character activity, including:
- * - Character name and portrait
- * - Number of passages traveled
- * - Number of connections created
- * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
   // Debug logging when the dialog is shown.
   useEffect(() => {
     if (show) {
       console.log('CharacterActivity shown with', activity.length, 'items');
-
       if (activity.length > 0) {
         console.log('Sample activity item:', activity[0]);
-
-        // Check for duplicate character names.
         const characterNames = activity.map(item => item.character_name);
         const uniqueNames = new Set(characterNames);
         console.log(`Character names: ${characterNames.length} total, ${uniqueNames.size} unique`);
-
         if (characterNames.length !== uniqueNames.size) {
           console.log('Duplicate character names detected:');
-          const nameCounts = characterNames.reduce(
-            (acc, name) => {
-              acc[name] = (acc[name] || 0) + 1;
-              return acc;
-            },
-            {} as Record<string, number>,
-          );
-
+          const nameCounts = characterNames.reduce((acc, name) => {
+            acc[name] = (acc[name] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>);
           Object.entries(nameCounts)
             .filter(entry => entry[1] > 1)
             .forEach(([name, count]) => {
@@ -95,11 +81,10 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
 
   // Calculate the maximum height for the table container.
   const calculateMaxHeight = () => {
-    const rowHeight = 56; // Height of each row in pixels.
-    const headerHeight = 43; // Height of the header in pixels.
+    const rowHeight = 56; // Each row's height in pixels.
+    const headerHeight = 43; // Header height in pixels.
     const maxVisibleRows = 10; // Maximum rows to show without scrolling.
-    const footerHeight = 20; // Extra padding at the bottom.
-
+    const footerHeight = 20; // Extra padding.
     if (sortedActivity.length <= maxVisibleRows) {
       return `${sortedActivity.length * rowHeight + headerHeight + footerHeight}px`;
     } else {
@@ -126,8 +111,8 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
             scrollable
             scrollHeight={calculateMaxHeight()}
             emptyMessage="No activity data available"
-            // Enable virtual scrolling with an item size of 56px.
-            virtualScrollerOptions={{ itemSize: 56 }}
+            // Conditionally enable virtualization only if there are more than 10 rows.
+            {...(sortedActivity.length > 10 ? { virtualScrollerOptions: { itemSize: 56 } } : {})}
             // Use eve_id as the unique key.
             dataKey="eve_id"
           >

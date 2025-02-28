@@ -167,7 +167,7 @@
   background-color: transparent !important;
   border: none;
   flex: 1;
-  height: 100%;
+  /* Let inline scrollHeight control the height */
 }
 
 /* No scrollbar variant */
@@ -180,9 +180,6 @@
   overflow: auto !important;
   padding: 0;
   margin: 0;
-  /* Removed forced height; let inline styles from scrollHeight work */
-  /* height: 100% !important;
-  max-height: none !important; */
 }
 
 .character-activity-datatable .p-datatable-table {
@@ -276,14 +273,14 @@
   font-size: 14px;
 }
 
-/* Make sure the dialog mask is visible */
+/* Dialog mask */
 .p-dialog-mask.p-component-overlay {
   background-color: rgba(0, 0, 0, 0.6) !important;
   backdrop-filter: blur(2px);
   z-index: 9998 !important;
 }
 
-/* Fix for dialog positioning */
+/* Dialog positioning */
 .p-dialog-mask {
   position: fixed;
   top: 0;
@@ -301,67 +298,21 @@
   text-align: center;
 }
 
-/* Remove or relax fixed height rules for virtual scroller containers */
-/* Commenting these out so that inline scrollHeight takes effect */
- /*
-.p-datatable-virtualscroller-wrapper {
-  height: 100% !important;
-  width: 100% !important;
-}
-.p-datatable-virtualscroller-table {
-  height: auto !important;
-  width: 100% !important;
-}
-.p-datatable-virtualscroller-stretchmode {
-  height: 100% !important;
-  width: 100% !important;
-}
-*/
-
-/* Fix for PrimeReact 10.x virtual scroller */
-.p-datatable-wrapper .p-virtualscroller {
-  /* Remove forced height */
-  /* height: 100% !important;
-  width: 100% !important; */
-}
-.p-datatable-wrapper .p-virtualscroller-content {
-  width: 100% !important;
-}
-.p-datatable-wrapper .p-virtualscroller-item {
-  height: 56px !important; /* Match the itemSize */
-}
-
 /* Fix for autocomplete panel z-index */
 .p-autocomplete-panel {
   z-index: 10000 !important;
 }
 
-/* Force visibility of table rows */
-.character-activity-datatable .p-datatable-tbody > tr {
+/* Force visibility of table rows and cells */
+.character-activity-datatable .p-datatable-tbody > tr,
+.character-activity-datatable .p-datatable-tbody > tr > td {
   display: table-row !important;
   visibility: visible !important;
 }
 
-/* Force visibility of table cells */
-.character-activity-datatable .p-datatable-tbody > tr > td {
-  display: table-cell !important;
-  visibility: visible !important;
-}
-
-/* Ensure the dialog content is visible */
-.p-dialog-content {
-  overflow: visible !important;
-  height: auto !important;
-  max-height: none !important;
-}
-
-/* Ensure the virtual scroller content is visible */
-.p-virtualscroller-content {
-  visibility: visible !important;
-  display: block !important;
-}
-
-/* Ensure the virtual scroller items are visible */
+/* Ensure dialog and scroller content visibility */
+.p-dialog-content,
+.p-virtualscroller-content,
 .p-virtualscroller-item {
   visibility: visible !important;
   display: block !important;
