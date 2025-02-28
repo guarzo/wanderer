@@ -301,9 +301,10 @@
 }
 
 /* PrimeReact 10.x Virtual Scroller Fixes */
-.p-datatable-virtualscroller-spacer {
+/* Removed rule that was hiding the spacer */
+/* .p-datatable-virtualscroller-spacer {
   display: none !important;
-}
+} */
 
 .p-datatable-virtualscroller-loading {
   display: none !important;
@@ -373,5 +374,3 @@
   visibility: visible !important;
   display: block !important;
 }
-
-
