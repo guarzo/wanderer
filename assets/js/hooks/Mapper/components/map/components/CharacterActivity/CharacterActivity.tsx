@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -45,10 +45,16 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
+  // State to control virtual scroller
+  const [useVirtualScroller, setUseVirtualScroller] = useState<boolean>(true);
+
   // Debug logging when the dialog is shown.
   useEffect(() => {
     if (show) {
       console.log('CharacterActivity shown with', activity.length, 'items');
+
+      // Enable virtual scroller for larger datasets
+      setUseVirtualScroller(activity.length > 10);
 
       if (activity.length > 0) {
         console.log('Sample activity item:', activity[0]);
@@ -128,6 +134,18 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
             emptyMessage="No activity data available"
             // Use eve_id as the unique key to avoid conflicts if names are duplicated.
             dataKey="eve_id"
+            // Conditionally apply virtual scroller options
+            virtualScrollerOptions={
+              useVirtualScroller
+                ? {
+                    itemSize: 56, // Height of each row in pixels
+                    showLoader: false,
+                    loading: false,
+                    delay: 0,
+                    lazy: false,
+                  }
+                : undefined
+            }
           >
             <Column
               field="character_name"
