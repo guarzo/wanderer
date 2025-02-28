@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -45,10 +45,18 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
+  // State to control whether to use virtual scrolling
+  const [useVirtualScroller, setUseVirtualScroller] = useState<boolean>(false);
+
   // Debug logging when the dialog is shown.
   useEffect(() => {
     if (show) {
       console.log('CharacterActivity shown with', activity.length, 'items');
+
+      // Only use virtual scroller for larger datasets
+      const shouldUseVirtualScroller = activity.length > 10;
+      console.log('Using virtual scroller:', shouldUseVirtualScroller);
+      setUseVirtualScroller(shouldUseVirtualScroller);
 
       if (activity.length > 0) {
         console.log('Sample activity item:', activity[0]);
@@ -126,10 +134,21 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
             scrollable
             scrollHeight={calculateMaxHeight()}
             emptyMessage="No activity data available"
-            // Enable virtual scrolling with an item size of 56px.
-            virtualScrollerOptions={{ itemSize: 56 }}
             // Use eve_id as the unique key.
             dataKey="eve_id"
+            // Conditionally apply virtual scroller options
+            virtualScrollerOptions={
+              useVirtualScroller
+                ? {
+                    itemSize: 56,
+                    showLoader: false,
+                    loading: false,
+                    delay: 0,
+                    lazy: false,
+                    numToleratedItems: 5,
+                  }
+                : undefined
+            }
           >
             <Column
               field="character_name"
