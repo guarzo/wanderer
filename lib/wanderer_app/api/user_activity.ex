@@ -375,6 +375,9 @@ defmodule WandererApp.Api.UserActivity do
 
     # Transform the result for the React component
     transformed_result = Enum.map(result, fn summary ->
+      # Ensure user_id is present or set to a default value
+      user_id = Map.get(summary, :user_id, "unknown")
+
       %{
         "character_name" => summary.character.name,
         "eve_id" => summary.character.eve_id || "",
@@ -383,40 +386,12 @@ defmodule WandererApp.Api.UserActivity do
         "passages_traveled" => summary.passages || 0,
         "connections_created" => summary.connections || 0,
         "signatures_scanned" => summary.signatures || 0,
-        "user_id" => summary.user_id  # Include user_id for client-side grouping
+        "user_id" => user_id  # Use the extracted user_id or default
       }
     end)
 
-    # Group by user_id first to ensure characters from the same account are aggregated
-    user_grouped_results = transformed_result
-      |> Enum.group_by(fn item ->
-        # Use user_id as the primary grouping key
-        item["user_id"]
-      end)
-      |> Enum.map(fn {_user_id, user_items} ->
-        # For each user, pick the primary character and sum up all activity
-        primary_item = List.first(user_items)
-
-        # Sum up all activity for this user
-        total_passages = Enum.sum(Enum.map(user_items, & &1["passages_traveled"] || 0))
-        total_connections = Enum.sum(Enum.map(user_items, & &1["connections_created"] || 0))
-        total_signatures = Enum.sum(Enum.map(user_items, & &1["signatures_scanned"] || 0))
-
-        # Return a single entry for this user with summed activity
-        %{
-          "character_name" => primary_item["character_name"],
-          "eve_id" => primary_item["eve_id"],
-          "corporation_ticker" => primary_item["corporation_ticker"],
-          "alliance_ticker" => primary_item["alliance_ticker"],
-          "passages_traveled" => total_passages,
-          "connections_created" => total_connections,
-          "signatures_scanned" => total_signatures,
-          "user_id" => primary_item["user_id"]
-        }
-      end)
-
-    # Final deduplication by character name for any remaining duplicates
-    user_grouped_results
+    # Final deduplication by character name
+    transformed_result
       |> Enum.group_by(fn item -> item["character_name"] end)
       |> Enum.map(fn {_name, items} ->
         # If there are multiple items with the same name, merge them
@@ -499,7 +474,8 @@ defmodule WandererApp.Api.UserActivity do
           },
           passages: passage_count,
           connections: 0,
-          signatures: 0
+          signatures: 0,
+          user_id: character.user_id || "unknown"  # Add user_id field with a default value
         }
       else
         nil

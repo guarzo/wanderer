@@ -77,7 +77,7 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     
     // Group characters by user_id
     activity.forEach(item => {
-      const userId = item.user_id || 'unknown';
+      const userId = item.user_id || `unknown-${item.character_name}`;
       if (!userGroupedActivity.has(userId)) {
         userGroupedActivity.set(userId, []);
       }
@@ -88,7 +88,7 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
 
     // For each user, consolidate their characters into one entry
     const userConsolidated: ActivitySummary[] = [];
-    userGroupedActivity.forEach((userItems, userId) => {
+    userGroupedActivity.forEach((userItems) => {
       if (userItems.length === 1) {
         // If only one character for this user, add it directly
         userConsolidated.push(userItems[0]);
@@ -98,17 +98,17 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
         
         // Sum up all activity
         const passages = userItems.reduce(
-          (sum, item) => sum + (typeof item.passages_traveled === 'number' ? item.passages_traveled : 0), 
+          (sum, item) => sum + (typeof item.passages_traveled === 'number' ? item.passages_traveled : 0),
           0
         );
         
         const connections = userItems.reduce(
-          (sum, item) => sum + (typeof item.connections_created === 'number' ? item.connections_created : 0), 
+          (sum, item) => sum + (typeof item.connections_created === 'number' ? item.connections_created : 0),
           0
         );
         
         const signatures = userItems.reduce(
-          (sum, item) => sum + (typeof item.signatures_scanned === 'number' ? item.signatures_scanned : 0), 
+          (sum, item) => sum + (typeof item.signatures_scanned === 'number' ? item.signatures_scanned : 0),
           0
         );
         
