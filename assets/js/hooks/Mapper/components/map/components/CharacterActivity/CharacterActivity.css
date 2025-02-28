@@ -167,7 +167,6 @@
   background-color: transparent !important;
   border: none;
   flex: 1;
-  /* Let inline scrollHeight control the height */
 }
 
 /* No scrollbar variant */

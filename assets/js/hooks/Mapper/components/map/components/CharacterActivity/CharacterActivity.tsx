@@ -37,6 +37,12 @@ export interface CharacterActivityProps {
 
 /**
  * Component that displays character activity in a dialog.
+ *
+ * This component shows a table of character activity, including:
+ * - Character name and portrait
+ * - Number of passages traveled
+ * - Number of connections created
+ * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
   // Debug logging when the dialog is shown.
@@ -81,8 +87,8 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
 
   // Calculate the maximum height for the table container.
   const calculateMaxHeight = () => {
-    const rowHeight = 56; // Each row's height in pixels.
-    const headerHeight = 43; // Header height in pixels.
+    const rowHeight = 56; // Height of each row in pixels.
+    const headerHeight = 43; // Height of the header in pixels.
     const maxVisibleRows = 10; // Maximum rows to show without scrolling.
     const footerHeight = 20; // Extra padding.
     if (sortedActivity.length <= maxVisibleRows) {
@@ -109,10 +115,10 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
             value={sortedActivity}
             className="character-activity-datatable"
             scrollable
-            scrollHeight={calculateMaxHeight()}
             emptyMessage="No activity data available"
-            // Conditionally enable virtualization only if there are more than 10 rows.
-            {...(sortedActivity.length > 10 ? { virtualScrollerOptions: { itemSize: 56 } } : {})}
+            // Remove the scrollHeight prop.
+            // Enable virtualization and set the height via the style option.
+            virtualScrollerOptions={{ itemSize: 56, style: { height: calculateMaxHeight() } }}
             // Use eve_id as the unique key.
             dataKey="eve_id"
           >
