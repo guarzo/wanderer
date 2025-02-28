@@ -180,8 +180,9 @@
   overflow: auto !important;
   padding: 0;
   margin: 0;
-  height: 100% !important;
-  max-height: none !important;
+  /* Removed forced height; let inline styles from scrollHeight work */
+  /* height: 100% !important;
+  max-height: none !important; */
 }
 
 .character-activity-datatable .p-datatable-table {
@@ -300,43 +301,34 @@
   text-align: center;
 }
 
-/* PrimeReact 10.x Virtual Scroller Fixes */
-/* Removed rule that was hiding the spacer */
-/* .p-datatable-virtualscroller-spacer {
-  display: none !important;
-} */
-
-.p-datatable-virtualscroller-loading {
-  display: none !important;
-}
-
+/* Remove or relax fixed height rules for virtual scroller containers */
+/* Commenting these out so that inline scrollHeight takes effect */
+ /*
 .p-datatable-virtualscroller-wrapper {
   height: 100% !important;
   width: 100% !important;
 }
-
 .p-datatable-virtualscroller-table {
   height: auto !important;
   width: 100% !important;
 }
-
 .p-datatable-virtualscroller-stretchmode {
   height: 100% !important;
   width: 100% !important;
 }
+*/
 
 /* Fix for PrimeReact 10.x virtual scroller */
 .p-datatable-wrapper .p-virtualscroller {
-  height: 100% !important;
-  width: 100% !important;
+  /* Remove forced height */
+  /* height: 100% !important;
+  width: 100% !important; */
 }
-
 .p-datatable-wrapper .p-virtualscroller-content {
   width: 100% !important;
 }
-
 .p-datatable-wrapper .p-virtualscroller-item {
-  height: 56px !important; /* Match the itemSize in virtualScrollerOptions */
+  height: 56px !important; /* Match the itemSize */
 }
 
 /* Fix for autocomplete panel z-index */

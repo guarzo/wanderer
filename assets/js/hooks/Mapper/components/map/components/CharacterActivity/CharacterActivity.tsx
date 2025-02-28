@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -45,14 +45,36 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
-  // State to control whether to use virtual scrolling
-  const [useVirtualScroller, setUseVirtualScroller] = useState<boolean>(false);
-
-  // Set up virtual scroller when the dialog is shown
+  // Debug logging when the dialog is shown.
   useEffect(() => {
     if (show) {
-      // Only use virtual scroller for larger datasets
-      setUseVirtualScroller(activity.length > 10);
+      console.log('CharacterActivity shown with', activity.length, 'items');
+
+      if (activity.length > 0) {
+        console.log('Sample activity item:', activity[0]);
+
+        // Check for duplicate character names.
+        const characterNames = activity.map(item => item.character_name);
+        const uniqueNames = new Set(characterNames);
+        console.log(`Character names: ${characterNames.length} total, ${uniqueNames.size} unique`);
+
+        if (characterNames.length !== uniqueNames.size) {
+          console.log('Duplicate character names detected:');
+          const nameCounts = characterNames.reduce(
+            (acc, name) => {
+              acc[name] = (acc[name] || 0) + 1;
+              return acc;
+            },
+            {} as Record<string, number>,
+          );
+
+          Object.entries(nameCounts)
+            .filter(entry => entry[1] > 1)
+            .forEach(([name, count]) => {
+              console.log(`  - ${name}: ${count} occurrences`);
+            });
+        }
+      }
     }
   }, [show, activity]);
 
@@ -67,6 +89,7 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     if (!activity || !Array.isArray(activity) || activity.length === 0) {
       return [];
     }
+    console.log('Sorting activity data with', activity.length, 'items');
     return [...activity].sort((a, b) => a.character_name.localeCompare(b.character_name));
   }, [activity]);
 
@@ -103,21 +126,10 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
             scrollable
             scrollHeight={calculateMaxHeight()}
             emptyMessage="No activity data available"
+            // Enable virtual scrolling with an item size of 56px.
+            virtualScrollerOptions={{ itemSize: 56 }}
             // Use eve_id as the unique key.
             dataKey="eve_id"
-            // Conditionally apply virtual scroller options
-            virtualScrollerOptions={
-              useVirtualScroller
-                ? {
-                    itemSize: 56,
-                    showLoader: false,
-                    loading: false,
-                    delay: 0,
-                    lazy: false,
-                    numToleratedItems: 5,
-                  }
-                : undefined
-            }
           >
             <Column
               field="character_name"
@@ -139,7 +151,9 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
                       )}
                     </div>
                     <div>
-                      {rowData.alliance_ticker && <span className="alliance-ticker">[{rowData.alliance_ticker}]</span>}
+                      {rowData.alliance_ticker && (
+                        <span className="alliance-ticker">[{rowData.alliance_ticker}]</span>
+                      )}
                     </div>
                   </div>
                 </div>
