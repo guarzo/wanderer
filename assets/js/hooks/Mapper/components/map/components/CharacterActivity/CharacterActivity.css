@@ -1,9 +1,9 @@
-/* Main container */
+/* Main container: now uses an explicit height and auto overflow */
 .character-activity-container {
   padding: 0;
   width: 100%;
-  height: auto !important;
-  overflow: visible !important;
+  height: auto;
+  overflow: auto;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -18,13 +18,13 @@
   justify-content: center;
   align-items: center;
   height: 100%;
-  color: var(--text-color-secondary, #9aa5ce);
+  color: #9aa5ce;
   font-style: italic;
 }
 
 /* Error message styling */
 .error-message {
-  color: var(--red-500, #ef4444);
+  color: #ef4444;
 }
 
 /* Dialog component styling */
@@ -47,7 +47,7 @@
   background-color: #1e1e1e !important;
   color: #f0f0f0;
   padding: 0 !important;
-  overflow: visible !important;
+  overflow: auto !important;
   height: auto !important;
   max-height: none !important;
 }
@@ -77,7 +77,7 @@
 
 .character-activity-modal .p-dialog-content {
   padding: 0 !important;
-  overflow: visible !important;
+  overflow: auto !important;
   background-color: #1e1e1e !important;
   height: auto !important;
   max-height: none !important;
@@ -167,11 +167,6 @@
   background-color: transparent !important;
   border: none;
   flex: 1;
-}
-
-/* No scrollbar variant */
-.character-activity-datatable.no-scrollbar .p-datatable-wrapper {
-  overflow: visible !important;
 }
 
 .character-activity-datatable .p-datatable-wrapper {
