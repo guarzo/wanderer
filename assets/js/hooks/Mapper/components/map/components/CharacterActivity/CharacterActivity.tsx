@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -36,41 +36,57 @@ export interface CharacterActivityProps {
 }
 
 /**
- * Displays character activity in a dialog.
+ * Component that displays character activity in a dialog.
  *
- * Uses a fixed pixel height for the scroll container and a defined itemSize
- * so that the VirtualScroller can compute the viewport properly.
+ * This component shows a table of character activity, including:
+ * - Character name and portrait
+ * - Number of passages traveled
+ * - Number of connections created
+ * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
-  useEffect(() => {
-    if (show) {
-      console.log('CharacterActivity shown with', activity.length, 'items');
-      if (activity.length > 0) {
-        console.log('Sample activity item:', activity[0]);
-      }
-    }
-  }, [show, activity]);
+  const [useVirtualScroller, setUseVirtualScroller] = useState(false);
+  const tableRef = useRef<DataTable<ActivitySummary[]>>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerHeight, setContainerHeight] = useState('auto');
+  
+  // Utility to format numbers with commas.
+  const formatNumber = (value: number | undefined) => {
+    if (value === undefined) return '0';
+    return value.toLocaleString();
+  };
 
-  // Format numbers with commas.
-  const formatNumber = (value: number | undefined) => (value === undefined ? '0' : value.toLocaleString());
-
-  // Sort the activity data alphabetically by character_name.
+  // Sort activity by character name.
   const sortedActivity = useMemo(() => {
-    if (!activity || !Array.isArray(activity) || activity.length === 0) return [];
+    if (!activity || !Array.isArray(activity) || activity.length === 0) {
+      return [];
+    }
     return [...activity].sort((a, b) => a.character_name.localeCompare(b.character_name));
   }, [activity]);
 
-  // Calculate a fixed height for the table.
-  // Here, we use 56px per row, plus 43px header and 20px footer.
-  // If there are fewer than 10 rows, use the exact height; otherwise, fix at 10 rows.
-  const rowHeight = 56;
-  const headerHeight = 43;
-  const footerHeight = 20;
-  const maxRows = 10;
-  const tableHeight =
-    sortedActivity.length <= maxRows
-      ? `${sortedActivity.length * rowHeight + headerHeight + footerHeight}px`
-      : `${maxRows * rowHeight + headerHeight + footerHeight}px`;
+  // Calculate the maximum height for the table container.
+  const calculateMaxHeight = () => {
+    const rowHeight = 56; // Height of each row in pixels.
+    const headerHeight = 43; // Height of the header in pixels.
+    const maxVisibleRows = 10; // Maximum rows to show without scrolling.
+    const footerHeight = 20; // Extra padding.
+    if (sortedActivity.length <= maxVisibleRows) {
+      return `${sortedActivity.length * rowHeight + headerHeight + footerHeight}px`;
+    } else {
+      return `${maxVisibleRows * rowHeight + headerHeight + footerHeight}px`;
+    }
+  };
+
+  // Setup virtual scroller when dialog is shown
+  useEffect(() => {
+    if (show) {
+      // Determine if we should use virtual scroller based on data size
+      setUseVirtualScroller(sortedActivity.length > 20);
+      
+      // Calculate container height
+      setContainerHeight(calculateMaxHeight());
+    }
+  }, [show, sortedActivity.length]);
 
   return (
     <Dialog
@@ -78,30 +94,41 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
       visible={show}
       style={{ width: '800px', maxWidth: '90vw' }}
       onHide={onHide}
-      header={`Character Activity [${sortedActivity.length}]`}
+      header={`Character Activity [${sortedActivity.length || 0}]`}
       draggable={false}
       resizable={false}
       modal={true}
     >
-      {/* The container now has an explicit height so the VirtualScroller can compute its dimensions */}
-      <div className="character-activity-container" style={{ height: tableHeight }}>
+      <div className="character-activity-container" ref={containerRef} style={{ height: containerHeight }}>
         {sortedActivity.length > 0 ? (
           <DataTable
+            ref={tableRef}
             value={sortedActivity}
             className="character-activity-datatable"
             scrollable
-            scrollHeight={tableHeight}
+            scrollHeight={useVirtualScroller ? 'flex' : calculateMaxHeight()}
             emptyMessage="No activity data available"
-            // Enable virtual scrolling with a fixed itemSize.
-            virtualScrollerOptions={{ itemSize: rowHeight }}
-            // Use a unique identifier for each row.
             dataKey="eve_id"
+            virtualScrollerOptions={
+              useVirtualScroller
+                ? {
+                    itemSize: 56,
+                    scrollHeight: calculateMaxHeight(),
+                    lazy: false,
+                    showLoader: false,
+                    delay: 0,
+                    loading: false,
+                    numToleratedItems: 10,
+                    autoSize: true,
+                  }
+                : undefined
+            }
           >
             <Column
               field="character_name"
               header="Character"
               className="character-column"
-              body={(rowData) => (
+              body={rowData => (
                 <div className="character-info">
                   <div className="character-portrait">
                     <img
@@ -134,8 +161,8 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
                   typeof rowData.passages_traveled === 'number'
                     ? rowData.passages_traveled
                     : typeof rowData.passages === 'number'
-                    ? rowData.passages
-                    : 0
+                      ? rowData.passages
+                      : 0,
                 )
               }
             />
@@ -150,8 +177,8 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
                   typeof rowData.connections_created === 'number'
                     ? rowData.connections_created
                     : typeof rowData.connections === 'number'
-                    ? rowData.connections
-                    : 0
+                      ? rowData.connections
+                      : 0,
                 )
               }
             />
@@ -166,8 +193,8 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
                   typeof rowData.signatures_scanned === 'number'
                     ? rowData.signatures_scanned
                     : typeof rowData.signatures === 'number'
-                    ? rowData.signatures
-                    : 0
+                      ? rowData.signatures
+                      : 0,
                 )
               }
             />

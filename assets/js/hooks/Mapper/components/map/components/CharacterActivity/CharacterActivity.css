@@ -3,7 +3,7 @@
   padding: 0;
   width: 100%;
   height: auto;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -310,4 +310,48 @@
 .p-virtualscroller-item {
   visibility: visible !important;
   display: block !important;
+}
+
+/* Virtual Scroller Specific Styles */
+.p-virtualscroller {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+  position: relative;
+}
+
+.p-virtualscroller-content {
+  display: block;
+  width: 100%;
+  position: relative;
+}
+
+.p-virtualscroller-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+/* Fix for virtual scroller row height consistency */
+.character-activity-datatable .p-datatable-tbody > tr {
+  height: 56px;
+  box-sizing: border-box;
+}
+
+/* Fix for other PrimeReact overlay components */
+.p-dropdown-panel,
+.p-datepicker,
+.p-multiselect-panel,
+.p-overlaypanel,
+.p-menu,
+.p-tooltip,
+.p-colorpicker-panel,
+.p-contextmenu,
+.p-speeddial-list,
+.p-tieredmenu,
+.p-cascadeselect-panel,
+.p-confirm-popup,
+.p-toast {
+  z-index: 10000 !important;
 }
