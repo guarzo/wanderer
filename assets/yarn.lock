@@ -2949,7 +2949,7 @@ lines-and-columns@^1.1.6:
   integrity sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==
 
 "live_select@file:../deps/live_select":
-  version "1.4.2"
+  version "1.5.4"
 
 locate-path@^6.0.0:
   version "6.0.0"
@@ -3244,10 +3244,10 @@ path-type@^5.0.0:
   integrity sha512-5HviZNaZcfqP95rwpv+1HDgUamezbqdSYTyzjTvwtJSnIH+3vnbmWsItli8OFEndS984VT55M3jduxZbX351gg==
 
 "phoenix@file:../deps/phoenix":
-  version "1.7.14"
+  version "1.7.20"
 
 "phoenix_html@file:../deps/phoenix_html":
-  version "4.1.0"
+  version "4.2.1"
 
 "phoenix_live_view@file:../deps/phoenix_live_view":
   version "0.20.17"
@@ -3418,10 +3418,10 @@ primeicons@^7.0.0:
   resolved "https://registry.npmjs.org/primeicons/-/primeicons-7.0.0.tgz"
   integrity sha512-jK3Et9UzwzTsd6tzl2RmwrVY/b8raJ3QZLzoDACj+oTJ0oX7L9Hy+XnVwgo4QVKlKpnP/Ur13SXV/pVh4LzaDw==
 
-primereact@^10.6.5:
-  version "10.6.5"
-  resolved "https://registry.npmjs.org/primereact/-/primereact-10.6.5.tgz"
-  integrity sha512-YbdvyIRIGSfZVhtIbltizUISBuXVXBn2S4/491xdDJLrxohjjf0uIogu+/sSKRBVVT17b6zFEwARTvc9yUA7tQ==
+primereact@^10.9.2:
+  version "10.9.2"
+  resolved "https://registry.yarnpkg.com/primereact/-/primereact-10.9.2.tgz#6d45c80d5e73f3e61fab58eeffd842007daedaf8"
+  integrity sha512-uJTghCPlnPWJc0mvkqYJDj6bl4udROPGrMEfV4CPh7UurMS+E8b+82ABZ+OPWibQOWxnEQl5NXcfG4F/7YRXwA==
   dependencies:
     "@types/react-transition-group" "^4.4.1"
     react-transition-group "^4.4.1"
