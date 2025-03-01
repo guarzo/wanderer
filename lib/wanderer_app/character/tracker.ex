@@ -490,8 +490,7 @@ defmodule WandererApp.Character.Tracker do
   defp maybe_update_location(
          %{
            character_id: character_id,
-         } =
-           state,
+         } = state,
          location
        ) do
     location = get_location(location)
@@ -523,9 +522,7 @@ defmodule WandererApp.Character.Tracker do
     |> case do
       true ->
         {:ok, _character} = WandererApp.Api.Character.update_location(character, location)
-
         WandererApp.Character.update_character(character_id, location)
-
         :ok
 
       _ ->
@@ -556,7 +553,7 @@ defmodule WandererApp.Character.Tracker do
       {:ok, [character_aff_info]} when not is_nil(character_aff_info) ->
         update_corporation(state, character_aff_info |> Map.get("corporation_id"))
 
-      error ->
+      _error ->
         state
     end
   end

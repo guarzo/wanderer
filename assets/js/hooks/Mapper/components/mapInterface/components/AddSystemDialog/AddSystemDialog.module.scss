@@ -8,3 +8,16 @@
   font-weight: initial !important;
 }
 
+.label {
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+  display: block;
+  color: var(--text-color);
+  font-weight: initial !important;
+}
+
+/* Fix for autocomplete suggestions appearing behind dialog - scoped to AddSystemDialog */
+:global(.AddSystemDialog .p-autocomplete-panel) {
+  z-index: 10000 !important; /* Higher than any other z-index in the application */
+}
+

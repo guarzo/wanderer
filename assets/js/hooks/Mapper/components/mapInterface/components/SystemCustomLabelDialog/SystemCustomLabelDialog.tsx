@@ -9,13 +9,13 @@ import { IconField } from 'primereact/iconfield';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager.ts';
 import { WdImageSize, WdImgButton, TooltipPosition } from '@/hooks/Mapper/components/ui-kit';
 
-interface SystemCustomLabelDialog {
+interface SystemCustomLabelDialogProps {
   systemId: string;
   visible: boolean;
   setVisible: (visible: boolean) => void;
 }
 
-export const SystemCustomLabelDialog = ({ systemId, visible, setVisible }: SystemCustomLabelDialog) => {
+export const SystemCustomLabelDialog = ({ systemId, visible, setVisible }: SystemCustomLabelDialogProps) => {
   const {
     data: { systems },
     outCommand,
@@ -69,27 +69,41 @@ export const SystemCustomLabelDialog = ({ systemId, visible, setVisible }: Syste
     inputRef.current?.focus();
   }, []);
 
-  const onHide = useCallback(() => {
-    if (!visible) {
-      return;
-    }
-
-    setVisible(false);
-  }, [setVisible, visible]);
-
   // @ts-ignore
   const handleInput = useCallback(e => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9\-[\](){}]/g, '');
   }, []);
 
+  // Render a loading state if system is not available
+  if (!system) {
+    return (
+      <Dialog
+        header="Custom Label"
+        visible={visible}
+        draggable={false}
+        style={{ width: '450px' }}
+        onHide={() => setVisible(false)}
+      >
+        <div className="p-4 text-center">
+          <p>System not found or loading...</p>
+        </div>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog
-      header="Edit label"
+      header="Custom Label"
       visible={visible}
-      draggable={true}
-      style={{ width: '250px' }}
-      onHide={onHide}
+      draggable={false}
+      style={{ width: '450px' }}
       onShow={onShow}
+      onHide={() => {
+        if (!visible) {
+          return;
+        }
+        setVisible(false);
+      }}
     >
       <form onSubmit={handleSave}>
         <div className="flex flex-col gap-3">

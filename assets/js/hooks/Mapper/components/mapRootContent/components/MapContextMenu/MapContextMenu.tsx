@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
 import { TooltipPosition } from '@/hooks/Mapper/components/ui-kit';
-import { OutCommand } from '@/hooks/Mapper/types';
+import { OutCommand, CommandEmptyData } from '@/hooks/Mapper/types';
 import { MenuItem } from 'primereact/menuitem';
 import { useMapCheckPermissions } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { UserPermission } from '@/hooks/Mapper/types/permissions.ts';
@@ -23,7 +23,7 @@ export const MapContextMenu = ({ onShowOnTheMap, onShowMapSettings }: MapContext
   const handleAddCharacter = useCallback(() => {
     outCommand({
       type: OutCommand.addCharacter,
-      data: null,
+      data: {} as CommandEmptyData,
     });
   }, [outCommand]);
 

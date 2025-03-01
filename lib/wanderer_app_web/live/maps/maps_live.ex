@@ -680,12 +680,12 @@ defmodule WandererAppWeb.MapsLive do
 
         Phoenix.PubSub.broadcast(
           WandererApp.PubSub,
-          "maps:#{map.id}",
+          "maps:#{updated_map.id}",
           {:map_acl_updated, added_acls, removed_acls}
         )
 
         {:ok, tracked_characters} =
-          WandererApp.Maps.get_tracked_map_characters(map.id, current_user)
+          WandererApp.Maps.get_tracked_map_characters(updated_map.id, current_user)
 
         first_tracked_character_id = Enum.map(tracked_characters, & &1.id) |> List.first()
 
@@ -695,7 +695,7 @@ defmodule WandererAppWeb.MapsLive do
             WandererApp.User.ActivityTracker.track_map_event(:map_acl_added, %{
               character_id: first_tracked_character_id,
               user_id: current_user.id,
-              map_id: map.id,
+              map_id: updated_map.id,
               acl_id: acl_id
             })
         end)
@@ -706,7 +706,7 @@ defmodule WandererAppWeb.MapsLive do
             WandererApp.User.ActivityTracker.track_map_event(:map_acl_removed, %{
               character_id: first_tracked_character_id,
               user_id: current_user.id,
-              map_id: map.id,
+              map_id: updated_map.id,
               acl_id: acl_id
             })
         end)

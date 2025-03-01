@@ -93,7 +93,8 @@ defmodule WandererAppWeb.MapAPIController do
   def tracked_characters_with_info(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
          {:ok, settings_list} <- get_tracked_by_map_ids(map_id),
-         {:ok, char_list} <- read_characters_by_ids_wrapper(Enum.map(settings_list, & &1.character_id)) do
+         {:ok, char_list} <-
+           read_characters_by_ids_wrapper(Enum.map(settings_list, & &1.character_id)) do
       chars_by_id = Map.new(char_list, &{&1.id, &1})
 
       data =
@@ -196,8 +197,9 @@ defmodule WandererAppWeb.MapAPIController do
     with {:ok, map_id} <- Util.fetch_map_id(params),
          # fetch visible systems from the repo
          {:ok, systems} <- MapSystemRepo.get_visible_by_map(map_id) do
-
-      Logger.debug(fn -> "[list_systems_kills] Found #{length(systems)} visible systems for map_id=#{map_id}" end)
+      Logger.debug(fn ->
+        "[list_systems_kills] Found #{length(systems)} visible systems for map_id=#{map_id}"
+      end)
 
       # Parse the hours_ago param
       hours_ago = parse_hours_ago(params["hours_ago"])
@@ -231,21 +233,63 @@ defmodule WandererAppWeb.MapAPIController do
       json(conn, %{data: data})
     else
       {:error, msg} when is_binary(msg) ->
-        Logger.warn("[list_systems_kills] Bad request: #{msg}")
+        Logger.warning("[list_systems_kills] Bad request: #{msg}")
+
         conn
         |> put_status(:bad_request)
         |> json(%{error: msg})
 
       {:error, reason} ->
         Logger.error("[list_systems_kills] Could not fetch systems: #{inspect(reason)}")
+
         conn
         |> put_status(:not_found)
         |> json(%{error: "Could not fetch systems: #{inspect(reason)}"})
     end
   end
 
+  @doc """
+  GET /api/map/activity
+
+  Returns aggregate activity summary for all users on a map.
+
+  Required params:
+  - map_id: UUID of the map
+
+  Optional params:
+  - hours_ago: Integer, filter to activities within last N hours (defaults to 720 hours/30 days if not specified)
+
+  Example:
+      GET /api/map/activity?map_id=<uuid>
+      GET /api/map/activity?map_id=<uuid>&hours_ago=24
+  """
+  def user_activity_summary(conn, params) do
+    with {:ok, map_id} <- Util.fetch_map_id(params),
+         # Parse the hours_ago param if present, default to 30 days if not specified
+         hours_ago <- parse_hours_ago(params["hours_ago"]) || 720,  # 30 days * 24 hours
+         {:ok, passages} <- WandererApp.Api.MapChainPassages.get_passages_by_character(map_id),
+         {:ok, activities} <-
+           WandererApp.Api.UserActivity.base_activity_query(map_id, 50_000, hours_ago)
+           |> WandererApp.Api.read() do
+
+      summaries = WandererApp.Api.UserActivity.merge_passages(activities, passages, nil)
+      json(conn, %{data: summaries})
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Could not fetch activity summary: #{inspect(reason)}"})
+    end
+  end
+
   # If hours_str is present and valid, parse it. Otherwise return nil (no filter).
   defp parse_hours_ago(nil), do: nil
+
   defp parse_hours_ago(hours_str) do
     case Integer.parse(hours_str) do
       {num, ""} when num > 0 -> num
@@ -286,7 +330,9 @@ defmodule WandererAppWeb.MapAPIController do
       {:error, reason} ->
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Could not fetch visible systems for map_id=#{map_id}: #{inspect(reason)}"})
+        |> json(%{
+          error: "Could not fetch visible systems for map_id=#{map_id}: #{inspect(reason)}"
+        })
     end
   end
 
@@ -341,7 +387,7 @@ defmodule WandererAppWeb.MapAPIController do
   defp get_tracked_by_map_ids(map_id) do
     case MapCharacterSettingsRepo.get_tracked_by_map_all(map_id) do
       {:ok, settings_list} -> {:ok, settings_list}
-      {:error, reason}     -> {:error, :get_tracked_error, reason}
+      {:error, reason} -> {:error, :get_tracked_error, reason}
     end
   end
 
@@ -403,4 +449,5 @@ defmodule WandererAppWeb.MapAPIController do
       :updated_at
     ])
   end
+
 end

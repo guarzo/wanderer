@@ -617,14 +617,20 @@ defmodule WandererAppWeb.CoreComponents do
   attr(:row_id, :any, default: nil, doc: "the function for generating the row id")
   attr(:row_selected, :boolean, default: false, doc: "the function for generating the row id")
   attr(:row_click, :any, default: nil, doc: "the function for handling phx-click on each row")
+  attr(:sort_by, :atom, default: nil)
+  attr(:sort_dir, :atom, default: nil)
 
   attr(:row_item, :any,
     default: &Function.identity/1,
     doc: "the function for mapping each row before calling the :col and :action slots"
   )
 
+  attr(:myself, :any, default: nil)
+
   slot :col, required: true do
     attr(:label, :string)
+    attr(:sortable, :boolean)
+    attr(:sort_by, :atom)
   end
 
   slot(:action, doc: "the slot for showing user actions in the last table column")
@@ -633,15 +639,28 @@ defmodule WandererAppWeb.CoreComponents do
     assigns =
       with %{rows: %Phoenix.LiveView.LiveStream{}} <- assigns do
         assign(assigns, row_id: assigns.row_id || fn {id, _item} -> id end)
-        assign(assigns, row_selected: assigns.row_selected || fn {_id, _item} -> false end)
       end
 
     ~H"""
-    <div class={["overflow-y-auto px-4 sm:overflow-visible sm:px-0", @class]}>
+    <div class={["px-4 sm:px-0", @class]}>
       <table class="table overflow-y-auto">
         <thead>
           <tr>
-            <th :for={col <- @col}><%= col[:label] %></th>
+            <th :for={col <- @col}
+              phx-click={Map.get(col, :sortable, false) && "sort"}
+              phx-value-field={col[:sort_by]}
+              phx-target={@myself}
+              class={[
+                Map.get(col, :sortable, false) && "cursor-pointer",
+                Map.get(col, :sortable, false) && col[:sort_by] == @sort_by && "font-bold"
+              ]}>
+              <div class="flex items-center gap-1">
+                <%= col[:label] %>
+                <%= if Map.get(col, :sortable, false) && col[:sort_by] == @sort_by do %>
+                  <.icon name={if @sort_dir == :asc, do: "hero-arrow-up", else: "hero-arrow-down"} class="w-4 h-4" />
+                <% end %>
+              </div>
+            </th>
             <th :if={@action != []} class="relative p-0 pb-4">
               <span class="sr-only"><%= gettext("Actions") %></span>
             </th>

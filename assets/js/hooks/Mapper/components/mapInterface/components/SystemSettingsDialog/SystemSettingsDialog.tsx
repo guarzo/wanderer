@@ -31,13 +31,14 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
   const [label, setLabel] = useState('');
   const [temporaryName, setTemporaryName] = useState('');
   const [description, setDescription] = useState('');
-  const inputRef = useRef<HTMLInputElement>();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const ref = useRef({ name, description, temporaryName, label, outCommand, systemId, system });
   ref.current = { name, description, label, temporaryName, outCommand, systemId, system };
 
   const handleSave = useCallback(() => {
     const { name, description, label, temporaryName, outCommand, systemId, system } = ref.current;
+    if (!system) return;
 
     const outLabel = new LabelsManager(system?.labels ?? '');
     outLabel.updateCustomLabel(label);
@@ -62,7 +63,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
       type: OutCommand.updateSystemName,
       data: {
         system_id: systemId,
-        value: name.trim() || system?.system_static_info.solar_system_name,
+        value: name.trim() || system?.system_static_info?.solar_system_name || '',
       },
     });
 
@@ -79,18 +80,20 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
 
   const handleResetSystemName = useCallback(() => {
     const { system } = ref.current;
-    if (!system) {
+    if (!system || !system.system_static_info) {
       return;
     }
     setName(system.system_static_info.solar_system_name);
   }, []);
 
   const onShow = useCallback(() => {
-    inputRef.current?.focus();
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
   }, []);
 
-  const handleInput = useCallback((e: any) => {
-    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9\-[\](){}]/g, '');
+  const handleInput = useCallback((e: React.FormEvent<HTMLInputElement>) => {
+    e.currentTarget.value = e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9\-[\](){}]/g, '');
   }, []);
 
   // Attention: this effect should be call only on mount.
@@ -108,6 +111,23 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
     setDescription(system.description || '');
   }, []);
 
+  // Render a loading state if system is not available
+  if (!system) {
+    return (
+      <Dialog
+        header="System settings"
+        visible={visible}
+        draggable={false}
+        style={{ width: '450px' }}
+        onHide={() => setVisible(false)}
+      >
+        <div className="p-4 text-center">
+          <p>System not found or loading...</p>
+        </div>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog
       header="System settings"
@@ -119,18 +139,22 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
         if (!visible) {
           return;
         }
-
         setVisible(false);
       }}
     >
-      <form onSubmit={handleSave}>
+      <form
+        onSubmit={e => {
+          e.preventDefault();
+          handleSave();
+        }}
+      >
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-1">
-              <label htmlFor="username">Custom name</label>
+              <label htmlFor="name">Custom name</label>
 
               <IconField>
-                {name !== system?.system_static_info.solar_system_name && (
+                {name !== system.system_static_info?.solar_system_name && (
                   <WdImgButton
                     className="pi pi-undo"
                     textSize={WdImageSize.large}
@@ -147,7 +171,6 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   aria-describedby="name"
                   autoComplete="off"
                   value={name}
-                  // @ts-expect-error
                   ref={inputRef}
                   onChange={e => setName(e.target.value)}
                 />
@@ -184,7 +207,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
 
             {isTempSystemNameEnabled && (
               <div className="flex flex-col gap-1">
-                <label htmlFor="username">Temporary Name</label>
+                <label htmlFor="temporaryName">Temporary Name</label>
 
                 <IconField>
                   {temporaryName !== '' && (
@@ -212,8 +235,9 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
             )}
 
             <div className="flex flex-col gap-1">
-              <label htmlFor="username">Description</label>
+              <label htmlFor="description">Description</label>
               <InputTextarea
+                id="description"
                 autoResize
                 rows={5}
                 cols={30}
@@ -224,7 +248,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
           </div>
 
           <div className="flex gap-2 justify-end">
-            <Button onClick={handleSave} outlined size="small" label="Save"></Button>
+            <Button type="submit" outlined size="small" label="Save" />
           </div>
         </div>
       </form>

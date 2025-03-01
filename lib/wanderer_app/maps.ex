@@ -79,11 +79,13 @@ defmodule WandererApp.Maps do
     {:ok, user_characters} =
       WandererApp.Api.Character.active_by_user(%{user_id: user_id})
 
+    available_characters = get_map_available_characters(map, user_characters)
+
     characters =
-      map
-      |> get_map_available_characters(user_characters)
+      available_characters
       |> Enum.map(fn c ->
-        map_character(c, character_settings |> Enum.find(&(&1.character_id == c.id)))
+        character_setting = character_settings |> Enum.find(&(&1.character_id == c.id))
+        map_character(c, character_setting)
       end)
 
     {:ok, %{characters: characters}}
@@ -117,12 +119,26 @@ defmodule WandererApp.Maps do
         followed: followed
       }
 
-  @decorate cacheable(
-              cache: WandererApp.Cache,
-              key: "map_characters-#{_map_id}",
-              opts: [ttl: :timer.seconds(5)]
-            )
-  defp _get_map_characters(%{id: _map_id} = map) do
+  # Helper function to generate cache key for map characters
+  def map_characters_cache_key(map_id) do
+    "map_characters-#{map_id}"
+  end
+
+  # Replace the decorated function with a direct cache implementation
+  defp _get_map_characters(%{id: map_id} = map) do
+    cache_key = map_characters_cache_key(map_id)
+
+    case WandererApp.Cache.lookup(cache_key) do
+      {:ok, result} when not is_nil(result) ->
+        result
+      _ ->
+        result = _calculate_map_characters(map)
+        WandererApp.Cache.put(cache_key, result, ttl: :timer.seconds(5))
+        result
+    end
+  end
+
+  defp _calculate_map_characters(map) do
     map_acls =
       map.acls
       |> Enum.map(fn acl -> acl |> Ash.load!(:members) end)
@@ -170,13 +186,19 @@ defmodule WandererApp.Maps do
        map_member_alliance_ids: map_member_alliance_ids
      }} = _get_map_characters(map)
 
-    user_characters
+    filtered_characters = user_characters
     |> Enum.filter(fn c ->
-      c.id == map.owner_id or
-        c.id in map_acl_owner_ids or c.eve_id in map_member_eve_ids or
-        to_string(c.corporation_id) in map_member_corporation_ids or
-        to_string(c.alliance_id) in map_member_alliance_ids
+      is_owner = c.id == map.owner_id
+      is_acl_owner = c.id in map_acl_owner_ids
+      is_member = c.eve_id in map_member_eve_ids
+      is_corp_member = to_string(c.corporation_id) in map_member_corporation_ids
+      is_alliance_member = to_string(c.alliance_id) in map_member_alliance_ids
+
+      result = is_owner or is_acl_owner or is_member or is_corp_member or is_alliance_member
+      result
     end)
+
+    filtered_characters
   end
 
   defp filter_blocked_maps(maps, current_user) do
