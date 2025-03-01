@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -45,11 +45,6 @@ export interface CharacterActivityProps {
  * - Number of signatures scanned
  */
 export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHide, activity = [] }) => {
-  const [useVirtualScroller, setUseVirtualScroller] = useState(false);
-  const tableRef = useRef<DataTable<ActivitySummary[]>>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerHeight, setContainerHeight] = useState('auto');
-  
   // Utility to format numbers with commas.
   const formatNumber = (value: number | undefined) => {
     if (value === undefined) return '0';
@@ -77,17 +72,6 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
     }
   };
 
-  // Setup virtual scroller when dialog is shown
-  useEffect(() => {
-    if (show) {
-      // Determine if we should use virtual scroller based on data size
-      setUseVirtualScroller(sortedActivity.length > 20);
-      
-      // Calculate container height
-      setContainerHeight(calculateMaxHeight());
-    }
-  }, [show, sortedActivity.length]);
-
   return (
     <Dialog
       className="character-activity-modal DialogCharacterActivity"
@@ -99,30 +83,15 @@ export const CharacterActivity: React.FC<CharacterActivityProps> = ({ show, onHi
       resizable={false}
       modal={true}
     >
-      <div className="character-activity-container" ref={containerRef} style={{ height: containerHeight }}>
+      <div className="character-activity-container">
         {sortedActivity.length > 0 ? (
           <DataTable
-            ref={tableRef}
             value={sortedActivity}
             className="character-activity-datatable"
             scrollable
-            scrollHeight={useVirtualScroller ? 'flex' : calculateMaxHeight()}
+            scrollHeight={calculateMaxHeight()}
             emptyMessage="No activity data available"
             dataKey="eve_id"
-            virtualScrollerOptions={
-              useVirtualScroller
-                ? {
-                    itemSize: 56,
-                    scrollHeight: calculateMaxHeight(),
-                    lazy: false,
-                    showLoader: false,
-                    delay: 0,
-                    loading: false,
-                    numToleratedItems: 10,
-                    autoSize: true,
-                  }
-                : undefined
-            }
           >
             <Column
               field="character_name"

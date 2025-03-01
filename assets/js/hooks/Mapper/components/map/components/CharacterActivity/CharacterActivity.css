@@ -151,14 +151,15 @@
   text-overflow: ellipsis;
 }
 
-/* Column styles */
+/* Column styles - fixed widths to prevent layout shifts */
 .character-column {
   min-width: 200px;
-  width: 30%;
+  width: 50% !important; /* Increased width for character column */
 }
 
 .numeric-column {
-  width: 17.5%;
+  width: 16.66% !important; /* Equal width for all numeric columns */
+  text-align: center !important;
 }
 
 /* PrimeReact DataTable Styling */
@@ -167,6 +168,7 @@
   background-color: transparent !important;
   border: none;
   flex: 1;
+  table-layout: fixed !important; /* Force fixed table layout */
 }
 
 .character-activity-datatable .p-datatable-wrapper {
@@ -178,7 +180,7 @@
 
 .character-activity-datatable .p-datatable-table {
   width: 100%;
-  table-layout: fixed;
+  table-layout: fixed !important;
   border-collapse: collapse;
 }
 
@@ -337,6 +339,14 @@
 .character-activity-datatable .p-datatable-tbody > tr {
   height: 56px;
   box-sizing: border-box;
+  display: table-row !important;
+}
+
+.character-activity-datatable .p-datatable-tbody > tr > td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: table-cell !important;
 }
 
 /* Fix for other PrimeReact overlay components */
@@ -354,4 +364,10 @@
 .p-confirm-popup,
 .p-toast {
   z-index: 10000 !important;
+}
+
+/* Fix for virtual scroller table layout */
+.p-virtualscroller .p-datatable-table {
+  table-layout: fixed !important;
+  width: 100% !important;
 }
