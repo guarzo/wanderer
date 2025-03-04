@@ -105,6 +105,8 @@ defmodule WandererAppWeb.MapAccessListAPIController do
                 name: %OpenApiSpex.Schema{type: :string},
                 role: %OpenApiSpex.Schema{type: :string},
                 eve_character_id: %OpenApiSpex.Schema{type: :string},
+                eve_corporation_id: %OpenApiSpex.Schema{type: :string},
+                eve_alliance_id: %OpenApiSpex.Schema{type: :string},
                 inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
                 updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
               },
@@ -157,6 +159,8 @@ defmodule WandererAppWeb.MapAccessListAPIController do
                 name: %OpenApiSpex.Schema{type: :string},
                 role: %OpenApiSpex.Schema{type: :string},
                 eve_character_id: %OpenApiSpex.Schema{type: :string},
+                eve_corporation_id: %OpenApiSpex.Schema{type: :string},
+                eve_alliance_id: %OpenApiSpex.Schema{type: :string},
                 inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
                 updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
               },
@@ -426,14 +430,20 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   end
 
   defp member_to_json(member) do
-    %{
+    base = %{
       id: member.id,
       name: member.name,
       role: member.role,
-      eve_character_id: member.eve_character_id,
       inserted_at: member.inserted_at,
       updated_at: member.updated_at
     }
+
+    cond do
+      member.eve_character_id -> Map.put(base, :eve_character_id, member.eve_character_id)
+      member.eve_corporation_id -> Map.put(base, :eve_corporation_id, member.eve_corporation_id)
+      member.eve_alliance_id -> Map.put(base, :eve_alliance_id, member.eve_alliance_id)
+      true -> base
+    end
   end
 
   defp find_character_by_eve_id(eve_id) do
