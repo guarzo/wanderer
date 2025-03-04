@@ -28,14 +28,12 @@ import {
   useMapInit,
   useMapUpdated,
   useRoutes,
+  useCommandsActivity,
 } from './api';
 
 import { emitMapEvent } from '@/hooks/Mapper/events';
 import { DetailedKill } from '../../types/kills';
-import { ActivitySummary } from '../../components/map/components/CharacterActivity/CharacterActivity';
-import { TrackingCharacter } from '../../components/map/components/TrackAndFollow/TrackAndFollow';
 import { useMapRootState } from '../../mapRootProvider';
-import { MapRootData } from '../../mapRootProvider/MapRootProvider';
 
 export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
   const mapInit = useMapInit();
@@ -50,9 +48,10 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
   const { addConnections, removeConnections, updateConnection } = useCommandsConnections();
   const { charactersUpdated, characterAdded, characterRemoved, characterUpdated, presentCharacters } =
     useCommandsCharacters();
+  const { characterActivityData, trackingCharactersData, userSettingsUpdated } = useCommandsActivity();
   const mapUpdated = useMapUpdated();
   const mapRoutes = useRoutes();
-  const { update } = useMapRootState();
+  useMapRootState();
 
   useImperativeHandle(
     ref,
@@ -129,54 +128,17 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
             updateDetailedKills(data as Record<string, DetailedKill[]>);
             break;
 
-          case Commands.characterActivityData: {
-            try {
-              // Handle different possible data formats
-              let activityData: ActivitySummary[] = [];
-
-              if (data && typeof data === 'object') {
-                if ('activity' in data && Array.isArray(data.activity)) {
-                  // Standard format: { activity: [...] }
-                  activityData = data.activity as ActivitySummary[];
-                } else if (Array.isArray(data)) {
-                  // Direct array format
-                  activityData = data as ActivitySummary[];
-                } else {
-                  // Single object format
-                  activityData = [data as ActivitySummary];
-                }
-
-                update((state: MapRootData) => ({
-                  ...state,
-                  characterActivityData: activityData,
-                  showCharacterActivity: true,
-                }));
-              } else {
-                console.error('Invalid character activity data format:', data);
-              }
-            } catch (error) {
-              console.error('Failed to process character activity data:', error, 'Raw data:', data);
-            }
+          case Commands.characterActivityData:
+            characterActivityData(data);
             break;
-          }
 
-          case Commands.trackingCharactersData: {
-            if (data && typeof data === 'object' && 'characters' in data) {
-              update((state: MapRootData) => ({
-                ...state,
-                trackingCharactersData: data.characters as TrackingCharacter[],
-                showTrackAndFollow: true,
-              }));
-            }
+          case Commands.trackingCharactersData:
+            trackingCharactersData(data);
             break;
-          }
 
-          case Commands.userSettingsUpdated: {
-            if (data && typeof data === 'object') {
-              emitMapEvent({ name: Commands.userSettingsUpdated, data });
-            }
+          case Commands.userSettingsUpdated:
+            userSettingsUpdated(data);
             break;
-          }
 
           default:
             console.warn(`Unknown command: ${type}`, data);
@@ -202,9 +164,11 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
       mapUpdated,
       mapRoutes,
       updateSystemSignatures,
-      updateLinkSignatureToSystem,
       updateDetailedKills,
-      update,
+      characterActivityData,
+      trackingCharactersData,
+      userSettingsUpdated,
+      updateLinkSignatureToSystem,
     ],
   );
 };

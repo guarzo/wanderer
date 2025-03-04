@@ -123,6 +123,11 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     socket
   end
 
+  def handle_server_event(%{event: :detailed_kills_updated, payload: payload}, socket) do
+    # Forward the event to the MapKillsEventHandler
+    WandererAppWeb.MapKillsEventHandler.handle_server_event(%{event: :detailed_kills_updated, payload: payload}, socket)
+  end
+
   def handle_server_event(event, socket) do
     Logger.warning(fn -> "unhandled map core event: #{inspect(event)} #{inspect(socket)} " end)
     socket
