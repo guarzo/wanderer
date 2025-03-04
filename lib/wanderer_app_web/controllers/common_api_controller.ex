@@ -48,7 +48,7 @@ defmodule WandererAppWeb.CommonAPIController do
         in: :query,
         description: "Solar system ID",
         type: :string,
-        example: "31002229",
+        example: "30000142",
         required: true
       ]
     ],

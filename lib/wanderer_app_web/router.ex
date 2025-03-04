@@ -19,10 +19,10 @@ defmodule WandererAppWeb.Router do
                     false
                   )
   @frame_src if(@code_reloading, do: ~w('self'), else: ~w())
-  @style_src ~w('self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/  )
+  @style_src ~w('self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/)
   @img_src ~w('self' data: https://images.evetech.net https://web.ccpgamescdn.com https://images.ctfassets.net https://w.appzi.io)
-  @font_src ~w('self' https://fonts.gstatic.com data: https://web.ccpgamescdn.com https://w.appzi.io )
-  @script_src ~w('self' https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/)
+  @font_src ~w('self' https://fonts.gstatic.com data: https://web.ccpgamescdn.com https://w.appzi.io)
+  @script_src ~w('self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/ https://unpkg.com https://cdn.jsdelivr.net https://w.appzi.io https://www.googletagmanager.com https://cdnjs.cloudflare.com)
 
   pipeline :admin_bauth do
     plug :admin_basic_auth
@@ -58,27 +58,12 @@ defmodule WandererAppWeb.Router do
       script_src_elem = if(@code_reloading, do: [
         @script_src,
         ws_url,
-        ~w('unsafe-inline'),
-        ~w(https://unpkg.com),
-        ~w(https://cdn.jsdelivr.net),
-        ~w(https://w.appzi.io),
-        ~w(https://www.googletagmanager.com),
-        ~w(https://cdnjs.cloudflare.com),
         [http_url]
       ], else: nil)
 
       directives = %{
         default_src: ~w('none'),
-        script_src: [
-          @script_src,
-          ws_url,
-          ~w('unsafe-inline'),
-          ~w(https://unpkg.com),
-          ~w(https://cdn.jsdelivr.net),
-          ~w(https://w.appzi.io),
-          ~w(https://www.googletagmanager.com),
-          ~w(https://cdnjs.cloudflare.com)
-        ],
+        script_src: [@script_src, ws_url],
         style_src: @style_src,
         img_src: @img_src,
         font_src: @font_src,

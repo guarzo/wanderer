@@ -170,25 +170,25 @@ defmodule WandererAppWeb.MapAPIController do
 
   @doc """
   GET /api/map/systems
-
-  Requires either `?map_id=<UUID>` **OR** `?slug=<map-slug>`.
   """
   @spec list_systems(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation :list_systems,
     summary: "List Map Systems",
-    description: "Retrieves visible systems for a given map.",
+    description: "Lists all visible systems for a map. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
     parameters: [
       map_id: [
         in: :query,
-        description: "Map identifier (UUID)",
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "00000000-0000-0000-0000-000000000000"
       ],
       slug: [
         in: :query,
-        description: "Map slug",
+        description: "Map slug - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "map-name"
       ]
     ],
     responses: [
@@ -196,7 +196,17 @@ defmodule WandererAppWeb.MapAPIController do
         "List of map systems",
         "application/json",
         @list_map_systems_response_schema
-      }
+      },
+      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          error: %OpenApiSpex.Schema{type: :string}
+        },
+        required: ["error"],
+        example: %{
+          "error" => "Must provide either ?map_id=UUID or ?slug=SLUG"
+        }
+      }}
     ]
   def list_systems(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
@@ -204,14 +214,24 @@ defmodule WandererAppWeb.MapAPIController do
       data = Enum.map(systems, &map_system_to_json/1)
       json(conn, %{data: data})
     else
+      {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"} = error ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: error})
+
       {:error, msg} when is_binary(msg) ->
         conn
         |> put_status(:bad_request)
         |> json(%{error: msg})
 
-      {:error, reason} ->
+      {:error, :map_not_found} ->
         conn
         |> put_status(:not_found)
+        |> json(%{error: "Map not found"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
         |> json(%{error: "Could not fetch systems: #{inspect(reason)}"})
     end
   end
@@ -224,26 +244,28 @@ defmodule WandererAppWeb.MapAPIController do
   @spec show_system(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation :show_system,
     summary: "Show Map System",
-    description: "Retrieves details for a specific map system (by solar_system_id + map).",
+    description: "Retrieves details for a specific map system (by solar_system_id + map). Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
     parameters: [
       id: [
         in: :query,
-        description: "Solar system ID",
+        description: "System ID",
         type: :string,
         required: true,
-        example: "31002229"
+        example: "30000142"
       ],
       map_id: [
         in: :query,
-        description: "Map identifier (UUID)",
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "00000000-0000-0000-0000-000000000000"
       ],
       slug: [
         in: :query,
-        description: "Map slug",
+        description: "Map slug - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "map-name"
       ]
     ],
     responses: [
@@ -251,7 +273,27 @@ defmodule WandererAppWeb.MapAPIController do
         "Map system details",
         "application/json",
         @show_map_system_response_schema
-      }
+      },
+      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          error: %OpenApiSpex.Schema{type: :string}
+        },
+        required: ["error"],
+        example: %{
+          "error" => "Must provide either ?map_id=UUID or ?slug=SLUG as a query parameter"
+        }
+      }},
+      not_found: {"Error", "application/json", %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          error: %OpenApiSpex.Schema{type: :string}
+        },
+        required: ["error"],
+        example: %{
+          "error" => "System not found"
+        }
+      }}
     ]
   def show_system(conn, params) do
     with {:ok, solar_system_str} <- Util.require_param(params, "id"),
@@ -261,6 +303,11 @@ defmodule WandererAppWeb.MapAPIController do
       data = map_system_to_json(system)
       json(conn, %{data: data})
     else
+      {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Must provide either ?map_id=UUID or ?slug=SLUG as a query parameter"})
+
       {:error, msg} when is_binary(msg) ->
         conn
         |> put_status(:bad_request)
@@ -284,26 +331,39 @@ defmodule WandererAppWeb.MapAPIController do
   @spec tracked_characters_with_info(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation :tracked_characters_with_info,
     summary: "List Tracked Characters with Info",
+    description: "Lists all tracked characters for a map with their information. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
     parameters: [
       map_id: [
         in: :query,
-        description: "Map identifier (UUID)",
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "00000000-0000-0000-0000-000000000000"
       ],
       slug: [
         in: :query,
-        description: "Map slug",
+        description: "Map slug - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "map-name"
       ]
     ],
     responses: [
       ok: {
-        "Tracked characters with info",
+        "List of tracked characters",
         "application/json",
         @tracked_characters_response_schema
-      }
+      },
+      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          error: %OpenApiSpex.Schema{type: :string}
+        },
+        required: ["error"],
+        example: %{
+          "error" => "Must provide either ?map_id=UUID or ?slug=SLUG"
+        }
+      }}
     ]
   def tracked_characters_with_info(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
@@ -333,6 +393,16 @@ defmodule WandererAppWeb.MapAPIController do
 
       json(conn, %{data: data})
     else
+      {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Must provide either ?map_id=UUID or ?slug=SLUG as a query parameter"})
+
+      {:error, :map_not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Map not found. Please provide a valid map_id or slug as a query parameter."})
+
       {:error, :get_tracked_error, reason} ->
         conn
         |> put_status(:not_found)
@@ -356,25 +426,28 @@ defmodule WandererAppWeb.MapAPIController do
   @spec show_structure_timers(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation :show_structure_timers,
     summary: "Show Structure Timers",
+    description: "Retrieves structure timers for a map. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
     parameters: [
       map_id: [
         in: :query,
-        description: "Map identifier (UUID)",
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
         type: :string,
-        required: true
+        required: false,
+        example: "00000000-0000-0000-0000-000000000000"
       ],
       slug: [
         in: :query,
-        description: "Map slug",
+        description: "Map slug - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "map-name"
       ],
       system_id: [
         in: :query,
-        description: "Solar system ID (optional)",
+        description: "System ID",
         type: :string,
-        required: false,
-        example: "31002229"
+        required: true,
+        example: "30000142"
       ]
     ],
     responses: [
@@ -382,7 +455,17 @@ defmodule WandererAppWeb.MapAPIController do
         "Structure timers",
         "application/json",
         @structure_timers_response_schema
-      }
+      },
+      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          error: %OpenApiSpex.Schema{type: :string}
+        },
+        required: ["error"],
+        example: %{
+          "error" => "Must provide either ?map_id=UUID or ?slug=SLUG as a query parameter"
+        }
+      }}
     ]
   def show_structure_timers(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params) do
@@ -404,6 +487,11 @@ defmodule WandererAppWeb.MapAPIController do
           end
       end
     else
+      {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Must provide either ?map_id=UUID or ?slug=SLUG as a query parameter"})
+
       {:error, msg} ->
         conn
         |> put_status(:bad_request)
@@ -419,25 +507,28 @@ defmodule WandererAppWeb.MapAPIController do
   @spec list_systems_kills(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation :list_systems_kills,
     summary: "List Systems Kills",
-    description: "Returns kills data for all visible systems on the map, optionally filtered by hours_ago.",
+    description: "Returns kills data for all visible systems on the map, optionally filtered by hours_ago. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
     parameters: [
       map_id: [
         in: :query,
-        description: "Map identifier (UUID)",
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "00000000-0000-0000-0000-000000000000"
       ],
       slug: [
         in: :query,
-        description: "Map slug",
+        description: "Map slug - Either map_id or slug must be provided",
         type: :string,
-        required: false
+        required: false,
+        example: "map-name"
       ],
-      hours_ago: [
+      hours: [
         in: :query,
-        description: "Optional number of hours to filter kills",
+        description: "Number of hours to look back for kills",
         type: :string,
-        required: false
+        required: false,
+        example: "24"
       ]
     ],
     responses: [
@@ -445,7 +536,17 @@ defmodule WandererAppWeb.MapAPIController do
         "Systems kills data",
         "application/json",
         @systems_kills_response_schema
-      }
+      },
+      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          error: %OpenApiSpex.Schema{type: :string}
+        },
+        required: ["error"],
+        example: %{
+          "error" => "Must provide either ?map_id=UUID or ?slug=SLUG as a query parameter"
+        }
+      }}
     ]
   def list_systems_kills(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
@@ -455,7 +556,7 @@ defmodule WandererAppWeb.MapAPIController do
         "[list_systems_kills] Found #{length(systems)} visible systems for map_id=#{map_id}"
       end)
 
-      hours_ago = parse_hours_ago(params["hours_ago"])
+      hours_ago = parse_hours_ago(params["hours"])
 
       solar_ids = Enum.map(systems, & &1.solar_system_id)
       kills_map = KillsCache.fetch_cached_kills_for_systems(solar_ids)
@@ -477,16 +578,28 @@ defmodule WandererAppWeb.MapAPIController do
 
       json(conn, %{data: data})
     else
+      {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"} ->
+        Logger.warning("[list_systems_kills] Bad request: Missing map_id or slug parameter")
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Must provide either ?map_id=UUID or ?slug=SLUG as a query parameter"})
+
       {:error, msg} when is_binary(msg) ->
         Logger.warning("[list_systems_kills] Bad request: #{msg}")
         conn
         |> put_status(:bad_request)
         |> json(%{error: msg})
 
+      {:error, :map_not_found} ->
+        Logger.warning("[list_systems_kills] Map not found")
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Map not found. Please provide a valid map_id or slug as a query parameter."})
+
       {:error, reason} ->
         Logger.error("[list_systems_kills] Could not fetch systems: #{inspect(reason)}")
         conn
-        |> put_status(:not_found)
+        |> put_status(:internal_server_error)
         |> json(%{error: "Could not fetch systems: #{inspect(reason)}"})
     end
   end
