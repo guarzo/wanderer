@@ -131,6 +131,14 @@ export const useMapHandlers = (ref: ForwardedRef<MapHandlers>, onSelectionChange
               // do nothing here
               break;
 
+            case Commands.characterActivityData:
+              // Character activity data is handled at the MapRoot level
+              break;
+
+            case Commands.trackingCharactersData:
+              // Tracking characters data is handled at the MapRoot level
+              break;
+
             default:
               console.warn(`Map handlers: Unknown command: ${type}`, data);
               break;
