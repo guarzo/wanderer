@@ -17,8 +17,8 @@ import {
 } from '@/hooks/Mapper/mapRootProvider/hooks/useStoreWidgets.ts';
 import { WindowsManagerOnChange } from '@/hooks/Mapper/components/ui-kit/WindowManager';
 import { DetailedKill } from '../types/kills';
-import { ActivitySummary } from '../components/map/components/CharacterActivity/CharacterActivity';
-import { TrackingCharacter } from '../components/map/components/TrackAndFollow/TrackAndFollow';
+import { ActivitySummary } from '../components/mapRootContent/components/CharacterActivity/CharacterActivity';
+import { TrackingCharacter } from '../components/mapRootContent/components/TrackAndFollow/types';
 
 export type MapRootData = MapUnionTypes & {
   selectedSystems: string[];

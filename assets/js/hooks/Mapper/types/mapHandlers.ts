@@ -5,8 +5,8 @@ import { CharacterTypeRaw } from '@/hooks/Mapper/types/character.ts';
 import { RoutesList } from '@/hooks/Mapper/types/routes.ts';
 import { DetailedKill, Kill } from '@/hooks/Mapper/types/kills.ts';
 import { UserPermissions } from '@/hooks/Mapper/types';
-import { ActivitySummary } from '../components/map/components/CharacterActivity/CharacterActivity';
-import { TrackingCharacter } from '../components/map/components/TrackAndFollow/TrackAndFollow';
+import { ActivitySummary } from '../components/mapRootContent/components/CharacterActivity/CharacterActivity';
+import { TrackingCharacter } from '../components/mapRootContent/components/TrackAndFollow/types';
 
 /**
  * Commands that can be sent from the server to the client
@@ -40,7 +40,6 @@ export enum Commands {
   trackingCharactersData = 'tracking_characters_data',
   userSettingsUpdated = 'user_settings_updated',
 
-  // Phoenix event names (previously in PhoenixEventName)
   mapEvent = 'map_event',
   mapEvents = 'map_events',
   showActivity = 'show_activity',
