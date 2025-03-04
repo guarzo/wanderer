@@ -22,11 +22,8 @@ defmodule WandererAppWeb.Router do
   @style_src ~w('self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/  )
   @img_src ~w('self' data: https://images.evetech.net https://web.ccpgamescdn.com https://images.ctfassets.net https://w.appzi.io)
   @font_src ~w('self' https://fonts.gstatic.com data: https://web.ccpgamescdn.com https://w.appzi.io )
-  @script_src ~w('self' https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/ )
+  @script_src ~w('self' https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/)
 
-  #
-  # 1) DEFINE YOUR PIPELINES
-  #
   pipeline :admin_bauth do
     plug :admin_basic_auth
   end
@@ -54,10 +51,27 @@ defmodule WandererAppWeb.Router do
         |> Map.put(:path, "")
         |> URI.to_string()
 
+      # Get the HTTP URL from home_url
+      http_url = URI.to_string(home_url)
+
+      # Only add script-src-elem when in development mode
+      script_src_elem = if(@code_reloading, do: [
+        @script_src,
+        ws_url,
+        ~w('unsafe-inline'),
+        ~w(https://unpkg.com),
+        ~w(https://cdn.jsdelivr.net),
+        ~w(https://w.appzi.io),
+        ~w(https://www.googletagmanager.com),
+        ~w(https://cdnjs.cloudflare.com),
+        [http_url]
+      ], else: nil)
+
       directives = %{
         default_src: ~w('none'),
         script_src: [
           @script_src,
+          ws_url,
           ~w('unsafe-inline'),
           ~w(https://unpkg.com),
           ~w(https://cdn.jsdelivr.net),
@@ -88,6 +102,9 @@ defmodule WandererAppWeb.Router do
         base_uri: ~w('none'),
         manifest_src: ~w('self')
       }
+
+      # Only add script-src-elem to directives when in development mode
+      directives = if script_src_elem, do: Map.put(directives, :script_src_elem, script_src_elem), else: directives
 
       directives =
         case home_url do
@@ -205,7 +222,6 @@ defmodule WandererAppWeb.Router do
     get "/", BlogController, :license
   end
 
-  # For your Swagger UI docs with custom styling:
   scope "/swaggerui" do
     pipe_through [:browser, :api, :api_spec]
 
