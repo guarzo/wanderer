@@ -19,22 +19,25 @@ defmodule WandererAppWeb.Router do
                     false
                   )
   @frame_src if(@code_reloading, do: ~w('self'), else: ~w())
-  @style_src ~w('self' 'unsafe-inline' https://fonts.googleapis.com)
+  @style_src ~w('self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/  )
   @img_src ~w('self' data: https://images.evetech.net https://web.ccpgamescdn.com https://images.ctfassets.net https://w.appzi.io)
   @font_src ~w('self' https://fonts.gstatic.com data: https://web.ccpgamescdn.com https://w.appzi.io )
-  @script_src ~w('self' )
+  @script_src ~w('self' https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/ )
 
+  #
+  # 1) DEFINE YOUR PIPELINES
+  #
   pipeline :admin_bauth do
     plug :admin_basic_auth
   end
 
   pipeline :browser do
-    plug(:accepts, ["html"])
-    plug(:fetch_session)
-    plug(:fetch_live_flash)
-    plug(:put_root_layout, html: {WandererAppWeb.Layouts, :root})
-    plug(:protect_from_forgery)
-    plug(:put_secure_browser_headers)
+    plug :accepts, ["html"]
+    plug :fetch_session
+    plug :fetch_live_flash
+    plug :put_root_layout, html: {WandererAppWeb.Layouts, :root}
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers
 
     dynamic_plug PlugContentSecurityPolicy, reevaluate: :first_usage do
       URI.default_port("wss", 443)
@@ -101,11 +104,11 @@ defmodule WandererAppWeb.Router do
   end
 
   pipeline :blog do
-    plug(:put_layout, html: {WandererAppWeb.Layouts, :blog})
+    plug :put_layout, html: {WandererAppWeb.Layouts, :blog}
   end
 
   pipeline :api do
-    plug(:accepts, ["json"])
+    plug :accepts, ["json"]
     plug WandererAppWeb.Plugs.CheckApiDisabled
   end
 
@@ -124,6 +127,12 @@ defmodule WandererAppWeb.Router do
 
   pipeline :api_acl do
     plug WandererAppWeb.Plugs.CheckAclApiKey
+  end
+
+  pipeline :api_spec do
+    plug OpenApiSpex.Plug.PutApiSpec,
+      otp_app: :wanderer_app,
+      module: WandererAppWeb.ApiSpec
   end
 
   scope "/api/map/systems-kills", WandererAppWeb do
@@ -162,6 +171,11 @@ defmodule WandererAppWeb.Router do
     get "/system-static-info", CommonAPIController, :show_system_static
   end
 
+  scope "/api" do
+    pipe_through [:browser, :api, :api_spec]
+    get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
+  end
+
   #
   # Browser / blog stuff
   #
@@ -189,6 +203,31 @@ defmodule WandererAppWeb.Router do
   scope "/license", WandererAppWeb do
     pipe_through [:browser, :blog]
     get "/", BlogController, :license
+  end
+
+  # For your Swagger UI docs with custom styling:
+  scope "/swaggerui" do
+    pipe_through [:browser, :api, :api_spec]
+
+    get "/", OpenApiSpex.Plug.SwaggerUI,
+      path: "/api/openapi",
+      title: "My API Docs",
+      css_urls: [
+        # Standard Swagger UI CSS
+        "https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.5.0/swagger-ui.min.css",
+        # Material theme from swagger-ui-themes (v3.x):
+        "https://cdn.jsdelivr.net/npm/swagger-ui-themes@3.0.0/themes/3.x/theme-material.css"
+      ],
+      js_urls: [
+        # We need both main JS & standalone preset for full styling
+        "https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.5.0/swagger-ui-bundle.min.js",
+        "https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.5.0/swagger-ui-standalone-preset.min.js"
+      ],
+      favicon_url: "https://example.com/my_favicon.ico",
+      swagger_ui_config: %{
+        "docExpansion" => "none",
+        "deepLinking" => true
+      }
   end
 
   #
