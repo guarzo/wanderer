@@ -468,8 +468,16 @@ defmodule WandererAppWeb.MapAccessListAPIController do
     with {:ok, api_map} <- WandererApp.Api.Map.by_id(map.id),
          {:ok, loaded_map} <- Ash.load(api_map, :acls) do
       new_acl_id = if is_binary(new_acl), do: new_acl, else: new_acl.id
-      current_acls = loaded_map.acls || []
-      updated_acls = current_acls ++ [new_acl_id]
+
+      # Extract IDs from current ACLs to ensure we're working with UUIDs only
+      current_acl_ids = loaded_map.acls
+                        |> Kernel.||([])
+                        |> Enum.map(fn
+                          acl when is_binary(acl) -> acl
+                          acl -> acl.id
+                        end)
+
+      updated_acls = current_acl_ids ++ [new_acl_id]
 
       case WandererApp.Api.Map.update_acls(loaded_map, %{acls: updated_acls}) do
         {:ok, updated_map} ->
