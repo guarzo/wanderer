@@ -18,11 +18,66 @@ defmodule WandererAppWeb.Router do
                     [WandererAppWeb.Endpoint, :code_reloader],
                     false
                   )
-  @frame_src if(@code_reloading, do: ~w('self'), else: ~w())
-  @style_src ~w('self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/  )
-  @img_src ~w('self' data: https://images.evetech.net https://web.ccpgamescdn.com https://images.ctfassets.net https://w.appzi.io)
-  @font_src ~w('self' https://fonts.gstatic.com data: https://web.ccpgamescdn.com https://w.appzi.io )
-  @script_src ~w('self' https://cdn.jsdelivr.net/npm/ https://cdnjs.cloudflare.com/ajax/libs/)
+  @frame_src_values if(@code_reloading, do: ["'self'"], else: [])
+
+  # Define style sources individually to ensure proper spacing
+  @style_src_values [
+    "'self'",
+    "'unsafe-inline'",
+    "https://fonts.googleapis.com",
+    "https://cdn.jsdelivr.net/npm/",
+    "https://cdnjs.cloudflare.com/ajax/libs/"
+  ]
+
+  # Define image sources individually to ensure proper spacing
+  @img_src_values [
+    "'self'",
+    "data:",
+    "https://images.evetech.net",
+    "https://web.ccpgamescdn.com",
+    "https://images.ctfassets.net",
+    "https://w.appzi.io"
+  ]
+
+  # Define font sources individually to ensure proper spacing
+  @font_src_values [
+    "'self'",
+    "https://fonts.gstatic.com",
+    "data:",
+    "https://web.ccpgamescdn.com",
+    "https://w.appzi.io"
+  ]
+
+  # Define script sources individually to ensure proper spacing
+  @script_src_values [
+    "'self'",
+    "'unsafe-inline'",
+    "https://cdn.jsdelivr.net/npm/",
+    "https://cdnjs.cloudflare.com/ajax/libs/",
+    "https://unpkg.com",
+    "https://cdn.jsdelivr.net",
+    "https://w.appzi.io",
+    "https://www.googletagmanager.com",
+    "https://cdnjs.cloudflare.com"
+  ]
+
+  # Define connect sources individually to ensure proper spacing
+  @connect_src_values [
+    "'self'",
+    "https://api.appzi.io",
+    "https://www.googletagmanager.com",
+    "https://www.google-analytics.com"
+  ]
+
+  # Define sandbox values individually to ensure proper spacing
+  @sandbox_values [
+    "allow-forms",
+    "allow-scripts",
+    "allow-modals",
+    "allow-same-origin",
+    "allow-downloads",
+    "allow-popups"
+  ]
 
   pipeline :admin_bauth do
     plug :admin_basic_auth
@@ -55,56 +110,32 @@ defmodule WandererAppWeb.Router do
       http_url = URI.to_string(home_url)
 
       # Only add script-src-elem when in development mode
-      script_src_elem = if(@code_reloading, do: [
-        @script_src,
-        ws_url,
-        ~w('unsafe-inline'),
-        ~w(https://unpkg.com),
-        ~w(https://cdn.jsdelivr.net),
-        ~w(https://w.appzi.io),
-        ~w(https://www.googletagmanager.com),
-        ~w(https://cdnjs.cloudflare.com),
-        [http_url]
-      ], else: nil)
+      script_src_elem = if(@code_reloading, do:
+        @script_src_values ++ [ws_url, http_url],
+        else: @script_src_values)
 
       directives = %{
         default_src: ~w('none'),
-        script_src: [
-          @script_src,
-          ws_url,
-          ~w('unsafe-inline'),
-          ~w(https://unpkg.com),
-          ~w(https://cdn.jsdelivr.net),
-          ~w(https://w.appzi.io),
-          ~w(https://www.googletagmanager.com),
-          ~w(https://cdnjs.cloudflare.com)
-        ],
-        style_src: @style_src,
-        img_src: @img_src,
-        font_src: @font_src,
-        connect_src: [
-          ws_url,
-          ~w('self'),
-          ~w(https://api.appzi.io),
-          ~w(https://www.googletagmanager.com),
-          ~w(https://www.google-analytics.com)
-        ],
+        script_src: @script_src_values ++ [ws_url],
+        style_src: @style_src_values,
+        img_src: @img_src_values,
+        font_src: @font_src_values,
+        connect_src: @connect_src_values ++ [ws_url],
         media_src: ~w('none'),
         object_src: ~w('none'),
         child_src: ~w('none'),
-        frame_src: [@frame_src],
+        frame_src: @frame_src_values,
         worker_src: ~w('none'),
         frame_ancestors: ~w('none'),
         form_action: ~w('self'),
         block_all_mixed_content: ~w(),
-        sandbox:
-          ~w(allow-forms allow-scripts allow-modals allow-same-origin allow-downloads allow-popups),
+        sandbox: @sandbox_values,
         base_uri: ~w('none'),
         manifest_src: ~w('self')
       }
 
       # Only add script-src-elem to directives when in development mode
-      directives = if script_src_elem, do: Map.put(directives, :script_src_elem, script_src_elem), else: directives
+      directives = Map.put(directives, :script_src_elem, script_src_elem)
 
       directives =
         case home_url do
