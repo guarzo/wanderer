@@ -44,7 +44,7 @@ export const RoutesWidgetContent = () => {
 
   const { loading } = useLoadRoutes();
 
-  const { systems: systemStatics, loadSystems, lastUpdateKey } = useLoadSystemStatic({ systems: hubs ?? [] });
+  const { systems: systemStatics, loadSystems } = useLoadSystemStatic({ systems: hubs ?? [] });
   const { open, ...systemCtxProps } = useContextMenuSystemInfoHandlers({
     outCommand,
     hubs,
@@ -53,28 +53,25 @@ export const RoutesWidgetContent = () => {
   const preparedHubs = useMemo(() => {
     return hubs.map(x => {
       const sys = getSystemById(systems, x.toString());
-
       return { ...systemStatics.get(parseInt(x))!, ...(sys && { customName: sys.name ?? '' }) };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hubs, systems, systemStatics, lastUpdateKey]);
+  }, [hubs, systems, systemStatics]);
 
   const preparedRoutes: Route[] = useMemo(() => {
     return (
       routes?.routes
         .sort(sortByDist)
         .filter(x => x.destination.toString() !== systemId)
-        .map(route => ({
-          ...route,
-          mapped_systems:
-            route.systems?.map(solar_system_id =>
-              routes?.systems_static_data.find(
-                system_static_data => system_static_data.solar_system_id === solar_system_id,
-              ),
-            ) ?? [],
+        .map(x => ({
+          ...x,
+          system: getSystemById(systems, x.destination.toString()),
+          jumps: x.jumps,
+          security_status: x.security_status,
+          route:
+            x.route.map(y => getSystemById(systems, y.toString()) ?? systemStatics.get(parseInt(y.toString()))) ?? [],
         })) ?? []
     );
-  }, [routes?.routes, routes?.systems_static_data, systemId]);
+  }, [routes?.routes, systemId, systemStatics, systems]);
 
   const refData = useRef({ open, loadSystems, preparedRoutes });
   refData.current = { open, loadSystems, preparedRoutes };
@@ -112,7 +109,11 @@ export const RoutesWidgetContent = () => {
   }
 
   if (hubs.length === 0) {
-    return <div className="w-full h-full flex justify-center items-center select-none">Routes not set</div>;
+    return (
+      <div className="w-full h-full flex justify-center items-center select-none text-center text-stone-400/80 text-sm">
+        No route hubs configured
+      </div>
+    );
   }
 
   return (
@@ -173,8 +174,6 @@ export const RoutesWidgetComp = () => {
     outCommand,
   } = useMapRootState();
 
-  const preparedHubs = useMemo(() => hubs.map(x => parseInt(x)), [hubs]);
-
   const isSecure = data.path_type === 'secure';
   const handleSecureChange = useCallback(() => {
     update({
@@ -191,14 +190,23 @@ export const RoutesWidgetComp = () => {
 
   const handleSubmitAddSystem: SearchOnSubmitCallback = useCallback(
     async item => {
-      if (preparedHubs.includes(item.value)) {
+      // Convert item.value to a string to ensure consistent type comparison
+      const systemId = item.value.toString();
+
+      // Check if the system is already in the hubs array (comparing as strings)
+      if (hubs.some(hub => hub.toString() === systemId)) {
         return;
       }
 
-      await outCommand({
-        type: OutCommand.addHub,
-        data: { system_id: item.value },
-      });
+      try {
+        await outCommand({
+          type: OutCommand.addHub,
+          data: { system_id: systemId },
+        });
+      } catch (error) {
+        console.error('Error adding hub:', error);
+        // Error is logged but silently handled to prevent UI disruption
+      }
     },
     [hubs, outCommand],
   );
