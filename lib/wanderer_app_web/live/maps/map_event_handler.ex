@@ -30,8 +30,7 @@ defmodule WandererAppWeb.MapEventHandler do
     "toggle_track",
     "toggle_follow",
     "hide_tracking",
-    "show_tracking",
-    "refresh_characters"
+    "show_tracking"
   ]
 
   @map_system_events [
@@ -297,13 +296,10 @@ defmodule WandererAppWeb.MapEventHandler do
       do: MapKillsEventHandler.handle_ui_event(event, body, socket)
 
   def handle_ui_event(event, body, socket)
-<<<<<<< HEAD
       when event in @map_user_settings_ui_events,
       do: MapUserSettingsEventHandler.handle_ui_event(event, body, socket)
 
-  def handle_ui_event(event, body, socket),
-    do: MapCoreEventHandler.handle_ui_event(event, body, socket)
-=======
+  def handle_ui_event(event, body, socket)
       when event in @map_core_ui_events,
       do: MapCoreEventHandler.handle_ui_event(event, body, socket)
 
@@ -311,7 +307,6 @@ defmodule WandererAppWeb.MapEventHandler do
     Logger.warning("Unmatched event in MapEventHandler, routing to MapCoreEventHandler: #{inspect(event)} with body: #{inspect(body)}")
     MapCoreEventHandler.handle_ui_event(event, body, socket)
   end
->>>>>>> fe9120fb (feat: add enhanced activity stats and api for activity)
 
   def get_system_static_info(nil), do: nil
 
