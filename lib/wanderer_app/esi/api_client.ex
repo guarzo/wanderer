@@ -222,21 +222,38 @@ defmodule WandererApp.Esi.ApiClient do
     end
   end
 
-  defp get_all_routes_custom(hubs, origin, params),
-    do:
-      post(
-        "#{get_custom_route_base_url()}/route/multiple",
-        [
-          json: %{
-            origin: origin,
-            destinations: hubs,
-            flag: params.flag,
-            connections: params.connections,
-            avoid: params.avoid
-          }
-        ]
-        |> Keyword.merge(@timeout_opts)
-      )
+  defp get_all_routes_custom(hubs, origin, params) do
+    custom_route_base_url = get_custom_route_base_url()
+
+    # Ensure the URL has a scheme
+    url = cond do
+      is_nil(custom_route_base_url) || custom_route_base_url == "<CUSTOM_ROUTE_BASE_URL>" ->
+        # If the URL is not set, fall back to the standard ESI URL
+        "#{@base_url}/route/multiple"
+      String.starts_with?(custom_route_base_url, "http://") || String.starts_with?(custom_route_base_url, "https://") ->
+        # URL already has a scheme
+        "#{custom_route_base_url}/route/multiple"
+      true ->
+        # Add https:// scheme to the URL
+        "https://#{custom_route_base_url}/route/multiple"
+    end
+
+    Logger.info("Using route URL: #{url}")
+
+    post(
+      url,
+      [
+        json: %{
+          origin: origin,
+          destinations: hubs,
+          flag: params.flag,
+          connections: params.connections,
+          avoid: params.avoid
+        }
+      ]
+      |> Keyword.merge(@timeout_opts)
+    )
+  end
 
   def get_all_routes_eve(hubs, origin, params, opts),
     do:
