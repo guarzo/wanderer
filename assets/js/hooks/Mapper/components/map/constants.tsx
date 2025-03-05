@@ -1,4 +1,7 @@
 import { ConnectionType, MassState, ShipSizeStatus } from '@/hooks/Mapper/types';
+import { FaIndustry, FaExclamationTriangle, FaHourglassEnd } from 'react-icons/fa';
+import { MdOutlineBlock, MdLocalFireDepartment } from 'react-icons/md';
+import { GiBlackHoleBolas, GiSparkles } from 'react-icons/gi';
 
 export enum SOLAR_SYSTEM_CLASS_IDS {
   ccp1 = -1,
@@ -627,6 +630,7 @@ export const EFFECT_BACKGROUND_STYLES: Record<string, string> = {
   'Federal Stellar Observatory': 'eve-wh-effect-color-federalStellarObservatory',
 };
 
+// Marker bookmark background styles, including new wormhole styles
 export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   custom: 'wd-marker-bookmark-color-custom',
   shattered: 'wd-marker-bookmark-color-shattered',
@@ -635,33 +639,113 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   activityWarn: 'wd-marker-bookmark-color-warn',
   activityDanger: 'wd-marker-bookmark-color-danger',
 
-  la: 'wd-marker-bookmark-color-average',
-  lb: 'wd-marker-bookmark-color-ytirium',
+  gas: 'eve-zoo-effect-color-has-gas',
+  eol: 'eve-zoo-effect-color-has-eol',
+  deadEnd: 'eve-zoo-effect-color-is-dead-end',
+  crit: 'eve-zoo-effect-color-is-critical',
+  unSplashed: 'eve-zoo-effect-color-unsplashed',
+  de: 'eve-zoo-effect-color-is-dead-end',
+  wormhole: 'eve-zoo-effect-color-wormhole',
+  flygd: 'eve-zoo-effect-color-flygd',
+
   lc: 'wd-marker-bookmark-color-ytirium',
   l1: 'wd-marker-bookmark-color-l1',
   l2: 'wd-marker-bookmark-color-l2',
   l3: 'wd-marker-bookmark-color-l3',
+
+  // New wormhole background styles
+  wormholeMagic: 'eve-zoo-effect-color-wormhole-magic',
+  wormholeInfinity: 'eve-zoo-effect-color-wormhole-infinity',
+  wormholePlanet: 'eve-zoo-effect-color-wormhole-planet',
+  wormholeLoop: 'eve-zoo-effect-color-wormhole-loop',
 };
 
+// Extend the LABELS enum with new wormhole keys
 export enum LABELS {
   clear = 'clear',
-  la = 'a',
-  lb = 'b',
-  lc = 'c',
-  l1 = '1',
-  l2 = '2',
-  l3 = '3',
+  la = 'de',
+  lb = 'gas',
+  lc = 'eol',
+  l1 = 'crit',
+  l2 = 'structure',
+  l3 = 'sparkles',
+  l4 = 'bolas',
+  l5 = 'infinity',
+  l6 = 'planet',
+  l7 = 'loop',
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const LABELS_INFO: Record<string, any> = {
+export type LabelIcon = {
+  icon: React.ReactNode;
+  colorClass: string;
+  backgroundColor: string;
+};
+
+export type LabelInfo = {
+  id: string;
+  name: string;
+  shortName: string;
+  icon: string;
+};
+
+// Mapping each label to its icon, text class, and background color.
+// Note: Feel free to tweak the colors below.
+export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
+  // Dead End: 🚫 "No Entry"
+  [LABELS.la]: {
+    icon: <MdOutlineBlock size={8} color="#FFFFFF" />,
+    colorClass: 'text-white',
+    backgroundColor: '#8B0000', // Dark Red
+  },
+  // Gas Cloud: 🏭 "Harvestable Resource"
+  [LABELS.lb]: {
+    icon: <FaIndustry size={8} color="#004D40" />, // Dark Cyan
+    colorClass: 'text-cyan-900',
+    backgroundColor: '#00BFA5', // Greenish-Cyan
+  },
+  // End of Life (EOL): ⏳ "Fading Time"
+  [LABELS.lc]: {
+    icon: <FaHourglassEnd size={8} color="#FFFFFF" />, // White hourglass
+    colorClass: 'text-white',
+    backgroundColor: '#FF4500', // Orange-Red
+  },
+  // Critically Closing (CRIT): ⚠️ "Danger, Closing Soon"
+  [LABELS.l1]: {
+    icon: <FaExclamationTriangle size={8} color="#FFFFFF" />,
+    colorClass: 'text-white',
+    backgroundColor: '#B22222', // Firebrick Red
+  },
+  // Low Power Structure (🔥 More Contrast)
+  [LABELS.l2]: {
+    icon: <MdLocalFireDepartment size={8} color="#FFD700" />, // Bright Gold Fire
+    colorClass: 'text-yellow-500',
+    backgroundColor: '#5D1E1E', // Deep Maroon
+  },
+  [LABELS.l3]: {
+    icon: <GiSparkles fill="#38bdf8" />, // Gold Icon
+    colorClass: 'text-yellow-500',
+    backgroundColor: '#2C3E50', // Dark Blue
+  },
+  [LABELS.l4]: {
+    icon: <GiBlackHoleBolas size={8} color="#38bdf8" />,
+    colorClass: 'text-white',
+    backgroundColor: '#2C3E50', // Indigo
+  },
+};
+
+// Additional label info for tooltips or lists, etc.
+export const LABELS_INFO: Record<string, LabelInfo> = {
   [LABELS.clear]: { id: 'clear', name: 'Clear', shortName: '', icon: '' },
-  [LABELS.la]: { id: 'la', name: 'Label A', shortName: 'A', icon: '' },
-  [LABELS.lb]: { id: 'lb', name: 'Label B', shortName: 'B', icon: '' },
-  [LABELS.lc]: { id: 'lc', name: 'Label C', shortName: 'C', icon: '' },
-  [LABELS.l1]: { id: 'l1', name: 'Label 1', shortName: '1', icon: '' },
-  [LABELS.l2]: { id: 'l2', name: 'Label 2', shortName: '2', icon: '' },
-  [LABELS.l3]: { id: 'l3', name: 'Label 3', shortName: '3', icon: '' },
+  [LABELS.la]: { id: 'de', name: 'Dead End', shortName: 'DE', icon: '' },
+  [LABELS.lb]: { id: 'gas', name: 'Gas', shortName: 'GAS', icon: '' },
+  [LABELS.lc]: { id: 'eol', name: 'Eol', shortName: 'EOL', icon: '' },
+  [LABELS.l1]: { id: 'crit', name: 'Crit', shortName: 'CRIT', icon: '' },
+  [LABELS.l2]: { id: 'structure', name: 'Structure', shortName: 'LP', icon: '' },
+  // [LABELS.l3]: { id: 'sparkles', name: 'Sparkles', shortName: 'SP', icon: '' },
+  // [LABELS.l4]: { id: 'bolas', name: 'bolas', shortName: 'BL', icon: '' },
+  // [LABELS.l5]: { id: 'infinity', name: 'Infinity', shortName: 'WI', icon: '' },
+  // [LABELS.l6]: { id: 'planet', name: 'Planet', shortName: 'WP', icon: '' },
+  // [LABELS.l7]: { id: 'loop', name: 'Loop', shortName: 'WL', icon: '' },
 };
 
 export enum STATUSES {
@@ -694,7 +778,7 @@ export const STATUSES_ORDER = [
   STATUSES.dangerous,
 ];
 
-export const LABELS_ORDER = [LABELS.clear, LABELS.la, LABELS.lb, LABELS.lc, LABELS.l1, LABELS.l2, LABELS.l3];
+export const LABELS_ORDER = [LABELS.clear, LABELS.la, LABELS.lb, LABELS.lc, LABELS.l1, LABELS.l2];
 
 export const STATUS_COLOR_CLASSES: Record<number, string> = {
   [STATUSES.unknown]: 'eve-system-status-color-clear',
