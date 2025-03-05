@@ -3,6 +3,7 @@ defmodule WandererApp.Maps do
   use Nebulex.Caching
 
   require Ash.Query
+  require Logger
 
   @minimum_route_attrs [
     :system_class,
