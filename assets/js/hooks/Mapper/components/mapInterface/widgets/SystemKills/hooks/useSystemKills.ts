@@ -5,6 +5,7 @@ import { DetailedKill } from '@/hooks/Mapper/types/kills';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useKillsWidgetSettings } from './useKillsWidgetSettings';
 import { useMapEventListener, MapEvent } from '@/hooks/Mapper/events';
+import { Command } from '@/hooks/Mapper/types/mapHandlers';
 
 interface UseSystemKillsProps {
   systemId?: string;
@@ -29,8 +30,8 @@ function combineKills(existing: DetailedKill[], incoming: DetailedKill[], sinceH
   return Object.values(byId);
 }
 
-interface DetailedKillsEvent extends MapEvent<Commands> {
-  payload: Record<string, DetailedKill[]>;
+interface DetailedKillsEvent extends MapEvent<Commands.detailedKillsUpdated> {
+  data: Record<string, DetailedKill[]>;
 }
 
 export function useSystemKills({ systemId, outCommand, showAllVisible = false, sinceHours = 24 }: UseSystemKillsProps) {
@@ -53,16 +54,23 @@ export function useSystemKills({ systemId, outCommand, showAllVisible = false, s
     [update],
   );
 
-  useMapEventListener((event: MapEvent<Commands>) => {
+  useMapEventListener((event: MapEvent<Command>) => {
     if (event.name === Commands.detailedKillsUpdated) {
       const detailedEvent = event as DetailedKillsEvent;
-      if (systemId && !Object.keys(detailedEvent.payload).includes(systemId.toString())) {
+      if (systemId && !Object.keys(detailedEvent.data).includes(systemId.toString())) {
         return false;
       }
-      updateDetailedKills(detailedEvent.payload);
-      return true;
+
+      if (systemId) {
+        const systemKillsMap: Record<string, DetailedKill[]> = {
+          [systemId.toString()]: detailedEvent.data[systemId.toString()] || [],
+        };
+        updateDetailedKills(systemKillsMap);
+      } else if (showAllVisible) {
+        updateDetailedKills(detailedEvent.data);
+      }
     }
-    return false;
+    return true;
   });
 
   const effectiveSystemIds = useMemo(() => {

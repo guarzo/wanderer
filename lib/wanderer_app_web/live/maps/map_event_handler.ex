@@ -21,14 +21,17 @@ defmodule WandererAppWeb.MapEventHandler do
     :character_removed,
     :character_updated,
     :characters_updated,
-    :present_characters_updated
+    :present_characters_updated,
+    :tracking_characters_data
   ]
 
   @map_characters_ui_events [
     "add_character",
     "toggle_track",
     "toggle_follow",
-    "hide_tracking"
+    "hide_tracking",
+    "show_tracking",
+    "refresh_characters"
   ]
 
   @map_system_events [
@@ -77,7 +80,8 @@ defmodule WandererAppWeb.MapEventHandler do
   ]
 
   @map_activity_events [
-    :character_activity
+    :character_activity,
+    :character_activity_data
   ]
 
   @map_activity_ui_events [
@@ -166,6 +170,15 @@ defmodule WandererAppWeb.MapEventHandler do
     "get_map_activity_by_character_and_user_and_system",
     "get_map_activity_by_character_and_user_and_system_and_time",
     "get_routes"
+  ]
+
+  @map_core_ui_events [
+    "ui_loaded",
+    "live_select_change",
+    "get_user_settings",
+    "update_user_settings",
+    "log_map_error",
+    "noop"
   ]
 
   def handle_event(socket, %{event: event_name} = event)
@@ -284,11 +297,21 @@ defmodule WandererAppWeb.MapEventHandler do
       do: MapKillsEventHandler.handle_ui_event(event, body, socket)
 
   def handle_ui_event(event, body, socket)
+<<<<<<< HEAD
       when event in @map_user_settings_ui_events,
       do: MapUserSettingsEventHandler.handle_ui_event(event, body, socket)
 
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
+=======
+      when event in @map_core_ui_events,
+      do: MapCoreEventHandler.handle_ui_event(event, body, socket)
+
+  def handle_ui_event(event, body, socket) do
+    Logger.warning("Unmatched event in MapEventHandler, routing to MapCoreEventHandler: #{inspect(event)} with body: #{inspect(body)}")
+    MapCoreEventHandler.handle_ui_event(event, body, socket)
+  end
+>>>>>>> fe9120fb (feat: add enhanced activity stats and api for activity)
 
   def get_system_static_info(nil), do: nil
 
@@ -302,23 +325,21 @@ defmodule WandererAppWeb.MapEventHandler do
     end
   end
 
-  def push_map_event(
-        %{
-          assigns: %{
-            is_version_valid?: true
-          }
-        } = socket,
-        type,
-        body
-      ),
-      do:
+  @doc """
+  Pushes a map event to the client.
+  """
+  def push_map_event(socket, type, body) do
+    case socket do
+      %{assigns: %{is_version_valid?: true}} ->
         socket
-        |> Phoenix.LiveView.Utils.push_event("map_event", %{
+        |> push_event("map_event", %{
           type: type,
           body: body
         })
-
-  def push_map_event(socket, _type, _body), do: socket
+      _ ->
+        socket
+    end
+  end
 
   def map_ui_character_stat(character),
     do:
@@ -326,9 +347,13 @@ defmodule WandererAppWeb.MapEventHandler do
       |> Map.take([
         :eve_id,
         :name,
+        :corporation_id,
+        :corporation_name,
         :corporation_ticker,
-        :alliance_ticker
+        :alliance_id,
+        :alliance_name
       ])
+      |> Map.put(:alliance_ticker, Map.get(character, :alliance_ticker, ""))
 
   def map_ui_connection(
         %{
