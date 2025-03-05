@@ -16,7 +16,7 @@ type KillsBookmarkTooltipProps = {
   WithClassName;
 
 export const KillsCounter = ({ killsCount, systemId, className, children, size = 'xs' }: KillsBookmarkTooltipProps) => {
-  const { isLoading, kills: detailedKills, systemNameMap } = useKillsCounter({ realSystemId: systemId });
+const { isLoading, kills: detailedKills, systemNameMap } = useKillsCounter({ realSystemId: systemId });
 
   // Limit the kills shown to match the killsCount parameter
   const limitedKills = useMemo(() => {
