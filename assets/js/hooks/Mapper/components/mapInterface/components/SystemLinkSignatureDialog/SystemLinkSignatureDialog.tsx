@@ -19,7 +19,7 @@ import {
   SOLAR_SYSTEM_CLASS_IDS,
   SOLAR_SYSTEM_CLASSES_TO_CLASS_GROUPS,
   WORMHOLES_ADDITIONAL_INFO_BY_SHORT_NAME,
-} from '@/hooks/Mapper/components/map/constants.ts';
+} from '@/hooks/Mapper/components/map/constants.tsx';
 import { K162_TYPES_MAP } from '@/hooks/Mapper/constants.ts';
 
 const K162_SIGNATURE_TYPE = WORMHOLES_ADDITIONAL_INFO_BY_SHORT_NAME['K162'].shortName;
