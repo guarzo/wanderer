@@ -176,6 +176,7 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
             placeholder="Corporation name..."
             onChange={e => setOwnerInput(e.value)}
             onSelect={e => handleSelectOwner(e.value)}
+            appendTo={document.body}
           />
         </label>
         <label className="grid grid-cols-[100px_250px_1fr] gap-2 items-center">
@@ -206,6 +207,7 @@ export const SystemStructuresDialog: React.FC<StructuresEditDialogProps> = ({
               hourFormat="24"
               dateFormat="yy-mm-dd"
               showIcon
+              appendTo={document.body}
             />
           </label>
         )}

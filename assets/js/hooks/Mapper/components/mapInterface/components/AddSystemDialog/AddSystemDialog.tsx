@@ -134,6 +134,7 @@ export const AddSystemDialog = ({
                 field="label"
                 id="value"
                 className="w-full"
+                appendTo={document.body}
                 itemTemplate={(item: SearchSystemItem) => {
                   const { security, system_class, effect_power, effect_name, statics } = item.system_static_info;
                   const sortedStatics = sortWHClasses(wormholesData, statics);

@@ -451,6 +451,7 @@ export const CustomSystemSettingsDialog = ({
                         }
                       }}
                       onBlur={handleOwnerBlur}
+                      appendTo={document.body}
                     />
                   </IconField>
                 </div>

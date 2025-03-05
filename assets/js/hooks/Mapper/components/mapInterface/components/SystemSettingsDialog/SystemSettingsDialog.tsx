@@ -323,6 +323,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                     setOwnerType('');
                   }}
                   onBlur={handleOwnerBlur}
+                  appendTo={document.body}
                 />
               </IconField>
             </div>
