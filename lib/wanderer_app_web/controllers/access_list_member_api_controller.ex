@@ -24,7 +24,6 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
           eve_alliance_id: %OpenApiSpex.Schema{type: :string},
           role: %OpenApiSpex.Schema{type: :string}
         }
-        # no 'required' fields if you truly allow any of them
       }
     },
     required: ["member"]
@@ -88,9 +87,7 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
 
   @acl_member_delete_response_schema %OpenApiSpex.Schema{
     type: :object,
-    properties: %{
-      ok: %OpenApiSpex.Schema{type: :boolean}
-    },
+    properties: %{ok: %OpenApiSpex.Schema{type: :boolean}},
     required: ["ok"]
   }
 
@@ -108,48 +105,25 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
     summary: "Create ACL Member",
     description: "Creates a new ACL member for a given ACL.",
     parameters: [
-      acl_id: [
-        in: :path,
-        description: "Access List ID",
-        type: :string,
-        required: true
-      ]
+      acl_id: [in: :path, description: "Access List ID", type: :string, required: true]
     ],
-    request_body: {
-      "ACL Member parameters",
-      "application/json",
-      @acl_member_create_request_schema
-    },
+    request_body: {"ACL Member parameters", "application/json", @acl_member_create_request_schema},
     responses: [
-      ok: {
-        "Created ACL Member",
-        "application/json",
-        @acl_member_create_response_schema
-      }
+      ok: {"Created ACL Member", "application/json", @acl_member_create_response_schema}
     ]
   def create(conn, %{"acl_id" => acl_id, "member" => member_params}) do
     chosen =
       cond do
-        Map.has_key?(member_params, "eve_corporation_id") ->
-          {"eve_corporation_id", "corporation"}
-
-        Map.has_key?(member_params, "eve_alliance_id") ->
-          {"eve_alliance_id", "alliance"}
-
-        Map.has_key?(member_params, "eve_character_id") ->
-          {"eve_character_id", "character"}
-
-        true ->
-          nil
+        Map.has_key?(member_params, "eve_corporation_id") -> {"eve_corporation_id", "corporation"}
+        Map.has_key?(member_params, "eve_alliance_id") -> {"eve_alliance_id", "alliance"}
+        Map.has_key?(member_params, "eve_character_id") -> {"eve_character_id", "character"}
+        true -> nil
       end
 
     if is_nil(chosen) do
       conn
       |> put_status(:bad_request)
-      |> json(%{
-        error:
-          "Missing one of eve_character_id, eve_corporation_id, or eve_alliance_id in payload"
-      })
+      |> json(%{error: "Missing one of eve_character_id, eve_corporation_id, or eve_alliance_id in payload"})
     else
       {key, type} = chosen
       raw_id = Map.get(member_params, key)
@@ -159,10 +133,7 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
       if type in ["corporation", "alliance"] and role in ["admin", "manager"] do
         conn
         |> put_status(:bad_request)
-        |> json(%{
-          error:
-            "#{String.capitalize(type)} members cannot have an admin or manager role"
-        })
+        |> json(%{error: "#{String.capitalize(type)} members cannot have an admin or manager role"})
       else
         info_fetcher =
           case type do
@@ -173,7 +144,6 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
 
         with {:ok, entity_info} <- info_fetcher.(id_str) do
           member_name = Map.get(entity_info, "name")
-
           new_params =
             member_params
             |> Map.drop(["eve_corporation_id", "eve_alliance_id", "eve_character_id"])
@@ -210,36 +180,14 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
     summary: "Update ACL Member Role",
     description: "Updates the role of an ACL member identified by ACL ID and member external ID.",
     parameters: [
-      acl_id: [
-        in: :path,
-        description: "Access List ID",
-        type: :string,
-        required: true
-      ],
-      member_id: [
-        in: :path,
-        description: "Member external ID",
-        type: :string,
-        required: true
-      ]
+      acl_id: [in: :path, description: "Access List ID", type: :string, required: true],
+      member_id: [in: :path, description: "Member external ID", type: :string, required: true]
     ],
-    request_body: {
-      "ACL Member update payload",
-      "application/json",
-      @acl_member_update_request_schema
-    },
+    request_body: {"ACL Member update payload", "application/json", @acl_member_update_request_schema},
     responses: [
-      ok: {
-        "Updated ACL Member",
-        "application/json",
-        @acl_member_update_response_schema
-      }
+      ok: {"Updated ACL Member", "application/json", @acl_member_update_response_schema}
     ]
-  def update_role(conn, %{
-        "acl_id" => acl_id,
-        "member_id" => external_id,
-        "member" => member_params
-      }) do
+  def update_role(conn, %{"acl_id" => acl_id, "member_id" => external_id, "member" => member_params}) do
     external_id_str = to_string(external_id)
 
     membership_query =
@@ -247,10 +195,10 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
       |> Ash.Query.new()
       |> filter(access_list_id == ^acl_id)
       |> filter(
-        eve_character_id == ^external_id_str or
-          eve_corporation_id == ^external_id_str or
-          eve_alliance_id == ^external_id_str
-      )
+           eve_character_id == ^external_id_str or
+             eve_corporation_id == ^external_id_str or
+             eve_alliance_id == ^external_id_str
+         )
 
     case WandererApp.Api.read(membership_query) do
       {:ok, [membership]} ->
@@ -267,31 +215,22 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
         if member_type in ["corporation", "alliance"] and new_role in ["admin", "manager"] do
           conn
           |> put_status(:bad_request)
-          |> json(%{
-            error:
-              "#{String.capitalize(member_type)} members cannot have an admin or manager role"
-          })
+          |> json(%{error: "#{String.capitalize(member_type)} members cannot have an admin or manager role"})
         else
           case AccessListMember.update_role(membership, member_params) do
             {:ok, updated_membership} ->
               json(conn, %{data: member_to_json(updated_membership)})
 
             {:error, error} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{error: inspect(error)})
+              conn |> put_status(:bad_request) |> json(%{error: inspect(error)})
           end
         end
 
       {:ok, []} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Membership not found for given ACL and external id"})
+        conn |> put_status(:not_found) |> json(%{error: "Membership not found for given ACL and external id"})
 
       {:error, error} ->
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: inspect(error)})
+        conn |> put_status(:internal_server_error) |> json(%{error: inspect(error)})
     end
   end
 
@@ -305,25 +244,11 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
     summary: "Delete ACL Member",
     description: "Deletes an ACL member identified by ACL ID and member external ID.",
     parameters: [
-      acl_id: [
-        in: :path,
-        description: "Access List ID",
-        type: :string,
-        required: true
-      ],
-      member_id: [
-        in: :path,
-        description: "Member external ID",
-        type: :string,
-        required: true
-      ]
+      acl_id: [in: :path, description: "Access List ID", type: :string, required: true],
+      member_id: [in: :path, description: "Member external ID", type: :string, required: true]
     ],
     responses: [
-      ok: {
-        "ACL Member deletion confirmation",
-        "application/json",
-        @acl_member_delete_response_schema
-      }
+      ok: {"ACL Member deletion confirmation", "application/json", @acl_member_delete_response_schema}
     ]
   def delete(conn, %{"acl_id" => acl_id, "member_id" => external_id}) do
     external_id_str = to_string(external_id)
@@ -333,47 +258,38 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
       |> Ash.Query.new()
       |> filter(access_list_id == ^acl_id)
       |> filter(
-        eve_character_id == ^external_id_str or
-          eve_corporation_id == ^external_id_str or
-          eve_alliance_id == ^external_id_str
-      )
+           eve_character_id == ^external_id_str or
+             eve_corporation_id == ^external_id_str or
+             eve_alliance_id == ^external_id_str
+         )
 
     case WandererApp.Api.read(membership_query) do
       {:ok, [membership]} ->
         case AccessListMember.destroy(membership) do
           :ok ->
             json(conn, %{ok: true})
-
           {:error, error} ->
-            conn
-            |> put_status(:bad_request)
-            |> json(%{error: inspect(error)})
+            conn |> put_status(:bad_request) |> json(%{error: inspect(error)})
         end
 
       {:ok, []} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Membership not found for given ACL and external id"})
+        conn |> put_status(:not_found) |> json(%{error: "Membership not found for given ACL and external id"})
 
       {:error, error} ->
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: inspect(error)})
+        conn |> put_status(:internal_server_error) |> json(%{error: inspect(error)})
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # Private Helpers
-  # ---------------------------------------------------------------------------
+  # ------------------------------------------------------------------------
+  # Private Helper Functions
+  # ------------------------------------------------------------------------
+
   @doc false
   defp member_to_json(member) do
     base = %{
       id: member.id,
       name: member.name,
       role: member.role,
-      eve_character_id: member.eve_character_id,
-      eve_corporation_id: member.eve_corporation_id,
-      eve_alliance_id: member.eve_alliance_id,
       inserted_at: member.inserted_at,
       updated_at: member.updated_at
     }

@@ -44,45 +44,26 @@ defmodule WandererAppWeb.CommonAPIController do
     summary: "Get System Static Information",
     description: "Retrieves static information for a given solar system.",
     parameters: [
-      id: [
-        in: :query,
-        description: "Solar system ID",
-        type: :string,
-        example: "30000142",
-        required: true
-      ]
+      id: [in: :query, description: "Solar system ID", type: :string, example: "30000142", required: true]
     ],
     responses: [
-      ok: {
-        "System static info",
-        "application/json",
-        @system_static_response_schema
-      }
+      ok: {"System static info", "application/json", @system_static_response_schema}
     ]
   def show_system_static(conn, params) do
     with {:ok, solar_system_str} <- Util.require_param(params, "id"),
-         {:ok, solar_system_id} <- Util.parse_int(solar_system_str) do
-      case CachedInfo.get_system_static_info(solar_system_id) do
-        {:ok, system} ->
-          data = static_system_to_json(system)
-          json(conn, %{data: data})
-
-        {:error, :not_found} ->
-          conn
-          |> put_status(:not_found)
-          |> json(%{error: "System not found"})
-      end
+         {:ok, solar_system_id} <- Util.parse_int(solar_system_str),
+         {:ok, system} <- CachedInfo.get_system_static_info(solar_system_id) do
+      json(conn, %{data: static_system_to_json(system)})
     else
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "System not found"})
       {:error, msg} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: msg})
+        conn |> put_status(:bad_request) |> json(%{error: msg})
     end
   end
 
   defp static_system_to_json(system) do
-    system
-    |> Map.take([
+    Map.take(system, [
       :solar_system_id,
       :region_id,
       :constellation_id,

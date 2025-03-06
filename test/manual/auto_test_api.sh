@@ -198,7 +198,7 @@ check_response() {
     local response=$1
     local endpoint=$2
 
-    if [ -z "$(echo "$response" | xargs)" ]; then
+    if [ -z "$(echo "$response" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')" ]; then
         if [ "$LAST_HTTP_CODE" = "200" ] || [ "$LAST_HTTP_CODE" = "204" ]; then
             print_success "Received empty response, which is valid"
             LAST_JSON_RESPONSE="{}"
@@ -269,6 +269,7 @@ get_random_item() {
 #------------------------------------------------------------------------------
 # API Test Functions
 #------------------------------------------------------------------------------
+
 test_list_characters() {
     print_header "Testing GET /api/characters"
     print_success "Calling API: GET /api/characters"
@@ -354,7 +355,7 @@ test_map_system() {
     response=$(call_api "GET" "/api/map/system?slug=$MAP_SLUG&id=$SELECTED_SYSTEM_ID" "$MAP_API_KEY")
     print_warning "Response: $response"
     local trimmed_response
-    trimmed_response=$(echo "$response" | xargs)
+    trimmed_response=$(echo "$response" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     if [[ "$trimmed_response" == "{}" || "$trimmed_response" == '{"data":{}}' ]]; then
         print_success "Received empty JSON response, which is valid"
         record_test_result "GET /api/map/system" "success" "Received valid empty response"
@@ -422,7 +423,7 @@ test_map_structure_timers() {
     local response
     response=$(call_api "GET" "/api/map/structure-timers?slug=$MAP_SLUG" "$MAP_API_KEY")
     local trimmed_response
-    trimmed_response=$(echo "$response" | xargs)
+    trimmed_response=$(echo "$response" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     if [[ "$trimmed_response" == '{"data":[]}' ]]; then
         print_success "Found 0 structure timers"
         record_test_result "GET /api/map/structure-timers" "success" "Found 0 structure timers"
@@ -440,7 +441,7 @@ test_map_structure_timers() {
         filtered_response=$(call_api "GET" "/api/map/structure-timers?slug=$MAP_SLUG&system_id=$SELECTED_SYSTEM_ID" "$MAP_API_KEY")
         print_warning "(Structure Timers) - Filtered response: $filtered_response"
         local trimmed_filtered
-        trimmed_filtered=$(echo "$filtered_response" | xargs)
+        trimmed_filtered=$(echo "$filtered_response" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         if [[ "$trimmed_filtered" == '{"data":[]}' ]]; then
             print_success "Found 0 filtered structure timers"
             record_test_result "GET /api/map/structure-timers (filtered)" "success" "Found 0 filtered structure timers"
@@ -496,7 +497,7 @@ test_map_systems_kills() {
     local filtered_response
     filtered_response=$(call_api "GET" "$filter_url" "$MAP_API_KEY")
     local trimmed_filtered
-    trimmed_filtered=$(echo "$filtered_response" | xargs)
+    trimmed_filtered=$(echo "$filtered_response" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     if [[ "$trimmed_filtered" == '{"data":[]}' ]]; then
         print_success "Found 0 filtered systems with kill data"
         record_test_result "GET /api/map/systems-kills (filtered)" "success" "Found 0 filtered systems with kill data"
@@ -854,7 +855,7 @@ run_all_tests() {
 
     if [ "$VERBOSE_SUMMARY" -eq 1 ]; then
       summary_json=$(jq -n --arg total "$total_tests" --arg passed "$passed_tests" --arg failed "$failed_tests" \
-         '{total_tests: $total_tests|tonumber, passed: $passed|tonumber, failed: $failed|tonumber}')
+         '{total_tests: $total|tonumber, passed: $passed|tonumber, failed: $failed|tonumber}')
       echo "JSON Summary:"; echo "$summary_json" | jq .
     fi
 

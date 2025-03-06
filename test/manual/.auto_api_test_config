@@ -1,13 +1,13 @@
 # Wanderer API Testing Tool Configuration
-# Generated on Thu Mar  6 18:44:20 UTC 2025
+# Generated on Thu Mar  6 21:00:15 UTC 2025
 
 # Base configuration
 HOST="http://localhost:4444"
 MAP_SLUG="flygd"
 MAP_API_KEY="589016d9-c9ac-48ef-ae74-7a55483b3cc2"
-ACL_API_KEY="116bd70e-2bbf-4a99-97ed-1869c09ab5bf"
+ACL_API_KEY="1293a325-1749-4351-8140-132e1e1a44e4"
 
 # Selected IDs
-SELECTED_ACL_ID="9c91d283-f49f-4f45-a21d-9bf53ce9d1fd"
-SELECTED_SYSTEM_ID="30002768"
+SELECTED_ACL_ID="b7fa6d72-9854-4226-82b3-2cfe44346a34"
+SELECTED_SYSTEM_ID="30005196"
 CHARACTER_EVE_ID="2115754172"

@@ -1,10 +1,10 @@
 defmodule WandererAppWeb.CharactersAPIController do
   @moduledoc """
-  Exposes an endpoint for listing ALL characters in the database
+  Exposes an endpoint for listing ALL characters in the database.
   """
-
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
+
   alias WandererApp.Api.Character
 
   @characters_index_response_schema %OpenApiSpex.Schema{
@@ -36,27 +36,23 @@ defmodule WandererAppWeb.CharactersAPIController do
     summary: "List Characters",
     description: "Lists ALL characters in the database.",
     responses: [
-      ok: {
-        "List of characters",
-        "application/json",
-        @characters_index_response_schema
-      }
+      ok: {"List of characters", "application/json", @characters_index_response_schema}
     ]
   def index(conn, _params) do
-    case WandererApp.Api.read(Character) do
-      {:ok, characters} ->
-        result =
-          characters
-          |> Enum.map(&%{
-            id: &1.id,
-            eve_id: &1.eve_id,
-            name: &1.name,
-            corporation_name: &1.corporation_name,
-            alliance_name: &1.alliance_name
-          })
+    with {:ok, characters} <- WandererApp.Api.read(Character) do
+      result =
+        Enum.map(characters, fn ch ->
+          %{
+            id: ch.id,
+            eve_id: ch.eve_id,
+            name: ch.name,
+            corporation_name: ch.corporation_name,
+            alliance_name: ch.alliance_name
+          }
+        end)
 
-        json(conn, %{data: result})
-
+      json(conn, %{data: result})
+    else
       {:error, error} ->
         conn
         |> put_status(:internal_server_error)
