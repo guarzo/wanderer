@@ -113,7 +113,7 @@ defmodule WandererApp.Api.MapSystem do
     end
 
     update :update_owner do
-      accept [:owner_id, :owner_type]
+      accept [:owner_id, :owner_type, :owner_ticker]
     end
 
     update :update_owner_id do
@@ -180,6 +180,10 @@ defmodule WandererApp.Api.MapSystem do
     end
 
     attribute :owner_type, :string do
+      allow_nil? true
+    end
+
+    attribute :owner_ticker, :string do
       allow_nil? true
     end
 

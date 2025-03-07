@@ -130,8 +130,17 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   end
 
   def update_system_owner(state, update) do
+    require Logger
+
+    # Ensure owner_ticker is included in the update
+    update = if Map.has_key?(update, :owner_ticker) do
+      update
+    else
+      Map.put(update, :owner_ticker, nil)
+    end
+
     state
-    |> update_system(:update_owner, [:owner_type, :owner_id], update)
+    |> update_system(:update_owner, [:owner_type, :owner_id, :owner_ticker], update)
   end
 
   def update_system_custom_flags(
@@ -527,6 +536,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
          update,
          callback_fn \\ nil
        ) do
+    require Logger
+
     with :ok <- WandererApp.Map.update_system_by_solar_system_id(map_id, update),
          {:ok, system} <-
            WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
@@ -534,6 +545,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
              update.solar_system_id
            ),
          {:ok, update_map} <- Impl.get_update_map(update, attributes) do
+
       {:ok, updated_system} =
         apply(WandererApp.MapSystemRepo, update_method, [
           system,
