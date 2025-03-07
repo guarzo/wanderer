@@ -128,8 +128,25 @@ defmodule WandererApp.MapSystemRepo do
   end
 
   def update_owner(system, update) do
-    system
-    |> WandererApp.Api.MapSystem.update_owner(update)
+    require Logger
+
+    # Ensure we have a clean update map with all required fields
+    # Convert empty strings to nil for owner_ticker
+    ticker = case Map.get(update, :owner_ticker) do
+      "" -> nil
+      ticker -> ticker
+    end
+
+    clean_update = %{
+      owner_id: Map.get(update, :owner_id),
+      owner_type: Map.get(update, :owner_type),
+      owner_ticker: ticker
+    }
+
+    result = system
+    |> WandererApp.Api.MapSystem.update_owner(clean_update)
+
+    result
   end
 
   def update_custom_flags(system, update) do

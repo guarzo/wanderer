@@ -1,7 +1,7 @@
-import { ConnectionType, MassState, ShipSizeStatus } from '@/hooks/Mapper/types';
-import { FaIndustry, FaExclamationTriangle, FaHourglassEnd } from 'react-icons/fa';
-import { MdOutlineBlock, MdLocalFireDepartment } from 'react-icons/md';
-import { GiBlackHoleBolas, GiSparkles } from 'react-icons/gi';
+import { ConnectionType, MassState, ShipSizeStatus } from '../../types';
+import { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER } from './labelIconMap';
+export type { LabelIcon, LabelInfo } from './labelIconMap';
+export { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER };
 
 export enum SOLAR_SYSTEM_CLASS_IDS {
   ccp1 = -1,
@@ -660,94 +660,6 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   wormholeLoop: 'eve-zoo-effect-color-wormhole-loop',
 };
 
-// Extend the LABELS enum with new wormhole keys
-export enum LABELS {
-  clear = 'clear',
-  la = 'de',
-  lb = 'gas',
-  lc = 'eol',
-  l1 = 'crit',
-  l2 = 'structure',
-  l3 = 'sparkles',
-  l4 = 'bolas',
-  l5 = 'infinity',
-  l6 = 'planet',
-  l7 = 'loop',
-}
-
-export type LabelIcon = {
-  icon: React.ReactNode;
-  colorClass: string;
-  backgroundColor: string;
-};
-
-export type LabelInfo = {
-  id: string;
-  name: string;
-  shortName: string;
-  icon: string;
-};
-
-// Mapping each label to its icon, text class, and background color.
-// Note: Feel free to tweak the colors below.
-export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
-  // Dead End: 🚫 "No Entry"
-  [LABELS.la]: {
-    icon: <MdOutlineBlock size={8} color="#FFFFFF" />,
-    colorClass: 'text-white',
-    backgroundColor: '#8B0000', // Dark Red
-  },
-  // Gas Cloud: 🏭 "Harvestable Resource"
-  [LABELS.lb]: {
-    icon: <FaIndustry size={8} color="#004D40" />, // Dark Cyan
-    colorClass: 'text-cyan-900',
-    backgroundColor: '#00BFA5', // Greenish-Cyan
-  },
-  // End of Life (EOL): ⏳ "Fading Time"
-  [LABELS.lc]: {
-    icon: <FaHourglassEnd size={8} color="#FFFFFF" />, // White hourglass
-    colorClass: 'text-white',
-    backgroundColor: '#FF4500', // Orange-Red
-  },
-  // Critically Closing (CRIT): ⚠️ "Danger, Closing Soon"
-  [LABELS.l1]: {
-    icon: <FaExclamationTriangle size={8} color="#FFFFFF" />,
-    colorClass: 'text-white',
-    backgroundColor: '#B22222', // Firebrick Red
-  },
-  // Low Power Structure (🔥 More Contrast)
-  [LABELS.l2]: {
-    icon: <MdLocalFireDepartment size={8} color="#FFD700" />, // Bright Gold Fire
-    colorClass: 'text-yellow-500',
-    backgroundColor: '#5D1E1E', // Deep Maroon
-  },
-  [LABELS.l3]: {
-    icon: <GiSparkles fill="#38bdf8" />, // Gold Icon
-    colorClass: 'text-yellow-500',
-    backgroundColor: '#2C3E50', // Dark Blue
-  },
-  [LABELS.l4]: {
-    icon: <GiBlackHoleBolas size={8} color="#38bdf8" />,
-    colorClass: 'text-white',
-    backgroundColor: '#2C3E50', // Indigo
-  },
-};
-
-// Additional label info for tooltips or lists, etc.
-export const LABELS_INFO: Record<string, LabelInfo> = {
-  [LABELS.clear]: { id: 'clear', name: 'Clear', shortName: '', icon: '' },
-  [LABELS.la]: { id: 'de', name: 'Dead End', shortName: 'DE', icon: '' },
-  [LABELS.lb]: { id: 'gas', name: 'Gas', shortName: 'GAS', icon: '' },
-  [LABELS.lc]: { id: 'eol', name: 'Eol', shortName: 'EOL', icon: '' },
-  [LABELS.l1]: { id: 'crit', name: 'Crit', shortName: 'CRIT', icon: '' },
-  [LABELS.l2]: { id: 'structure', name: 'Structure', shortName: 'LP', icon: '' },
-  // [LABELS.l3]: { id: 'sparkles', name: 'Sparkles', shortName: 'SP', icon: '' },
-  // [LABELS.l4]: { id: 'bolas', name: 'bolas', shortName: 'BL', icon: '' },
-  // [LABELS.l5]: { id: 'infinity', name: 'Infinity', shortName: 'WI', icon: '' },
-  // [LABELS.l6]: { id: 'planet', name: 'Planet', shortName: 'WP', icon: '' },
-  // [LABELS.l7]: { id: 'loop', name: 'Loop', shortName: 'WL', icon: '' },
-};
-
 export enum STATUSES {
   unknown,
   home,
@@ -777,8 +689,6 @@ export const STATUSES_ORDER = [
   STATUSES.target,
   STATUSES.dangerous,
 ];
-
-export const LABELS_ORDER = [LABELS.clear, LABELS.la, LABELS.lb, LABELS.lc, LABELS.l1, LABELS.l2];
 
 export const STATUS_COLOR_CLASSES: Record<number, string> = {
   [STATUSES.unknown]: 'eve-system-status-color-clear',
@@ -830,6 +740,7 @@ export const SHIP_SIZES_NAMES = {
   [ShipSizeStatus.freight]: 'Huge',
   [ShipSizeStatus.capital]: 'Capital',
 };
+
 export const SHIP_SIZES_SIZE = {
   [ShipSizeStatus.small]: '5K',
   [ShipSizeStatus.medium]: '62K',
