@@ -11,9 +11,12 @@ export const useMapUpdated = () => {
   return useCallback(({ hubs }: CommandMapUpdated) => {
     const { update } = ref.current;
 
+    console.log('useMapUpdated called with:', { hubs });
+
     const out: Partial<MapRootData> = {};
 
     if (hubs) {
+      console.log('Updating hubs in MapRootData:', hubs);
       out.hubs = hubs;
     }
 

@@ -22,6 +22,11 @@ export const useLoadRoutes = () => {
     data: { selectedSystems, hubs, systems, connections, routes },
   } = useMapRootState();
 
+  // Add debug logging for hubs
+  useEffect(() => {
+    console.log('useLoadRoutes - hubs changed:', hubs);
+  }, [hubs]);
+
   const prevSys = usePrevious(systems);
   const ref = useRef({ prevSys, selectedSystems });
   ref.current = { prevSys, selectedSystems };
@@ -31,6 +36,7 @@ export const useLoadRoutes = () => {
 
   const loadRoutes = useCallback(
     (systemId: string, routesSettings: RoutesType) => {
+      console.log('loadRoutes called with hubs:', hubs);
       setLoading(true);
       outCommand({
         type: OutCommand.getRoutes,
@@ -42,7 +48,7 @@ export const useLoadRoutes = () => {
         setLoading(false);
       });
     },
-    [outCommand],
+    [outCommand, hubs],
   );
 
   useEffect(() => {
@@ -51,6 +57,7 @@ export const useLoadRoutes = () => {
     }
 
     const [systemId] = selectedSystems;
+    console.log('Triggering loadRoutes with hubs:', hubs);
     loadRoutes(systemId, routesSettings);
   }, [loadRoutes, selectedSystems, systems?.length, connections, hubs, routesSettings, routesSettingsString]);
 

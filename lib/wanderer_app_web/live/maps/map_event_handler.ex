@@ -88,7 +88,8 @@ defmodule WandererAppWeb.MapEventHandler do
   ]
 
   @map_routes_events [
-    :routes
+    :routes,
+    :hubs_updated
   ]
 
   @map_routes_ui_events [

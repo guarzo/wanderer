@@ -25,23 +25,38 @@ defmodule WandererAppWeb.MapUserSettingsEventHandler do
         %{"key" => key, "settings" => settings} = _params,
         socket
       ) do
-    %{assigns: %{current_user: current_user, map: map}} = socket
+    # Handle both cases: when socket has map or map_id
+    {current_user, map_id} = case socket.assigns do
+      %{current_user: current_user, map: %{id: map_id}} ->
+        {current_user, map_id}
+      %{current_user: current_user, map_id: map_id} ->
+        {current_user, map_id}
+    end
+
+    Logger.info("=== SAVE USER SETTINGS START (User: #{current_user.id}) ===")
+    Logger.info("Key: #{key}")
+    Logger.info("Settings to save: #{inspect(settings)}")
 
     # Validate settings based on key
     case validate_settings(key, settings) do
       {:ok, validated_settings} ->
-        case Settings.save_user_settings(current_user.id, map.id, key, validated_settings) do
+        Logger.info("Validated settings: #{inspect(validated_settings)}")
+
+        case Settings.save_user_settings(current_user.id, map_id, key, validated_settings) do
           {:ok, _settings} ->
-            Logger.debug("Successfully saved user settings for key: #{key}")
+            Logger.info("Successfully saved user settings for user #{current_user.id}, key: #{key}")
+            Logger.info("=== SAVE USER SETTINGS END (User: #{current_user.id}) ===")
             {:noreply, socket}
 
           {:error, error} ->
-            Logger.error("Failed to save settings: #{inspect(error)}")
+            Logger.error("Failed to save settings for user #{current_user.id}: #{inspect(error)}")
+            Logger.info("=== SAVE USER SETTINGS END (User: #{current_user.id}) - ERROR ===")
             {:noreply, put_flash(socket, :error, "Failed to save settings. Please try again.")}
         end
 
       {:error, reason} ->
-        Logger.error("Invalid settings: #{inspect(reason)}")
+        Logger.error("Invalid settings for user #{current_user.id}: #{inspect(reason)}")
+        Logger.info("=== SAVE USER SETTINGS END (User: #{current_user.id}) - ERROR ===")
         {:noreply, put_flash(socket, :error, "Invalid settings format. Please check your input.")}
     end
   end
@@ -51,17 +66,29 @@ defmodule WandererAppWeb.MapUserSettingsEventHandler do
         %{"key" => key} = _params,
         socket
       ) do
-    %{assigns: %{current_user: current_user, map: map}} = socket
+    # Handle both cases: when socket has map or map_id
+    {current_user, map_id} = case socket.assigns do
+      %{current_user: current_user, map: %{id: map_id}} ->
+        {current_user, map_id}
+      %{current_user: current_user, map_id: map_id} ->
+        {current_user, map_id}
+    end
+
+    Logger.info("=== GET USER SETTINGS START (User: #{current_user.id}) ===")
+    Logger.info("Key: #{key}")
 
     settings =
-      case Settings.get_user_settings(current_user.id, map.id, key) do
+      case Settings.get_user_settings(current_user.id, map_id, key) do
         {:ok, settings} ->
-          Logger.debug("Retrieved user settings for key: #{key}")
+          Logger.info("Retrieved user settings for user #{current_user.id}, key: #{key}: #{inspect(settings)}")
           settings
         {:error, error} ->
-          Logger.debug("No settings found for key: #{key}, error: #{inspect(error)}")
+          Logger.info("No settings found for user #{current_user.id}, key: #{key}, error: #{inspect(error)}")
           %{}
       end
+
+    Logger.info("Pushing settings to client: #{inspect(settings)}")
+    Logger.info("=== GET USER SETTINGS END (User: #{current_user.id}) ===")
 
     push_event(socket, "user_settings", %{key: key, settings: settings})
     {:noreply, socket}
@@ -79,34 +106,43 @@ defmodule WandererAppWeb.MapUserSettingsEventHandler do
 
   # Validate settings based on key
   defp validate_settings("routes", settings) when is_map(settings) do
-    # Validate required fields for routes settings
-    with {:ok, path_type} <- validate_path_type(settings),
-         {:ok, avoid_wormholes} <- validate_boolean(settings, "avoid_wormholes"),
-         {:ok, include_mass_crit} <- validate_boolean(settings, "include_mass_crit"),
-         {:ok, include_eol} <- validate_boolean(settings, "include_eol"),
-         {:ok, include_frig} <- validate_boolean(settings, "include_frig"),
-         {:ok, include_cruise} <- validate_boolean(settings, "include_cruise"),
-         {:ok, avoid_pochven} <- validate_boolean(settings, "avoid_pochven"),
-         {:ok, avoid_edencom} <- validate_boolean(settings, "avoid_edencom"),
-         {:ok, avoid_triglavian} <- validate_boolean(settings, "avoid_triglavian"),
-         {:ok, include_thera} <- validate_boolean(settings, "include_thera"),
-         {:ok, avoid} <- validate_avoid_list(settings) do
-      # Return validated settings
-      {:ok, %{
-        "path_type" => path_type,
-        "avoid_wormholes" => avoid_wormholes,
-        "include_mass_crit" => include_mass_crit,
-        "include_eol" => include_eol,
-        "include_frig" => include_frig,
-        "include_cruise" => include_cruise,
-        "avoid_pochven" => avoid_pochven,
-        "avoid_edencom" => avoid_edencom,
-        "avoid_triglavian" => avoid_triglavian,
-        "include_thera" => include_thera,
-        "avoid" => avoid
-      }}
+    # Try to extract values with both string and atom keys
+    path_type = Map.get(settings, "path_type", Map.get(settings, :path_type, "shortest"))
+    avoid_wormholes = Map.get(settings, "avoid_wormholes", Map.get(settings, :avoid_wormholes, false))
+    include_mass_crit = Map.get(settings, "include_mass_crit", Map.get(settings, :include_mass_crit, true))
+    include_eol = Map.get(settings, "include_eol", Map.get(settings, :include_eol, true))
+    include_frig = Map.get(settings, "include_frig", Map.get(settings, :include_frig, true))
+    include_cruise = Map.get(settings, "include_cruise", Map.get(settings, :include_cruise, true))
+    avoid_pochven = Map.get(settings, "avoid_pochven", Map.get(settings, :avoid_pochven, false))
+    avoid_edencom = Map.get(settings, "avoid_edencom", Map.get(settings, :avoid_edencom, false))
+    avoid_triglavian = Map.get(settings, "avoid_triglavian", Map.get(settings, :avoid_triglavian, false))
+    include_thera = Map.get(settings, "include_thera", Map.get(settings, :include_thera, true))
+    avoid = Map.get(settings, "avoid", Map.get(settings, :avoid, []))
+    hubs = Map.get(settings, "hubs", Map.get(settings, :hubs, []))
+
+    # Remove any timestamp or other non-route settings
+    # This ensures we only store the actual route settings
+    clean_settings = %{
+      "path_type" => path_type,
+      "avoid_wormholes" => to_boolean(avoid_wormholes),
+      "include_mass_crit" => to_boolean(include_mass_crit),
+      "include_eol" => to_boolean(include_eol),
+      "include_frig" => to_boolean(include_frig),
+      "include_cruise" => to_boolean(include_cruise),
+      "avoid_pochven" => to_boolean(avoid_pochven),
+      "avoid_edencom" => to_boolean(avoid_edencom),
+      "avoid_triglavian" => to_boolean(avoid_triglavian),
+      "include_thera" => to_boolean(include_thera),
+      "avoid" => ensure_list(avoid),
+      "hubs" => ensure_list(hubs)
+    }
+
+    # Validate path_type
+    if path_type not in ["shortest", "secure", "insecure"] do
+      {:error, "Invalid path_type: #{path_type}. Must be one of: shortest, secure, insecure"}
     else
-      {:error, reason} -> {:error, reason}
+      # Return validated settings with string keys for consistency
+      {:ok, clean_settings}
     end
   end
 
@@ -119,51 +155,15 @@ defmodule WandererAppWeb.MapUserSettingsEventHandler do
     {:error, "Settings must be a map"}
   end
 
-  # Validate path_type
-  defp validate_path_type(%{"path_type" => path_type}) when path_type in ["shortest", "secure", "insecure"] do
-    {:ok, path_type}
-  end
+  # Helper to ensure value is a boolean
+  defp to_boolean(value) when is_boolean(value), do: value
+  defp to_boolean("true"), do: true
+  defp to_boolean("false"), do: false
+  defp to_boolean(1), do: true
+  defp to_boolean(0), do: false
+  defp to_boolean(_), do: false
 
-  defp validate_path_type(%{"path_type" => path_type}) do
-    {:error, "Invalid path_type: #{path_type}. Must be one of: shortest, secure, insecure"}
-  end
-
-  defp validate_path_type(_) do
-    {:ok, "shortest"} # Default value
-  end
-
-  # Validate boolean fields
-  defp validate_boolean(%{} = settings, key) do
-    case Map.get(settings, key) do
-      nil -> {:ok, false} # Default value
-      true -> {:ok, true}
-      false -> {:ok, false}
-      value when is_binary(value) ->
-        case String.downcase(value) do
-          "true" -> {:ok, true}
-          "false" -> {:ok, false}
-          _ -> {:error, "Invalid boolean value for #{key}: #{value}"}
-        end
-      value -> {:error, "Invalid boolean value for #{key}: #{inspect(value)}"}
-    end
-  end
-
-  # Validate avoid list
-  defp validate_avoid_list(%{"avoid" => avoid}) when is_list(avoid) do
-    # Ensure all items in the list are strings or integers
-    valid_avoid = Enum.all?(avoid, fn item ->
-      is_binary(item) or is_integer(item)
-    end)
-
-    if valid_avoid do
-      # Convert all items to strings for consistency
-      {:ok, Enum.map(avoid, &to_string/1)}
-    else
-      {:error, "Invalid avoid list: all items must be strings or integers"}
-    end
-  end
-
-  defp validate_avoid_list(_) do
-    {:ok, []} # Default value
-  end
+  # Helper to ensure value is a list
+  defp ensure_list(value) when is_list(value), do: value
+  defp ensure_list(_), do: []
 end
