@@ -324,12 +324,21 @@ defmodule WandererApp.Map.Server.Impl do
       not WandererApp.Cache.lookup!("map_#{map_id}:importing", false) and
         WandererApp.Cache.lookup!("map_#{map_id}:started", false)
 
-  def get_update_map(update, attributes),
-    do:
-      {:ok,
+  def get_update_map(update, attributes) do
+    require Logger
+    # Check if this is an owner update
+    is_owner_update = Enum.any?(attributes, fn attr ->
+      attr == :owner_type || attr == :owner_id || attr == :owner_ticker
+    end)
+
+    result = {:ok,
        Enum.reduce(attributes, Map.new(), fn attribute, map ->
-         map |> Map.put_new(attribute, get_in(update, [Access.key(attribute)]))
+         value = get_in(update, [Access.key(attribute)])
+         map |> Map.put_new(attribute, value)
        end)}
+
+    result
+  end
 
   defp map_options(options) do
     [
