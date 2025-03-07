@@ -350,9 +350,14 @@ defmodule WandererAppWeb.MapEventHandler do
           custom_flags: custom_flags,
           status: status,
           visible: visible
-        } = _system,
+        } = system,
         _include_static_data? \\ true
       ) do
+    require Logger
+
+    # Check if the system has an owner_ticker field
+    owner_ticker = Map.get(system, :owner_ticker)
+
     system_static_info = get_system_static_info(solar_system_id)
 
     system_signatures =
@@ -362,7 +367,25 @@ defmodule WandererAppWeb.MapEventHandler do
         is_nil(signature.linked_system) && signature.group == "Wormhole"
       end)
 
-    %{
+    # Handle the case where owner_ticker is an empty string
+    final_owner_ticker = case owner_ticker do
+      "" -> nil
+      ticker -> ticker
+    end
+
+    # Handle the case where owner_type is an empty string
+    final_owner_type = case owner_type do
+      "" -> nil
+      type -> type
+    end
+
+    # Handle the case where owner_id is an empty string
+    final_owner_id = case owner_id do
+      "" -> nil
+      id -> id
+    end
+
+    result = %{
       id: "#{solar_system_id}",
       position: %{x: position_x, y: position_y},
       description: description,
@@ -375,11 +398,14 @@ defmodule WandererAppWeb.MapEventHandler do
       status: status,
       tag: tag,
       temporary_name: temporary_name,
-      owner_type: owner_type,
-      owner_id: owner_id,
+      owner_type: final_owner_type,
+      owner_id: final_owner_id,
+      owner_ticker: final_owner_ticker,
       custom_flags: custom_flags,
       visible: visible
     }
+
+    result
   end
 
   def map_ui_system_static_info(nil), do: %{}
