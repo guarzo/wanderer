@@ -21,14 +21,17 @@ defmodule WandererAppWeb.MapEventHandler do
     :character_removed,
     :character_updated,
     :characters_updated,
-    :present_characters_updated
+    :present_characters_updated,
+    :tracking_characters_data
   ]
 
   @map_characters_ui_events [
     "add_character",
     "toggle_track",
     "toggle_follow",
-    "hide_tracking"
+    "hide_tracking",
+    "show_tracking",
+    "refresh_characters"
   ]
 
   @map_system_events [
