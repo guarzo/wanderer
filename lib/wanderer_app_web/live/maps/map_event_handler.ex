@@ -12,7 +12,8 @@ defmodule WandererAppWeb.MapEventHandler do
     MapSignaturesEventHandler,
     MapSystemsEventHandler,
     MapStructuresEventHandler,
-    MapKillsEventHandler
+    MapKillsEventHandler,
+    MapUserSettingsEventHandler
   }
 
   @map_characters_events [
@@ -130,6 +131,11 @@ defmodule WandererAppWeb.MapEventHandler do
     "get_systems_kills"
   ]
 
+  @map_user_settings_ui_events [
+    "save_user_settings",
+    "get_user_settings"
+  ]
+
   def handle_event(socket, %{event: event_name} = event)
       when event_name in @map_characters_events,
       do: MapCharactersEventHandler.handle_server_event(event, socket)
@@ -244,6 +250,10 @@ defmodule WandererAppWeb.MapEventHandler do
       )
       when event in @map_kills_ui_events,
       do: MapKillsEventHandler.handle_ui_event(event, body, socket)
+
+  def handle_ui_event(event, body, socket)
+      when event in @map_user_settings_ui_events,
+      do: MapUserSettingsEventHandler.handle_ui_event(event, body, socket)
 
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
