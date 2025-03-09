@@ -4,6 +4,7 @@ defmodule WandererApp.Map do
   it
   """
   require Logger
+  alias WandererApp.Utils.EVEUtil
 
   defstruct map_id: nil,
             name: nil,
@@ -521,4 +522,153 @@ defmodule WandererApp.Map do
 
   defp _maybe_limit_list(list, nil), do: list
   defp _maybe_limit_list(list, limit), do: Enum.take(list, limit)
+
+  @doc """
+  Gets character activity data for a map.
+  Returns a list of character activity records with passages, connections, and signatures.
+  Only includes characters that are on the map's ACL.
+  """
+  def get_character_activity(map_id) do
+    {:ok, map} = WandererApp.Api.Map.by_id(map_id)
+    map = Ash.load!(map, :acls)
+
+    acl_data = get_acl_data(map)
+    activity_data = get_activity_data(map_id)
+
+    build_character_activity(activity_data.jumps, map, acl_data, activity_data)
+  end
+
+  defp get_acl_data(map) do
+    map_acls = map.acls |> Enum.map(fn acl -> acl |> Ash.load!(:members) end)
+
+    %{
+      owner_ids: map_acls |> Enum.map(& &1.owner_id),
+      member_eve_ids: get_member_eve_ids(map_acls),
+      member_corporation_ids: get_member_corporation_ids(map_acls),
+      member_alliance_ids: get_member_alliance_ids(map_acls)
+    }
+  end
+
+  defp get_member_eve_ids(map_acls) do
+    map_acls
+    |> get_active_members()
+    |> Enum.filter(&(not is_nil(&1.eve_character_id)))
+    |> Enum.map(& &1.eve_character_id)
+  end
+
+  defp get_member_corporation_ids(map_acls) do
+    map_acls
+    |> get_active_members()
+    |> Enum.filter(&(not is_nil(&1.eve_corporation_id)))
+    |> Enum.map(& &1.eve_corporation_id)
+  end
+
+  defp get_member_alliance_ids(map_acls) do
+    map_acls
+    |> get_active_members()
+    |> Enum.filter(&(not is_nil(&1.eve_alliance_id)))
+    |> Enum.map(& &1.eve_alliance_id)
+  end
+
+  defp get_active_members(map_acls) do
+    map_acls
+    |> Enum.map(& &1.members)
+    |> List.flatten()
+    |> Enum.filter(&(&1.role != :blocked))
+  end
+
+  defp get_activity_data(map_id) do
+    {:ok, jumps} = WandererApp.Api.MapChainPassages.by_map_id(%{map_id: map_id})
+    thirty_days_ago = DateTime.utc_now() |> DateTime.add(-30 * 24 * 3600, :second)
+
+    %{
+      jumps: jumps,
+      connections: get_connections_activity(map_id, thirty_days_ago),
+      signatures: get_signatures_activity(map_id, thirty_days_ago)
+    }
+  end
+
+  defp get_connections_activity(map_id, thirty_days_ago) do
+    import Ecto.Query
+
+    from(ua in WandererApp.Api.UserActivity,
+      join: c in assoc(ua, :character),
+      where:
+        ua.entity_id == ^map_id and
+          ua.entity_type == :map and
+          ua.event_type == :map_connection_added and
+          ua.inserted_at > ^thirty_days_ago,
+      group_by: [c.id],
+      select: {c.id, count(ua.id)}
+    )
+    |> WandererApp.Repo.all()
+    |> Map.new()
+  end
+
+  defp get_signatures_activity(map_id, thirty_days_ago) do
+    import Ecto.Query
+
+    from(ua in WandererApp.Api.UserActivity,
+      join: c in assoc(ua, :character),
+      where:
+        ua.entity_id == ^map_id and
+          ua.entity_type == :map and
+          ua.event_type == :signatures_added and
+          ua.inserted_at > ^thirty_days_ago,
+      select: {ua.character_id, ua.event_data}
+    )
+    |> WandererApp.Repo.all()
+    |> process_signatures_data()
+  end
+
+  defp process_signatures_data(signatures_data) do
+    signatures_data
+    |> Enum.group_by(fn {character_id, _} -> character_id end)
+    |> Enum.map(&process_character_signatures/1)
+    |> Map.new()
+  end
+
+  defp process_character_signatures({character_id, activities}) do
+    signature_count =
+      activities
+      |> Enum.map(fn {_, event_data} ->
+        case Jason.decode(event_data) do
+          {:ok, data} -> length(Map.get(data, "signatures", []))
+          _ -> 0
+        end
+      end)
+      |> Enum.sum()
+
+    {character_id, signature_count}
+  end
+
+  defp build_character_activity(jumps, map, acl_data, activity_data) do
+    jumps
+    |> Enum.filter(&character_in_acl?(&1, map, acl_data))
+    |> Enum.map(&build_character_record(&1, activity_data))
+  end
+
+  defp character_in_acl?(passage, map, acl_data) do
+    passage.character.id == map.owner_id or
+      passage.character.id in acl_data.owner_ids or
+      passage.character.eve_id in acl_data.member_eve_ids or
+      (not is_nil(passage.character.corporation_id) and
+         to_string(passage.character.corporation_id) in acl_data.member_corporation_ids) or
+      (not is_nil(passage.character.alliance_id) and
+         to_string(passage.character.alliance_id) in acl_data.member_alliance_ids)
+  end
+
+  defp build_character_record(passage, activity_data) do
+    %{
+      character_name: passage.character.name,
+      corporation_ticker: passage.character.corporation_ticker,
+      alliance_ticker: passage.character.alliance_ticker || "",
+      portrait_url: EVEUtil.get_portrait_url(passage.character.eve_id, 64),
+      passages: passage.count,
+      connections: Map.get(activity_data.connections, passage.character.id, 0),
+      signatures: Map.get(activity_data.signatures, passage.character.id, 0),
+      timestamp: DateTime.utc_now(),
+      character_eve_id: passage.character.eve_id
+    }
+  end
 end
