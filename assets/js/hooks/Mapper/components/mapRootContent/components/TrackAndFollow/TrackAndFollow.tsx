@@ -28,15 +28,16 @@ export const TrackAndFollow = ({ visible, onHide }: TrackAndFollowProps) => {
   const characters = useMemo(() => trackingCharactersData || [], [trackingCharactersData]);
 
   useEffect(() => {
-    if (!visible || characters.length === 0) {
+    if (!visible) {
       return;
     }
+
     const tracked = characters.filter(char => char.tracked).map(char => char.id);
     setTrackedCharacters(tracked);
 
     const followed = characters.find(char => char.followed);
     setFollowedCharacter(followed ? followed.id : null);
-  }, [visible, characters]);
+  }, [visible, characters, onHide]);
 
   const handleTrackToggle = (characterId: string) => {
     setTrackedCharacters(prev => {
