@@ -1,6 +1,5 @@
 import { MdOutlineBlock, MdLocalFireDepartment } from 'react-icons/md';
-import { FaIndustry, FaHourglassEnd, FaExclamationTriangle } from 'react-icons/fa';
-import { GiSparkles, GiBlackHoleBolas } from 'react-icons/gi';
+import { FaIndustry, FaHourglassEnd, FaExclamationTriangle, FaSkull } from 'react-icons/fa';
 
 // Extend the LABELS enum with new wormhole keys
 export enum LABELS {
@@ -10,6 +9,7 @@ export enum LABELS {
   lc = 'eol',
   l1 = 'crit',
   l2 = 'structure',
+  l3 = 'steve',
 }
 
 export type LabelIcon = {
@@ -33,9 +33,10 @@ export const LABELS_INFO: Record<string, LabelInfo> = {
   [LABELS.lc]: { id: 'eol', name: 'Eol', shortName: 'EOL', icon: '' },
   [LABELS.l1]: { id: 'crit', name: 'Crit', shortName: 'CRIT', icon: '' },
   [LABELS.l2]: { id: 'structure', name: 'Structure', shortName: 'LP', icon: '' },
+  [LABELS.l3]: { id: 'steve', name: 'Steve', shortName: 'DB', icon: '' },
 };
 
-export const LABELS_ORDER = [LABELS.clear, LABELS.la, LABELS.lb, LABELS.lc, LABELS.l1, LABELS.l2];
+export const LABELS_ORDER = [LABELS.clear, LABELS.la, LABELS.lb, LABELS.lc, LABELS.l1, LABELS.l2, LABELS.l3];
 
 // Mapping each label to its icon, text class, and background color.
 export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
@@ -69,4 +70,10 @@ export const LABEL_ICON_MAP: Record<string, LabelIcon> = {
     colorClass: 'text-yellow-500',
     backgroundColor: '#5D1E1E', // Deep Maroon
   },
-}; 
+  // Death immenient (Steve): 💀 "Danger"
+  [LABELS.l3]: {
+    icon: <FaSkull size={8} color="#000000" />, // Black Skull
+    colorClass: 'text-black',
+    backgroundColor: '#FFFFFF', // Pure White Background - should not appear red
+  },
+};
