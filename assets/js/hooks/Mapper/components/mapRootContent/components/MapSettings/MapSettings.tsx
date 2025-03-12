@@ -7,7 +7,7 @@ import {
   InterfaceStoredSettingsProps,
   useMapRootState,
   InterfaceStoredSettings,
-  AvailableThemes
+  AvailableThemes,
 } from '@/hooks/Mapper/mapRootProvider';
 import { OutCommand } from '@/hooks/Mapper/types';
 import { Dropdown } from 'primereact/dropdown';
