@@ -92,8 +92,8 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
   const handleTemporaryNameChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       let value = e.target.value.toUpperCase();
-      // Only allow letters and numbers.
-      value = value.replace(/[^A-Z0-9]/g, '');
+      // Allow letters, numbers, spaces and forward slashes
+      value = value.replace(/[^A-Z0-9 /]/g, '');
       setTemporaryName(value);
     },
     [setTemporaryName],
