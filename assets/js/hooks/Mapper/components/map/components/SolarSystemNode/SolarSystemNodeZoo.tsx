@@ -6,7 +6,13 @@ import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { GiConcentrationOrb } from 'react-icons/gi';
 import { useSolarSystemNode, useLocalCounter, useNodeKillsCount } from '../../hooks';
-import { useZooNames, useZooLabels, useSignatureAge, useNodeSignatures, useNodeOwnerTicker } from '../../hooks/useZooLogic';
+import {
+  useZooNames,
+  useZooLabels,
+  useSignatureAge,
+  useNodeSignatures,
+  useNodeOwnerTicker,
+} from '../../hooks/useZooLogic';
 import {
   MARKER_BOOKMARK_BG_STYLES,
   STATUS_CLASSES,

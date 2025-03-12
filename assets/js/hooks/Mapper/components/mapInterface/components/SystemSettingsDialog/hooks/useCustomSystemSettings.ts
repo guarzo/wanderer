@@ -69,13 +69,14 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
       setName(system.name || '');
       setDescription(system.description || '');
       setTemporaryName(system.temporary_name || '');
-      setOwnerId(system.owner_id || '');
-      setOwnerType((system.owner_type as '' | 'corp' | 'alliance') || '');
-      ownerInfoRef.current.ownerId = system.owner_id || '';
-      ownerInfoRef.current.ownerType = (system.owner_type as '' | 'corp' | 'alliance') || '';
 
       // Handle owner ticker logic.
       if (system.owner_id && system.owner_type) {
+        setOwnerId(system.owner_id || '');
+        setOwnerType((system.owner_type as '' | 'corp' | 'alliance') || '');
+        ownerInfoRef.current.ownerId = system.owner_id || '';
+        ownerInfoRef.current.ownerType = (system.owner_type as '' | 'corp' | 'alliance') || '';
+
         const cacheKey = `${system.owner_type}_${system.owner_id}`;
         if (tickerCacheRef.current[cacheKey]) {
           setOwnerName(tickerCacheRef.current[cacheKey]);
@@ -113,7 +114,11 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
           }
         }
       } else {
+        setOwnerId('');
+        setOwnerType('');
         setOwnerName('');
+        ownerInfoRef.current.ownerId = '';
+        ownerInfoRef.current.ownerType = '';
         ownerInfoRef.current.ownerName = '';
       }
 
@@ -143,9 +148,9 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
       if (prevOwnerQuery && newQuery.startsWith(prevOwnerQuery) && prevOwnerResults.length > 0) {
         const filtered = prevOwnerResults.filter(item => item.formatted.toLowerCase().includes(newQuery.toLowerCase()));
         // If there is an exact ticker match, return only that suggestion.
-        const exact = filtered.find(item => item.ticker.toLowerCase() === newQuery.toLowerCase());
-        if (exact) {
-          return [exact];
+        const exactMatches = filtered.filter(item => item.ticker.toLowerCase() === newQuery.toLowerCase());
+        if (exactMatches.length > 0) {
+          return exactMatches;
         }
         return filtered;
       }
@@ -170,26 +175,36 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
       const allianceResults = allianceResponse?.results || [];
 
       const combinedResults: OwnerSuggestion[] = [
-        ...corpResults.map((r: any) => {
+        ...corpResults.map((r: Omit<OwnerSuggestion, 'corporation' | 'alliance'>) => {
           if (r.ticker) {
             tickerCacheRef.current[`corp_${r.value}`] = r.ticker;
           }
           return { ...r, corporation: true, alliance: false } as OwnerSuggestion;
         }),
-        ...allianceResults.map((r: any) => {
+        ...allianceResults.map((r: Omit<OwnerSuggestion, 'corporation' | 'alliance'>) => {
           if (r.ticker) {
             tickerCacheRef.current[`alliance_${r.value}`] = r.ticker;
           }
           return { ...r, corporation: false, alliance: true } as OwnerSuggestion;
         }),
       ];
-      // If any suggestion exactly matches newQuery (by ticker), return only that one.
-      const exactMatch = combinedResults.find(item => item.ticker.toLowerCase() === newQuery.toLowerCase());
-      if (exactMatch) {
+
+      // Find exact ticker matches
+      const exactTickerMatches = combinedResults.filter(item => item.ticker.toLowerCase() === newQuery.toLowerCase());
+
+      // If we have exact ticker matches, prioritize them
+      if (exactTickerMatches.length > 0) {
+        // Sort the rest of the results
+        const otherResults = combinedResults.filter(item => item.ticker.toLowerCase() !== newQuery.toLowerCase());
+
+        // Store all results for future filtering
         setPrevOwnerQuery(newQuery);
-        setPrevOwnerResults([exactMatch]);
-        return [exactMatch];
+        setPrevOwnerResults([...exactTickerMatches, ...otherResults]);
+
+        // Return exact matches first, then other results
+        return [...exactTickerMatches, ...otherResults];
       }
+
       setPrevOwnerQuery(newQuery);
       setPrevOwnerResults(combinedResults);
       return combinedResults;
@@ -204,6 +219,10 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
         if (selected.ticker) {
           setOwnerName(selected.ticker);
           ownerInfoRef.current.ownerName = selected.ticker;
+
+          // Cache the ticker
+          const cacheKey = `${selected.type}_${selected.id}`;
+          tickerCacheRef.current[cacheKey] = selected.ticker;
         } else {
           setOwnerName(selected.name);
           ownerInfoRef.current.ownerName = selected.name;
@@ -267,12 +286,18 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
   // Save handler that calls the update commands and returns a promise.
   const handleSave = useCallback(async () => {
     if (!system) return;
-    
+
     // Use ownerInfoRef values instead of state values to ensure we have the most up-to-date info
     const currentOwnerId = ownerInfoRef.current.ownerId;
     const currentOwnerType = ownerInfoRef.current.ownerType;
     const currentOwnerName = ownerInfoRef.current.ownerName;
     const currentSystemId = system.id;
+
+    // Update the ticker cache if we have valid owner info
+    if (currentOwnerId && currentOwnerType && currentOwnerName) {
+      const cacheKey = `${currentOwnerType}_${currentOwnerId}`;
+      tickerCacheRef.current[cacheKey] = currentOwnerName;
+    }
 
     const lm = new LabelsManager(system.labels ?? '');
     lm.updateCustomLabel(label);
@@ -306,7 +331,7 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
       owner_type: currentOwnerType === '' ? null : currentOwnerType,
       owner_ticker: currentOwnerName === '' ? null : currentOwnerName,
     };
-    
+
     updatePromises.push(
       outCommand({
         type: OutCommand.updateSystemOwner,
