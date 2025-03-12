@@ -18,6 +18,11 @@ defmodule WandererApp.Api.MapUserSettings do
       action: :read
     )
 
+    define(:by_user_id_and_key,
+      get_by: [:map_id, :user_id, :key],
+      action: :read
+    )
+
     define(:update_settings, action: :update_settings)
   end
 
@@ -25,6 +30,7 @@ defmodule WandererApp.Api.MapUserSettings do
     default_accept [
       :map_id,
       :user_id,
+      :key,
       :settings
     ]
 
@@ -38,6 +44,11 @@ defmodule WandererApp.Api.MapUserSettings do
   attributes do
     uuid_primary_key :id
 
+    attribute :key, :string do
+      allow_nil? false
+      default "default"
+    end
+
     attribute :settings, :string do
       allow_nil? true
     end
@@ -49,6 +60,6 @@ defmodule WandererApp.Api.MapUserSettings do
   end
 
   identities do
-    identity :uniq_map_user, [:map_id, :user_id]
+    identity :uniq_map_user_key, [:map_id, :user_id, :key]
   end
 end

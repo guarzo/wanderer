@@ -16,20 +16,6 @@ defmodule WandererApp.Esi.ApiClient do
     :include_frig
   ]
 
-  @default_routes_settings %{
-    path_type: "shortest",
-    include_mass_crit: true,
-    include_eol: false,
-    include_frig: true,
-    include_cruise: true,
-    avoid_wormholes: false,
-    avoid_pochven: false,
-    avoid_edencom: false,
-    avoid_triglavian: false,
-    include_thera: true,
-    avoid: []
-  }
-
   @cache_opts [cache: true]
   @retry_opts [max_retries: 1, retry_log_level: :warning]
   @timeout_opts [receive_timeout: :timer.seconds(30)]
@@ -68,10 +54,19 @@ defmodule WandererApp.Esi.ApiClient do
     origin = origin |> String.to_integer()
     hubs = hubs |> Enum.map(&(&1 |> String.to_integer()))
 
-    routes_settings = @default_routes_settings |> Map.merge(routes_settings)
+    # Log the incoming settings for debugging
+    require Logger
+    Logger.info("=== API CLIENT FIND_ROUTES START ===")
+    Logger.info("Map ID: #{map_id}, Origin: #{origin}")
+    Logger.info("ApiClient.find_routes - Incoming settings: #{inspect(routes_settings)}")
+
+    # Don't use default settings at all - only use what's provided
+    # This ensures we're only using user-specific settings
+
+    Logger.info("ApiClient.find_routes - Final settings: #{inspect(routes_settings)}")
 
     connections =
-      case routes_settings.avoid_wormholes do
+      case Map.get(routes_settings, :avoid_wormholes, false) do
         false ->
           map_chains =
             routes_settings
@@ -90,7 +85,7 @@ defmodule WandererApp.Esi.ApiClient do
             |> Enum.uniq()
 
           {:ok, thera_chains} =
-            case routes_settings.include_thera do
+            case Map.get(routes_settings, :include_thera, true) do
               true ->
                 WandererApp.Server.TheraDataFetcher.get_chain_pairs(routes_settings)
 
@@ -101,7 +96,7 @@ defmodule WandererApp.Esi.ApiClient do
           chains = _remove_intersection([map_chains | thera_chains] |> List.flatten())
 
           chains =
-            case routes_settings.include_cruise do
+            case Map.get(routes_settings, :include_cruise, true) do
               false ->
                 {:ok, wh_class_a_systems} = WandererApp.CachedInfo.get_wh_class_a_systems()
 
@@ -143,7 +138,7 @@ defmodule WandererApp.Esi.ApiClient do
       |> Enum.map(& &1.solar_system_id)
 
     avoidance_list =
-      case routes_settings.avoid_edencom do
+      case Map.get(routes_settings, :avoid_edencom, false) do
         true ->
           edencom_solar_systems
 
@@ -152,7 +147,7 @@ defmodule WandererApp.Esi.ApiClient do
       end
 
     avoidance_list =
-      case routes_settings.avoid_triglavian do
+      case Map.get(routes_settings, :avoid_triglavian, false) do
         true ->
           [avoidance_list | triglavian_solar_systems]
 
@@ -161,7 +156,7 @@ defmodule WandererApp.Esi.ApiClient do
       end
 
     avoidance_list =
-      case routes_settings.avoid_pochven do
+      case Map.get(routes_settings, :avoid_pochven, false) do
         true ->
           [avoidance_list | pochven_solar_systems]
 
@@ -169,12 +164,12 @@ defmodule WandererApp.Esi.ApiClient do
           avoidance_list
       end
 
-    avoidance_list = [routes_settings.avoid | avoidance_list] |> List.flatten() |> Enum.uniq()
+    avoidance_list = [Map.get(routes_settings, :avoid, []) | avoidance_list] |> List.flatten() |> Enum.uniq()
 
     params =
       %{
         datasource: "tranquility",
-        flag: routes_settings.path_type,
+        flag: Map.get(routes_settings, :path_type, "shortest"),
         connections: connections,
         avoid: avoidance_list
       }
@@ -187,6 +182,8 @@ defmodule WandererApp.Esi.ApiClient do
         map_route_info(route_info)
       end)
       |> Enum.filter(fn route_info -> not is_nil(route_info) end)
+
+    Logger.info("=== API CLIENT FIND_ROUTES END ===")
 
     {:ok, routes}
   end

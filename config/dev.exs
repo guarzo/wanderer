@@ -82,5 +82,5 @@ config :phoenix_live_view, :debug_heex_annotations, true
 config :swoosh, :api_client, false
 
 config :logger, :console,
-  level: :info,
+  level: :debug,
   format: "$time $metadata[$level] $message\n"
