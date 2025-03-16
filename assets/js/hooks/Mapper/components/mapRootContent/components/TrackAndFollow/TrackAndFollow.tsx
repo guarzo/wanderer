@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog } from 'primereact/dialog';
 import { VirtualScroller } from 'primereact/virtualscroller';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
@@ -14,99 +14,155 @@ interface TrackAndFollowProps {
 export const TrackAndFollow = ({ visible, onHide }: TrackAndFollowProps) => {
   const [trackedCharacters, setTrackedCharacters] = useState<string[]>([]);
   const [followedCharacter, setFollowedCharacter] = useState<string | null>(null);
+
   const { outCommand, data } = useMapRootState();
   const { trackingCharactersData } = data;
+
   const characters = useMemo(() => trackingCharactersData || [], [trackingCharactersData]);
 
   useEffect(() => {
-    if (trackingCharactersData) {
-      const newTrackedCharacters = trackingCharactersData.filter(tc => tc.tracked).map(tc => tc.character.eve_id);
+    if (!trackingCharactersData) return;
 
-      setTrackedCharacters(newTrackedCharacters);
+    const newTracked = trackingCharactersData.filter(tc => tc.tracked).map(tc => tc.character.eve_id);
 
-      const followedChar = trackingCharactersData.find(tc => tc.followed);
+    const followedChar = trackingCharactersData.find(tc => tc.followed);
+    const newFollowed = followedChar?.character?.eve_id || null;
 
-      if (followedChar?.character?.eve_id !== followedCharacter) {
-        setFollowedCharacter(followedChar?.character?.eve_id || null);
+    setTrackedCharacters(prev =>
+      JSON.stringify(prev.sort()) !== JSON.stringify(newTracked.sort()) ? newTracked : prev,
+    );
+
+    setFollowedCharacter(prev => (prev !== newFollowed ? newFollowed : prev));
+  }, [trackingCharactersData]);
+
+  /**
+   * A small helper that handles the optimistic update + revert pattern.
+   */
+  const safeToggle = useCallback(
+    async (
+      onOptimistic: () => void,
+      onRevert: () => void,
+      outCommandPayload: { type: OutCommand; data: Record<string, string> },
+    ) => {
+      onOptimistic();
+      try {
+        await outCommand(outCommandPayload);
+      } catch (error) {
+        console.error('Error in toggle operation:', error);
+        onRevert();
       }
-    }
-  }, [followedCharacter, trackingCharactersData]);
+    },
+    [outCommand],
+  );
 
-  const handleTrackToggle = (characterId: string) => {
-    const isCurrentlyTracked = trackedCharacters.includes(characterId);
+  const handleTrackToggle = useCallback(
+    async (characterId: string) => {
+      const isCurrentlyTracked = trackedCharacters.includes(characterId);
+      const isCurrentlyFollowed = followedCharacter === characterId;
 
-    if (isCurrentlyTracked) {
-      setTrackedCharacters(prev => prev.filter(id => id !== characterId));
-    } else {
-      setTrackedCharacters(prev => [...prev, characterId]);
-    }
+      // If untracking a followed character, also unfollow
+      if (isCurrentlyFollowed && isCurrentlyTracked) {
+        // 1) Unfollow
+        await safeToggle(
+          () => setFollowedCharacter(null),
+          () => setFollowedCharacter(characterId),
+          { type: OutCommand.toggleFollow, data: { 'character-id': characterId } },
+        );
 
-    outCommand({
-      type: OutCommand.toggleTrack,
-      data: { 'character-id': characterId },
-    });
-  };
+        // 2) Untrack
+        await safeToggle(
+          () => setTrackedCharacters(prev => prev.filter(id => id !== characterId)),
+          () => setTrackedCharacters(prev => [...prev, characterId]),
+          { type: OutCommand.toggleTrack, data: { 'character-id': characterId } },
+        );
+        return;
+      }
 
-  const handleFollowToggle = async (characterEveId: string) => {
-    const isCurrentlyFollowed = followedCharacter === characterEveId;
-    const isCurrentlyTracked = trackedCharacters.includes(characterEveId);
+      // Normal track toggle
+      if (isCurrentlyTracked) {
+        await safeToggle(
+          () => setTrackedCharacters(prev => prev.filter(id => id !== characterId)),
+          () => setTrackedCharacters(prev => [...prev, characterId]),
+          { type: OutCommand.toggleTrack, data: { 'character-id': characterId } },
+        );
+      } else {
+        await safeToggle(
+          () => setTrackedCharacters(prev => [...prev, characterId]),
+          () => setTrackedCharacters(prev => prev.filter(id => id !== characterId)),
+          { type: OutCommand.toggleTrack, data: { 'character-id': characterId } },
+        );
+      }
+    },
+    [trackedCharacters, followedCharacter, safeToggle],
+  );
 
-    // If not followed and not tracked, we need to track it first
-    if (!isCurrentlyFollowed && !isCurrentlyTracked) {
-      setTrackedCharacters(prev => [...prev, characterEveId]);
+  const handleFollowToggle = useCallback(
+    async (characterEveId: string) => {
+      const isCurrentlyFollowed = followedCharacter === characterEveId;
+      const isCurrentlyTracked = trackedCharacters.includes(characterEveId);
 
-      // Send track command first
-      await outCommand({
-        type: OutCommand.toggleTrack,
-        data: { 'character-id': characterEveId },
-      });
+      // If not followed and not tracked, track first then follow
+      if (!isCurrentlyFollowed && !isCurrentlyTracked) {
+        // Track
+        await safeToggle(
+          () => setTrackedCharacters(prev => [...prev, characterEveId]),
+          () => setTrackedCharacters(prev => prev.filter(id => id !== characterEveId)),
+          { type: OutCommand.toggleTrack, data: { 'character-id': characterEveId } },
+        );
 
-      // Then send follow command after a short delay
-      setTimeout(() => {
-        outCommand({
-          type: OutCommand.toggleFollow,
-          data: { 'character-id': characterEveId },
-        });
-      }, 100);
-    } else {
-      // Otherwise just toggle follow
-      await outCommand({
-        type: OutCommand.toggleFollow,
-        data: { 'character-id': characterEveId },
-      });
-    }
-  };
+        // Follow
+        await safeToggle(
+          () => setFollowedCharacter(characterEveId),
+          () => setFollowedCharacter(null),
+          { type: OutCommand.toggleFollow, data: { 'character-id': characterEveId } },
+        );
+      } else {
+        // Toggle follow alone
+        await safeToggle(
+          () => setFollowedCharacter(isCurrentlyFollowed ? null : characterEveId),
+          () => setFollowedCharacter(isCurrentlyFollowed ? characterEveId : null),
+          { type: OutCommand.toggleFollow, data: { 'character-id': characterEveId } },
+        );
+      }
+    },
+    [followedCharacter, trackedCharacters, safeToggle],
+  );
+
+  const isCharacterTrackedInUI = useCallback(
+    (characterEveId: string) => trackedCharacters.includes(characterEveId) || followedCharacter === characterEveId,
+    [trackedCharacters, followedCharacter],
+  );
 
   const rowTemplate = (tc: TrackingCharacter) => {
+    const characterEveId = tc.character.eve_id;
+    const isTrackedInUI = isCharacterTrackedInUI(characterEveId);
+    const isFollowedInUI = followedCharacter === characterEveId;
+
     return (
       <TrackingCharacterWrapper
-        key={tc.character.eve_id}
+        key={characterEveId}
         character={tc.character}
-        isTracked={trackedCharacters.includes(tc.character.eve_id)}
-        isFollowed={followedCharacter === tc.character.eve_id}
-        onTrackToggle={() => handleTrackToggle(tc.character.eve_id)}
-        onFollowToggle={() => handleFollowToggle(tc.character.eve_id)}
+        isTracked={isTrackedInUI}
+        isFollowed={isFollowedInUI}
+        onTrackToggle={() => handleTrackToggle(characterEveId)}
+        onFollowToggle={() => handleFollowToggle(characterEveId)}
       />
     );
   };
 
   return (
     <Dialog
-      header={
-        <div className="dialog-header">
-          <span>Track & Follow</span>
-        </div>
-      }
+      header={<div className="dialog-header">Track &amp; Follow</div>}
       visible={visible}
       onHide={onHide}
       className="w-[500px] text-text-color"
       contentClassName="!p-0"
     >
       <div className="w-full overflow-hidden">
-        <div className="grid grid-cols-[80px_80px_1fr] p-1 font-normal text-sm text-center border-b border-[#383838]">
-          <div>Track</div>
-          <div>Follow</div>
-          <div className="text-center">Character</div>
+        <div className="grid grid-cols-[5rem_5rem_1fr] items-center p-1 font-normal text-sm border-b border-neutral-800">
+          <div className="text-center">Track</div>
+          <div className="text-center">Follow</div>
+          <div className="px-2">Character</div>
         </div>
         <VirtualScroller items={characters} itemSize={48} itemTemplate={rowTemplate} className="h-72 w-full" />
       </div>

@@ -22,15 +22,15 @@ export const TrackingCharacterWrapper = ({
   const followRadioId = `follow-${character.eve_id}`;
 
   return (
-    <div className="grid grid-cols-[80px_80px_1fr] items-center min-h-8 hover:bg-neutral-800  border-b border-[#383838]">
-      <div className="flex justify-center items-center p-0.5 text-center">
+    <div className="grid grid-cols-[5rem_5rem_1fr] items-center min-h-8 hover:bg-neutral-800 border-b border-neutral-800">
+      <div className="flex justify-center items-center p-0.5">
         <WdTooltipWrapper content="Track this character on the map" position={TooltipPosition.top}>
           <div className="flex justify-center items-center w-full">
-            <WdCheckbox id={trackCheckboxId} label="" value={isTracked} onChange={() => onTrackToggle()} />
+            <WdCheckbox id={trackCheckboxId} label="" value={isTracked} onChange={onTrackToggle} />
           </div>
         </WdTooltipWrapper>
       </div>
-      <div className="flex justify-center items-center p-0.5 text-center">
+      <div className="flex justify-center items-center p-0.5">
         <WdTooltipWrapper content="Follow this character's movements on the map" position={TooltipPosition.top}>
           <div className="flex justify-center items-center w-full">
             <div onClick={onFollowToggle} className="cursor-pointer">
@@ -39,7 +39,7 @@ export const TrackingCharacterWrapper = ({
           </div>
         </WdTooltipWrapper>
       </div>
-      <div className="flex items-center justify-center">
+      <div className="flex items-center px-2">
         <CharacterCard showShipName={false} showSystem={false} isOwn {...character} />
       </div>
     </div>

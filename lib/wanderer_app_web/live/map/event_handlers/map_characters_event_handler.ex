@@ -560,21 +560,58 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
     with {:ok, clicked_char_settings} <-
            WandererApp.MapCharacterSettingsRepo.get_by_map(map_id, clicked_char.id) do
       if is_already_followed do
-        # If already followed, just unfollow without affecting other characters
-        WandererApp.MapCharacterSettingsRepo.unfollow(clicked_char_settings)
+        # If the character is not tracked remove it from the map
+        if !clicked_char_settings.tracked do
+          # First unfollow
+          {:ok, _} = WandererApp.MapCharacterSettingsRepo.unfollow(clicked_char_settings)
+
+          # Then remove from the map
+          :ok = remove_characters([clicked_char], map_id)
+        else
+          # Just unfollow
+          WandererApp.MapCharacterSettingsRepo.unfollow(clicked_char_settings)
+        end
       else
         # Normal follow toggle
         update_follow_status(map_id, clicked_char, clicked_char_settings)
       end
     else
       {:error, :not_found} ->
-        # Character not found in settings, create new settings
         update_follow_status(map_id, clicked_char, nil)
     end
   end
 
+  defp update_follow_status(map_id, clicked_char, clicked_char_settings) do
+    # Toggle the followed state
+    followed = !clicked_char_settings.followed
+
+    # Only unfollow other characters if we're explicitly following this character
+    if followed do
+      # We're following this character, so unfollow all others
+      :ok = maybe_unfollow_others(map_id, clicked_char.id, followed)
+    end
+
+    # If we're following, make sure the character is also tracked
+    if followed && !clicked_char_settings.tracked do
+      # First track the character
+      {:ok, tracked_settings} = WandererApp.MapCharacterSettingsRepo.track(clicked_char_settings)
+
+      # Then update the follow status
+      {:ok, settings} = update_follow(tracked_settings, followed)
+
+      # Make sure the character is properly tracked in the system
+      :ok = track_characters([clicked_char], map_id, true)
+      :ok = add_characters([clicked_char], map_id, true)
+
+      {:ok, settings}
+    else
+      # Just update the follow status without changing tracking
+      {:ok, settings} = update_follow(clicked_char_settings, followed)
+      {:ok, settings}
+    end
+  end
+
   defp update_follow_status(map_id, clicked_char, nil) do
-    # Create new settings with tracked=true and followed=true
     # If we're following this character, unfollow all others first
     :ok = maybe_unfollow_others(map_id, clicked_char.id, true)
 
@@ -589,51 +626,21 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
     result
   end
 
-  defp update_follow_status(map_id, clicked_char, clicked_char_settings) do
-    # Toggle the followed state
-    followed = !clicked_char_settings.followed
-
-    # Only unfollow other characters if we're explicitly following this character
-    # This prevents unfollowing other characters when just tracking a character
-    if followed do
-      # We're following this character, so unfollow all others
-      :ok = maybe_unfollow_others(map_id, clicked_char.id, followed)
-    end
-
-    # If we're following, make sure the character is also tracked
-    :ok = maybe_track_character(clicked_char_settings, followed)
-
-    # Update the follow status
-    {:ok, settings} = update_follow(clicked_char_settings, followed)
-
-    {:ok, settings}
-  end
-
   defp maybe_unfollow_others(_map_id, _char_id, false), do: :ok
 
   defp maybe_unfollow_others(map_id, char_id, true) do
-    # This function should only be called when explicitly following a character,
-    # not when tracking a character. It unfollows all other characters when
-    # setting a character as followed.
+    # unfollow all other characters when setting a character as followed.
 
     {:ok, all_settings} = WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id)
 
+    followed_characters = all_settings
+      |> Enum.filter(&(&1.character_id != char_id && &1.followed))
+
     # Unfollow other characters
-    all_settings
-    |> Enum.filter(&(&1.character_id != char_id && &1.followed))
+    followed_characters
     |> Enum.each(fn setting ->
       WandererApp.MapCharacterSettingsRepo.unfollow(setting)
     end)
-
-    :ok
-  end
-
-  defp maybe_track_character(_settings, false), do: :ok
-
-  defp maybe_track_character(settings, true) do
-    if not settings.tracked do
-      {:ok, _} = WandererApp.MapCharacterSettingsRepo.track(settings)
-    end
 
     :ok
   end
@@ -647,11 +654,12 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
          {:ok, character_settings} <- WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id),
          {:ok, %{characters: characters_with_access}} <-
            WandererApp.Maps.load_characters(map, character_settings, current_user.id) do
+
       tracking_data =
         Enum.map(characters_with_access, fn char ->
           setting = Enum.find(character_settings, &(&1.character_id == char.id))
           tracked = if setting, do: setting.tracked, else: false
-          # Important: Preserve the followed state
+          # Preserve the followed state
           followed = if setting, do: setting.followed, else: false
 
           %{
@@ -660,6 +668,17 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
             followed: followed
           }
         end)
+
+      # Check for inconsistent state - a character that's followed but not tracked
+      followed_in_data = Enum.find(tracking_data, &(&1.followed))
+      followed_but_not_tracked = followed_in_data && !Enum.find(tracking_data, &(&1.followed && &1.tracked))
+
+      # If we have a character that's followed but not tracked, that's an inconsistent state
+      if followed_but_not_tracked do
+        Logger.warning("Inconsistent state detected: Character is followed but not tracked", %{
+          character_id: followed_in_data.character.eve_id
+        })
+      end
 
       {:ok, tracking_data}
     end
@@ -670,9 +689,18 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
     case WandererApp.MapCharacterSettingsRepo.get_by_map(map_id, character.id) do
       {:ok, existing_settings} ->
         if existing_settings.tracked do
-          # Untrack the character
+          # If the character was followed, we should also unfollow it
           {:ok, updated_settings} =
-            WandererApp.MapCharacterSettingsRepo.untrack(existing_settings)
+            if existing_settings.followed do
+              # First unfollow
+              {:ok, unfollowed_settings} = WandererApp.MapCharacterSettingsRepo.unfollow(existing_settings)
+
+              # Then untrack
+              WandererApp.MapCharacterSettingsRepo.untrack(unfollowed_settings)
+            else
+              # Just untrack
+              WandererApp.MapCharacterSettingsRepo.untrack(existing_settings)
+            end
 
           :ok = untrack_characters([character], map_id)
           :ok = remove_characters([character], map_id)
@@ -681,18 +709,8 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
             Process.send_after(self(), :not_all_characters_tracked, 10)
           end
 
-          # If the character was followed, we need to unfollow it too
-          # But we should NOT unfollow other characters
-          if existing_settings.followed do
-            {:ok, final_settings} =
-              WandererApp.MapCharacterSettingsRepo.unfollow(updated_settings)
-
-            {:ok, final_settings}
-          else
-            {:ok, updated_settings}
-          end
+          {:ok, updated_settings}
         else
-          # Track the character
           {:ok, updated_settings} =
             WandererApp.MapCharacterSettingsRepo.track(existing_settings)
 
