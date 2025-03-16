@@ -304,13 +304,29 @@ defmodule WandererAppWeb.MapEventHandler do
         } = socket,
         type,
         body
-      ),
-      do:
+      ) do
+        # Log the event being pushed to the frontend
+        if type == "tracking_characters_data" do
+          characters = get_in(body, [:characters])
+          followed = characters && Enum.find(characters, &(&1.followed))
+
+          Logger.info("Pushing tracking_characters_data to frontend", %{
+            characters_count: characters && length(characters),
+            tracked_count: characters && Enum.count(characters, &(&1.tracked)),
+            followed: followed && %{
+              character_id: followed.character.eve_id,
+              followed: followed.followed,
+              tracked: followed.tracked
+            }
+          })
+        end
+
         socket
         |> Phoenix.LiveView.Utils.push_event("map_event", %{
           type: type,
           body: body
         })
+      end
 
   def push_map_event(socket, _type, _body), do: socket
 
