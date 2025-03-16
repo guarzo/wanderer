@@ -39,11 +39,10 @@ const THEME_BEHAVIORS: { [key: string]: ThemeBehavior } = {
     nodeComponent: SolarSystemNodeZoo,
     connectionMode: ConnectionMode.Strict,
     customTags: {
-      others: ['1', '2', '3', '4', '5', '6', '7', '8', '10+', '20+', 'Baiting'],
+      others: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10+', '20+', 'Baiting'],
     },
   },
 };
-
 
 export function getBehaviorForTheme(themeName: string): ThemeBehavior {
   return THEME_BEHAVIORS[themeName] ?? THEME_BEHAVIORS.default;
