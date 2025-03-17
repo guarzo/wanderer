@@ -246,7 +246,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     end
 
     # Check if owner_ticker is in the params map
-    ticker = case Map.get(params, "owner_ticker") do
+    ticker = case Map.get(params, "owner_ticker", Map.get(params, "ownerName")) do
       nil -> nil
       "null" -> nil
       "" -> nil
