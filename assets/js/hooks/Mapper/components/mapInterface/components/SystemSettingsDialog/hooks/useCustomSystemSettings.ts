@@ -147,11 +147,16 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
       if (newQuery.length < 3) return [];
       if (prevOwnerQuery && newQuery.startsWith(prevOwnerQuery) && prevOwnerResults.length > 0) {
         const filtered = prevOwnerResults.filter(item => item.formatted.toLowerCase().includes(newQuery.toLowerCase()));
-        // If there is an exact ticker match, return only that suggestion.
+
+        // Find exact ticker matches
         const exactMatches = filtered.filter(item => item.ticker.toLowerCase() === newQuery.toLowerCase());
+
+        // Return exact matches first, then other filtered results
         if (exactMatches.length > 0) {
-          return exactMatches;
+          const otherResults = filtered.filter(item => item.ticker.toLowerCase() !== newQuery.toLowerCase());
+          return [...exactMatches, ...otherResults];
         }
+
         return filtered;
       }
       // Fetch suggestions for both corporations and alliances.
@@ -194,7 +199,7 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
 
       // If we have exact ticker matches, prioritize them
       if (exactTickerMatches.length > 0) {
-        // Sort the rest of the results
+        // Get other results that aren't exact ticker matches
         const otherResults = combinedResults.filter(item => item.ticker.toLowerCase() !== newQuery.toLowerCase());
 
         // Store all results for future filtering
