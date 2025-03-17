@@ -1,4 +1,4 @@
-import { ConnectionType, MassState, ShipSizeStatus } from '../../types';
+import { ConnectionType, MassState, ShipSizeStatus } from '../../types/connection';
 import { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER } from './labelIconMap';
 export type { LabelIcon, LabelInfo } from './labelIconMap';
 export { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER };

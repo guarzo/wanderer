@@ -39,9 +39,9 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const { unsplashedCount } = useZooLabels(connectionCount, updatedSignatures);
 
   const { data } = props;
-  const { owner_id, owner_type } = data;
+  const { owner_id, owner_type, owner_ticker } = data;
 
-  const { ownerTicker, ownerURL } = useNodeOwnerTicker(owner_id, owner_type);
+  const { ownerTicker, ownerURL } = useNodeOwnerTicker(owner_id, owner_type, owner_ticker);
 
   const { systemName, customLabel, customName } = useZooNames(
     {

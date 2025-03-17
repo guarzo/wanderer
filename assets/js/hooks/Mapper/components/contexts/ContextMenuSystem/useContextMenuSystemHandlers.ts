@@ -120,7 +120,6 @@ export const useContextMenuSystemHandlers = ({ systems, hubs, outCommand }: UseC
     setSystem(undefined);
   }, []);
 
-
   const onSystemOwner = useCallback((ownerId?: string, ownerType?: string) => {
     const { system, outCommand } = ref.current;
     if (!system) {
@@ -137,7 +136,6 @@ export const useContextMenuSystemHandlers = ({ systems, hubs, outCommand }: UseC
     });
     setSystem(undefined);
   }, []);
-
 
   const onSystemStatus = useCallback((status: number) => {
     const { system, outCommand } = ref.current;
