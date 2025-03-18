@@ -1,5 +1,6 @@
 defmodule WandererApp.Vault do
   use Cloak.Vault, otp_app: :wanderer_app
+  require Logger
 
   @impl GenServer
   def init(config) do
