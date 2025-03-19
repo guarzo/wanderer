@@ -40,21 +40,34 @@ defmodule WandererApp.Repo.Migrations.FixBase64Encoding do
       # Fix amount field if needed
       if amount && has_invalid_base64?(amount) do
         fixed = convert_url_safe_to_standard_base64(amount)
-        execute "UPDATE corp_wallet_transactions_v1 SET encrypted_amount_encoded = $1 WHERE id = $2", [fixed, id]
+        # Use direct execute statement with interpolated values to avoid parameter issues
+        execute """
+        UPDATE corp_wallet_transactions_v1 
+        SET encrypted_amount_encoded = '#{escape_sql(fixed)}' 
+        WHERE id = '#{escape_sql(id)}'
+        """
         Logger.info("Fixed amount encoding for corp_wallet_transaction id=#{id}")
       end
       
       # Fix balance field if needed
       if balance && has_invalid_base64?(balance) do
         fixed = convert_url_safe_to_standard_base64(balance)
-        execute "UPDATE corp_wallet_transactions_v1 SET encrypted_balance_encoded = $1 WHERE id = $2", [fixed, id]
+        execute """
+        UPDATE corp_wallet_transactions_v1 
+        SET encrypted_balance_encoded = '#{escape_sql(fixed)}' 
+        WHERE id = '#{escape_sql(id)}'
+        """
         Logger.info("Fixed balance encoding for corp_wallet_transaction id=#{id}")
       end
       
       # Fix reason field if needed
       if reason && has_invalid_base64?(reason) do
         fixed = convert_url_safe_to_standard_base64(reason)
-        execute "UPDATE corp_wallet_transactions_v1 SET encrypted_reason_encoded = $1 WHERE id = $2", [fixed, id]
+        execute """
+        UPDATE corp_wallet_transactions_v1 
+        SET encrypted_reason_encoded = '#{escape_sql(fixed)}' 
+        WHERE id = '#{escape_sql(id)}'
+        """
         Logger.info("Fixed reason encoding for corp_wallet_transaction id=#{id}")
       end
     end)
@@ -92,7 +105,11 @@ defmodule WandererApp.Repo.Migrations.FixBase64Encoding do
       |> Enum.each(fn {field, value} ->
         if value && has_invalid_base64?(value) do
           fixed = convert_url_safe_to_standard_base64(value)
-          execute "UPDATE character_v1 SET #{field} = $1 WHERE id = $2", [fixed, id]
+          execute """
+          UPDATE character_v1 
+          SET #{field} = '#{escape_sql(fixed)}' 
+          WHERE id = '#{escape_sql(id)}'
+          """
           Logger.info("Fixed #{field} encoding for character id=#{id}")
         end
       end)
@@ -111,11 +128,21 @@ defmodule WandererApp.Repo.Migrations.FixBase64Encoding do
     Enum.each(rows || [], fn [id, balance] ->
       if balance && has_invalid_base64?(balance) do
         fixed = convert_url_safe_to_standard_base64(balance)
-        execute "UPDATE user_v1 SET encrypted_balance = $1 WHERE id = $2", [fixed, id]
+        execute """
+        UPDATE user_v1 
+        SET encrypted_balance = '#{escape_sql(fixed)}' 
+        WHERE id = '#{escape_sql(id)}'
+        """
         Logger.info("Fixed balance encoding for user id=#{id}")
       end
     end)
   end
+
+  # Helper to escape values for SQL strings
+  defp escape_sql(value) when is_binary(value) do
+    String.replace(value, "'", "''")
+  end
+  defp escape_sql(value), do: value
 
   # Helper to check for invalid Base64 characters
   defp has_invalid_base64?(binary) when is_binary(binary) do
