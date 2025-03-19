@@ -7,6 +7,9 @@ defmodule WandererApp.Application do
 
   @impl true
   def start(_type, _args) do
+    # Apply our patch to AshCloak.Calculations.Decrypt module
+    WandererApp.AshCloakOverrides.patch_ash_cloak_modules()
+
     children =
       [
         WandererApp.PromEx,
