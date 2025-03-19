@@ -10,14 +10,11 @@ defmodule WandererApp.Repo.Migrations.FixBase64Encoding do
     # Execute dummy query to ensure the connection is working
     execute "SELECT 1", ""
     
-    # Fix corp_wallet_transactions
-    fix_corp_wallet_transactions()
+    # Run a simpler query directly to fix the issues
+    Logger.info("Running UTF-8 safe fix query for all tables...")
     
-    # Fix character table
-    fix_character_encrypted_fields()
-    
-    # Fix user table
-    fix_user_balance()
+    # Fix with custom SQL that avoids encoding issues
+    run_fix_sql()
 
     # Log migration completion
     Logger.info("Base64 encoding fix migration completed successfully")
@@ -28,149 +25,71 @@ defmodule WandererApp.Repo.Migrations.FixBase64Encoding do
     :ok
   end
 
-  defp fix_corp_wallet_transactions do
-    # Get all records
-    %{rows: rows} = repo().query!("""
-    SELECT id, encrypted_amount_encoded, encrypted_balance_encoded, encrypted_reason_encoded 
-    FROM corp_wallet_transactions_v1
-    """, [], log: false)
+  defp run_fix_sql do
+    # Create a helper function in the database to convert URL-safe to standard Base64
+    execute """
+    CREATE OR REPLACE FUNCTION convert_url_safe_base64(data bytea) RETURNS bytea AS $$
+    BEGIN
+      -- Convert '-' to '+' and '_' to '/'
+      RETURN REPLACE(REPLACE(data::text, '-', '+'), '_', '/')::bytea;
+    END;
+    $$ LANGUAGE plpgsql;
+    """
+
+    # Fix corp_wallet_transactions table
+    execute """
+    UPDATE corp_wallet_transactions_v1
+    SET 
+      encrypted_amount_encoded = convert_url_safe_base64(encrypted_amount_encoded),
+      encrypted_balance_encoded = convert_url_safe_base64(encrypted_balance_encoded),
+      encrypted_reason_encoded = convert_url_safe_base64(encrypted_reason_encoded)
+    WHERE
+      encrypted_amount_encoded::text LIKE '%-%' 
+      OR encrypted_amount_encoded::text LIKE '%\\_%' 
+      OR encrypted_balance_encoded::text LIKE '%-%' 
+      OR encrypted_balance_encoded::text LIKE '%\\_%'
+      OR encrypted_reason_encoded::text LIKE '%-%' 
+      OR encrypted_reason_encoded::text LIKE '%\\_%';
+    """
     
-    # Process each record
-    Enum.each(rows || [], fn [id, amount, balance, reason] ->
-      # Fix amount field if needed
-      if amount && has_invalid_base64?(amount) do
-        fixed = convert_url_safe_to_standard_base64(amount)
-        # Use direct execute statement with interpolated values to avoid parameter issues
-        execute """
-        UPDATE corp_wallet_transactions_v1 
-        SET encrypted_amount_encoded = '#{escape_sql(fixed)}' 
-        WHERE id = '#{escape_sql(id)}'
-        """
-        Logger.info("Fixed amount encoding for corp_wallet_transaction id=#{id}")
-      end
-      
-      # Fix balance field if needed
-      if balance && has_invalid_base64?(balance) do
-        fixed = convert_url_safe_to_standard_base64(balance)
-        execute """
-        UPDATE corp_wallet_transactions_v1 
-        SET encrypted_balance_encoded = '#{escape_sql(fixed)}' 
-        WHERE id = '#{escape_sql(id)}'
-        """
-        Logger.info("Fixed balance encoding for corp_wallet_transaction id=#{id}")
-      end
-      
-      # Fix reason field if needed
-      if reason && has_invalid_base64?(reason) do
-        fixed = convert_url_safe_to_standard_base64(reason)
-        execute """
-        UPDATE corp_wallet_transactions_v1 
-        SET encrypted_reason_encoded = '#{escape_sql(fixed)}' 
-        WHERE id = '#{escape_sql(id)}'
-        """
-        Logger.info("Fixed reason encoding for corp_wallet_transaction id=#{id}")
-      end
-    end)
-  end
-
-  defp fix_character_encrypted_fields do
-    # Get all records
-    %{rows: rows} = repo().query!("""
-    SELECT id, 
-           encrypted_location, 
-           encrypted_ship, 
-           encrypted_solar_system_id,
-           encrypted_structure_id, 
-           encrypted_access_token, 
-           encrypted_refresh_token,
-           encrypted_eve_wallet_balance
-    FROM character_v1
-    """, [], log: false)
+    # Fix character_v1 table
+    execute """
+    UPDATE character_v1
+    SET 
+      encrypted_location = convert_url_safe_base64(encrypted_location),
+      encrypted_ship = convert_url_safe_base64(encrypted_ship),
+      encrypted_solar_system_id = convert_url_safe_base64(encrypted_solar_system_id),
+      encrypted_structure_id = convert_url_safe_base64(encrypted_structure_id),
+      encrypted_access_token = convert_url_safe_base64(encrypted_access_token),
+      encrypted_refresh_token = convert_url_safe_base64(encrypted_refresh_token),
+      encrypted_eve_wallet_balance = convert_url_safe_base64(encrypted_eve_wallet_balance)
+    WHERE
+      encrypted_location::text LIKE '%-%' 
+      OR encrypted_location::text LIKE '%\\_%'
+      OR encrypted_ship::text LIKE '%-%' 
+      OR encrypted_ship::text LIKE '%\\_%'
+      OR encrypted_solar_system_id::text LIKE '%-%' 
+      OR encrypted_solar_system_id::text LIKE '%\\_%'
+      OR encrypted_structure_id::text LIKE '%-%' 
+      OR encrypted_structure_id::text LIKE '%\\_%'
+      OR encrypted_access_token::text LIKE '%-%' 
+      OR encrypted_access_token::text LIKE '%\\_%'
+      OR encrypted_refresh_token::text LIKE '%-%' 
+      OR encrypted_refresh_token::text LIKE '%\\_%'
+      OR encrypted_eve_wallet_balance::text LIKE '%-%' 
+      OR encrypted_eve_wallet_balance::text LIKE '%\\_%';
+    """
     
-    # Field names in the same order as the query
-    fields = [
-      :encrypted_location,
-      :encrypted_ship,
-      :encrypted_solar_system_id,
-      :encrypted_structure_id,
-      :encrypted_access_token,
-      :encrypted_refresh_token,
-      :encrypted_eve_wallet_balance
-    ]
+    # Fix user_v1 table
+    execute """
+    UPDATE user_v1
+    SET encrypted_balance = convert_url_safe_base64(encrypted_balance)
+    WHERE
+      encrypted_balance::text LIKE '%-%' 
+      OR encrypted_balance::text LIKE '%\\_%';
+    """
     
-    # Process each character record
-    Enum.each(rows || [], fn [id | values] ->
-      # Check each field
-      Enum.zip(fields, values)
-      |> Enum.each(fn {field, value} ->
-        if value && has_invalid_base64?(value) do
-          fixed = convert_url_safe_to_standard_base64(value)
-          execute """
-          UPDATE character_v1 
-          SET #{field} = '#{escape_sql(fixed)}' 
-          WHERE id = '#{escape_sql(id)}'
-          """
-          Logger.info("Fixed #{field} encoding for character id=#{id}")
-        end
-      end)
-    end)
+    # Drop the helper function
+    execute "DROP FUNCTION convert_url_safe_base64;"
   end
-
-  defp fix_user_balance do
-    # Get all records
-    %{rows: rows} = repo().query!("""
-    SELECT id, encrypted_balance
-    FROM user_v1
-    WHERE encrypted_balance IS NOT NULL
-    """, [], log: false)
-    
-    # Process each user record
-    Enum.each(rows || [], fn [id, balance] ->
-      if balance && has_invalid_base64?(balance) do
-        fixed = convert_url_safe_to_standard_base64(balance)
-        execute """
-        UPDATE user_v1 
-        SET encrypted_balance = '#{escape_sql(fixed)}' 
-        WHERE id = '#{escape_sql(id)}'
-        """
-        Logger.info("Fixed balance encoding for user id=#{id}")
-      end
-    end)
-  end
-
-  # Helper to escape values for SQL strings
-  defp escape_sql(value) when is_binary(value) do
-    String.replace(value, "'", "''")
-  end
-  defp escape_sql(value), do: value
-
-  # Helper to check for invalid Base64 characters
-  defp has_invalid_base64?(binary) when is_binary(binary) do
-    binary
-    |> :binary.bin_to_list()
-    |> Enum.any?(fn c ->
-      # Check for URL-safe Base64 chars that aren't valid in standard Base64
-      c == 45 || c == 95 ||  # - and _
-      # Also check for any non-Base64 characters
-      not ((c >= 65 and c <= 90) or  # A-Z
-            (c >= 97 and c <= 122) or  # a-z
-            (c >= 48 and c <= 57) or  # 0-9
-            c == 43 or c == 47 or  # +/
-            c == 61)  # =
-    end)
-  end
-  defp has_invalid_base64?(_), do: false
-
-  # Convert URL-safe Base64 to standard Base64
-  defp convert_url_safe_to_standard_base64(binary) when is_binary(binary) do
-    binary
-    |> :binary.bin_to_list()
-    |> Enum.map(fn
-      45 -> 43  # - to +
-      95 -> 47  # _ to /
-      c -> c
-    end)
-    |> :binary.list_to_bin()
-  end
-  defp convert_url_safe_to_standard_base64(nil), do: nil
 end 
