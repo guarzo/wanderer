@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NodeProps } from 'reactflow';
 import { MapSolarSystemType } from '../map.types';
-import { Commands, SystemSignature } from '@/hooks/Mapper/types';
-import { OutCommand } from '@/hooks/Mapper/types';
+import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
+import type { SystemSignature } from '@/hooks/Mapper/types/signatures';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useMapEventListener } from '@/hooks/Mapper/events';
 import { useMapState } from '../MapProvider';
@@ -99,45 +99,65 @@ export function useZooLabels(connectionCount: number, systemSigs?: SystemSignatu
 /**
  * Fetches and maintains the ticker and URL for a node owner.
  */
-export function useNodeOwnerTicker(ownerId?: string | null, ownerType?: string | null) {
-  const [ownerTicker, setOwnerTicker] = useState<string | null>(null);
+export function useNodeOwnerTicker(ownerId?: string | null, ownerType?: string | null, ownerTicker?: string | null) {
+  const [ticker, setTicker] = useState<string | null>(ownerTicker || null);
   const [ownerURL, setOwnerURL] = useState('');
   const { outCommand } = useMapState();
 
   useEffect(() => {
     let isMounted = true;
-    if (!ownerId || !ownerType) {
-      setOwnerTicker(null);
+
+    // Reset states if no owner info
+    if (!ownerId && !ownerType && !ownerTicker) {
+      setTicker(null);
       setOwnerURL('');
       return;
     }
-    if (ownerType === 'corp') {
-      outCommand({
-        type: OutCommand.getCorporationTicker,
-        data: { corp_id: ownerId },
-      }).then(({ ticker }) => {
-        if (isMounted) {
-          setOwnerTicker(ticker);
-          setOwnerURL(`${zkillboardBaseURL}/corporation/${ownerId}`);
-        }
-      });
-    } else if (ownerType === 'alliance') {
-      outCommand({
-        type: OutCommand.getAllianceTicker,
-        data: { alliance_id: ownerId },
-      }).then(({ ticker }) => {
-        if (isMounted) {
-          setOwnerTicker(ticker);
-          setOwnerURL(`${zkillboardBaseURL}/alliance/${ownerId}`);
-        }
-      });
+
+    // If we have a ticker already, just use that
+    if (ownerTicker) {
+      setTicker(ownerTicker);
+      // Set URL if we have owner info
+      if (ownerId && ownerType) {
+        const url = `${zkillboardBaseURL}/${ownerType === 'corp' ? 'corporation' : 'alliance'}/${ownerId}`;
+        setOwnerURL(url);
+      }
+      return;
     }
+
+    // Only fetch if we have owner ID and type but no ticker
+    if (ownerId && ownerType) {
+      if (ownerType === 'corp') {
+        outCommand({
+          type: OutCommand.getCorporationTicker,
+          data: { corp_id: ownerId },
+        }).then(({ ticker: fetchedTicker }) => {
+          if (isMounted && fetchedTicker) {
+            setTicker(fetchedTicker);
+            setOwnerURL(`${zkillboardBaseURL}/corporation/${ownerId}`);
+          }
+        });
+      } else if (ownerType === 'alliance') {
+        outCommand({
+          type: OutCommand.getAllianceTicker,
+          data: { alliance_id: ownerId },
+        }).then(({ ticker: fetchedTicker }) => {
+          if (isMounted && fetchedTicker) {
+            setTicker(fetchedTicker);
+            setOwnerURL(`${zkillboardBaseURL}/alliance/${ownerId}`);
+          }
+        });
+      }
+    } else if (ownerTicker) {
+      setTicker(ownerTicker);
+    }
+
     return () => {
       isMounted = false;
     };
-  }, [outCommand, ownerId, ownerType]);
+  }, [outCommand, ownerId, ownerType, ownerTicker, ticker]);
 
-  return { ownerTicker, ownerURL };
+  return { ownerTicker: ticker, ownerURL };
 }
 
 /**

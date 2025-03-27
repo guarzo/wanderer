@@ -113,6 +113,14 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
             }
           }
         }
+      } else if (system.owner_ticker) {
+        // If we have just a ticker without ID/type, still display it
+        setOwnerName(system.owner_ticker);
+        ownerInfoRef.current.ownerName = system.owner_ticker;
+        setOwnerId('');
+        setOwnerType('');
+        ownerInfoRef.current.ownerId = '';
+        ownerInfoRef.current.ownerType = '';
       } else {
         setOwnerId('');
         setOwnerType('');
