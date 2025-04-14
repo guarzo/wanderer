@@ -55,6 +55,7 @@ export function useSolarSystemNode(props: NodeProps<MapSolarSystemType>): SolarS
   } = data;
 
   const {
+    interfaceSettings: { isShowUnsplashedSignatures },
     data: { systemSignatures: mapSystemSignatures },
   } = useMapRootState();
 
