@@ -224,73 +224,71 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         assigns: %{
           map_id: map_id,
           current_user: current_user,
-          tracked_character_ids: tracked_character_ids,
+          tracked_characters: tracked_characters,
           user_permissions: user_permissions
         }
       } = socket
     ) do
 
-    # Extract owner_id, owner_type, and owner_ticker from params, handling null values
-    oid = case Map.get(params, "owner_id") do
-      nil -> nil
+    # Extract owner_id, owner_type, and owner_ticker from params using STRING keys
+    oid = Map.get(params, "owner_id")
+    otype = Map.get(params, "owner_type")
+    ticker = Map.get(params, "owner_ticker")
+
+    # Clean up potential null/empty string values
+    oid = case oid do
       "null" -> nil
       "" -> nil
       val -> val
     end
 
-    otype = case Map.get(params, "owner_type") do
-      nil -> nil
+    otype = case otype do
       "null" -> nil
       "" -> nil
       val -> val
     end
 
-    # Check if owner_ticker is in the params map
-    ticker = case Map.get(params, "owner_ticker", Map.get(params, "ownerName")) do
-      nil -> nil
+    ticker = case ticker do
       "null" -> nil
       "" -> nil
       val -> val
     end
 
     if can_update_system?(:owner, user_permissions) do
-      system_id_int = String.to_integer(sid)
-
-      # Get the current system data to compare
-      case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, system_id_int) do
-        {:ok, current_system} ->
-          # Update the system directly in the database
-          case WandererApp.Repo.get(WandererApp.Api.MapSystem, current_system.id) do
-            nil ->
-              Logger.error("System not found in database: #{inspect(current_system.id)}")
-
-            db_system ->
-              # Update the owner fields
-              {:ok, updated_system} = WandererApp.Repo.update(
-                Ecto.Changeset.change(db_system, %{
-                  owner_id: oid,
-                  owner_type: otype,
-                  owner_ticker: ticker
-                })
-              )
-
-              # Broadcast the update
-              Impl.broadcast!(map_id, :update_system, updated_system)
-
-              # Add activity tracking for owner updates
-              {:ok, _} =
-                WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
-                  character_id: tracked_character_ids |> List.first(),
-                  user_id: current_user.id,
-                  map_id: map_id,
-                  solar_system_id: system_id_int,
-                  key: :owner,
-                  value: %{owner_id: oid, owner_type: otype, ticker: ticker}
-                })
+      system_id_int =
+          case sid do
+            id when is_integer(id) -> id
+            id when is_binary(id) -> String.to_integer(id)
+            _ -> nil
           end
 
-        error ->
-          Logger.error("Failed to find system in database: #{inspect(error)}")
+      if system_id_int do
+        WandererApp.Map.Server.update_system_owner(
+          map_id,
+          %{
+            solar_system_id: system_id_int,
+            owner_id: oid,
+            owner_type: otype,
+            owner_ticker: ticker
+          }
+        )
+
+        main_character_id = case tracked_characters do
+          [first | _] -> first.id
+          _ -> nil
+        end
+
+        if main_character_id do
+          {:ok, _} =
+            WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
+              character_id: main_character_id,
+              user_id: current_user.id,
+              map_id: map_id,
+              solar_system_id: system_id_int,
+              key: :owner,
+              value: %{owner_id: oid, owner_type: otype, ticker: ticker}
+            })
+        end
       end
     end
 
@@ -622,9 +620,10 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     end
   end
 
-  # Catch-all handler for UI events
-  def handle_ui_event(event, body, socket) do
-    # Forward to the core event handler
-    MapCoreEventHandler.handle_ui_event(event, body, socket)
+  # Catch-all for UI events NOT handled by specific clauses above
+  def handle_ui_event(event, params, socket) do
+    Logger.warn("[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}, Params: #{inspect(params)}, Assigns: #{inspect(socket.assigns)}")
+    # Forward to the core event handler as a fallback
+    MapCoreEventHandler.handle_ui_event(event, params, socket)
   end
 end

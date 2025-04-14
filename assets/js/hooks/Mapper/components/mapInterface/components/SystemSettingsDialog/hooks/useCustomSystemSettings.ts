@@ -4,7 +4,6 @@ import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager';
 import { parseTagString, toTagString } from '../helpers';
-import { SolarSystemRawType } from '@/hooks/Mapper/types';
 
 export interface OwnerSuggestion {
   label: string;
@@ -82,12 +81,15 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
           setOwnerName(tickerCacheRef.current[cacheKey]);
           ownerInfoRef.current.ownerName = tickerCacheRef.current[cacheKey];
         } else {
-          const systemWithTicker = system as SolarSystemRawType & { owner_ticker?: string | null };
-          if (systemWithTicker.owner_ticker) {
-            setOwnerName(systemWithTicker.owner_ticker);
-            ownerInfoRef.current.ownerName = systemWithTicker.owner_ticker;
-            tickerCacheRef.current[cacheKey] = systemWithTicker.owner_ticker;
+          // Safely check if owner_ticker exists on the system object and has a value
+          const tickerFromSystem = 'owner_ticker' in system && system.owner_ticker ? String(system.owner_ticker) : null;
+
+          if (tickerFromSystem) {
+            setOwnerName(tickerFromSystem);
+            ownerInfoRef.current.ownerName = tickerFromSystem;
+            tickerCacheRef.current[cacheKey] = tickerFromSystem;
           } else {
+            // Fetch ticker if not found directly
             if (system.owner_type === 'corp') {
               outCommand({
                 type: OutCommand.getCorporationTicker,
@@ -113,21 +115,25 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
             }
           }
         }
-      } else if (system.owner_ticker) {
-        // If we have just a ticker without ID/type, still display it
-        setOwnerName(system.owner_ticker);
-        ownerInfoRef.current.ownerName = system.owner_ticker;
-        setOwnerId('');
-        setOwnerType('');
-        ownerInfoRef.current.ownerId = '';
-        ownerInfoRef.current.ownerType = '';
       } else {
-        setOwnerId('');
-        setOwnerType('');
-        setOwnerName('');
-        ownerInfoRef.current.ownerId = '';
-        ownerInfoRef.current.ownerType = '';
-        ownerInfoRef.current.ownerName = '';
+        // Handle case where only owner_ticker might exist (without id/type)
+        const tickerFromSystem = 'owner_ticker' in system && system.owner_ticker ? String(system.owner_ticker) : null;
+        if (tickerFromSystem) {
+          setOwnerName(tickerFromSystem);
+          ownerInfoRef.current.ownerName = tickerFromSystem;
+          setOwnerId('');
+          setOwnerType('');
+          ownerInfoRef.current.ownerId = '';
+          ownerInfoRef.current.ownerType = '';
+        } else {
+          // Reset owner info if no id, type, or ticker is found
+          setOwnerId('');
+          setOwnerType('');
+          setOwnerName('');
+          ownerInfoRef.current.ownerId = '';
+          ownerInfoRef.current.ownerType = '';
+          ownerInfoRef.current.ownerName = '';
+        }
       }
 
       // Parse and set custom flags.
@@ -276,9 +282,17 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
   const handleOwnerChange = useCallback((value: string | OwnerSuggestion) => {
     if (value) {
       if (typeof value === 'string') {
+        // User is typing directly, not selecting.
+        // Update the name, but clear the ID and Type to avoid sending stale data.
         setOwnerName(value);
+        setOwnerId('');
+        setOwnerType('');
         ownerInfoRef.current.ownerName = value;
+        ownerInfoRef.current.ownerId = '';
+        ownerInfoRef.current.ownerType = '';
       } else {
+        // Value is an OwnerSuggestion object (likely from selection, though handled by handleOwnerSelect primarily)
+        // Update all fields based on the object.
         setOwnerName(value.name);
         setOwnerId(value.id);
         setOwnerType(value.type);
@@ -287,6 +301,8 @@ export function useCustomSystemSettings(systemId: string, visible: boolean) {
         ownerInfoRef.current.ownerType = value.type;
       }
     } else {
+      // Value is null/undefined (field cleared)
+      // Clear all owner info.
       setOwnerName('');
       setOwnerId('');
       setOwnerType('');
