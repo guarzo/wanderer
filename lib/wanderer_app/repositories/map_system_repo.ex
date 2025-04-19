@@ -166,4 +166,41 @@ defmodule WandererApp.MapSystemRepo do
     do:
       system
       |> WandererApp.Api.MapSystem.update_visible!(update)
+
+  @doc """
+  Bulk create multiple systems at once.
+  Returns {:ok, created_systems} on success or {:error, reason} on failure.
+  """
+  def bulk_create(systems) do
+    WandererApp.Api.MapSystem.bulk_create(systems)
+    |> case do
+      %Ash.BulkResult{status: :success, results: results} ->
+        {:ok, results}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, errors}
+
+      error ->
+        {:error, error}
+    end
+  end
+
+  @doc """
+  Bulk update multiple systems at once.
+  Each system in the list should be a tuple of {system, updates}.
+  Returns {:ok, updated_systems} on success or {:error, reason} on failure.
+  """
+  def bulk_update(system_updates) do
+    WandererApp.Api.MapSystem.bulk_update(system_updates)
+    |> case do
+      %Ash.BulkResult{status: :success, results: results} ->
+        {:ok, results}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, errors}
+
+      error ->
+        {:error, error}
+    end
+  end
 end

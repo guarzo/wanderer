@@ -209,12 +209,28 @@ defmodule WandererAppWeb.Router do
     get "/systems", MapAPIController, :list_systems
     get "/system", MapAPIController, :show_system
     get "/connections", MapAPIController, :list_connections
+    patch "/systems", MapAPIController, :upsert_systems
+    patch "/connections", MapAPIController, :upsert_connections
+    delete "/systems", MapAPIController, :delete_systems
+    delete "/connections", MapAPIController, :delete_connections
     get "/characters", MapAPIController, :tracked_characters_with_info
     get "/structure-timers", MapAPIController, :show_structure_timers
     get "/character-activity", MapAPIController, :character_activity
     get "/user_characters", MapAPIController, :user_characters
     get "/acls", MapAccessListAPIController, :index
     post "/acls", MapAccessListAPIController, :create
+  end
+
+  scope "/api/templates", WandererAppWeb do
+    pipe_through [:api, :api_map]
+    get "/", MapAPIController, :list_templates
+    get "/:id", MapAPIController, :get_template
+    post "/", MapAPIController, :create_template
+    post "/from-map", MapAPIController, :create_template_from_map
+    patch "/:id/metadata", MapAPIController, :update_template_metadata
+    patch "/:id/content", MapAPIController, :update_template_content
+    delete "/:id", MapAPIController, :delete_template
+    post "/apply", MapAPIController, :apply_template
   end
 
   scope "/api/characters", WandererAppWeb do
