@@ -24,6 +24,9 @@ defmodule WandererApp.Api.MapConnection do
     define(:get_link_pairs_advanced, action: :get_link_pairs_advanced)
     define(:destroy, action: :destroy)
 
+    define(:bulk_create, action: :bulk_create)
+    define(:bulk_update, action: :bulk_update)
+
     define(:update_mass_status, action: :update_mass_status)
     define(:update_time_status, action: :update_time_status)
     define(:update_ship_size_type, action: :update_ship_size_type)
@@ -42,6 +45,41 @@ defmodule WandererApp.Api.MapConnection do
     ]
 
     defaults [:create, :read, :update, :destroy]
+
+    create :bulk_create do
+      accept [
+        :map_id,
+        :solar_system_source,
+        :solar_system_target,
+        :mass_status,
+        :time_status,
+        :ship_size_type,
+        :type,
+        :wormhole_type,
+        :count_of_passage,
+        :locked,
+        :custom_info
+      ]
+
+      primary? true
+      bulk? true
+    end
+
+    update :bulk_update do
+      accept [
+        :mass_status,
+        :time_status,
+        :ship_size_type,
+        :type,
+        :wormhole_type,
+        :count_of_passage,
+        :locked,
+        :custom_info
+      ]
+
+      primary? true
+      bulk? true
+    end
 
     read :read_by_map do
       argument(:map_id, :string, allow_nil?: false)

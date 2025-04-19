@@ -95,4 +95,41 @@ defmodule WandererApp.MapConnectionRepo do
     do:
       connection
       |> WandererApp.Api.MapConnection.update_custom_info(update)
+
+  @doc """
+  Bulk create multiple connections at once.
+  Returns {:ok, created_connections} on success or {:error, reason} on failure.
+  """
+  def bulk_create(connections) do
+    WandererApp.Api.MapConnection.bulk_create(connections)
+    |> case do
+      %Ash.BulkResult{status: :success, results: results} ->
+        {:ok, results}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, errors}
+
+      error ->
+        {:error, error}
+    end
+  end
+
+  @doc """
+  Bulk update multiple connections at once.
+  Each connection in the list should be a tuple of {connection, updates}.
+  Returns {:ok, updated_connections} on success or {:error, reason} on failure.
+  """
+  def bulk_update(connection_updates) do
+    WandererApp.Api.MapConnection.bulk_update(connection_updates)
+    |> case do
+      %Ash.BulkResult{status: :success, results: results} ->
+        {:ok, results}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, errors}
+
+      error ->
+        {:error, error}
+    end
+  end
 end

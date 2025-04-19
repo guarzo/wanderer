@@ -41,6 +41,9 @@ defmodule WandererApp.Api.MapSystem do
       action: :read_by_map_and_solar_system
     )
 
+    define(:bulk_create, action: :bulk_create)
+    define(:bulk_update, action: :bulk_update)
+
     define(:update_name, action: :update_name)
     define(:update_description, action: :update_description)
     define(:update_locked, action: :update_locked)
@@ -64,6 +67,48 @@ defmodule WandererApp.Api.MapSystem do
     ]
 
     defaults [:create, :read, :update, :destroy]
+
+    create :bulk_create do
+      accept [
+        :map_id,
+        :solar_system_id,
+        :name,
+        :custom_name,
+        :description,
+        :status,
+        :position_x,
+        :position_y,
+        :tag,
+        :temporary_name,
+        :labels,
+        :locked,
+        :visible,
+        :linked_sig_eve_id
+      ]
+
+      primary? true
+      bulk? true
+    end
+
+    update :bulk_update do
+      accept [
+        :name,
+        :custom_name,
+        :description,
+        :status,
+        :position_x,
+        :position_y,
+        :tag,
+        :temporary_name,
+        :labels,
+        :locked,
+        :visible,
+        :linked_sig_eve_id
+      ]
+
+      primary? true
+      bulk? true
+    end
 
     read :read_all_by_map do
       argument(:map_id, :string, allow_nil?: false)
