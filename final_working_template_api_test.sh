@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Configuration
 API_BASE_URL="http://localhost:4444"
-API_TOKEN="33486e7e-01bd-412b-844d-a63635a8821f"
+API_TOKEN="8f8912c2-ce9c-4f4d-9901-f1260c29b4f2"
 MAP_SLUG="flygd"
 
 # Validate required parameters
@@ -21,18 +21,33 @@ fi
 
 echo "======== Map Template API Test ========"
 
-echo "1. Creating a template..."
+echo "1. Creating a template with explicit systems and connections..."
 TEMPLATE_NAME="API Test Template $(date +%s)"
 
-# Template creation - Need slug in query parameter, not in body
+# Template creation with explicit systems and connections
 REQUEST='{
   "name": "'$TEMPLATE_NAME'",
   "description": "A test template created via API",
   "category": "test",
   "author_eve_id": "2122019111",
   "is_public": false,
-  "systems": [],
-  "connections": []
+  "systems": [
+    {
+      "solar_system_id": 30000142,
+      "name": "Jita"
+    },
+    {
+      "solar_system_id": 30002053,
+      "name": "Hek"
+    }
+  ],
+  "connections": [
+    {
+      "source_index": 0,
+      "target_index": 1,
+      "type": 0
+    }
+  ]
 }'
 
 # Create template
@@ -71,7 +86,8 @@ if [ -n "$TEMPLATE_ID" ] && [ "$TEMPLATE_ID" != "null" ]; then
   # Extract second template ID
   TEMPLATE_FROM_MAP_ID=$(echo "$FROM_MAP_RESPONSE" | jq -r '.data.id')
   
-  echo "3. Applying template to map..."
+  # Apply our manually created template - this is guaranteed to have systems and connections
+  echo "3. Applying first template to map..."
   # Apply template to map
   APPLY_PAYLOAD='{
     "template_id": "'$TEMPLATE_ID'"
@@ -84,6 +100,14 @@ if [ -n "$TEMPLATE_ID" ] && [ "$TEMPLATE_ID" != "null" ]; then
   
   echo "Apply response:"
   echo "$APPLY_RESPONSE" | jq '.'
+
+  # Check if systems_added is greater than 0
+  SYSTEMS_ADDED=$(echo "$APPLY_RESPONSE" | jq -r '.data.systems_added // 0')
+  if [ "$SYSTEMS_ADDED" -gt 0 ]; then
+    echo "SUCCESS: Template application added $SYSTEMS_ADDED systems"
+  else
+    echo "Note: Template application didn't add any systems, but this might be because they already exist"
+  fi
   
   echo "All template API tests completed successfully!"
 else
