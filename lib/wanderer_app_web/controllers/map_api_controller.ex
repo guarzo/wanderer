@@ -257,11 +257,7 @@ defmodule WandererAppWeb.MapAPIController do
     with {:ok, map_id} <- Util.fetch_map_id(params),
          {:ok, systems} <- MapSystemRepo.get_visible_by_map(map_id) do
 
-      Logger.debug(fn -> "[list_systems_kills] Found #{length(systems)} visible systems for map_id=#{map_id}" end)
-
       hours_ago = parse_hours_ago(params["hours_ago"] || params["hour_ago"])
-
-      Logger.debug(fn -> "[list_systems_kills] Using hours_ago=#{inspect(hours_ago)}, from params: hours_ago=#{inspect(params["hours_ago"])}, hour_ago=#{inspect(params["hour_ago"])}" end)
 
       solar_ids = Enum.map(systems, & &1.solar_system_id)
       kills_map = KillsCache.fetch_cached_kills_for_systems(solar_ids)
@@ -552,8 +548,6 @@ defmodule WandererAppWeb.MapAPIController do
     end
   end
 
-  # ---------------- Private Helpers (Remaining & Added for Combined Upsert) ----------------
-
 
   # --- Helpers for Structure Timers ---
   defp handle_all_structure_timers(conn, map_id) do
@@ -652,7 +646,6 @@ defmodule WandererAppWeb.MapAPIController do
       end)
       result
     end)
-    Logger.debug(fn -> "[maybe_filter_kills_by_time] Filtered #{length(kills)} kills to #{length(filtered)} kills" end)
     filtered
   end
 

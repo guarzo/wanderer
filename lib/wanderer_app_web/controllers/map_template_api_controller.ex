@@ -3,7 +3,6 @@ defmodule WandererAppWeb.MapTemplateAPIController do
   use OpenApiSpex.ControllerSpecs
 
   alias WandererAppWeb.UtilAPIController, as: Util
-
   # Reference schemas from MapApiSchemas module
   alias WandererAppWeb.Schemas.MapApiSchemas
 
