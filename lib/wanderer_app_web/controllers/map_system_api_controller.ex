@@ -2,7 +2,6 @@ defmodule WandererAppWeb.MapSystemAPIController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias WandererApp.Api
   alias WandererApp.MapSystemRepo
   alias WandererApp.MapConnectionRepo
   alias WandererAppWeb.UtilAPIController, as: Util
@@ -61,7 +60,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
   def list_systems(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
          {:ok, systems} <- MapSystemRepo.get_visible_by_map(map_id) do
-      data = Enum.map(systems, &map_system_to_json/1)
+      data = Enum.map(systems, &Util.map_system_to_json/1)
       json(conn, %{data: data})
     else
       {:error, msg} when is_binary(msg) ->
@@ -72,7 +71,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       {:error, reason} ->
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Could not fetch systems: #{inspect(reason)}"})
+        |> json(%{error: "Could not fetch systems: #{Util.format_error(reason)}"})
     end
   end
 
@@ -145,7 +144,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
          {:ok, solar_system_id} <- Util.parse_int(solar_system_str),
          {:ok, map_id} <- Util.fetch_map_id(params),
          {:ok, system} <- MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
-      data = map_system_to_json(system)
+      data = Util.map_system_to_json(system)
       json(conn, %{data: data})
     else
       {:error, msg} when is_binary(msg) ->
@@ -161,7 +160,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       {:error, reason} ->
         conn
         |> put_status(:internal_server_error)
-        |> json(%{error: "Could not load system: #{inspect(reason)}"})
+        |> json(%{error: "Could not load system: #{Util.format_error(reason)}"})
     end
   end
 
@@ -201,6 +200,22 @@ defmodule WandererAppWeb.MapSystemAPIController do
   operation :upsert_systems,
     summary: "Batch upsert systems",
     description: "Creates or updates multiple systems in one operation. Systems with IDs are updated, systems without IDs but with solar_system_ids are matched and updated if they exist, or created if they don't.",
+    parameters: [
+      map_id: [
+        in: :query,
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: ""
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "map-name"
+      ]
+    ],
     request_body: {"Map systems to upsert", "application/json", MapAPISchemas.upsert_systems_request_schema()},
     responses: [
       ok: {"System upsert result", "application/json", MapAPISchemas.upsert_systems_response_schema()},
@@ -215,8 +230,8 @@ defmodule WandererAppWeb.MapSystemAPIController do
          {:ok, updated_systems} <- update_systems(systems_to_update) do
       json(conn, %{
         data: %{
-          created: Enum.map(created_systems || [], &map_system_to_json/1),
-          updated: Enum.map(updated_systems || [], &map_system_to_json/1)
+          created: Enum.map(created_systems || [], &Util.map_system_to_json/1),
+          updated: Enum.map(updated_systems || [], &Util.map_system_to_json/1)
         }
       })
     else
@@ -228,7 +243,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error processing systems: #{inspect(reason)}"})
+        |> json(%{error: "Error processing systems: #{Util.format_error(reason)}"})
     end
   end
 
@@ -254,6 +269,22 @@ defmodule WandererAppWeb.MapSystemAPIController do
   operation :delete_systems,
     summary: "Batch delete systems",
     description: "Deletes multiple systems in one operation. This will also delete any connections associated with the deleted systems.",
+    parameters: [
+      map_id: [
+        in: :query,
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: ""
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "map-name"
+      ]
+    ],
     request_body: {"Map systems to delete", "application/json", MapAPISchemas.delete_systems_request_schema()},
     responses: [
       ok: {"System delete result", "application/json", MapAPISchemas.delete_systems_response_schema()},
@@ -281,7 +312,251 @@ defmodule WandererAppWeb.MapSystemAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error deleting systems: #{inspect(reason)}"})
+        |> json(%{error: "Error deleting systems: #{Util.format_error(reason)}"})
+    end
+  end
+
+  @doc """
+  GET /api/map/connections
+
+  Requires either `?map_id=<UUID>` **OR** `?slug=<map-slug>` in the query params.
+  """
+  @spec list_connections(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation :list_connections,
+    summary: "List Map Connections",
+    description: "Lists all connections for a map. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
+    parameters: [
+      map_id: [
+        in: :query,
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: ""
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "map-name"
+      ]
+    ],
+    responses: [
+      ok: {
+        "List of map connections",
+        "application/json",
+        MapAPISchemas.list_map_connections_response_schema()
+      },
+      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          error: %OpenApiSpex.Schema{type: :string}
+        },
+        required: ["error"],
+        example: %{
+          "error" => "Must provide either ?map_id=UUID or ?slug=SLUG"
+        }
+      }}
+    ]
+  def list_connections(conn, params) do
+    with {:ok, map_id} <- Util.fetch_map_id(params),
+          {:ok, connections} <- MapConnectionRepo.get_by_map(map_id) do
+      data = Enum.map(connections, &Util.connection_to_json/1)
+      json(conn, %{data: data})
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Could not fetch connections: #{Util.format_error(reason)}"})
+    end
+  end
+
+  @doc """
+  PATCH /api/map/connections
+
+  Upserts (creates or updates) multiple connections in a batch operation.
+  """
+  @spec upsert_connections(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation :upsert_connections,
+    summary: "Batch upsert connections",
+    description: "Creates or updates multiple connections in one operation.",
+    parameters: [
+      map_id: [
+        in: :query,
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: ""
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "map-name"
+      ]
+    ],
+    request_body: {"Map connections to upsert", "application/json", MapAPISchemas.upsert_connections_request_schema()},
+    responses: [
+      ok: {"Connection upsert result", "application/json", MapAPISchemas.upsert_connections_response_schema()},
+      bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
+    ]
+  def upsert_connections(conn, params) do
+    with {:ok, map_id} <- Util.fetch_map_id(params),
+         {:ok, connections_to_upsert} <- extract_connections_from_params(params),
+         {:ok, existing_connections} <- MapConnectionRepo.get_by_map(map_id),
+         {:ok, {connections_to_create, connections_to_update}} <- prepare_connections_for_upsert(map_id, connections_to_upsert, existing_connections),
+         {:ok, created_connections} <- create_connections(connections_to_create),
+         {:ok, updated_connections} <- update_connections(connections_to_update) do
+      json(conn, %{
+        data: %{
+          created: Enum.map(created_connections || [], &Util.connection_to_json/1),
+          updated: Enum.map(updated_connections || [], &Util.connection_to_json/1)
+        }
+      })
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Error processing connections: #{Util.format_error(reason)}"})
+    end
+  end
+
+  @doc """
+  DELETE /api/map/connections
+
+  Deletes multiple connections in a batch operation.
+
+  Example body:
+  ```json
+  {
+    "map_id": "466e922b-e758-485e-9b86-afae06b88363",
+    "connection_ids": [
+      "connection-uuid-1",
+      "connection-uuid-2"
+    ]
+  }
+  ```
+  """
+  @spec delete_connections(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation :delete_connections,
+    summary: "Delete Map Connections",
+    description: "Deletes the specified connections from a map.",
+    parameters: [
+      map_id: [
+        in: :query,
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: ""
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "map-name"
+      ]
+    ],
+    request_body: {"Connection IDs to delete", "application/json", MapAPISchemas.delete_connections_request_schema()},
+    responses: [
+      ok: {"Deleted connections result", "application/json", MapAPISchemas.delete_connections_response_schema()},
+      bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
+    ]
+  def delete_connections(conn, params) do
+    with {:ok, map_id} <- Util.fetch_map_id(params),
+         {:ok, connection_ids} <- extract_connection_ids_from_params(params),
+         {:ok, connections} <- get_connections_by_ids(map_id, connection_ids),
+         {:ok, deleted_count} <- bulk_delete_connections(connections) do
+      json(conn, %{data: %{deleted_count: deleted_count}})
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Error deleting connections: #{Util.format_error(reason)}"})
+    end
+  end
+
+  @doc """
+  PATCH /api/map/systems-and-connections
+
+  Upserts (creates or updates) multiple systems and connections in a batch operation.
+  """
+  @spec upsert_systems_and_connections(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation :upsert_systems_and_connections,
+    summary: "Batch upsert systems and connections",
+    description: "Creates or updates multiple systems and connections in one operation.",
+    parameters: [
+      map_id: [
+        in: :query,
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: ""
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "map-name"
+      ]
+    ],
+    request_body: {"Map systems and connections to upsert", "application/json", MapAPISchemas.upsert_systems_and_connections_request_schema()},
+    responses: [
+      ok: {"Systems and connections upsert result", "application/json", MapAPISchemas.upsert_systems_and_connections_response_schema()},
+      bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
+    ]
+  def upsert_systems_and_connections(conn, params) do
+    with {:ok, map_id} <- Util.fetch_map_id(params),
+         {:ok, systems_to_upsert} <- extract_systems_from_params(params),
+         {:ok, existing_systems} <- MapSystemRepo.get_all_by_map(map_id),
+         {:ok, {systems_to_create, systems_to_update}} <- prepare_systems_for_upsert(map_id, systems_to_upsert, existing_systems),
+         {:ok, created_systems} <- create_systems(systems_to_create),
+         {:ok, updated_systems} <- update_systems(systems_to_update),
+         # Handle connections
+         {:ok, connections_to_upsert} <- extract_connections_from_params(params),
+         {:ok, existing_connections} <- MapConnectionRepo.get_by_map(map_id),
+         {:ok, {connections_to_create, connections_to_update}} <- prepare_connections_for_upsert(map_id, connections_to_upsert, existing_connections),
+         {:ok, created_connections} <- create_connections(connections_to_create),
+         {:ok, updated_connections} <- update_connections(connections_to_update) do
+      json(conn, %{
+        data: %{
+          systems: %{
+            created: Enum.map(created_systems || [], &Util.map_system_to_json/1),
+            updated: Enum.map(updated_systems || [], &Util.map_system_to_json/1)
+          },
+          connections: %{
+            created: Enum.map(created_connections || [], &Util.connection_to_json/1),
+            updated: Enum.map(updated_connections || [], &Util.connection_to_json/1)
+          }
+        }
+      })
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Error processing systems and connections: #{Util.format_error(reason)}"})
     end
   end
 
@@ -304,7 +579,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
           Map.has_key?(system_params, "id") && Map.has_key?(existing_by_id, system_params["id"]) ->
             # Get the existing system ID, but use params directly for the update
             system_id = system_params["id"]
-            update_params = atomize_keys(system_params)
+            update_params = Util.atomize_keys(system_params)
             updates = [{system_id, update_params} | updates]
             {creates, updates}
 
@@ -314,14 +589,14 @@ defmodule WandererAppWeb.MapSystemAPIController do
             # Get the existing system ID, but use params directly for the update
             existing = Map.get(existing_by_solar_id, system_params["solar_system_id"])
             system_id = existing.id
-            update_params = atomize_keys(system_params)
+            update_params = Util.atomize_keys(system_params)
             updates = [{system_id, update_params} | updates]
             {creates, updates}
 
           # Case 3: New system with at least a solar_system_id - create
           Map.has_key?(system_params, "solar_system_id") ->
             system_params = Map.put(system_params, "map_id", map_id)
-            creates = [atomize_keys(system_params) | creates]
+            creates = [Util.atomize_keys(system_params) | creates]
             {creates, updates}
 
           # Case 4: Invalid system data - skip it
@@ -347,7 +622,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       case MapSystemRepo.update_by_id(system_id, update_params) do
         {:ok, updated} -> updated
         {:error, reason} ->
-          IO.puts("Error updating system #{system_id}: #{inspect(reason)}")
+          IO.puts("Error updating system #{system_id}: #{Util.format_error(reason)}")
           nil
       end
     end)
@@ -424,95 +699,84 @@ defmodule WandererAppWeb.MapSystemAPIController do
     end
   end
 
-  defp map_system_to_json(system) do
-    # Get the original system name from the database
-    original_name = get_original_system_name(system.solar_system_id)
+  # --- Connections Helpers ---
 
-    # Start with the basic system data
-    result = Map.take(system, [
-      :id,
-      :map_id,
-      :solar_system_id,
-      :custom_name,
-      :temporary_name,
-      :description,
-      :tag,
-      :labels,
-      :locked,
-      :visible,
-      :status,
-      :position_x,
-      :position_y,
-      :inserted_at,
-      :updated_at
-    ])
+  # Extract connections from params
+  defp extract_connections_from_params(%{"connections" => connections}) when is_list(connections), do: {:ok, connections}
+  defp extract_connections_from_params(_), do: {:ok, []} # Default to empty list for optional connections
 
-    # Add the original name
-    result = Map.put(result, :original_name, original_name)
+  # Prepare connections for upsert
+  defp prepare_connections_for_upsert(map_id, connections_to_upsert, existing_connections) do
+    existing_by_id = Map.new(existing_connections, &{&1.id, &1})
+    existing_by_endpoints =
+      existing_connections
+      |> Enum.reduce(%{}, fn conn, acc ->
+        key = {conn.solar_system_source, conn.solar_system_target}
+        Map.update(acc, key, [conn], fn conns -> [conn | conns] end)
+      end)
 
-    # Set the name field based on the display priority:
-    # 1. If temporary_name is set, use that
-    # 2. If custom_name is set, use that
-    # 3. Otherwise, use the original system name
-    display_name = cond do
-      not is_nil(system.temporary_name) and system.temporary_name != "" ->
-        system.temporary_name
-      not is_nil(system.custom_name) and system.custom_name != "" ->
-        system.custom_name
-      true ->
-        original_name
-    end
+    {to_create, to_update} =
+      Enum.reduce(connections_to_upsert, {[], []}, fn conn_params, {creates, updates} ->
+        cond do
+          Map.has_key?(conn_params, "id") && Map.has_key?(existing_by_id, conn_params["id"]) ->
+            existing = Map.get(existing_by_id, conn_params["id"])
+            updates = [{existing, Util.atomize_keys(conn_params)} | updates]
+            {creates, updates}
 
-    # Add the display name as the "name" field
-    Map.put(result, :name, display_name)
-  end
+          Map.has_key?(conn_params, "solar_system_source") &&
+          Map.has_key?(conn_params, "solar_system_target") &&
+          Map.has_key?(existing_by_endpoints, {conn_params["solar_system_source"], conn_params["solar_system_target"]}) ->
+            [existing | _] = Map.get(existing_by_endpoints, {conn_params["solar_system_source"], conn_params["solar_system_target"]})
+            updates = [{existing, Util.atomize_keys(conn_params)} | updates]
+            {creates, updates}
 
-  defp get_original_system_name(solar_system_id) do
-    # Fetch the original system name from the MapSolarSystem resource
-    case WandererApp.Api.MapSolarSystem.by_solar_system_id(solar_system_id) do
-      {:ok, system} ->
-        system.solar_system_name
-      _error ->
-        "Unknown System"
-    end
-  end
+          Map.has_key?(conn_params, "solar_system_source") && Map.has_key?(conn_params, "solar_system_target") ->
+            conn_params = Map.put(conn_params, "map_id", map_id)
+            creates = [Util.atomize_keys(conn_params) | creates]
+            {creates, updates}
 
-  # Safer implementation of atomize_keys using a whitelist
-  # Duplicated here and in MapAPIController for the combined endpoint
-  defp atomize_keys(map) do
-    allowed_keys = [
-      :id, :solar_system_id, :position_x, :position_y,
-      :status, :description, :map_id, :locked, :visible,
-      :solar_system_source, :solar_system_target, :type,
-      :name, :author_id, :author_eve_id, :category, :is_public, :source_map_id,
-      :systems, :connections, :metadata
-    ]
-
-    # First normalize author_eve_id to author_id if present
-    normalized_map = if Map.has_key?(map, "author_eve_id") do
-      author_id = Map.get(map, "author_eve_id")
-      map
-      |> Map.put("author_id", author_id)
-      |> Map.delete("author_eve_id")
-    else
-      map
-    end
-
-    normalized_map
-    |> Enum.flat_map(fn
-      {k, v} when is_binary(k) ->
-        try do
-          key_atom = String.to_existing_atom(k)
-          if Enum.member?(allowed_keys, key_atom) do
-            [{key_atom, v}]
-          else
-            []
-          end
-        rescue
-          ArgumentError -> []
+          true -> {creates, updates}
         end
-      entry -> [entry]
-    end)
-    |> Map.new()
+      end)
+
+    {:ok, {to_create, to_update}}
+  end
+
+  # Create connections
+  defp create_connections([]), do: {:ok, []}
+  defp create_connections(connections_to_create) do
+    MapConnectionRepo.bulk_create(connections_to_create)
+  end
+
+  # Update connections
+  defp update_connections([]), do: {:ok, []}
+  defp update_connections(connections_to_update) do
+    MapConnectionRepo.bulk_update(connections_to_update)
+  end
+
+  # Extract connection IDs from params
+  defp extract_connection_ids_from_params(%{"connection_ids" => connection_ids}) when is_list(connection_ids), do: {:ok, connection_ids}
+  defp extract_connection_ids_from_params(_), do: {:error, "Missing or invalid 'connection_ids' parameter"}
+
+  # Get connections by IDs
+  defp get_connections_by_ids(map_id, connection_ids) do
+    MapConnectionRepo.get_by_map(map_id)
+    |> case do
+      {:ok, all_connections} ->
+        connections = Enum.filter(all_connections, fn connection -> connection.id in connection_ids end)
+        {:ok, connections}
+      error -> error
+    end
+  end
+
+  # Bulk delete connections
+  defp bulk_delete_connections([]), do: {:ok, 0}
+  defp bulk_delete_connections(connections) do
+    WandererApp.Api.MapConnection.destroy(connections)
+    |> case do
+      %Ash.BulkResult{status: :success} -> {:ok, length(connections)}
+      %Ash.BulkResult{status: :error, errors: errors} -> {:error, errors}
+      error -> {:error, error}
+    end
   end
 end

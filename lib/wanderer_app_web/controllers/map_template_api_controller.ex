@@ -2,9 +2,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias WandererApp.MapTemplateRepo
   alias WandererAppWeb.UtilAPIController, as: Util
-  alias Ecto.UUID
 
   # Reference schemas from MapAPIController
   alias WandererAppWeb.MapAPIController, as: MapAPISchemas
@@ -24,6 +22,20 @@ defmodule WandererAppWeb.MapTemplateAPIController do
     summary: "List Templates",
     description: "Lists available templates, filtered by category, author, or public status.",
     parameters: [
+      map_id: [
+        in: :query,
+        description: "Map ID to filter templates",
+        type: :string,
+        required: false,
+        example: "466e922b-e758-485e-9b86-afae06b88363"
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug to filter templates",
+        type: :string,
+        required: false,
+        example: "my-map"
+      ],
       category: [
         in: :query,
         description: "Filter by category (e.g., 'wormhole', 'k-space')",
@@ -50,34 +62,41 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       ok: {"List of templates", "application/json", MapAPISchemas.template_list_response_schema()}
     ]
   def list_templates(conn, params) do
-    templates = cond do
-      Map.has_key?(params, "category") ->
-        case WandererApp.MapTemplateRepo.list_by_category(params["category"]) do
-          {:ok, templates} -> templates
-          _ -> []
-        end
+    with {:ok, _map_id} <- Util.fetch_map_id(params) do
+      templates = cond do
+        Map.has_key?(params, "category") ->
+          case WandererApp.MapTemplateRepo.list_by_category(params["category"]) do
+            {:ok, templates} -> templates
+            _ -> []
+          end
 
-      Map.has_key?(params, "author_eve_id") ->
-        author_eve_id = parse_integer_param(params["author_eve_id"])
-        case WandererApp.MapTemplateRepo.list_by_author(author_eve_id) do
-          {:ok, templates} -> templates
-          _ -> []
-        end
+        Map.has_key?(params, "author_eve_id") ->
+          author_eve_id = parse_integer_param(params["author_eve_id"])
+          case WandererApp.MapTemplateRepo.list_by_author(author_eve_id) do
+            {:ok, templates} -> templates
+            _ -> []
+          end
 
-      Map.has_key?(params, "public") && params["public"] == true ->
-        case WandererApp.MapTemplateRepo.list_public() do
-          {:ok, templates} -> templates
-          _ -> []
-        end
+        Map.has_key?(params, "public") && params["public"] == true ->
+          case WandererApp.MapTemplateRepo.list_public() do
+            {:ok, templates} -> templates
+            _ -> []
+          end
 
-      true ->
-        # Default: return empty list if no filters match expected keys
-        # Or potentially list all accessible templates (e.g., public + user's own)
-        # For now, keeping it restrictive based on explicit filters.
-        []
+        true ->
+          # Default: return empty list if no filters match expected keys
+          # Or potentially list all accessible templates (e.g., public + user's own)
+          # For now, keeping it restrictive based on explicit filters.
+          []
+      end
+
+      json(conn, %{data: Enum.map(templates, &template_to_json/1)})
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
     end
-
-    json(conn, %{data: Enum.map(templates, &template_to_json/1)})
   end
 
   @doc """
@@ -162,7 +181,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error creating template: #{inspect(reason)}"})
+        |> json(%{error: "Error creating template: #{Util.format_error(reason)}"})
     end
   end
 
@@ -214,7 +233,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error creating template from map: #{inspect(reason)}"})
+        |> json(%{error: "Error creating template from map: #{Util.format_error(reason)}"})
     end
   end
 
@@ -258,7 +277,8 @@ defmodule WandererAppWeb.MapTemplateAPIController do
     # Filter out URL parameters that shouldn't be in the update data
     update_params = Map.drop(normalized_params, ["id", "slug"]) # Also drop slug if present
 
-    with {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
+    with {:ok, _} <- Util.validate_uuid(id),
+         {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
          {:ok, updated_template} <- WandererApp.MapTemplateRepo.update_metadata(template, update_params) do
       json(conn, %{data: template_to_json(updated_template)}) # Don't include content
     else
@@ -270,7 +290,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error updating template metadata: #{inspect(reason)}"})
+        |> json(%{error: "Error updating template metadata: #{Util.format_error(reason)}"})
     end
   end
 
@@ -311,7 +331,8 @@ defmodule WandererAppWeb.MapTemplateAPIController do
     # Filter out URL parameters that shouldn't be in the update data
     update_params = Map.drop(params, ["id", "slug"]) # Also drop slug if present
 
-    with {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
+    with {:ok, _} <- Util.validate_uuid(id),
+         {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
          {:ok, updated_template} <- WandererApp.MapTemplateRepo.update_content(template, update_params) do
       json(conn, %{data: template_to_json(updated_template, true)}) # Include content after update
     else
@@ -323,7 +344,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error updating template content: #{inspect(reason)}"})
+        |> json(%{error: "Error updating template content: #{Util.format_error(reason)}"})
     end
   end
 
@@ -360,15 +381,15 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def delete_template(conn, %{"id" => id}) do
-    with {:ok, _} <- validate_template_id(id),
+    with {:ok, _} <- Util.validate_uuid(id),
          {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
          destroy_result <- WandererApp.MapTemplateRepo.destroy(template),
-         :ok <- handle_destroy_result(destroy_result) do
+         :ok <- Util.handle_destroy_result(destroy_result) do
       conn
       |> put_status(:no_content)
       |> text("")
     else
-      {:error, :invalid_template_id} ->
+      {:error, :invalid_uuid} ->
         conn
         |> put_status(:bad_request)
         |> json(%{error: "Invalid template ID format"})
@@ -381,7 +402,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error deleting template: #{inspect(reason)}"})
+        |> json(%{error: "Error deleting template: #{Util.format_error(reason)}"})
     end
   end
 
@@ -390,20 +411,34 @@ defmodule WandererAppWeb.MapTemplateAPIController do
 
   Applies a template to a map.
 
-  Requires either `map_id` or `slug` in the body, plus `template_id`.
+  Requires either `map_id` or `slug` as a query parameter, and `template_id` in the body.
 
-  Example body:
-  ```json
-  {
-    "map_id": "466e922b-e758-485e-9b86-afae06b88363",
-    "template_id": "template-uuid"
-  }
+  Example:
+  ```
+  POST /api/templates/apply?map_id=466e922b-e758-485e-9b86-afae06b88363
+  Body: { "template_id": "template-uuid" }
   ```
   """
   @spec apply_template(Plug.Conn.t(), map()) :: Plug.Conn.t()
   operation :apply_template,
     summary: "Apply Template",
-    description: "Applies a template to a map. Requires either 'map_id' or 'slug' in the body to identify the target map.",
+    description: "Applies a template to a map. Requires either 'map_id' or 'slug' as a query parameter to identify the target map.",
+    parameters: [
+      map_id: [
+        in: :query,
+        description: "Map identifier (UUID) - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "466e922b-e758-485e-9b86-afae06b88363"
+      ],
+      slug: [
+        in: :query,
+        description: "Map slug - Either map_id or slug must be provided",
+        type: :string,
+        required: false,
+        example: "my-map"
+      ]
+    ],
     request_body: {"Apply Template", "application/json", MapAPISchemas.template_apply_request_schema()},
     responses: [
       ok: {"Result", "application/json", MapAPISchemas.template_apply_response_schema()},
@@ -413,12 +448,12 @@ defmodule WandererAppWeb.MapTemplateAPIController do
   def apply_template(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
          template_id = Map.get(params, "template_id"),
-         {:ok, _} <- validate_template_id(template_id),
-         options = Map.drop(params, ["map_id", "slug", "template_id"]), # Pass additional options if needed
+         {:ok, _} <- Util.validate_uuid(template_id),
+         options = Map.drop(params, ["template_id"]), # Pass additional options if needed
          {:ok, result} <- WandererApp.MapTemplateRepo.apply_template(map_id, template_id, options) do
       json(conn, %{data: result.summary}) # Assuming result has a :summary field
     else
-      {:error, :invalid_template_id} ->
+      {:error, :invalid_uuid} ->
         conn
         |> put_status(:bad_request)
         |> json(%{error: "Invalid template ID format"})
@@ -436,21 +471,11 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Error applying template: #{inspect(reason)}"})
+        |> json(%{error: "Error applying template: #{Util.format_error(reason)}"})
     end
   end
 
   # ---------------- Private Helpers ----------------
-
-  # Validate that the template_id is a valid UUID
-  defp validate_template_id(nil), do: {:error, :invalid_template_id} # Handle nil case
-  defp validate_template_id(template_id) when is_binary(template_id) do
-    case Ecto.UUID.cast(template_id) do
-      {:ok, _uuid} -> {:ok, template_id}
-      :error -> {:error, :invalid_template_id}
-    end
-  end
-  defp validate_template_id(_), do: {:error, :invalid_template_id} # Handle other types
 
   # Helper function to format a template for JSON response
   defp template_to_json(template, include_content \\ false) do
@@ -467,8 +492,20 @@ defmodule WandererAppWeb.MapTemplateAPIController do
     }
 
     if include_content do
+      # Transform system_ids to solar_system_ids if needed
+      systems = Enum.map(template.systems || [], fn system ->
+        if Map.has_key?(system, :system_id) do
+          # Convert system_id to solar_system_id
+          system
+          |> Map.put(:solar_system_id, system.system_id)
+          |> Map.delete(:system_id)
+        else
+          system
+        end
+      end)
+
       Map.merge(base, %{
-        systems: template.systems || [], # Default to empty list
+        systems: systems,
         connections: template.connections || [], # Default to empty list
         metadata: template.metadata || %{} # Default to empty map
       })
@@ -476,15 +513,6 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       base
     end
   end
-
-  # Helper to handle different return values from destroy
-  defp handle_destroy_result(:ok), do: :ok
-  defp handle_destroy_result({:ok, _}), do: :ok
-  # Handle Ash bulk result structs specifically
-  defp handle_destroy_result(%Ash.BulkResult{status: :success}), do: :ok
-  defp handle_destroy_result(%Ash.BulkResult{status: :error, errors: errors}), do: {:error, errors}
-  # Catch-all for other potential error tuples/values
-  defp handle_destroy_result(error), do: {:error, error}
 
   # Helper function to normalize template parameters for Ash
   defp normalize_template_params(params) do

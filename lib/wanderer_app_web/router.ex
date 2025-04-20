@@ -206,11 +206,11 @@ defmodule WandererAppWeb.Router do
   scope "/api/map", WandererAppWeb do
     pipe_through [:api, :api_map]
     get "/audit", MapAuditAPIController, :index
-    get "/systems", MapAPIController, :list_systems
-    get "/system", MapAPIController, :show_system
+    get "/systems", MapSystemAPIController, :list_systems
+    get "/system", MapSystemAPIController, :show_system
     get "/connections", MapAPIController, :list_connections
     patch "/systems-and-connections", MapAPIController, :upsert_systems_and_connections
-    delete "/systems", MapAPIController, :delete_systems
+    delete "/systems", MapSystemAPIController, :delete_systems
     delete "/connections", MapAPIController, :delete_connections
     get "/characters", MapAPIController, :tracked_characters_with_info
     get "/structure-timers", MapAPIController, :show_structure_timers
@@ -222,14 +222,14 @@ defmodule WandererAppWeb.Router do
 
   scope "/api/templates", WandererAppWeb do
     pipe_through [:api, :api_map]
-    get "/", MapAPIController, :list_templates
-    get "/:id", MapAPIController, :get_template
-    post "/", MapAPIController, :create_template
-    post "/from-map", MapAPIController, :create_template_from_map
-    patch "/:id/metadata", MapAPIController, :update_template_metadata
-    patch "/:id/content", MapAPIController, :update_template_content
-    delete "/:id", MapAPIController, :delete_template
-    post "/apply", MapAPIController, :apply_template
+    get "/", MapTemplateAPIController, :list_templates
+    get "/:id", MapTemplateAPIController, :get_template
+    post "/", MapTemplateAPIController, :create_template
+    post "/from-map", MapTemplateAPIController, :create_template_from_map
+    patch "/:id/metadata", MapTemplateAPIController, :update_template_metadata
+    patch "/:id/content", MapTemplateAPIController, :update_template_content
+    delete "/:id", MapTemplateAPIController, :delete_template
+    post "/apply", MapTemplateAPIController, :apply_template
   end
 
   scope "/api/characters", WandererAppWeb do

@@ -4,7 +4,6 @@ defmodule WandererApp.MapTemplateRepo do
   """
 
   use WandererApp, :repository
-  import Ash.Query, only: [filter: 2]
 
   alias WandererApp.Api.MapTemplate
   alias WandererApp.MapSystemRepo
@@ -340,21 +339,8 @@ defmodule WandererApp.MapTemplateRepo do
     end
   end
 
-  # Helper to check if an error is a constraint violation
-  defp is_constraint_violation(%Ash.Error.Invalid{errors: errors}, field) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{field: ^field, message: message} ->
-        # Check if the message indicates a unique constraint violation
-        is_binary(message) && (
-          String.contains?(message, "has already been taken") ||
-          String.contains?(message, "unique constraint")
-        )
-      _ -> false
-    end)
-  end
-
   # Helper to get a property from a system map, with fallback value
-  defp get_system_property(system, key_str, default \\ nil) do
+  defp get_system_property(system, key_str, default) do
     key_atom = String.to_atom(key_str)
     cond do
       # Try to get value from string keys
@@ -374,15 +360,6 @@ defmodule WandererApp.MapTemplateRepo do
       # Fall back to default
       true ->
         default
-    end
-  end
-
-  # Helper to get a system name
-  defp get_system_name(system) do
-    cond do
-      is_map(system) && Map.has_key?(system, "name") -> system["name"]
-      is_map(system) && Map.has_key?(system, :name) -> system.name
-      true -> nil
     end
   end
 
