@@ -39,28 +39,28 @@ defmodule WandererApp.MapTemplateRepo do
   Gets a template by ID.
   """
   def get(id) do
-    MapTemplate.get(id)
+    MapTemplate.read(id)
   end
 
   @doc """
   Lists all public templates.
   """
   def list_public do
-    MapTemplate.list_public()
+    MapTemplate.read_public()
   end
 
   @doc """
   Lists templates created by a specific author.
   """
   def list_by_author(author_eve_id) do
-    MapTemplate.list_by_author(%{author_eve_id: author_eve_id})
+    MapTemplate.read_by_author(%{author_eve_id: author_eve_id})
   end
 
   @doc """
   Lists templates of a specific category.
   """
   def list_by_category(category) do
-    MapTemplate.list_by_category(%{category: category})
+    MapTemplate.read_by_category(%{category: category})
   end
 
   @doc """

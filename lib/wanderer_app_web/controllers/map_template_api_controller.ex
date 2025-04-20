@@ -4,8 +4,8 @@ defmodule WandererAppWeb.MapTemplateAPIController do
 
   alias WandererAppWeb.UtilAPIController, as: Util
 
-  # Reference schemas from MapAPIController
-  alias WandererAppWeb.MapAPIController, as: MapAPISchemas
+  # Reference schemas from MapApiSchemas module
+  alias WandererAppWeb.Schemas.MapApiSchemas
 
   @doc """
   GET /api/templates
@@ -59,7 +59,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       ]
     ],
     responses: [
-      ok: {"List of templates", "application/json", MapAPISchemas.template_list_response_schema()}
+      ok: {"List of templates", "application/json", MapApiSchemas.template_list_response_schema()}
     ]
   def list_templates(conn, params) do
     with {:ok, _map_id} <- Util.fetch_map_id(params) do
@@ -123,7 +123,7 @@ defmodule WandererAppWeb.MapTemplateAPIController do
       ]
     ],
     responses: [
-      ok: {"Template", "application/json", MapAPISchemas.template_response_schema()},
+      ok: {"Template", "application/json", MapApiSchemas.template_response_schema()},
       not_found: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def get_template(conn, %{"id" => id}) do
@@ -160,9 +160,9 @@ defmodule WandererAppWeb.MapTemplateAPIController do
   operation :create_template,
     summary: "Create Template",
     description: "Creates a new template.",
-    request_body: {"Template", "application/json", MapAPISchemas.template_create_request_schema()},
+    request_body: {"Template", "application/json", MapApiSchemas.template_create_request_schema()},
     responses: [
-      created: {"Template", "application/json", MapAPISchemas.template_response_schema()},
+      created: {"Template", "application/json", MapApiSchemas.template_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def create_template(conn, params) do
@@ -207,9 +207,9 @@ defmodule WandererAppWeb.MapTemplateAPIController do
   operation :create_template_from_map,
     summary: "Create Template from Map",
     description: "Creates a template from an existing map.",
-    request_body: {"Template from Map", "application/json", MapAPISchemas.template_from_map_request_schema()},
+    request_body: {"Template from Map", "application/json", MapApiSchemas.template_from_map_request_schema()},
     responses: [
-      created: {"Template", "application/json", MapAPISchemas.template_response_schema()},
+      created: {"Template", "application/json", MapApiSchemas.template_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def create_template_from_map(conn, params) do
@@ -264,9 +264,9 @@ defmodule WandererAppWeb.MapTemplateAPIController do
         example: ""
       ]
     ],
-    request_body: {"Template Metadata", "application/json", MapAPISchemas.template_update_metadata_request_schema()},
+    request_body: {"Template Metadata", "application/json", MapApiSchemas.template_update_metadata_request_schema()},
     responses: [
-      ok: {"Template", "application/json", MapAPISchemas.template_response_schema()},
+      ok: {"Template", "application/json", MapApiSchemas.template_response_schema()},
       not_found: {"Error", "application/json", OpenApiSpex.Schema.Error},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
@@ -321,9 +321,9 @@ defmodule WandererAppWeb.MapTemplateAPIController do
         example: ""
       ]
     ],
-    request_body: {"Template Content", "application/json", MapAPISchemas.template_update_content_request_schema()},
+    request_body: {"Template Content", "application/json", MapApiSchemas.template_update_content_request_schema()},
     responses: [
-      ok: {"Template", "application/json", MapAPISchemas.template_response_schema()},
+      ok: {"Template", "application/json", MapApiSchemas.template_response_schema()},
       not_found: {"Error", "application/json", OpenApiSpex.Schema.Error},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
@@ -439,9 +439,9 @@ defmodule WandererAppWeb.MapTemplateAPIController do
         example: "my-map"
       ]
     ],
-    request_body: {"Apply Template", "application/json", MapAPISchemas.template_apply_request_schema()},
+    request_body: {"Apply Template", "application/json", MapApiSchemas.template_apply_request_schema()},
     responses: [
-      ok: {"Result", "application/json", MapAPISchemas.template_apply_response_schema()},
+      ok: {"Result", "application/json", MapApiSchemas.template_apply_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error},
       not_found: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]

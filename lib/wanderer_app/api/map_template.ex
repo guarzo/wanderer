@@ -17,10 +17,10 @@ defmodule WandererApp.Api.MapTemplate do
 
   code_interface do
     define(:create, action: :create)
-    define(:get, get_by: [:id], action: :read)
-    define(:list_public, action: :list_public)
-    define(:list_by_author, action: :list_by_author)
-    define(:list_by_category, action: :list_by_category)
+    define(:read, get_by: [:id], action: :read)
+    define(:read_public, action: :list_public)
+    define(:read_by_author, action: :list_by_author)
+    define(:read_by_category, action: :list_by_category)
     define(:update_metadata, action: :update_metadata)
     define(:update_content, action: :update_content)
     define(:destroy, action: :destroy)

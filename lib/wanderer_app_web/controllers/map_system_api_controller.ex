@@ -6,8 +6,8 @@ defmodule WandererAppWeb.MapSystemAPIController do
   alias WandererApp.MapConnectionRepo
   alias WandererAppWeb.UtilAPIController, as: Util
 
-  # Reference schemas from MapAPIController
-  alias WandererAppWeb.MapAPIController, as: MapAPISchemas
+  # Reference schemas from the dedicated schema module
+  alias WandererAppWeb.Schemas.MapApiSchemas
 
   @doc """
   GET /api/map/systems
@@ -44,7 +44,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       ok: {
         "List of map systems",
         "application/json",
-        MapAPISchemas.list_map_systems_response_schema()
+        MapApiSchemas.list_map_systems_response_schema()
       },
       bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
         type: :object,
@@ -116,7 +116,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       ok: {
         "Map system details",
         "application/json",
-        MapAPISchemas.show_map_system_response_schema()
+        MapApiSchemas.show_map_system_response_schema()
       },
       bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
         type: :object,
@@ -216,9 +216,9 @@ defmodule WandererAppWeb.MapSystemAPIController do
         example: "map-name"
       ]
     ],
-    request_body: {"Map systems to upsert", "application/json", MapAPISchemas.upsert_systems_request_schema()},
+    request_body: {"Map systems to upsert", "application/json", MapApiSchemas.upsert_systems_request_schema()},
     responses: [
-      ok: {"System upsert result", "application/json", MapAPISchemas.upsert_systems_response_schema()},
+      ok: {"System upsert result", "application/json", MapApiSchemas.upsert_systems_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def upsert_systems(conn, params) do
@@ -285,9 +285,9 @@ defmodule WandererAppWeb.MapSystemAPIController do
         example: "map-name"
       ]
     ],
-    request_body: {"Map systems to delete", "application/json", MapAPISchemas.delete_systems_request_schema()},
+    request_body: {"Map systems to delete", "application/json", MapApiSchemas.delete_systems_request_schema()},
     responses: [
-      ok: {"System delete result", "application/json", MapAPISchemas.delete_systems_response_schema()},
+      ok: {"System delete result", "application/json", MapApiSchemas.delete_systems_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def delete_systems(conn, params) do
@@ -345,7 +345,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       ok: {
         "List of map connections",
         "application/json",
-        MapAPISchemas.list_map_connections_response_schema()
+        MapApiSchemas.list_map_connections_response_schema()
       },
       bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
         type: :object,
@@ -401,9 +401,9 @@ defmodule WandererAppWeb.MapSystemAPIController do
         example: "map-name"
       ]
     ],
-    request_body: {"Map connections to upsert", "application/json", MapAPISchemas.upsert_connections_request_schema()},
+    request_body: {"Map connections to upsert", "application/json", MapApiSchemas.upsert_connections_request_schema()},
     responses: [
-      ok: {"Connection upsert result", "application/json", MapAPISchemas.upsert_connections_response_schema()},
+      ok: {"Connection upsert result", "application/json", MapApiSchemas.upsert_connections_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def upsert_connections(conn, params) do
@@ -468,9 +468,9 @@ defmodule WandererAppWeb.MapSystemAPIController do
         example: "map-name"
       ]
     ],
-    request_body: {"Connection IDs to delete", "application/json", MapAPISchemas.delete_connections_request_schema()},
+    request_body: {"Connection IDs to delete", "application/json", MapApiSchemas.delete_connections_request_schema()},
     responses: [
-      ok: {"Deleted connections result", "application/json", MapAPISchemas.delete_connections_response_schema()},
+      ok: {"Deleted connections result", "application/json", MapApiSchemas.delete_connections_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def delete_connections(conn, params) do
@@ -517,9 +517,9 @@ defmodule WandererAppWeb.MapSystemAPIController do
         example: "map-name"
       ]
     ],
-    request_body: {"Map systems and connections to upsert", "application/json", MapAPISchemas.upsert_systems_and_connections_request_schema()},
+    request_body: {"Map systems and connections to upsert", "application/json", MapApiSchemas.upsert_systems_and_connections_request_schema()},
     responses: [
-      ok: {"Systems and connections upsert result", "application/json", MapAPISchemas.upsert_systems_and_connections_response_schema()},
+      ok: {"Systems and connections upsert result", "application/json", MapApiSchemas.upsert_systems_and_connections_response_schema()},
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def upsert_systems_and_connections(conn, params) do

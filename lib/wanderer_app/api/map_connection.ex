@@ -5,6 +5,8 @@ defmodule WandererApp.Api.MapConnection do
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer
 
+  require Logger
+
   postgres do
     repo(WandererApp.Repo)
     table("map_chain_v1")
@@ -36,6 +38,21 @@ defmodule WandererApp.Api.MapConnection do
     define(:update_wormhole_type, action: :update_wormhole_type)
   end
 
+  # Define bulk fields as a module attribute for DRY code
+  @bulk_fields [
+    :map_id,
+    :solar_system_source,
+    :solar_system_target,
+    :mass_status,
+    :time_status,
+    :ship_size_type,
+    :type,
+    :wormhole_type,
+    :count_of_passage,
+    :locked,
+    :custom_info
+  ]
+
   actions do
     default_accept [
       :map_id,
@@ -47,38 +64,45 @@ defmodule WandererApp.Api.MapConnection do
     defaults [:create, :read, :update, :destroy]
 
     create :bulk_create do
-      accept [
-        :map_id,
-        :solar_system_source,
-        :solar_system_target,
-        :mass_status,
-        :time_status,
-        :ship_size_type,
-        :type,
-        :wormhole_type,
-        :count_of_passage,
-        :locked,
-        :custom_info
-      ]
+      accept @bulk_fields
 
       primary? true
-      manual fn _input, _context -> {:ok, %{}} end
+
+      # Simple implementation without Ash.Bulk
+      change fn input, context ->
+        try do
+          records = Enum.map(input, fn item ->
+            WandererApp.Api.MapConnection.create!(item, actor: context[:actor])
+          end)
+          Logger.debug("Bulk created #{length(records)} map connections")
+          {:ok, records}
+        rescue
+          error ->
+            Logger.error("Error in bulk_create: #{inspect(error)}")
+            {:error, error}
+        end
+      end
     end
 
     update :bulk_update do
-      accept [
-        :mass_status,
-        :time_status,
-        :ship_size_type,
-        :type,
-        :wormhole_type,
-        :count_of_passage,
-        :locked,
-        :custom_info
-      ]
+      accept @bulk_fields -- [:map_id, :solar_system_source, :solar_system_target]
 
       primary? true
-      manual fn _input, _context -> {:ok, %{}} end
+
+      # Simple implementation without Ash.Bulk
+      change fn input, context ->
+        try do
+          records = Enum.map(input, fn {record, attrs} ->
+            WandererApp.Api.MapConnection.update!(record, attrs, actor: context[:actor])
+          end)
+          Logger.debug("Bulk updated #{length(records)} map connections")
+          {:ok, records}
+        rescue
+          error ->
+            Logger.error("Error in bulk_update: #{inspect(error)}")
+            {:error, error}
+        end
+      end
     end
 
     read :read_by_map do

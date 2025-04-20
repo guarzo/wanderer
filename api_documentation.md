@@ -20,10 +20,7 @@ API keys must be provided in the request headers.
 **Description:** Lists all visible systems for a specified map.
 
 **Parameters:**
-- `map_id` (query, optional): Map UUID
-- `slug` (query, optional): Map slug
-
-**Note:** Either `map_id` OR `slug` must be provided.
+- `slug` (query, required): Map slug
 
 **Example Request:**
 ```bash
@@ -66,10 +63,7 @@ curl -X GET "https://example.com/api/map/systems?slug=map-slug" \
 
 **Parameters:**
 - `id` (query, required): Solar system ID
-- `map_id` (query, optional): Map UUID
-- `slug` (query, optional): Map slug
-
-**Note:** Either `map_id` OR `slug` must be provided.
+- `slug` (query, required): Map slug
 
 **Example Request:**
 ```bash
@@ -108,10 +102,12 @@ curl -X GET "https://example.com/api/map/system?id=30000142&slug=map-slug" \
 
 **Description:** Deletes multiple systems in a batch operation. This will also delete any connections associated with the deleted systems.
 
+**Parameters:**
+- `slug` (query, required): Map slug
+
 **Request Body:**
 ```json
 {
-  "slug": "map-slug",
   "system_ids": [
     "system-uuid-1",
     "system-uuid-2"
@@ -121,10 +117,10 @@ curl -X GET "https://example.com/api/map/system?id=30000142&slug=map-slug" \
 
 **Example Request:**
 ```bash
-curl -X DELETE "https://example.com/api/map/systems" \
+curl -X DELETE "https://example.com/api/map/systems?slug=map-slug" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"slug":"map-slug","system_ids":["system-uuid-1","system-uuid-2"]}'
+  -d '{"system_ids":["system-uuid-1","system-uuid-2"]}'
 ```
 
 **Response:**
@@ -184,10 +180,11 @@ curl -X GET "https://example.com/api/templates?category=wormhole&slug=map-slug" 
 
 **Parameters:**
 - `id` (path, required): Template ID
+- `slug` (query, required): Map slug
 
 **Example Request:**
 ```bash
-curl -X GET "https://example.com/api/templates/466e922b-e758-485e-9b86-afae06b88363" \
+curl -X GET "https://example.com/api/templates/466e922b-e758-485e-9b86-afae06b88363?slug=map-slug" \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -274,11 +271,11 @@ curl -X POST "https://example.com/api/templates?slug=map-slug" \
 }
 ```
 
-### Create Template from Map
+### Create Template From Map
 
 **Endpoint:** `POST /api/templates/from-map`
 
-**Description:** Creates a template from an existing map.
+**Description:** Creates a new template based on the current map layout.
 
 **Parameters:**
 - `slug` (query, required): Map slug to identify the map
@@ -286,8 +283,8 @@ curl -X POST "https://example.com/api/templates?slug=map-slug" \
 **Request Body:**
 ```json
 {
-  "name": "Map Template",
-  "description": "Generated from my map",
+  "name": "Map-Based Template",
+  "description": "Generated from existing map",
   "category": "custom",
   "author_eve_id": "2122019111",
   "is_public": false
@@ -299,7 +296,7 @@ curl -X POST "https://example.com/api/templates?slug=map-slug" \
 curl -X POST "https://example.com/api/templates/from-map?slug=map-slug" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Map Template","description":"Generated from my map","category":"custom","author_eve_id":"2122019111","is_public":false}'
+  -d '{"name":"Map-Based Template","description":"Generated from existing map","category":"custom","author_eve_id":"2122019111","is_public":false}'
 ```
 
 **Response:**
@@ -307,8 +304,8 @@ curl -X POST "https://example.com/api/templates/from-map?slug=map-slug" \
 {
   "data": {
     "id": "new-template-uuid",
-    "name": "Map Template",
-    "description": "Generated from my map",
+    "name": "Map-Based Template",
+    "description": "Generated from existing map",
     "category": "custom",
     "author_eve_id": "2122019111",
     "source_map_id": "source-map-uuid",
@@ -319,137 +316,11 @@ curl -X POST "https://example.com/api/templates/from-map?slug=map-slug" \
 }
 ```
 
-### Update Template Metadata
-
-**Endpoint:** `PATCH /api/templates/:id/metadata`
-
-**Description:** Updates a template's metadata.
-
-**Parameters:**
-- `id` (path, required): Template ID
-
-**Request Body:**
-```json
-{
-  "name": "Updated Template Name",
-  "description": "Updated description",
-  "is_public": true
-}
-```
-
-**Example Request:**
-```bash
-curl -X PATCH "https://example.com/api/templates/466e922b-e758-485e-9b86-afae06b88363/metadata" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Updated Template Name","description":"Updated description","is_public":true}'
-```
-
-**Response:**
-```json
-{
-  "data": {
-    "id": "template-uuid",
-    "name": "Updated Template Name",
-    "description": "Updated description",
-    "category": "custom",
-    "author_eve_id": "2122019111",
-    "source_map_id": "source-map-uuid",
-    "is_public": true,
-    "inserted_at": "2025-04-20T10:30:00Z",
-    "updated_at": "2025-04-20T10:35:00Z"
-  }
-}
-```
-
-### Update Template Content
-
-**Endpoint:** `PATCH /api/templates/:id/content`
-
-**Description:** Updates a template's content (systems, connections, metadata).
-
-**Parameters:**
-- `id` (path, required): Template ID
-
-**Request Body:**
-```json
-{
-  "systems": [
-    {
-      "solar_system_id": 30000142,
-      "position_x": 150,
-      "position_y": 250,
-      "labels": "{\"customLabel\":\"Updated Hub\",\"labels\":[\"highsec\",\"trade\"]}"
-    }
-  ],
-  "connections": [],
-  "metadata": {
-    "version": "1.1",
-    "notes": "Updated by test script"
-  }
-}
-```
-
-**Example Request:**
-```bash
-curl -X PATCH "https://example.com/api/templates/466e922b-e758-485e-9b86-afae06b88363/content" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"systems":[{"solar_system_id":30000142,"position_x":150,"position_y":250,"labels":"{\"customLabel\":\"Updated Hub\",\"labels\":[\"highsec\",\"trade\"]}"}],"connections":[],"metadata":{"version":"1.1","notes":"Updated by test script"}}'
-```
-
-**Response:**
-```json
-{
-  "data": {
-    "id": "template-uuid",
-    "name": "My Template",
-    "description": "A custom template",
-    "category": "custom",
-    "author_eve_id": "2122019111",
-    "source_map_id": "source-map-uuid",
-    "is_public": false,
-    "inserted_at": "2025-04-20T10:30:00Z",
-    "updated_at": "2025-04-20T10:35:00Z",
-    "systems": [
-      {
-        "solar_system_id": 30000142,
-        "position_x": 150,
-        "position_y": 250,
-        "labels": "{\"customLabel\":\"Updated Hub\",\"labels\":[\"highsec\",\"trade\"]}"
-      }
-    ],
-    "connections": [],
-    "metadata": {
-      "version": "1.1",
-      "notes": "Updated by test script"
-    }
-  }
-}
-```
-
-### Delete Template
-
-**Endpoint:** `DELETE /api/templates/:id`
-
-**Description:** Deletes a template.
-
-**Parameters:**
-- `id` (path, required): Template ID
-
-**Example Request:**
-```bash
-curl -X DELETE "https://example.com/api/templates/466e922b-e758-485e-9b86-afae06b88363" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-**Response:** Empty response with status code 204 (No Content)
-
 ### Apply Template
 
 **Endpoint:** `POST /api/templates/apply`
 
-**Description:** Applies a template to a map.
+**Description:** Applies a template to the current map.
 
 **Parameters:**
 - `slug` (query, required): Map slug to identify the map
@@ -475,6 +346,31 @@ curl -X POST "https://example.com/api/templates/apply?slug=map-slug" \
   "data": {
     "systems_created": 5,
     "connections_created": 6
+  }
+}
+```
+
+### Delete Template
+
+**Endpoint:** `DELETE /api/templates/:id`
+
+**Description:** Deletes a template.
+
+**Parameters:**
+- `id` (path, required): Template ID
+- `slug` (query, required): Map slug to identify the map
+
+**Example Request:**
+```bash
+curl -X DELETE "https://example.com/api/templates/466e922b-e758-485e-9b86-afae06b88363?slug=map-slug" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "success": true
   }
 }
 ```

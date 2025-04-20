@@ -5,6 +5,8 @@ defmodule WandererApp.Api.MapSystem do
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer
 
+  require Logger
+
   postgres do
     repo(WandererApp.Repo)
     table("map_system_v1")
@@ -56,6 +58,24 @@ defmodule WandererApp.Api.MapSystem do
     define(:update_visible, action: :update_visible)
   end
 
+  # Define bulk fields as a module attribute for DRY code
+  @bulk_fields [
+    :map_id,
+    :solar_system_id,
+    :name,
+    :custom_name,
+    :description,
+    :status,
+    :position_x,
+    :position_y,
+    :tag,
+    :temporary_name,
+    :labels,
+    :locked,
+    :visible,
+    :linked_sig_eve_id
+  ]
+
   actions do
     default_accept [
       :map_id,
@@ -69,45 +89,45 @@ defmodule WandererApp.Api.MapSystem do
     defaults [:create, :read, :update, :destroy]
 
     create :bulk_create do
-      accept [
-        :map_id,
-        :solar_system_id,
-        :name,
-        :custom_name,
-        :description,
-        :status,
-        :position_x,
-        :position_y,
-        :tag,
-        :temporary_name,
-        :labels,
-        :locked,
-        :visible,
-        :linked_sig_eve_id
-      ]
+      accept @bulk_fields
 
       primary? true
-      manual fn _input, _context -> {:ok, %{}} end
+
+      # Simple implementation without Ash.Bulk
+      change fn input, context ->
+        try do
+          records = Enum.map(input, fn item ->
+            WandererApp.Api.MapSystem.create!(item, actor: context[:actor])
+          end)
+          Logger.debug("Bulk created #{length(records)} map systems")
+          {:ok, records}
+        rescue
+          error ->
+            Logger.error("Error in bulk_create: #{inspect(error)}")
+            {:error, error}
+        end
+      end
     end
 
     update :bulk_update do
-      accept [
-        :name,
-        :custom_name,
-        :description,
-        :status,
-        :position_x,
-        :position_y,
-        :tag,
-        :temporary_name,
-        :labels,
-        :locked,
-        :visible,
-        :linked_sig_eve_id
-      ]
+      accept @bulk_fields -- [:map_id, :solar_system_id]
 
       primary? true
-      manual fn _input, _context -> {:ok, %{}} end
+
+      # Simple implementation without Ash.Bulk
+      change fn input, context ->
+        try do
+          records = Enum.map(input, fn {record, attrs} ->
+            WandererApp.Api.MapSystem.update!(record, attrs, actor: context[:actor])
+          end)
+          Logger.debug("Bulk updated #{length(records)} map systems")
+          {:ok, records}
+        rescue
+          error ->
+            Logger.error("Error in bulk_update: #{inspect(error)}")
+            {:error, error}
+        end
+      end
     end
 
     read :read_all_by_map do

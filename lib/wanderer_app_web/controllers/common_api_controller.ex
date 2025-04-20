@@ -4,6 +4,7 @@ defmodule WandererAppWeb.CommonAPIController do
 
   alias WandererApp.CachedInfo
   alias WandererAppWeb.UtilAPIController, as: Util
+  require Logger
 
   @system_static_response_schema %OpenApiSpex.Schema{
     type: :object,
@@ -106,9 +107,10 @@ defmodule WandererAppWeb.CommonAPIController do
       end
     else
       {:error, msg} ->
+        Logger.debug("Error in show_system_static: #{msg}")
         conn
         |> put_status(:bad_request)
-        |> json(%{error: msg})
+        |> json(%{error: Util.format_error(msg)})
     end
   end
 
