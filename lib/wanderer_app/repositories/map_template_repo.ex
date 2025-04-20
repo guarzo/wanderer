@@ -199,8 +199,12 @@ defmodule WandererApp.MapTemplateRepo do
               {:error, "Failed to create connections: #{inspect(conn_error)}"}
           end
 
+        {:error, error_message} when is_binary(error_message) ->
+          # System creation failed with a specific error message
+          {:error, error_message}
+
         {:error, systems_error} ->
-          # Systems creation failed
+          # Systems creation failed with a general error
           {:error, "Failed to create systems: #{inspect(systems_error)}"}
       end
     else
@@ -342,89 +346,192 @@ defmodule WandererApp.MapTemplateRepo do
     {:ok, existing_systems} = MapSystemRepo.get_all_by_map(map_id)
     existing_solar_ids = MapSet.new(existing_systems, & &1.solar_system_id)
 
-    # Convert template systems to maps for creation
-    systems_to_create =
-      template_systems
-      |> Enum.map(fn system ->
-        # Get system properties, handling both string and atom keys
-        solar_system_id =
-          get_system_property(
-            system,
-            "solar_system_id",
-            get_solar_system_id_for_sample(system, 0)
-          )
+    # Fetch the map owner information for valid user_id and character_id
+    {:ok, map_with_owner} = WandererApp.MapRepo.get(map_id, [:owner, :characters])
+    IO.inspect(map_with_owner, label: "Map with owner info")
 
-        # Skip if this solar_system_id already exists in the map
-        unless solar_system_id && MapSet.member?(existing_solar_ids, solar_system_id) do
-          # Create a more complete system structure with attributes from the template
-          attrs = %{
-            map_id: map_id,
-            solar_system_id: solar_system_id
-          }
+    # Get a valid character for the map
+    character_result = get_first_valid_character_for_map(map_id)
 
-          # Copy name from template if available
-          attrs =
-            case get_system_property(system, "name", nil) do
-              nil -> attrs
-              name -> Map.put(attrs, :name, name)
-            end
+    case character_result do
+      {:ok, valid_character} ->
+        IO.puts(
+          "Using character #{valid_character.id} owned by user #{valid_character.user_id} for template application"
+        )
 
-          # Copy position if available
-          attrs =
-            case {get_system_property(system, "position_x", nil),
-                  get_system_property(system, "position_y", nil)} do
-              {nil, _} -> attrs
-              {_, nil} -> attrs
-              {x, y} -> Map.merge(attrs, %{position_x: x, position_y: y})
-            end
+        # Continue with system creation
+        # Convert template systems to maps for creation
+        systems_to_create =
+          template_systems
+          |> Enum.map(fn system ->
+            # Get system properties, handling both string and atom keys
+            solar_system_id =
+              get_system_property(
+                system,
+                "solar_system_id",
+                get_solar_system_id_for_sample(system, 0)
+              )
 
-          # Copy other properties if available
-          [:status, :tag, :description]
-          |> Enum.reduce(attrs, fn field, acc ->
-            case get_system_property(system, Atom.to_string(field), nil) do
-              nil -> acc
-              val -> Map.put(acc, field, val)
-            end
+            # Create a more complete system structure with attributes from the template
+            attrs = %{
+              map_id: map_id,
+              solar_system_id: solar_system_id,
+              # Flag to indicate if this system already exists
+              already_exists: MapSet.member?(existing_solar_ids, solar_system_id)
+            }
+
+            # Copy name from template if available
+            attrs =
+              case get_system_property(system, "name", nil) do
+                nil -> attrs
+                name -> Map.put(attrs, :name, name)
+              end
+
+            # Copy position if available
+            attrs =
+              case {get_system_property(system, "position_x", nil),
+                    get_system_property(system, "position_y", nil)} do
+                {nil, _} -> attrs
+                {_, nil} -> attrs
+                {x, y} -> Map.merge(attrs, %{position_x: x, position_y: y})
+              end
+
+            # Copy other properties if available
+            [:status, :tag, :description]
+            |> Enum.reduce(attrs, fn field, acc ->
+              case get_system_property(system, Atom.to_string(field), nil) do
+                nil -> acc
+                val -> Map.put(acc, field, val)
+              end
+            end)
           end)
+          |> Enum.reject(&is_nil/1)
+
+        # Create systems if any valid ones exist
+        if Enum.empty?(systems_to_create) do
+          # Return empty list instead of error - it's okay if all systems already exist
+          {:ok, []}
         else
-          IO.puts(
-            "Skipping creation of system with solar_system_id: #{solar_system_id} - already exists in map"
-          )
+          # Create each system individually using Map.Server.add_system
+          IO.inspect(systems_to_create, label: "Creating systems")
 
-          nil
-        end
-      end)
-      |> Enum.reject(&is_nil/1)
+          # Calculate positions with spacing between systems
+          # Default spacing values
+          spacing_x = 200
+          spacing_y = 150
 
-    # Create systems if any valid ones exist
-    if Enum.empty?(systems_to_create) do
-      # Return empty list instead of error - it's okay if all systems already exist
-      {:ok, []}
-    else
-      # Create each system individually - NOT using bulk_create which may cause issues
-      IO.inspect(systems_to_create, label: "Creating systems")
+          # Create systems with proper positions
+          systems_with_positions =
+            systems_to_create
+            |> Enum.with_index()
+            |> Enum.map(fn {system, index} ->
+              # Calculate positions in a grid pattern to ensure systems aren't stacked
+              grid_size = :math.ceil(:math.sqrt(Enum.count(systems_to_create)))
+              row = div(index, trunc(grid_size))
+              col = rem(index, trunc(grid_size))
 
-      # Use MapSystemRepo.create instead of WandererApp.Map.add_system
-      # This should more reliably create systems
-      result =
-        Enum.reduce_while(systems_to_create, {:ok, []}, fn system_attrs, {:ok, acc} ->
-          case MapSystemRepo.create(system_attrs) do
-            {:ok, created_system} ->
-              # Successfully created the system
-              {:cont, {:ok, [created_system | acc]}}
+              # If position is already specified, use it
+              if Map.has_key?(system, :position_x) and Map.has_key?(system, :position_y) do
+                system
+              else
+                # Otherwise, calculate a position based on the grid
+                system
+                |> Map.put(:position_x, 100 + col * spacing_x)
+                |> Map.put(:position_y, 100 + row * spacing_y)
+              end
+            end)
 
-            {:error, reason} ->
-              # Log error but continue - template application shouldn't fail on one system
-              IO.puts("Error creating system: #{inspect(reason)} - continuing")
-              {:cont, {:ok, acc}}
+          # Use WandererApp.Map.Server.add_system to both create and add to the map
+          result =
+            Enum.reduce_while(systems_with_positions, {:ok, []}, fn system_attrs, {:ok, acc} ->
+              # First, check if the solar system exists in EVE
+              solar_system_id = system_attrs.solar_system_id
+
+              try do
+                case WandererApp.CachedInfo.get_system_static_info(solar_system_id) do
+                  {:ok, solar_system_info} ->
+                    # Format coordinates for the add_system call
+                    coordinates = %{
+                      "x" => Map.get(system_attrs, :position_x, 0),
+                      "y" => Map.get(system_attrs, :position_y, 0)
+                    }
+
+                    add_system_params = %{
+                      solar_system_id: solar_system_id,
+                      coordinates: coordinates
+                    }
+
+                    # Create lookup maps for systems: by index and by solar_system_id
+                    system_by_index =
+                      systems_with_positions
+                      |> Enum.with_index()
+                      |> Enum.map(fn {system, index} -> {index, system} end)
+                      |> Map.new()
+
+                    system_by_solar_id =
+                      Map.new(systems_with_positions, fn system ->
+                        {system.solar_system_id, system}
+                      end)
+
+                    # Add the system to the map (creates if needed, makes visible if exists)
+                    # Safety check - ensure user_id and character_id are different
+                    IO.puts(
+                      "About to call add_system with user_id: #{valid_character.user_id} and character_id: #{valid_character.id}"
+                    )
+
+                    if valid_character.user_id == valid_character.id do
+                      IO.puts(
+                        "WARNING: user_id and character_id are the same! This will likely cause errors."
+                      )
+                    end
+
+                    WandererApp.Map.Server.add_system(
+                      map_id,
+                      add_system_params,
+                      valid_character.user_id,
+                      valid_character.id
+                    )
+                    |> IO.inspect(label: "Result of Map.Server.add_system call")
+
+                    # Get the system for further operations
+                    {:ok, system} =
+                      MapSystemRepo.get_by_map_and_solar_system_id(
+                        map_id,
+                        solar_system_id
+                      )
+
+                    IO.puts("Successfully added/updated system #{solar_system_id} to map")
+                    {:cont, {:ok, [system | acc]}}
+
+                  {:error, reason} ->
+                    # System doesn't exist in EVE
+                    IO.puts(
+                      "Error: Solar system #{solar_system_id} doesn't exist: #{inspect(reason)}"
+                    )
+
+                    {:cont, {:ok, acc}}
+                end
+              rescue
+                e ->
+                  # Log error but continue - template application shouldn't fail on one system
+                  IO.puts(
+                    "Error processing system #{solar_system_id}: #{inspect(e)} - continuing"
+                  )
+
+                  {:cont, {:ok, acc}}
+              end
+            end)
+
+          case result do
+            # Reverse to maintain original order
+            {:ok, systems} -> {:ok, Enum.reverse(systems)}
+            error -> error
           end
-        end)
+        end
 
-      case result do
-        # Reverse to maintain original order
-        {:ok, systems} -> {:ok, Enum.reverse(systems)}
-        error -> error
-      end
+      {:error, msg} when is_binary(msg) ->
+        # Return the error if we couldn't find a valid character
+        {:error, msg}
     end
   end
 
@@ -577,137 +684,209 @@ defmodule WandererApp.MapTemplateRepo do
     # Get existing connections to avoid duplicates
     {:ok, existing_connections} = MapConnectionRepo.get_by_map(map_id)
 
-    # Create a set of existing connection pairs for quick lookup
-    existing_connection_pairs =
-      MapSet.new(existing_connections, fn conn ->
-        {conn.solar_system_source, conn.solar_system_target}
-      end)
-
-    # Create lookup maps for systems: by index, by id, and by solar_system_id
+    # Create lookup maps for systems: by index and by solar_system_id
     system_by_index =
       created_systems
       |> Enum.with_index()
       |> Enum.map(fn {system, index} -> {index, system} end)
       |> Map.new()
 
-    system_by_id =
-      created_systems
-      |> Enum.map(fn system -> {system.id, system} end)
-      |> Map.new()
-
     system_by_solar_id =
       Map.new(created_systems, fn system -> {system.solar_system_id, system} end)
 
-    # Convert template connections to maps for creation
-    connections_to_create =
-      template_connections
-      |> Enum.map(fn connection ->
-        # First, try to get systems using indices (preferred for templates)
-        {source_system, target_system} =
-          get_connection_systems(connection, system_by_index, system_by_id, system_by_solar_id)
+    # Get a valid character for the map to use for any operations that require it
+    character_result = get_first_valid_character_for_map(map_id)
+    IO.inspect(character_result, label: "Character result for connection creation")
 
-        if not is_nil(source_system) and not is_nil(target_system) do
-          # Check if this connection already exists
-          conn_pair = {source_system.solar_system_id, target_system.solar_system_id}
-          reversed_pair = {target_system.solar_system_id, source_system.solar_system_id}
+    case character_result do
+      {:ok, valid_character} ->
+        IO.puts("Using character ID: #{valid_character.id}, User ID: #{valid_character.user_id}")
+        # Continue with connection creation
+        # Convert template connections to maps for creation
+        connections_to_create =
+          template_connections
+          |> Enum.flat_map(fn connection ->
+            IO.inspect(connection, label: "Processing connection")
+            source_system = nil
+            target_system = nil
 
-          if MapSet.member?(existing_connection_pairs, conn_pair) ||
-               MapSet.member?(existing_connection_pairs, reversed_pair) do
-            IO.puts(
-              "Skipping duplicate connection between #{source_system.solar_system_id} and #{target_system.solar_system_id}"
-            )
+            # First try using source_index and target_index
+            {source_system, target_system} =
+              case {Map.get(connection, "source_index"), Map.get(connection, "target_index")} do
+                {source_index, target_index}
+                when not is_nil(source_index) and not is_nil(target_index) ->
+                  {Map.get(system_by_index, source_index), Map.get(system_by_index, target_index)}
 
-            nil
-          else
-            # Use the proper structure for connection creation
-            %{
-              map_id: map_id,
-              solar_system_source: source_system.solar_system_id,
-              solar_system_target: target_system.solar_system_id,
-              # Use default type (0 = wormhole) if not specified
-              type: get_system_property(connection, "type", 0)
-            }
-          end
+                _ ->
+                  # Try getting by solar_system_id
+                  source_id =
+                    Map.get(connection, "source_solar_system_id") ||
+                      Map.get(connection, :source_solar_system_id)
+
+                  target_id =
+                    Map.get(connection, "target_solar_system_id") ||
+                      Map.get(connection, :target_solar_system_id)
+
+                  {Map.get(system_by_solar_id, source_id), Map.get(system_by_solar_id, target_id)}
+              end
+
+            # If we found both systems, create the connection
+            if not is_nil(source_system) and not is_nil(target_system) do
+              IO.puts(
+                "Creating connection between #{source_system.solar_system_id} and #{target_system.solar_system_id}"
+              )
+
+              # Check if it already exists in any direction
+              connection_exists =
+                Enum.any?(existing_connections, fn conn ->
+                  (conn.solar_system_source == source_system.solar_system_id &&
+                     conn.solar_system_target == target_system.solar_system_id) ||
+                    (conn.solar_system_source == target_system.solar_system_id &&
+                       conn.solar_system_target == source_system.solar_system_id)
+                end)
+
+              if connection_exists do
+                IO.puts("Connection already exists - skipping")
+                []
+              else
+                connection_type = Map.get(connection, "type") || Map.get(connection, :type) || 0
+
+                [
+                  %{
+                    map_id: map_id,
+                    solar_system_source: source_system.solar_system_id,
+                    solar_system_target: target_system.solar_system_id,
+                    type: connection_type
+                  }
+                ]
+              end
+            else
+              IO.puts("Could not find source or target system for connection")
+              []
+            end
+          end)
+
+        # Create connections if any valid ones exist
+        if Enum.empty?(connections_to_create) do
+          # It's okay to have no connections
+          {:ok, []}
+        else
+          # Create connections individually using the create method
+          IO.inspect(connections_to_create, label: "Creating connections")
+
+          # Track errors but don't fail the whole process
+          {created_connections, errors} =
+            Enum.reduce(connections_to_create, {[], []}, fn conn_attrs, {successes, errors} ->
+              IO.puts("Creating connection: #{inspect(conn_attrs)}")
+
+              try do
+                # Directly create the connection using MapConnectionRepo.create
+                case MapConnectionRepo.create(conn_attrs) do
+                  {:ok, created_conn} ->
+                    IO.puts("Successfully created connection: #{inspect(created_conn.id)}")
+                    IO.inspect(created_conn, label: "Created connection details")
+
+                    # Try to add to the map for visibility, but don't fail if it doesn't work
+                    try do
+                      # Safety check before adding the connection
+                      if valid_character.user_id == valid_character.id do
+                        IO.puts(
+                          "WARNING: For add_connection, user_id and character_id are the same! This will likely cause errors."
+                        )
+                      end
+
+                      IO.puts("About to call add_connection with map_id: #{map_id}")
+                      add_result = WandererApp.Map.add_connection(map_id, created_conn)
+                      IO.inspect(add_result, label: "Result of adding connection to map")
+                      IO.puts("Added connection to map")
+                    rescue
+                      e -> IO.puts("Warning: Failed to add connection to map: #{inspect(e)}")
+                    end
+
+                    {[created_conn | successes], errors}
+
+                  {:error, error} ->
+                    IO.puts("Error creating connection: #{inspect(error)}")
+                    {successes, [error | errors]}
+                end
+              rescue
+                e ->
+                  IO.puts("Error creating connection: #{inspect(e)}")
+                  {successes, [e | errors]}
+              end
+            end)
+
+          # Return success even if some connections failed
+          {:ok, Enum.reverse(created_connections)}
         end
-      end)
-      |> Enum.reject(&is_nil/1)
 
-    # Create connections if any valid ones exist
-    if Enum.empty?(connections_to_create) do
-      # It's okay to have no connections
-      {:ok, []}
-    else
-      # Create connections individually using the repository
-      IO.inspect(connections_to_create, label: "Creating connections")
-
-      result =
-        Enum.reduce_while(connections_to_create, {:ok, []}, fn conn_attrs, {:ok, acc} ->
-          case MapConnectionRepo.create(conn_attrs) do
-            {:ok, created_conn} ->
-              # Successfully created the connection
-              {:cont, {:ok, [created_conn | acc]}}
-
-            {:error, reason} ->
-              # Log error but continue - template application shouldn't fail on one connection
-              IO.puts("Error creating connection: #{inspect(reason)} - continuing")
-              {:cont, {:ok, acc}}
-          end
-        end)
-
-      case result do
-        # Reverse to maintain original order
-        {:ok, connections} -> {:ok, Enum.reverse(connections)}
-        error -> error
-      end
+      {:error, msg} when is_binary(msg) ->
+        # Return the error if we couldn't find a valid character
+        {:error, msg}
     end
   end
 
-  # Helper to get source and target systems for a connection, trying multiple identification methods
-  defp get_connection_systems(connection, system_by_index, system_by_id, system_by_solar_id) do
-    # Try different ways to identify systems
-    # First try indices
-    # Then try IDs
-    # Finally try by solar_system_id
-    source_system =
-      lookup_system_by_key(connection, "source_index", :source_index, system_by_index) ||
-        lookup_system_by_key(connection, "source_id", :source_id, system_by_id) ||
-        lookup_system_by_key(
-          connection,
-          "source_solar_system_id",
-          :source_solar_system_id,
-          system_by_solar_id
-        )
+  # Helper function to get the first valid character for a map
+  defp get_first_valid_character_for_map(map_id) do
+    # Get the map with its characters and owner
+    case WandererApp.MapRepo.get(map_id, [:owner, :characters]) do
+      {:ok, map_with_owner} ->
+        IO.inspect(map_with_owner, label: "Map with owner and characters")
 
-    # First try indices
-    # Then try IDs
-    # Finally try by solar_system_id
-    target_system =
-      lookup_system_by_key(connection, "target_index", :target_index, system_by_index) ||
-        lookup_system_by_key(connection, "target_id", :target_id, system_by_id) ||
-        lookup_system_by_key(
-          connection,
-          "target_solar_system_id",
-          :target_solar_system_id,
-          system_by_solar_id
-        )
+        case map_with_owner.characters do
+          [first_char | _] ->
+            # Found a valid character
+            # Ensure first_char has an id, otherwise handle the error
+            if is_nil(first_char.id) do
+              {:error, "Character has no valid ID"}
+            else
+              # Use the character's user_id field, not the owner's id
+              if is_nil(first_char.user_id) do
+                {:error, "Character has no valid user_id"}
+              else
+                IO.puts(
+                  "Using character with id: #{first_char.id} and user_id: #{first_char.user_id}"
+                )
 
-    {source_system, target_system}
-  end
+                {:ok, %{id: first_char.id, user_id: first_char.user_id}}
+              end
+            end
 
-  # Helper to lookup a system using either string or atom key
-  defp lookup_system_by_key(connection, string_key, atom_key, lookup_map) do
-    lookup_key =
-      cond do
-        is_map(connection) && Map.has_key?(connection, string_key) ->
-          Map.get(connection, string_key)
+          [] ->
+            # No characters, see if we can get owner's main character
+            if is_nil(map_with_owner.owner) || is_nil(map_with_owner.owner.id) do
+              {:error, "Map has no valid owner"}
+            else
+              case WandererApp.CharacterRepo.get_main_character(map_with_owner.owner.id) do
+                {:ok, main_char} ->
+                  if is_nil(main_char.id) do
+                    {:error, "Main character has no valid ID"}
+                  else
+                    if is_nil(main_char.user_id) do
+                      {:error, "Main character has no valid user_id"}
+                    else
+                      IO.puts(
+                        "Using main character with id: #{main_char.id} and user_id: #{main_char.user_id}"
+                      )
 
-        is_map(connection) && Map.has_key?(connection, atom_key) ->
-          Map.get(connection, atom_key)
+                      {:ok, %{id: main_char.id, user_id: main_char.user_id}}
+                    end
+                  end
 
-        true ->
-          nil
-      end
+                {:error, _} ->
+                  {:error, "No main character found for map owner"}
 
-    if lookup_key, do: Map.get(lookup_map, lookup_key), else: nil
+                _ ->
+                  {:error, "No valid characters found for map"}
+              end
+            end
+        end
+
+      {:error, reason} ->
+        {:error, "Failed to load map: #{inspect(reason)}"}
+
+      _ ->
+        {:error, "Could not load map with owner"}
+    end
   end
 end
