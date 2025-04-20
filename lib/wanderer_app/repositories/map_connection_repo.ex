@@ -103,8 +103,8 @@ defmodule WandererApp.MapConnectionRepo do
   def bulk_create(connections) do
     WandererApp.Api.MapConnection.bulk_create(connections)
     |> case do
-      %Ash.BulkResult{status: :success, results: results} ->
-        {:ok, results}
+      %Ash.BulkResult{status: :success} = result ->
+        {:ok, result.records}
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         {:error, errors}
@@ -122,8 +122,8 @@ defmodule WandererApp.MapConnectionRepo do
   def bulk_update(connection_updates) do
     WandererApp.Api.MapConnection.bulk_update(connection_updates)
     |> case do
-      %Ash.BulkResult{status: :success, results: results} ->
-        {:ok, results}
+      %Ash.BulkResult{status: :success} = result ->
+        {:ok, result.records}
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         {:error, errors}

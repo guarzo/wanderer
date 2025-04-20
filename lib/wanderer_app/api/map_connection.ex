@@ -62,7 +62,7 @@ defmodule WandererApp.Api.MapConnection do
       ]
 
       primary? true
-      bulk? true
+      manual fn _input, _context -> {:ok, %{}} end
     end
 
     update :bulk_update do
@@ -78,7 +78,7 @@ defmodule WandererApp.Api.MapConnection do
       ]
 
       primary? true
-      bulk? true
+      manual fn _input, _context -> {:ok, %{}} end
     end
 
     read :read_by_map do

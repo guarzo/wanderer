@@ -209,8 +209,7 @@ defmodule WandererAppWeb.Router do
     get "/systems", MapAPIController, :list_systems
     get "/system", MapAPIController, :show_system
     get "/connections", MapAPIController, :list_connections
-    patch "/systems", MapAPIController, :upsert_systems
-    patch "/connections", MapAPIController, :upsert_connections
+    patch "/systems-and-connections", MapAPIController, :upsert_systems_and_connections
     delete "/systems", MapAPIController, :delete_systems
     delete "/connections", MapAPIController, :delete_connections
     get "/characters", MapAPIController, :tracked_characters_with_info

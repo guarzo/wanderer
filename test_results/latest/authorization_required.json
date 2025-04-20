@@ -1,0 +1,13 @@
+{
+  "testName": "authorization_required",
+  "description": "Verify authorization is required",
+  "endpoint": "/templates",
+  "method": "GET",
+  "requestBody": null,
+  "expectedStatus": 401,
+  "actualStatus": 401,
+  "responseBody": {"error":"Missing or invalid 'Bearer' token"},
+  "status": "pass",
+  "duration": .042814163,
+  "timestamp": "2025-04-20T00:40:33Z"
+}

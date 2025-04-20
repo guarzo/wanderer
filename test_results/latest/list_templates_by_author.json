@@ -1,0 +1,13 @@
+{
+  "testName": "list_templates_by_author",
+  "description": "List templates filtered by author",
+  "endpoint": "/templates?slug=flygd&author_eve_id=2112233444",
+  "method": "GET",
+  "requestBody": null,
+  "expectedStatus": 200,
+  "actualStatus": 200,
+  "responseBody": {"data":[]},
+  "status": "pass",
+  "duration": .043559531,
+  "timestamp": "2025-04-20T00:40:32Z"
+}

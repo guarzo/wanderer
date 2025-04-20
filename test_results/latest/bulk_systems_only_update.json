@@ -1,0 +1,21 @@
+{
+  "testName": "bulk_systems_only_update",
+  "description": "Bulk update systems only",
+  "endpoint": "/map/systems-and-connections?slug=flygd",
+  "method": "PATCH",
+  "requestBody": {
+  "systems": [
+    {
+      "id": "5a5253e9-e5e0-495f-862c-5358b41638dc",
+      "position_x": 100,
+      "position_y": 200
+    }
+  ]
+},
+  "expectedStatus": 200,
+  "actualStatus": 200,
+  "responseBody": {"data":{"systems":{"created":[],"updated":[]},"connections":{"created":[],"updated":[]}}},
+  "status": "pass",
+  "duration": .056682680,
+  "timestamp": "2025-04-20T00:40:32Z"
+}

@@ -532,6 +532,95 @@ defmodule WandererAppWeb.MapAPIController do
     required: ["data"]
   }
 
+  # For combined systems and connections upsert operation
+  @upsert_systems_and_connections_request_schema %OpenApiSpex.Schema{
+    type: :object,
+    properties: %{
+      map_id: %OpenApiSpex.Schema{type: :string, format: :uuid, description: "Map UUID"},
+      slug: %OpenApiSpex.Schema{type: :string, description: "Map unique slug"},
+      systems: %OpenApiSpex.Schema{
+        type: :array,
+        items: %OpenApiSpex.Schema{
+          type: :object,
+          properties: %{
+            id: %OpenApiSpex.Schema{type: :string, format: :uuid, description: "System ID (optional for new systems)"},
+            solar_system_id: %OpenApiSpex.Schema{type: :integer, description: "EVE Solar System ID"},
+            name: %OpenApiSpex.Schema{type: :string, description: "System name"},
+            custom_name: %OpenApiSpex.Schema{type: :string, description: "Custom name"},
+            description: %OpenApiSpex.Schema{type: :string, description: "System description"},
+            tag: %OpenApiSpex.Schema{type: :string, description: "System tag"},
+            temporary_name: %OpenApiSpex.Schema{type: :string, description: "Temporary name"},
+            labels: %OpenApiSpex.Schema{type: :string, description: "System labels JSON string"},
+            status: %OpenApiSpex.Schema{type: :integer, description: "System status code: 0=Unknown, 1=Friendly, 2=Warning, 3=TargetPrimary, 4=TargetSecondary, 5=DangerousPrimary, 6=DangerousSecondary, 7=LookingFor, 8=Home"},
+            position_x: %OpenApiSpex.Schema{type: :integer, description: "X position on the map canvas"},
+            position_y: %OpenApiSpex.Schema{type: :integer, description: "Y position on the map canvas"},
+            locked: %OpenApiSpex.Schema{type: :boolean, description: "Is system locked"},
+            visible: %OpenApiSpex.Schema{type: :boolean, description: "Is system visible"}
+          },
+          required: ["solar_system_id"]
+        }
+      },
+      connections: %OpenApiSpex.Schema{
+        type: :array,
+        items: %OpenApiSpex.Schema{
+          type: :object,
+          properties: %{
+            id: %OpenApiSpex.Schema{type: :string, format: :uuid, description: "Connection ID (optional for new connections)"},
+            solar_system_source: %OpenApiSpex.Schema{type: :integer, description: "Source solar system ID"},
+            solar_system_target: %OpenApiSpex.Schema{type: :integer, description: "Target solar system ID"},
+            mass_status: %OpenApiSpex.Schema{type: :integer, description: "Mass status: 0=GreaterThanHalf, 1=LessThanHalf, 2=Critical"},
+            time_status: %OpenApiSpex.Schema{type: :integer, description: "Time status: 0=Normal, 1=EndOfLife"},
+            ship_size_type: %OpenApiSpex.Schema{type: :integer, description: "Ship size type: 0=Frigate, 1=Medium, 2=Large, 3=Freight, 4=Capital"},
+            type: %OpenApiSpex.Schema{type: :integer, description: "Connection type: 0=Wormhole, 1=Gate"},
+            wormhole_type: %OpenApiSpex.Schema{type: :string, description: "Wormhole type code (e.g., K162, H296)"},
+            count_of_passage: %OpenApiSpex.Schema{type: :integer, description: "Count of passages"},
+            locked: %OpenApiSpex.Schema{type: :boolean, description: "Is connection locked"},
+            custom_info: %OpenApiSpex.Schema{type: :string, description: "Custom information"}
+          },
+          required: ["solar_system_source", "solar_system_target"]
+        }
+      }
+    },
+    required: ["systems"]
+  }
+
+  @upsert_systems_and_connections_response_schema %OpenApiSpex.Schema{
+    type: :object,
+    properties: %{
+      data: %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          systems: %OpenApiSpex.Schema{
+            type: :object,
+            properties: %{
+              created: %OpenApiSpex.Schema{
+                type: :array,
+                items: @map_system_schema
+              },
+              updated: %OpenApiSpex.Schema{
+                type: :array,
+                items: @map_system_schema
+              }
+            }
+          },
+          connections: %OpenApiSpex.Schema{
+            type: :object,
+            properties: %{
+              created: %OpenApiSpex.Schema{
+                type: :array,
+                items: @map_connection_schema
+              },
+              updated: %OpenApiSpex.Schema{
+                type: :array,
+                items: @map_connection_schema
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   # -----------------------------------------------------------------
   # MAP endpoints
   # -----------------------------------------------------------------
@@ -1337,8 +1426,8 @@ end
          {:ok, updated_systems} <- update_systems(systems_to_update) do
       json(conn, %{
         data: %{
-          created: Enum.map(created_systems || [], &system_to_json/1),
-          updated: Enum.map(updated_systems || [], &system_to_json/1)
+          created: Enum.map(created_systems || [], &map_system_to_json/1),
+          updated: Enum.map(updated_systems || [], &map_system_to_json/1)
         }
       })
     else
@@ -1369,15 +1458,20 @@ end
         cond do
           # Case 1: System has ID and exists - update
           Map.has_key?(system_params, "id") && Map.has_key?(existing_by_id, system_params["id"]) ->
-            existing = Map.get(existing_by_id, system_params["id"])
-            updates = [{existing, atomize_keys(system_params)} | updates]
+            # Get the existing system ID, but use params directly for the update
+            system_id = system_params["id"]
+            update_params = atomize_keys(system_params)
+            updates = [{system_id, update_params} | updates]
             {creates, updates}
 
           # Case 2: System has solar_system_id and exists for this map - update
           Map.has_key?(system_params, "solar_system_id") &&
           Map.has_key?(existing_by_solar_id, system_params["solar_system_id"]) ->
+            # Get the existing system ID, but use params directly for the update
             existing = Map.get(existing_by_solar_id, system_params["solar_system_id"])
-            updates = [{existing, atomize_keys(system_params)} | updates]
+            system_id = existing.id
+            update_params = atomize_keys(system_params)
+            updates = [{system_id, update_params} | updates]
             {creates, updates}
 
           # Case 3: New system with at least a solar_system_id - create
@@ -1415,15 +1509,22 @@ end
       map
     end
 
-    Map.new(normalized_map, fn
+    normalized_map
+    |> Enum.flat_map(fn
       {k, v} when is_binary(k) ->
-        case String.to_existing_atom(k) do
-          key_atom when key_atom in allowed_keys -> {key_atom, v}
-          _ -> nil
+        try do
+          key_atom = String.to_existing_atom(k)
+          if Enum.member?(allowed_keys, key_atom) do
+            [{key_atom, v}]
+          else
+            []
+          end
+        rescue
+          ArgumentError -> []
         end
-      entry -> entry
+      entry -> [entry]
     end)
-    |> Map.reject(&is_nil/1)
+    |> Map.new()
   end
 
   # Create multiple systems
@@ -1435,7 +1536,18 @@ end
   # Update multiple systems
   defp update_systems([]), do: {:ok, []}
   defp update_systems(systems_to_update) do
-    MapSystemRepo.bulk_update(systems_to_update)
+    # Create a list of {id, params} for bulk update
+    updated_systems = Enum.map(systems_to_update, fn {system_id, update_params} ->
+      case MapSystemRepo.update_by_id(system_id, update_params) do
+        {:ok, updated} -> updated
+        {:error, reason} ->
+          IO.puts("Error updating system #{system_id}: #{inspect(reason)}")
+          nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+
+    {:ok, updated_systems}
   end
 
   defp map_is_empty?(map) when is_map(map), do: map == %{}
@@ -2056,13 +2168,8 @@ end
         end
 
       Map.has_key?(params, "author_eve_id") ->
-        case WandererApp.MapTemplateRepo.list_by_author(params["author_eve_id"]) do
-          {:ok, templates} -> templates
-          _ -> []
-        end
-
-      Map.has_key?(params, "author_id") ->
-        case WandererApp.MapTemplateRepo.list_by_author(params["author_id"]) do
+        author_eve_id = parse_integer_param(params["author_eve_id"])
+        case WandererApp.MapTemplateRepo.list_by_author(author_eve_id) do
           {:ok, templates} -> templates
           _ -> []
         end
@@ -2147,6 +2254,12 @@ end
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def create_template(conn, params) do
+    # Normalize parameters to what Ash expects
+    params = normalize_template_params(params)
+
+    # Convert author params
+    params = convert_author_params(params)
+
     case WandererApp.MapTemplateRepo.create(params) do
       {:ok, template} ->
         conn
@@ -2157,6 +2270,72 @@ end
         conn
         |> put_status(:bad_request)
         |> json(%{error: "Error creating template: #{inspect(reason)}"})
+    end
+  end
+
+  # Helper function to normalize template parameters for Ash
+  defp normalize_template_params(params) do
+    # Extract selection data if it exists
+    params = if Map.has_key?(params, "selection") do
+      selection = params["selection"]
+
+      # Extract solar_system_ids from selection
+      params = if Map.has_key?(selection, "solar_system_ids") do
+        Map.put(params, "solar_system_ids", selection["solar_system_ids"])
+      else
+        params
+      end
+
+      # Extract system_ids from selection if solar_system_ids wasn't present
+      params = if !Map.has_key?(params, "solar_system_ids") && Map.has_key?(selection, "system_ids") do
+        Map.put(params, "system_ids", selection["system_ids"])
+      else
+        params
+      end
+
+      params
+    else
+      params
+    end
+
+    params
+    |> maybe_rename_key("public", "is_public")
+    |> maybe_rename_key("template_name", "name")
+    |> maybe_rename_key("template_description", "description")
+    |> maybe_rename_key("template_category", "category")
+  end
+
+  # Helper to rename keys in params map if they exist
+  defp maybe_rename_key(params, old_key, new_key) do
+    if Map.has_key?(params, old_key) do
+      value = params[old_key]
+      params
+      |> Map.put(new_key, value)
+      |> Map.delete(old_key)
+    else
+      params
+    end
+  end
+
+  # Helper function to handle author parameters, standardizing on author_eve_id
+  defp convert_author_params(params) do
+    cond do
+      # If author_id is present (legacy), convert it to author_eve_id and remove author_id
+      Map.has_key?(params, "author_id") ->
+        author_id = params["author_id"]
+        params
+        |> Map.put("author_eve_id", author_id)
+        |> Map.delete("author_id")
+
+      # If author_eve_id is set, ensure it's properly formatted as a string
+      Map.has_key?(params, "author_eve_id") ->
+        # Keep author_eve_id as is, ensuring it's a string
+        author_eve_id = to_string(params["author_eve_id"])
+        Map.put(params, "author_eve_id", author_eve_id)
+
+      # Otherwise leave params unchanged
+      true ->
+        params
     end
   end
 
@@ -2188,6 +2367,12 @@ end
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def create_template_from_map(conn, params) do
+    # Normalize parameters to what Ash expects
+    params = normalize_template_params(params)
+
+    # Convert author params
+    params = convert_author_params(params)
+
     with {:ok, map_id} <- Util.fetch_map_id(params),
          {:ok, template} <- WandererApp.MapTemplateRepo.create_from_map(map_id, params) do
       conn
@@ -2240,8 +2425,14 @@ end
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def update_template_metadata(conn, %{"id" => id} = params) do
+    # Normalize parameters to what Ash expects
+    params = normalize_template_params(params)
+
+    # Filter out URL parameters that shouldn't be in the update data
+    update_params = Map.drop(params, ["id", "slug"])
+
     with {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
-         {:ok, updated_template} <- WandererApp.MapTemplateRepo.update_metadata(template, params) do
+         {:ok, updated_template} <- WandererApp.MapTemplateRepo.update_metadata(template, update_params) do
       json(conn, %{data: template_to_json(updated_template)})
     else
       {:error, :not_found} ->
@@ -2290,8 +2481,11 @@ end
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def update_template_content(conn, %{"id" => id} = params) do
+    # Filter out URL parameters that shouldn't be in the update data
+    update_params = Map.drop(params, ["id", "slug"])
+
     with {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
-         {:ok, updated_template} <- WandererApp.MapTemplateRepo.update_content(template, params) do
+         {:ok, updated_template} <- WandererApp.MapTemplateRepo.update_content(template, update_params) do
       json(conn, %{data: template_to_json(updated_template, true)})
     else
       {:error, :not_found} ->
@@ -2345,10 +2539,19 @@ end
       bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
     ]
   def delete_template(conn, %{"id" => id}) do
-    with {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
-         {:ok, _} <- WandererApp.MapTemplateRepo.destroy(template) do
-      json(conn, %{data: %{success: true}})
+    with {:ok, _} <- validate_template_id(id),
+         {:ok, template} <- WandererApp.MapTemplateRepo.get(id),
+         destroy_result <- WandererApp.MapTemplateRepo.destroy(template),
+         :ok <- handle_destroy_result(destroy_result) do
+      conn
+      |> put_status(:no_content)
+      |> json(%{})
     else
+      {:error, :invalid_template_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Invalid template ID format"})
+
       {:error, :not_found} ->
         conn
         |> put_status(:not_found)
@@ -2360,6 +2563,11 @@ end
         |> json(%{error: "Error deleting template: #{inspect(reason)}"})
     end
   end
+
+  # Helper to handle different return values from destroy
+  defp handle_destroy_result(:ok), do: :ok
+  defp handle_destroy_result({:ok, _}), do: :ok
+  defp handle_destroy_result(error), do: error
 
   @doc """
   POST /api/templates/apply
@@ -2387,10 +2595,16 @@ end
   def apply_template(conn, params) do
     with {:ok, map_id} <- Util.fetch_map_id(params),
          template_id = Map.get(params, "template_id"),
+         {:ok, _} <- validate_template_id(template_id),
          options = Map.drop(params, ["map_id", "slug", "template_id"]),
          {:ok, result} <- WandererApp.MapTemplateRepo.apply_template(map_id, template_id, options) do
       json(conn, %{data: result.summary})
     else
+      {:error, :invalid_template_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Invalid template ID format"})
+
       {:error, msg} when is_binary(msg) ->
         conn
         |> put_status(:bad_request)
@@ -2408,6 +2622,14 @@ end
     end
   end
 
+  # Validate that the template_id is a valid UUID
+  defp validate_template_id(template_id) do
+    case Ecto.UUID.cast(template_id) do
+      {:ok, _uuid} -> {:ok, template_id}
+      :error -> {:error, :invalid_template_id}
+    end
+  end
+
   # Helper function to format a template for JSON response
   defp template_to_json(template, include_content \\ false) do
     base = %{
@@ -2415,7 +2637,7 @@ end
       name: template.name,
       description: template.description,
       category: template.category,
-      author_eve_id: template.author_id,
+      author_eve_id: template.author_eve_id,
       source_map_id: template.source_map_id,
       is_public: template.is_public,
       inserted_at: template.inserted_at,
@@ -2432,4 +2654,147 @@ end
       base
     end
   end
+
+  @doc """
+  PATCH /api/map/systems-and-connections
+
+  Upserts (creates or updates) multiple systems and connections in a batch operation.
+
+  This endpoint combines the functionality of the separate system and connection upsert endpoints.
+  Systems must be provided, and connections are optional.
+
+  For systems:
+  - If a system includes an 'id', it will be updated if it exists.
+  - If a system does not have an 'id' but includes a 'solar_system_id', it will attempt to
+    find an existing system with that solar_system_id for the map, and update it if found,
+    or create a new one if not.
+
+  For connections:
+  - If a connection includes an 'id', it will be updated if it exists.
+  - If a connection does not have an 'id' but includes source and target system IDs, it will attempt to
+    find an existing connection between those systems for the map, and update it if found,
+    or create a new one if not.
+
+  Example body:
+  ```json
+  {
+    "map_id": "466e922b-e758-485e-9b86-afae06b88363",
+    "systems": [
+      {
+        "solar_system_id": 30000142,
+        "position_x": 100,
+        "position_y": 200,
+        "labels": "{\"customLabel\":\"Hub\",\"labels\":[\"highsec\"]}"
+      },
+      {
+        "id": "some-uuid",
+        "status": 1,
+        "description": "Updated description"
+      }
+    ],
+    "connections": [
+      {
+        "solar_system_source": 30000142,
+        "solar_system_target": 30000144,
+        "type": 0,
+        "mass_status": 1
+      },
+      {
+        "id": "some-uuid",
+        "time_status": 1,
+        "wormhole_type": "K162"
+      }
+    ]
+  }
+  ```
+  """
+  @spec upsert_systems_and_connections(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation :upsert_systems_and_connections,
+    summary: "Batch upsert systems and connections",
+    description: "Creates or updates multiple systems and connections in one operation. Systems with IDs are updated, systems without IDs but with solar_system_ids are matched and updated if they exist, or created if they don't. Connections work similarly.",
+    request_body: {"Map systems and connections to upsert", "application/json", @upsert_systems_and_connections_request_schema},
+    responses: [
+      ok: {"System and connection upsert result", "application/json", @upsert_systems_and_connections_response_schema},
+      bad_request: {"Error", "application/json", OpenApiSpex.Schema.Error}
+    ]
+  def upsert_systems_and_connections(conn, params) do
+    with {:ok, map_id} <- Util.fetch_map_id(params),
+         # Process systems
+         {:ok, systems_to_upsert} <- extract_systems_from_params(params),
+         {:ok, existing_systems} <- MapSystemRepo.get_all_by_map(map_id),
+         {:ok, {systems_to_create, systems_to_update}} <- prepare_systems_for_upsert(map_id, systems_to_upsert, existing_systems),
+         {:ok, created_systems} <- create_systems(systems_to_create),
+         {:ok, updated_systems} <- update_systems(systems_to_update),
+         # Process connections if they exist
+         connections_result <- process_connections(map_id, params) do
+
+      # Prepare the response
+      system_results = %{
+        created: Enum.map(created_systems || [], &map_system_to_json/1),
+        updated: Enum.map(updated_systems || [], &map_system_to_json/1)
+      }
+
+      # Build the response with connections if they were processed
+      response = case connections_result do
+        {:ok, created_conns, updated_conns} ->
+          %{
+            data: %{
+              systems: system_results,
+              connections: %{
+                created: Enum.map(created_conns || [], &connection_to_json/1),
+                updated: Enum.map(updated_conns || [], &connection_to_json/1)
+              }
+            }
+          }
+        _ ->
+          %{
+            data: %{
+              systems: system_results,
+              connections: %{
+                created: [],
+                updated: []
+              }
+            }
+          }
+      end
+
+      json(conn, response)
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: msg})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Error processing systems and connections: #{inspect(reason)}"})
+    end
+  end
+
+  # Helper function to process connections if they exist in the params
+  defp process_connections(map_id, params) do
+    case extract_connections_from_params(params) do
+      {:ok, connections_to_upsert} ->
+        with {:ok, existing_connections} <- MapConnectionRepo.get_by_map(map_id),
+             {:ok, {connections_to_create, connections_to_update}} <- prepare_connections_for_upsert(map_id, connections_to_upsert, existing_connections),
+             {:ok, created_connections} <- create_connections(connections_to_create),
+             {:ok, updated_connections} <- update_connections(connections_to_update) do
+          {:ok, created_connections, updated_connections}
+        else
+          error -> error
+        end
+      _ ->
+        {:ok, [], []}  # No connections to process
+    end
+  end
+
+  defp parse_integer_param(param) when is_integer(param), do: param
+  defp parse_integer_param(param) when is_binary(param) do
+    case Integer.parse(param) do
+      {num, ""} -> num
+      _ -> nil
+    end
+  end
+  defp parse_integer_param(_), do: nil
 end

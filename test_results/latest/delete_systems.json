@@ -1,0 +1,15 @@
+{
+  "testName": "delete_systems",
+  "description": "Delete multiple systems",
+  "endpoint": "/map/systems?slug=flygd",
+  "method": "DELETE",
+  "requestBody": {
+  "system_ids": ["system-uuid-1", "system-uuid-2"]
+},
+  "expectedStatus": 200,
+  "actualStatus": 200,
+  "responseBody": {"data":{"deleted_count":0,"deleted_connections_count":0}},
+  "status": "pass",
+  "duration": .048400675,
+  "timestamp": "2025-04-20T00:40:32Z"
+}

@@ -27,15 +27,29 @@ defmodule WandererApp.Api.MapTemplate do
   end
 
   actions do
-    defaults [:create, :read, :update, :destroy]
+    defaults [:read, :update, :destroy]
+
+    create :create do
+      accept [
+        :name,
+        :description,
+        :category,
+        :author_eve_id,
+        :source_map_id,
+        :is_public,
+        :systems,
+        :connections,
+        :metadata
+      ]
+    end
 
     read :list_public do
       filter(expr(is_public == true))
     end
 
     read :list_by_author do
-      argument(:author_id, :string, allow_nil?: false)
-      filter(expr(author_id == ^arg(:author_id)))
+      argument(:author_eve_id, :string, allow_nil?: false)
+      filter(expr(author_eve_id == ^arg(:author_eve_id)))
     end
 
     read :list_by_category do
@@ -79,11 +93,11 @@ defmodule WandererApp.Api.MapTemplate do
     end
 
     # The ID of the EVE character that created this template
-    attribute :author_id, :string do
+    attribute :author_eve_id, :string do
       allow_nil? true
     end
 
-    attribute :source_map_id, :string do
+    attribute :source_map_id, :uuid do
       allow_nil? true
     end
 
@@ -111,13 +125,6 @@ defmodule WandererApp.Api.MapTemplate do
   end
 
   relationships do
-    belongs_to :author, WandererApp.Api.User do
-      attribute_writable? true
-      source_attribute :author_id
-      destination_attribute :id
-      allow_nil? true
-    end
-
     belongs_to :source_map, WandererApp.Api.Map do
       attribute_writable? true
       source_attribute :source_map_id

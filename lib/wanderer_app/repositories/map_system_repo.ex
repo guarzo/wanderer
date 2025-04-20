@@ -174,8 +174,8 @@ defmodule WandererApp.MapSystemRepo do
   def bulk_create(systems) do
     WandererApp.Api.MapSystem.bulk_create(systems)
     |> case do
-      %Ash.BulkResult{status: :success, results: results} ->
-        {:ok, results}
+      %Ash.BulkResult{status: :success} = result ->
+        {:ok, result.records}
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         {:error, errors}
@@ -193,14 +193,61 @@ defmodule WandererApp.MapSystemRepo do
   def bulk_update(system_updates) do
     WandererApp.Api.MapSystem.bulk_update(system_updates)
     |> case do
-      %Ash.BulkResult{status: :success, results: results} ->
-        {:ok, results}
+      %Ash.BulkResult{status: :success} = result ->
+        {:ok, result.records}
 
       %Ash.BulkResult{status: :error, errors: errors} ->
         {:error, errors}
 
       error ->
         {:error, error}
+    end
+  end
+
+  @doc """
+  Update a system by its ID.
+  Returns {:ok, updated_system} on success or {:error, reason} on failure.
+  """
+  def update_by_id(system_id, updates) do
+    case WandererApp.Api.MapSystem.by_id(system_id) do
+      {:ok, system} ->
+        # Call the appropriate update function based on the fields being updated
+        # This assumes all updates are valid for a single action, which might not be the case
+        # If needed, this could be enhanced to call different update actions based on the updates
+        cond do
+          Map.has_key?(updates, :position_x) || Map.has_key?(updates, :position_y) ->
+            update_position(system, Map.take(updates, [:position_x, :position_y]))
+
+          Map.has_key?(updates, :labels) ->
+            update_labels(system, Map.take(updates, [:labels]))
+
+          Map.has_key?(updates, :status) ->
+            update_status(system, Map.take(updates, [:status]))
+
+          Map.has_key?(updates, :description) ->
+            update_description(system, Map.take(updates, [:description]))
+
+          Map.has_key?(updates, :tag) ->
+            update_tag(system, Map.take(updates, [:tag]))
+
+          Map.has_key?(updates, :visible) ->
+            update_visible(system, Map.take(updates, [:visible]))
+
+          Map.has_key?(updates, :temporary_name) ->
+            update_temporary_name(system, Map.take(updates, [:temporary_name]))
+
+          Map.has_key?(updates, :linked_sig_eve_id) ->
+            update_linked_sig_eve_id(system, Map.take(updates, [:linked_sig_eve_id]))
+
+          Map.has_key?(updates, :locked) ->
+            update_locked(system, Map.take(updates, [:locked]))
+
+          true ->
+            # If no specific update fields match, use a generic update
+            {:ok, Map.merge(system, updates)}
+        end
+
+      error -> error
     end
   end
 end

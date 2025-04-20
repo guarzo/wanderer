@@ -1,0 +1,13 @@
+{
+  "testName": "list_public_templates",
+  "description": "List all public templates",
+  "endpoint": "/templates?slug=flygd&public=true",
+  "method": "GET",
+  "requestBody": null,
+  "expectedStatus": 200,
+  "actualStatus": 200,
+  "responseBody": {"data":[]},
+  "status": "pass",
+  "duration": .078826692,
+  "timestamp": "2025-04-20T00:40:31Z"
+}

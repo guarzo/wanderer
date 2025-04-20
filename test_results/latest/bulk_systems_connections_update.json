@@ -1,0 +1,38 @@
+{
+  "testName": "bulk_systems_connections_update",
+  "description": "Bulk update systems and connections",
+  "endpoint": "/map/systems-and-connections?slug=flygd",
+  "method": "PATCH",
+  "requestBody": {
+  "systems": [
+    {
+      "id": "5a5253e9-e5e0-495f-862c-5358b41638dc",
+      "position_x": 100,
+      "position_y": 200,
+      "labels": "{\"customLabel\":\"Hub\",\"labels\":[\"highsec\"]}"
+    },
+    {
+      "id": "system-uuid-1",
+      "status": 1,
+      "description": "Updated description"
+    }
+  ],
+  "connections": [
+    {
+      "id": "connection-uuid-0",
+      "mass_status": 1
+    },
+    {
+      "id": "connection-uuid-1",
+      "time_status": 1,
+      "wormhole_type": "K162"
+    }
+  ]
+},
+  "expectedStatus": 200,
+  "actualStatus": 200,
+  "responseBody": {"data":{"systems":{"created":[],"updated":[]},"connections":{"created":[],"updated":[]}}},
+  "status": "pass",
+  "duration": .062137298,
+  "timestamp": "2025-04-20T00:40:32Z"
+}
