@@ -21,8 +21,13 @@ test_create_template() {
   status=$(parse_status "$raw")
   body=$(parse_response "$raw")
   verify_http_code "$status" 201 "Create template" || return 1
-  TEMPLATE_ID=$(jq -r '.data.id' <<<"$body")
-  [[ -n "$TEMPLATE_ID" && "$TEMPLATE_ID" != "null" ]]
+- TEMPLATE_ID=$(jq -r '.data.id' <<<"$body")
+- [[ -n "$TEMPLATE_ID" && "$TEMPLATE_ID" != "null" ]]
++ TEMPLATE_ID=$(jq -r '.data.id // empty' <<<"$body")
++ if [[ -z "$TEMPLATE_ID" ]]; then
++   echo "🚫 Create template: response did not contain .data.id" >&2
++   return 1
++ fi
 }
 
 test_create_from_map() {
