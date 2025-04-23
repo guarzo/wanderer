@@ -32,7 +32,11 @@ test_filter_category() {
 }
 
 test_first_apply() {
-  [[ $(make_request POST "$API_BASE_URL/api/templates/apply?slug=$MAP_SLUG" "{\"template_id\":\"$TEMPLATE_ID\"}") == 200 ]]
+  local raw status
+  raw=$(make_request POST "$API_BASE_URL/api/templates/apply?slug=$MAP_SLUG" \
+        "{\"template_id\":\"$TEMPLATE_ID\"}")
+  status=$(parse_status "$raw")
+  verify_http_code "$status" 200 "Apply template (1st)"
 }
 
 test_second_apply() {
