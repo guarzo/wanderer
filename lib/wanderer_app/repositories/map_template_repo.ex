@@ -10,8 +10,7 @@ defmodule WandererApp.MapTemplateRepo do
   alias WandererApp.Api.MapTemplate
   alias WandererApp.MapSystemRepo
   alias WandererApp.MapConnectionRepo
-  alias Wandererpp.MapCharacterSettingsRepo
-
+  alias WandererApp.MapCharacterSettingsRepo
   @known_attrs [
     :name,
     :description,
