@@ -459,7 +459,12 @@ defmodule WandererApp.MapTemplateRepo do
 
     # Use the same add_system method that the API now uses
     Logger.debug("Calling Map.Server.add_system with params: #{inspect(params)}")
-    WandererApp.Map.Server.add_system(map_id, params, user_id, char_id)
+    case WandererApp.Map.Server.add_system(map_id, params, user_id, char_id) do
+      :ok -> :ok
+      {:error, reason} ->
+        Logger.error("add_system failed: #{inspect(reason)}")
+        throw({:error, reason})
+    end
 
     # Check if system exists after attempting to add it
     Logger.debug("Calling MapSystemRepo.get_by_map_and_solar_system_id for map_id: #{map_id}, solar_system_id: #{id}")
