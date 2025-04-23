@@ -8,7 +8,7 @@ if [[ -f /tmp/basic_template_id.txt ]]; then
   TEMPLATE_ID=$(< /tmp/basic_template_id.txt)
   CREATED_HERE=0
 else
-  local raw payload
+  raw='' payload=''
   payload='{"name":"OpTest","description":"d","category":"test","author_eve_id":"2122019111","is_public":false,"systems":[],"connections":[]}'
   raw=$(make_request POST "$API_BASE_URL/api/templates?slug=$MAP_SLUG" "$payload")
   TEMPLATE_ID=$(jq -r '.data.id' <<<"$(parse_response "$raw")")
