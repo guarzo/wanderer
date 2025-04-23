@@ -8,6 +8,10 @@ defmodule WandererApp.MapConnectionRepo do
   def get_by_map(map_id),
     do: WandererApp.Api.MapConnection.read_by_map(%{map_id: map_id})
 
+  def by_id(connection_id) do
+    WandererApp.Api.MapConnection.by_id(connection_id)
+  end
+
   def get_by_locations(map_id, solar_system_source, solar_system_target) do
     WandererApp.Api.MapConnection.by_locations(%{
       map_id: map_id,

@@ -211,6 +211,41 @@ defmodule WandererApp.CachedInfo do
     |> cache_items(:edencom_solar_systems)
   end
 
+  @doc """
+  Find a solar system by name (case-insensitive).
+  Returns the solar system ID on success or nil on failure.
+  """
+  def find_system_id_by_name(system_name) do
+    system_name_key = system_name |> String.downcase()
+
+    case Cachex.get(:system_static_info_cache, {:system_name_lookup, system_name_key}) do
+      {:ok, nil} ->
+        # Not in cache, fetch from database using original name casing
+        case WandererApp.Api.MapSolarSystem.find_by_exact_name(%{name: system_name}) do
+          {:ok, [system | _]} ->
+            # Cache the result using the lowercase key for future lookups
+            Cachex.put(
+              :system_static_info_cache,
+              {:system_name_lookup, system_name_key}, # Use lowercase key
+              system.solar_system_id
+            )
+
+            system.solar_system_id
+
+          unexpected_result ->
+            Logger.warn(
+              "System lookup failed for name: '#{system_name}'. " <> "Unexpected result: #{inspect(unexpected_result)}"
+            )
+
+            nil
+        end
+
+      {:ok, system_id} ->
+        # Return from cache (looked up using lowercase key)
+        system_id
+    end
+  end
+
   defp cache_items([], _list_name), do: :ok
 
   defp cache_items(items, list_name), do: WandererApp.Cache.put(list_name, items)

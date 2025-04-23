@@ -206,15 +206,32 @@ defmodule WandererAppWeb.Router do
   scope "/api/map", WandererAppWeb do
     pipe_through [:api, :api_map]
     get "/audit", MapAuditAPIController, :index
-    get "/systems", MapAPIController, :list_systems
-    get "/system", MapAPIController, :show_system
-    get "/connections", MapAPIController, :list_connections
-    get "/characters", MapAPIController, :tracked_characters_with_info
+    get "/systems", MapSystemAPIController, :list_systems
+    get "/system", MapSystemAPIController, :show_system
+    get "/connections", MapSystemAPIController, :list_connections
+    patch "/systems", MapSystemAPIController, :upsert_systems
+    patch "/connections", MapSystemAPIController, :upsert_connections
+    patch "/systems-and-connections", MapSystemAPIController, :upsert_systems_and_connections
+    delete "/systems", MapSystemAPIController, :delete_systems
+    delete "/connections", MapSystemAPIController, :delete_connections
+    get "/characters", MapAPIController, :list_tracked_characters
     get "/structure-timers", MapAPIController, :show_structure_timers
     get "/character-activity", MapAPIController, :character_activity
     get "/user_characters", MapAPIController, :user_characters
     get "/acls", MapAccessListAPIController, :index
     post "/acls", MapAccessListAPIController, :create
+  end
+
+  scope "/api/templates", WandererAppWeb do
+    pipe_through [:api, :api_map]
+    get "/", MapTemplateAPIController, :list_templates
+    get "/:id", MapTemplateAPIController, :get_template
+    post "/", MapTemplateAPIController, :create_template
+    post "/from-map", MapTemplateAPIController, :create_template_from_map
+    patch "/:id/metadata", MapTemplateAPIController, :update_template_metadata
+    patch "/:id/content", MapTemplateAPIController, :update_template_content
+    delete "/:id", MapTemplateAPIController, :delete_template
+    post "/apply", MapTemplateAPIController, :apply_template
   end
 
   scope "/api/characters", WandererAppWeb do

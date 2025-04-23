@@ -4,7 +4,7 @@ defmodule WandererAppWeb.CommonAPIController do
 
   alias WandererApp.CachedInfo
   alias WandererAppWeb.UtilAPIController, as: Util
-  alias WandererApp.EveDataService
+  require Logger
 
   @system_static_response_schema %OpenApiSpex.Schema{
     type: :object,
@@ -107,17 +107,13 @@ defmodule WandererAppWeb.CommonAPIController do
       end
     else
       {:error, msg} ->
+        Logger.debug("Error in show_system_static: #{msg}")
         conn
         |> put_status(:bad_request)
-        |> json(%{error: msg})
+        |> json(%{error: Util.format_error(msg)})
     end
   end
 
-  @doc """
-  Converts a system map to a JSON-friendly format.
-
-  Takes only the fields that are needed for the API response.
-  """
   defp static_system_to_json(system) do
     system
     |> Map.take([
@@ -142,12 +138,6 @@ defmodule WandererAppWeb.CommonAPIController do
     ])
   end
 
-  @doc """
-  Enhances system data with wormhole type information.
-
-  If the system has static wormholes, adds detailed information about each static.
-  Otherwise, returns the original data unchanged.
-  """
   defp enhance_with_static_details(data) do
     if data[:statics] && length(data[:statics]) > 0 do
       # Add the enhanced static details to the response
@@ -158,11 +148,6 @@ defmodule WandererAppWeb.CommonAPIController do
     end
   end
 
-  @doc """
-  Gets detailed information for each static wormhole.
-
-  Uses the CachedInfo to get both wormhole type data and wormhole class data.
-  """
   defp get_static_details(statics) do
     # Get wormhole data from CachedInfo
     {:ok, wormhole_types} = CachedInfo.get_wormhole_types()
@@ -186,12 +171,6 @@ defmodule WandererAppWeb.CommonAPIController do
     end)
   end
 
-  @doc """
-  Creates detailed wormhole information when the wormhole type is found.
-
-  Includes information about the destination and properties of the wormhole.
-  Ensures that destination.id is always a string to match the OpenAPI schema.
-  """
   defp create_wormhole_details(wh_type, classes_by_id) do
     # Get destination class info
     dest_class = Map.get(classes_by_id, wh_type.dest)
@@ -213,11 +192,6 @@ defmodule WandererAppWeb.CommonAPIController do
     }
   end
 
-  @doc """
-  Creates fallback information when a wormhole type is not found.
-
-  Provides a placeholder structure with nil values for unknown wormhole types.
-  """
   defp create_fallback_wormhole_details(static_name) do
     %{
       name: static_name,
