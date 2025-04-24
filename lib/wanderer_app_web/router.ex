@@ -206,17 +206,44 @@ defmodule WandererAppWeb.Router do
   scope "/api/map", WandererAppWeb do
     pipe_through [:api, :api_map]
     get "/audit", MapAuditAPIController, :index
-    get "/systems", MapAPIController, :list_systems
-    get "/system", MapAPIController, :show_system
-    get "/connections", MapAPIController, :list_connections
-    get "/characters", MapAPIController, :tracked_characters_with_info
+    get "/systems", MapSystemAPIController, :list_systems
+    get "/system", MapSystemAPIController, :show_system
+    get "/connections", MapConnectionAPIController, :list_all_connections
+    get "/characters", MapAPIController, :list_tracked_characters
     get "/structure-timers", MapAPIController, :show_structure_timers
     get "/character-activity", MapAPIController, :character_activity
     get "/user_characters", MapAPIController, :user_characters
+
     get "/acls", MapAccessListAPIController, :index
     post "/acls", MapAccessListAPIController, :create
   end
 
+  #
+  # Unified RESTful routes for systems & connections by slug or ID
+  #
+  scope "/api/maps/:map_identifier", WandererAppWeb do
+    pipe_through [:api, :api_map]
+
+    resources "/systems", MapSystemAPIController, except: [:new, :edit] do
+      resources "/connections", MapConnectionAPIController,
+        only: [:index, :show, :create, :delete]
+    end
+
+    patch "/systems-and-connections", MapSystemAPIController, :systems_and_connections
+    delete "/connections", MapConnectionAPIController, :batch_delete
+
+    resources "/templates", MapTemplateAPIController, only: [:index, :show, :create, :delete] do
+      post "/from-map", MapTemplateAPIController, :create_template_from_map, on: :collection
+      patch "/:id/metadata", MapTemplateAPIController, :update_template_metadata, on: :member
+      patch "/:id/content", MapTemplateAPIController, :update_template_content, on: :member
+    end
+    post "/templates/apply", MapTemplateAPIController, :apply_template
+  end
+
+
+  #
+  # Other API routes
+  #
   scope "/api/characters", WandererAppWeb do
     pipe_through [:api, :api_character]
     get "/", CharactersAPIController, :index

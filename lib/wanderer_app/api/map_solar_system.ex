@@ -26,6 +26,7 @@ defmodule WandererApp.Api.MapSolarSystem do
     )
 
     define(:find_by_name, action: :find_by_name)
+    define(:find_by_exact_name, action: :find_by_exact_name)
     define(:get_wh_class_a, action: :get_wh_class_a)
     define(:get_trig_systems, action: :get_trig_systems)
   end
@@ -84,6 +85,12 @@ defmodule WandererApp.Api.MapSolarSystem do
       argument(:name, :string, allow_nil?: false)
 
       filter(expr(contains(solar_system_name_lc, string_downcase(^arg(:name)))))
+    end
+
+    read :find_by_exact_name do
+      argument(:name, :string, allow_nil?: false)
+
+      filter(expr(solar_system_name_lc == string_downcase(^arg(:name))))
     end
 
     read :get_wh_class_a do
