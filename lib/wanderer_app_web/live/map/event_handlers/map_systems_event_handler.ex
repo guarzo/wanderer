@@ -197,7 +197,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       ) do
     {:ok, hubs} = WandererApp.MapUserSettingsRepo.get_hubs(map_id, current_user.id)
 
-    {:reply, hubs, socket}
+    {:reply, %{hubs: hubs}, socket}
   end
 
   def handle_ui_event(
@@ -226,9 +226,9 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           hubs
         )
 
-      {:reply, hubs, socket}
+      {:reply, %{hubs: hubs}, socket}
     else
-      {:reply, hubs, socket}
+      {:reply, %{hubs: hubs}, socket}
     end
   end
 
@@ -256,10 +256,10 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
             hubs
           )
 
-        {:reply, hubs, socket}
+        {:reply, %{hubs: hubs}, socket}
 
       _ ->
-        {:reply, hubs, socket}
+        {:reply, %{hubs: hubs}, socket}
     end
   end
 
