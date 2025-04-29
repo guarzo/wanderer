@@ -105,7 +105,8 @@ defmodule WandererAppWeb.Schemas.ResponseSchemas do
       ]
     else
       [
-        ok: {deleted_description, "application/json", %Schema{type: :object}},
+        no_content:
+          {deleted_description <> " (no content)", nil, nil},
         not_found: not_found(),
         internal_server_error: internal_server_error()
       ]

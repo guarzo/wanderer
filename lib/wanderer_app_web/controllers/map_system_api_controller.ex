@@ -150,7 +150,8 @@ defmodule WandererAppWeb.MapSystemAPIController do
   operation :update,
     summary: "Update System",
     parameters: [map_slug: [in: :path], map_id: [in: :path], id: [in: :path]],
-    request_body: {"System update request", "application/json", @system_request_schema},
+-  request_body: {"System update request", "application/json", @system_request_schema},
++  request_body: {"System update request", "application/json", @system_update_schema},
     responses: ResponseSchemas.update_responses(@detail_response_schema)
   def update(%{assigns: %{map_id: map_id}} = conn, %{"id" => id} = params) do
     with {:ok, sid} <- APIUtils.parse_int(id),

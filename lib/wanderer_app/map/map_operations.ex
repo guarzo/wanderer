@@ -236,13 +236,13 @@ defmodule WandererApp.Map.Operations do
   @doc "Get connection by ID"
   @spec get_connection(String.t(), String.t()) :: {:ok, map()} | {:error, String.t()}
   def get_connection(map_id, id) do
-    case MapConnectionRepo.get_by_map(map_id) do
-      {:ok, conns} ->
-        case Enum.find(conns, &(&1.id == id)) do
-          nil -> {:error, :not_found}
-          conn -> {:ok, conn}
-        end
-      {:error, reason} ->
+    case MapConnectionRepo.get_by_id(map_id, id) do
+      {:ok, %{} = conn} -> {:ok, conn}
+      {:error, _}       -> {:error, :not_found}
+    end
+
+    # …rest of function (e.g. logging, metrics, etc.) remains unchanged
+  end
         Logger.error("Failed to fetch connections for map #{map_id}: #{inspect(reason)}")
         {:error, "Connection not found"}
     end

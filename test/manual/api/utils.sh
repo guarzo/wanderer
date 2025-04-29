@@ -36,11 +36,13 @@ make_request() {
     curl_cmd+=(-X "$method" -H "Content-Type: application/json")
   fi
 
-  if [ -n "$data" ]; then
+  # Only attach a payload when the verb explicitly allows a body
+  if [ -n "$data" ] && [[ "$method" != "GET" && "$method" != "HEAD" ]]; then
     curl_cmd+=(-d "$data")
   fi
 
   "${curl_cmd[@]}" "$url"
+}
 }
 
 # ─── Response Parsers ─────────────────────────────────────────────────────────

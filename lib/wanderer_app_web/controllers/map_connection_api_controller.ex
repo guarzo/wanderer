@@ -126,7 +126,9 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         type = conn.body_params["type"] || 0
 
         # Return a simple success response with source/target info
-        APIUtils.respond_data(conn, %{
+        conn
+        |> put_status(:created)
+        |> APIUtils.respond_data(%{
           status: "success",
           map_id: map_id,
           solar_system_source: source,
@@ -135,6 +137,8 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         })
 
       {:skip, :exists} ->
+        # ...
+    end
         APIUtils.respond_data(conn, %{status: "connection_exists"})
 
       {:error, reason} ->
