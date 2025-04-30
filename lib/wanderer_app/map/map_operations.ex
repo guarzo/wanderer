@@ -341,7 +341,8 @@ defmodule WandererApp.Map.Operations do
   defp apply_system_updates(map_id, system_id, attrs, %{x: x, y: y}) do
     with :ok <- Server.update_system_position(map_id, %{solar_system_id: system_id, position_x: round(x), position_y: round(y)}) do
       attrs
-      |> Map.drop([:coordinates, :position_x, :position_y, :solar_system_id])
+      |> Map.drop([:coordinates, :position_x, :position_y, :solar_system_id,
+                   "coordinates", "position_x", "position_y", "solar_system_id"])
       |> Enum.each(fn {key, val} -> update_system_field(map_id, system_id, to_string(key), val) end)
       :ok
     end
