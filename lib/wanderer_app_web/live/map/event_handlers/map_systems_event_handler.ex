@@ -226,9 +226,16 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           hubs
         )
 
-      {:reply, %{hubs: hubs}, socket}
+      {:noreply, socket |> MapEventHandler.push_map_event(
+        "map_updated",
+        %{user_hubs: hubs}
+      )}
     else
-      {:reply, %{hubs: hubs}, socket}
+
+      {:noreply, socket |> MapEventHandler.push_map_event(
+        "map_updated",
+        %{user_hubs: hubs}
+      )}
     end
   end
 
@@ -256,10 +263,15 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
             hubs
           )
 
-        {:reply, %{hubs: hubs}, socket}
-
+        {:noreply, socket |> MapEventHandler.push_map_event(
+          "map_updated",
+          %{user_hubs: hubs}
+        )}
       _ ->
-        {:reply, %{hubs: hubs}, socket}
+        {:noreply, socket |> MapEventHandler.push_map_event(
+          "map_updated",
+          %{user_hubs: hubs}
+        )}
     end
   end
 
