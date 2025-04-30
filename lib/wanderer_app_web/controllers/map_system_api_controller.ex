@@ -190,10 +190,21 @@ defmodule WandererAppWeb.MapSystemAPIController do
     responses: ResponseSchemas.standard_responses(@delete_response_schema)
   def delete(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
     with {:ok, sid} <- APIUtils.parse_int(id),
-         {:ok, _} <- Operations.delete_system(map_id, sid) do
+         {:ok, _}   <- Operations.delete_system(map_id, sid) do
       APIUtils.respond_data(conn, %{deleted: true})
     else
-      _ -> APIUtils.respond_data(conn, %{deleted: false})
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> APIUtils.respond_data(%{deleted: false, error: "System not found"})
+      {:error, reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> APIUtils.respond_data(%{deleted: false, error: "Failed to delete system", reason: reason})
+      _ ->
+        conn
+        |> put_status(:bad_request)
+        |> APIUtils.respond_data(%{deleted: false, error: "Invalid system ID format"})
     end
   end
 
