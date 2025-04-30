@@ -191,8 +191,9 @@ defmodule WandererAppWeb.Helpers.APIUtils do
   defp parse_to_int(val, _field) when is_integer(val), do: {:ok, val}
   defp parse_to_int(val, field) when is_binary(val) do
     case Integer.parse(val) do
-      {i, _} -> {:ok, i}
+      {i, ""} -> {:ok, i}
       :error -> {:error, "Invalid #{field}: #{val}"}
+      _ -> {:error, "Invalid #{field}: #{val}"}
     end
   end
   defp parse_to_int(val, field), do: {:error, "Invalid #{field} type: #{inspect(val)}"}

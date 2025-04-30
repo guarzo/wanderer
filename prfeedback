@@ -1,0 +1,377 @@
+lib/wanderer_app/map/map_operations.ex
+Comment on lines +63 to +71
+  defp load_characters(ids) when is_list(ids) do
+    ids
+    |> Enum.map(&Character.get_character!/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> {:error, "No valid characters found"}
+      chars -> {:ok, chars}
+    end
+  end
+@coderabbitai coderabbitai bot 10 minutes ago
+⚠️ Potential issue
+
+Replace bang-functions to avoid crashing the batch operation
+
+load_characters/1 relies on Character.get_character!/1, which raises on missing IDs.
+A single stale character_id would crash the caller (and possibly the entire request process).
+
+Use the non-bang variant and pattern-match instead:
+
+-  |> Enum.map(&Character.get_character!/1)
++  |> Enum.map(&Character.get_character/1)
++  |> Enum.filter_map(
++       fn
++         {:ok, ch} -> {:cont, ch}
++         _error    -> {:cont, nil}
++       end,
++       & &1
++     )
+Or return {:error, :not_found} when any id cannot be resolved.
+
+
+
+
+
+lib/wanderer_app/map/map_operations.ex
+Comment on lines +350 to +362
+  defp update_system_field(map_id, system_id, field, val) do
+    case field do
+      "status" -> Server.update_system_status(map_id, %{solar_system_id: system_id, status: convert_status(val)})
+      "description" -> Server.update_system_description(map_id, %{solar_system_id: system_id, description: val})
+      "tag" -> Server.update_system_tag(map_id, %{solar_system_id: system_id, tag: val})
+      "locked" -> Server.update_system_locked(map_id, %{solar_system_id: system_id, locked: val})
+      f when f in ["label", "labels"] ->
+        labels = if is_list(val), do: Enum.join(val, ","), else: to_string(val)
+        Server.update_system_labels(map_id, %{solar_system_id: system_id, labels: labels})
+      "temporary_name" -> Server.update_system_temporary_name(map_id, %{solar_system_id: system_id, temporary_name: val})
+      _ -> :ok
+    end
+  end
+@coderabbitai coderabbitai bot 10 minutes ago
+🛠️ Refactor suggestion
+
+Boolean & list parameters need type-coercion safeguards
+
+update_system_field/4 forwards values directly to Server.* calls. For "locked" => "false" or "labels" => "a,b":
+
+locked arrives as "false" (string) – Elixir treats any non-nil/non-false value as true.
+labels arrives as string, is converted to string again (noop) – frontend expects split list.
+Recommend:
+
+"locked" ->
+  bool = val in [true, "true", 1, "1"]
+  Server.update_system_locked(map_id, %{solar_system_id: system_id, locked: bool})
+
+f when f in ["label", "labels"] ->
+  labels =
+    cond do
+      is_list(val) -> val
+      is_binary(val) -> String.split(val, ",", trim: true)
+      true -> []
+    end
+  Server.update_system_labels(map_id, %{solar_system_id: system_id,
+                                        labels: Enum.join(labels, ",")})
+
+
+
+                                        lib/wanderer_app_web/controllers/map_api_controller.ex
+Comment on lines +688 to 705
+  # --- Helpers for System Kills ---
+  defp parse_hours_ago(nil), do: nil
+  defp parse_hours_ago(hours_str) do
+    Logger.debug(fn -> "[parse_hours_ago] Parsing hours_str: #{inspect(hours_str)}" end)
+    result = case Integer.parse(hours_str) do
+      {num, ""} when num > 0 ->
+        Logger.debug(fn -> "[parse_hours_ago] Successfully parsed to #{num}" end)
+        num
+      {num, rest} ->
+        Logger.debug(fn -> "[parse_hours_ago] Parsed with remainder: #{num}, rest: #{inspect(rest)}" end)
+        nil
+      :error ->
+        Logger.debug(fn -> "[parse_hours_ago] Failed to parse" end)
+        nil
+    end
+    Logger.debug(fn -> "[parse_hours_ago] Final result: #{inspect(result)}" end)
+    result
+  end
+@coderabbitai coderabbitai bot 10 minutes ago
+🛠️ Refactor suggestion
+
+parse_hours_ago/1 silently treats “0”, negative and malformed input as nil
+
+Current behaviour:
+
+"0" → nil
+"-5" → nil
+"12foo" → nil
+That means an obviously invalid request ends up returning all kills, which may not be what clients expect.
+
+Consider:
+
+Returning {:error, "hours must be a positive integer"} and bubbling a 400.
+Alternatively, accept 0 explicitly (no filter) and reject negatives / malformed.
+This keeps the API predictable and self-documenting.
+
+
+
+lib/wanderer_app_web/controllers/map_connection_api_controller.ex
+Comment on lines +82 to +107
+  def index(%{assigns: %{map_id: map_id}} = conn, params) do
+    conns = MapData.list_connections!(map_id)
+    src = Map.get(params, "solar_system_source")
+    tgt = Map.get(params, "solar_system_target")
+    conns =
+      case {src, tgt} do
+        {nil, nil} -> conns
+        {src, nil} ->
+          case APIUtils.parse_int(src) do
+            {:ok, s} -> Enum.filter(conns, &(&1.solar_system_source == s))
+            _ -> []
+          end
+        {nil, tgt} ->
+          case APIUtils.parse_int(tgt) do
+            {:ok, t} -> Enum.filter(conns, &(&1.solar_system_target == t))
+            _ -> []
+          end
+        {src, tgt} ->
+          case {APIUtils.parse_int(src), APIUtils.parse_int(tgt)} do
+            {{:ok, s}, {:ok, t}} -> Enum.filter(conns, &(&1.solar_system_source == s and &1.solar_system_target == t))
+            _ -> []
+          end
+      end
+    data = Enum.map(conns, &APIUtils.connection_to_json/1)
+    APIUtils.respond_data(conn, data)
+  end
+@coderabbitai coderabbitai bot 11 minutes ago
+💡 Verification agent
+
+🧩 Analysis chain
+Enforce 400 Bad Request for malformed solar_system_* filters
+
+Rather than silently returning an empty list when parsing fails, short-circuit and let your action_fallback return a 400. You can do this by pulling filter parsing into a with and propagating {:error, _} from APIUtils.parse_int/1. For example, in lib/wanderer_app_web/controllers/map_connection_api_controller.ex:
+
+ def index(%{assigns: %{map_id: map_id}} = conn, params) do
+-  conns = MapData.list_connections!(map_id)
+-  src = Map.get(params, "solar_system_source")
+-  tgt = Map.get(params, "solar_system_target")
+-
+-  conns =
+-    case {src, tgt} do
+-      {nil, nil} -> conns
+-      {src, nil} ->
+-        case APIUtils.parse_int(src) do
+-          {:ok, s} -> Enum.filter(conns, &(&1.solar_system_source == s))
+-          _ -> []
+-        end
+-      {nil, tgt} ->
+-        case APIUtils.parse_int(tgt) do
+-          {:ok, t} -> Enum.filter(conns, &(&1.solar_system_target == t))
+-          _ -> []
+-        end
+-      {src, tgt} ->
+-        case {APIUtils.parse_int(src), APIUtils.parse_int(tgt)} do
+-          {{:ok, s}, {:ok, t}} ->
+-            Enum.filter(conns, &(&1.solar_system_source == s and &1.solar_system_target == t))
+-          _ ->
+-            []
+-        end
+-    end
+-  data = Enum.map(conns, &APIUtils.connection_to_json/1)
+-  APIUtils.respond_data(conn, data)
++  with {:ok, src_filter} <- parse_optional(params, "solar_system_source"),
++       {:ok, tgt_filter} <- parse_optional(params, "solar_system_target") do
++    connections = MapData.list_connections!(map_id)
++      |> filter_by_source(src_filter)
++      |> filter_by_target(tgt_filter)
++
++    data = Enum.map(connections, &APIUtils.connection_to_json/1)
++    APIUtils.respond_data(conn, data)
++  end
+ end
+
+ # add helper functions in this module:
+ defp parse_optional(params, key) do
+   case Map.get(params, key) do
+     nil -> {:ok, nil}
+     val -> APIUtils.parse_int(val)
+   end
+ end
+
+ defp filter_by_source(conns, nil), do: conns
+ defp filter_by_source(conns, s),   do: Enum.filter(conns, &(&1.solar_system_source == s))
+
+ defp filter_by_target(conns, nil), do: conns
+ defp filter_by_target(conns, t),   do: Enum.filter(conns, &(&1.solar_system_target == t))
+This causes any {:error, message} from parse_int/1 to bubble up to FallbackController and return 400.
+Keeps the filtering logic clean and DRY by factoring out common helpers.
+
+lib/wanderer_app_web/helpers/api_utils.ex
+Comment on lines +190 to +198
+  defp parse_to_int(nil, field), do: {:error, "Missing #{field}"}
+  defp parse_to_int(val, _field) when is_integer(val), do: {:ok, val}
+  defp parse_to_int(val, field) when is_binary(val) do
+    case Integer.parse(val) do
+      {i, _} -> {:ok, i}
+      :error -> {:error, "Invalid #{field}: #{val}"}
+    end
+  end
+  defp parse_to_int(val, field), do: {:error, "Invalid #{field} type: #{inspect(val)}"}
+@coderabbitai coderabbitai bot 12 minutes ago
+⚠️ Potential issue
+
+parse_to_int/2 silently accepts “123abc” – make it as strict as parse_int/1
+
+parse_int/1 returns an error when a trailing rest exists, but parse_to_int/2 succeeds on any “partial” parse ({i, _} pattern).
+Passing "42px" as solar_system_source will be parsed as 42, hiding client bugs.
+
+-    case Integer.parse(val) do
+-      {i, _} -> {:ok, i}
++    case Integer.parse(val) do
++      {i, ""} -> {:ok, i}
+       :error -> {:error, "Invalid #{field}: #{val}"}
+     end
+Aligning the behaviour prevents accidental truncation.
+
+Committable suggestion skipped: line range outside the PR's diff.
+
+lib/wanderer_app_web/controllers/map_system_api_controller.ex
+Comment on lines +153 to +154
+    request_body: {"System update request", "application/json", @system_update_schema},
+    responses: ResponseSchemas.update_responses(@detail_response_schema)
+@coderabbitai coderabbitai bot 12 minutes ago
+⚠️ Potential issue
+
+Missing @system_update_schema definition.
+
+The update operation references @system_update_schema in the request body definition, but this schema isn't defined in the file. This could cause runtime errors when generating OpenAPI documentation.
+
+You should define the @system_update_schema module attribute, possibly based on the existing @system_request_schema but modified for update operation requirements.
+
+@system_update_schema %Schema{
+  type: :object,
+  properties: %{
+    solar_system_name: %Schema{type: :string, description: "EVE solar system name", nullable: true},
+    position_x: %Schema{type: :number, format: :float, description: "X coordinate", nullable: true},
+    position_y: %Schema{type: :number, format: :float, description: "Y coordinate", nullable: true},
+    status: %Schema{type: :string, description: "System status", nullable: true},
+    visible: %Schema{type: :boolean, description: "Visibility flag", nullable: true},
+    description: %Schema{type: :string, nullable: true, description: "Custom description"},
+    tag: %Schema{type: :string, nullable: true, description: "Custom tag"},
+    locked: %Schema{type: :boolean, description: "Lock flag", nullable: true},
+    temporary_name: %Schema{type: :string, nullable: true, description: "Temporary name"},
+    labels: %Schema{type: :array, items: %Schema{type: :string}, nullable: true, description: "Labels"}
+  },
+  example: %{
+    position_x: 100.5,
+    position_y: 200.3,
+    visible: true
+  }
+}
+
+
+lib/wanderer_app_web/controllers/map_system_api_controller.ex
+Outdated
+Comment on lines 191 to 198
+  def delete(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
+    with {:ok, sid} <- APIUtils.parse_int(id),
+         {:ok, _} <- Operations.delete_system(map_id, sid) do
+      APIUtils.respond_data(conn, %{deleted: true})
+    else
+      _ -> APIUtils.respond_data(conn, %{deleted: false})
+    end
+  end
+@coderabbitai coderabbitai bot 12 minutes ago
+🛠️ Refactor suggestion
+
+Improve error handling in single delete endpoint.
+
+The single delete function doesn't provide detailed error information - it simply returns {deleted: false} for any error condition. This makes it difficult to distinguish between not found errors, permission errors, or other failures.
+
+def delete(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
+  with {:ok, sid} <- APIUtils.parse_int(id),
+       {:ok, _} <- Operations.delete_system(map_id, sid) do
+    APIUtils.respond_data(conn, %{deleted: true})
+  else
+-   _ -> APIUtils.respond_data(conn, %{deleted: false})
++   {:error, :not_found} ->
++     conn
++     |> put_status(:not_found)
++     |> APIUtils.respond_data(%{deleted: false, error: "System not found"})
++   {:error, reason} ->
++     conn
++     |> put_status(:unprocessable_entity)
++     |> APIUtils.respond_data(%{deleted: false, error: "Failed to delete system", reason: reason})
++   _ ->
++     conn
++     |> put_status(:bad_request)
++     |> APIUtils.respond_data(%{deleted: false, error: "Invalid system ID format"})
+  end
+end
+📝 Committable suggestion
+
+
+
+lib/wanderer_app_web/controllers/map_system_api_controller.ex
+Comment on lines +169 to +184
+    system_ids = Map.get(params, "system_ids", [])
+    connection_ids = Map.get(params, "connection_ids", [])
+    deleted_systems = Enum.map(system_ids, fn id ->
+      case APIUtils.parse_int(id) do
+        {:ok, sid} -> Operations.delete_system(map_id, sid)
+        _ -> {:error, :invalid_id}
+      end
+    end)
+    deleted_connections = Enum.map(connection_ids, fn id ->
+      case Operations.get_connection(map_id, id) do
+        {:ok, conn_struct} -> WandererApp.Map.Server.delete_connection(map_id, conn_struct)
+        _ -> :error
+      end
+    end)
+    deleted_count = Enum.count(deleted_systems, &match?({:ok, _}, &1)) + Enum.count(deleted_connections, &(&1 == :ok))
+    APIUtils.respond_data(conn, %{deleted_count: deleted_count})
+@coderabbitai coderabbitai bot 12 minutes ago
+🛠️ Refactor suggestion
+
+Inconsistent error handling in batch delete operation.
+
+The error handling for invalid IDs differs between systems and connections:
+
+For systems, invalid IDs return {:error, :invalid_id}
+For connections, they return :error
+This inconsistency might make debugging harder and could lead to inaccurate deletion counts.
+
+def delete(%{assigns: %{map_id: map_id}} = conn, params) do
+  system_ids = Map.get(params, "system_ids", [])
+  connection_ids = Map.get(params, "connection_ids", [])
+
+  deleted_systems = Enum.map(system_ids, fn id ->
+    case APIUtils.parse_int(id) do
+      {:ok, sid} -> Operations.delete_system(map_id, sid)
+      _ -> {:error, :invalid_id}
+    end
+  end)
+
+  deleted_connections = Enum.map(connection_ids, fn id ->
+-   case Operations.get_connection(map_id, id) do
+-     {:ok, conn_struct} -> WandererApp.Map.Server.delete_connection(map_id, conn_struct)
+-     _ -> :error
+-   end
++   case Operations.get_connection(map_id, id) do
++     {:ok, conn_struct} ->
++       case WandererApp.Map.Server.delete_connection(map_id, conn_struct) do
++         :ok -> {:ok, conn_struct}
++         error -> error
++       end
++     _ -> {:error, :invalid_id}
++   end
+  end)
+
+- deleted_count = Enum.count(deleted_systems, &match?({:ok, _}, &1)) + Enum.count(deleted_connections, &(&1 == :ok))
++ systems_deleted = Enum.count(deleted_systems, &match?({:ok, _}, &1))
++ connections_deleted = Enum.count(deleted_connections, &match?({:ok, _}, &1))
++ deleted_count = systems_deleted + connections_deleted
+
+  APIUtils.respond_data(conn, %{deleted_count: deleted_count})
+end

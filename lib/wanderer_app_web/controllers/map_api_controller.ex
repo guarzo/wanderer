@@ -338,15 +338,12 @@ defmodule WandererAppWeb.MapAPIController do
     ]
   def list_systems_kills(conn, params) do
     with {:ok, map_id} <- APIUtils.fetch_map_id(params),
-         {:ok, systems} <- MapSystemRepo.get_visible_by_map(map_id) do
-
-      hours_ago =
-        parse_hours_ago(
-          params["hours"]      # documented name
-          || params["hours_ago"] # legacy fallback
-          || params["hour_ago"]  # legacy typo
-        )
-
+         {:ok, systems} <- MapSystemRepo.get_visible_by_map(map_id),
+         {:ok, hours_ago} <- parse_hours_ago(
+           params["hours"]      # documented name
+           || params["hours_ago"] # legacy fallback
+           || params["hour_ago"]  # legacy typo
+         ) do
       solar_ids = Enum.map(systems, & &1.solar_system_id)
       kills_map = KillsCache.fetch_cached_kills_for_systems(solar_ids)
 
@@ -657,22 +654,14 @@ defmodule WandererAppWeb.MapAPIController do
   end
 
   # --- Helpers for System Kills ---
-  defp parse_hours_ago(nil), do: nil
+  defp parse_hours_ago(nil), do: {:ok, nil}
   defp parse_hours_ago(hours_str) do
     Logger.debug(fn -> "[parse_hours_ago] Parsing hours_str: #{inspect(hours_str)}" end)
-    result = case Integer.parse(hours_str) do
-      {num, ""} when num > 0 ->
-        Logger.debug(fn -> "[parse_hours_ago] Successfully parsed to #{num}" end)
-        num
-      {num, rest} ->
-        Logger.debug(fn -> "[parse_hours_ago] Parsed with remainder: #{num}, rest: #{inspect(rest)}" end)
-        nil
-      :error ->
-        Logger.debug(fn -> "[parse_hours_ago] Failed to parse" end)
-        nil
+    case Integer.parse(hours_str) do
+      {num, ""} when num > 0 -> {:ok, num}
+      {0, ""} -> {:ok, 0} # Accept 0 as a special case (no filter)
+      _ -> {:error, "hours must be a positive integer"}
     end
-    Logger.debug(fn -> "[parse_hours_ago] Final result: #{inspect(result)}" end)
-    result
   end
 
   defp maybe_filter_kills_by_time(kills, hours_ago) when is_integer(hours_ago) do

@@ -80,31 +80,39 @@ defmodule WandererAppWeb.MapConnectionAPIController do
     ],
     responses: ResponseSchemas.standard_responses(@list_response_schema)
   def index(%{assigns: %{map_id: map_id}} = conn, params) do
-    conns = MapData.list_connections!(map_id)
-    src = Map.get(params, "solar_system_source")
-    tgt = Map.get(params, "solar_system_target")
-    conns =
-      case {src, tgt} do
-        {nil, nil} -> conns
-        {src, nil} ->
-          case APIUtils.parse_int(src) do
-            {:ok, s} -> Enum.filter(conns, &(&1.solar_system_source == s))
-            _ -> []
-          end
-        {nil, tgt} ->
-          case APIUtils.parse_int(tgt) do
-            {:ok, t} -> Enum.filter(conns, &(&1.solar_system_target == t))
-            _ -> []
-          end
-        {src, tgt} ->
-          case {APIUtils.parse_int(src), APIUtils.parse_int(tgt)} do
-            {{:ok, s}, {:ok, t}} -> Enum.filter(conns, &(&1.solar_system_source == s and &1.solar_system_target == t))
-            _ -> []
-          end
-      end
-    data = Enum.map(conns, &APIUtils.connection_to_json/1)
-    APIUtils.respond_data(conn, data)
+    with {:ok, src_filter} <- parse_optional(params, "solar_system_source"),
+         {:ok, tgt_filter} <- parse_optional(params, "solar_system_target") do
+      conns = MapData.list_connections!(map_id)
+      conns =
+        conns
+        |> filter_by_source(src_filter)
+        |> filter_by_target(tgt_filter)
+      data = Enum.map(conns, &APIUtils.connection_to_json/1)
+      APIUtils.respond_data(conn, data)
+    else
+      {:error, msg} when is_binary(msg) ->
+        conn
+        |> Plug.Conn.put_status(:bad_request)
+        |> APIUtils.respond_data(%{error: msg})
+      {:error, _} ->
+        conn
+        |> Plug.Conn.put_status(:bad_request)
+        |> APIUtils.respond_data(%{error: "Invalid filter parameter"})
+    end
   end
+
+  defp parse_optional(params, key) do
+    case Map.get(params, key) do
+      nil -> {:ok, nil}
+      val -> APIUtils.parse_int(val)
+    end
+  end
+
+  defp filter_by_source(conns, nil), do: conns
+  defp filter_by_source(conns, s),   do: Enum.filter(conns, &(&1.solar_system_source == s))
+
+  defp filter_by_target(conns, nil), do: conns
+  defp filter_by_target(conns, t),   do: Enum.filter(conns, &(&1.solar_system_target == t))
 
   operation :show,
     summary: "Show Connection (by id or by source/target)",

@@ -62,8 +62,14 @@ defmodule WandererApp.Map.Operations do
 
   defp load_characters(ids) when is_list(ids) do
     ids
-    |> Enum.map(&Character.get_character!/1)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&Character.get_character/1)
+    |> Enum.filter_map(
+         fn
+           {:ok, ch} -> {:cont, ch}
+           _error    -> {:cont, nil}
+         end,
+         & &1
+       )
     |> case do
       [] -> {:error, "No valid characters found"}
       chars -> {:ok, chars}
@@ -353,10 +359,17 @@ defmodule WandererApp.Map.Operations do
       "status" -> Server.update_system_status(map_id, %{solar_system_id: system_id, status: convert_status(val)})
       "description" -> Server.update_system_description(map_id, %{solar_system_id: system_id, description: val})
       "tag" -> Server.update_system_tag(map_id, %{solar_system_id: system_id, tag: val})
-      "locked" -> Server.update_system_locked(map_id, %{solar_system_id: system_id, locked: val})
+      "locked" ->
+        bool = val in [true, "true", 1, "1"]
+        Server.update_system_locked(map_id, %{solar_system_id: system_id, locked: bool})
       f when f in ["label", "labels"] ->
-        labels = if is_list(val), do: Enum.join(val, ","), else: to_string(val)
-        Server.update_system_labels(map_id, %{solar_system_id: system_id, labels: labels})
+        labels =
+          cond do
+            is_list(val) -> val
+            is_binary(val) -> String.split(val, ",", trim: true)
+            true -> []
+          end
+        Server.update_system_labels(map_id, %{solar_system_id: system_id, labels: Enum.join(labels, ",")})
       "temporary_name" -> Server.update_system_temporary_name(map_id, %{solar_system_id: system_id, temporary_name: val})
       _ -> :ok
     end

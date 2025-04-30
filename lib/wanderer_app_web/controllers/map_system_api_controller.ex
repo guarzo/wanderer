@@ -62,6 +62,27 @@ defmodule WandererAppWeb.MapSystemAPIController do
     }
   }
 
+  @system_update_schema %Schema{
+    type: :object,
+    properties: %{
+      solar_system_name: %Schema{type: :string, description: "EVE solar system name", nullable: true},
+      position_x: %Schema{type: :number, format: :float, description: "X coordinate", nullable: true},
+      position_y: %Schema{type: :number, format: :float, description: "Y coordinate", nullable: true},
+      status: %Schema{type: :string, description: "System status", nullable: true},
+      visible: %Schema{type: :boolean, description: "Visibility flag", nullable: true},
+      description: %Schema{type: :string, nullable: true, description: "Custom description"},
+      tag: %Schema{type: :string, nullable: true, description: "Custom tag"},
+      locked: %Schema{type: :boolean, description: "Lock flag", nullable: true},
+      temporary_name: %Schema{type: :string, nullable: true, description: "Temporary name"},
+      labels: %Schema{type: :array, items: %Schema{type: :string}, nullable: true, description: "Labels"}
+    },
+    example: %{
+      position_x: 100.5,
+      position_y: 200.3,
+      visible: true
+    }
+  }
+
   @list_response_schema ApiSchemas.data_wrapper(%Schema{type: :array, items: @map_system_schema})
   @detail_response_schema ApiSchemas.data_wrapper(@map_system_schema)
   @delete_response_schema ApiSchemas.data_wrapper(%Schema{
@@ -168,19 +189,29 @@ defmodule WandererAppWeb.MapSystemAPIController do
   def delete(%{assigns: %{map_id: map_id}} = conn, params) do
     system_ids = Map.get(params, "system_ids", [])
     connection_ids = Map.get(params, "connection_ids", [])
+
     deleted_systems = Enum.map(system_ids, fn id ->
       case APIUtils.parse_int(id) do
         {:ok, sid} -> Operations.delete_system(map_id, sid)
         _ -> {:error, :invalid_id}
       end
     end)
+
     deleted_connections = Enum.map(connection_ids, fn id ->
       case Operations.get_connection(map_id, id) do
-        {:ok, conn_struct} -> WandererApp.Map.Server.delete_connection(map_id, conn_struct)
-        _ -> :error
+        {:ok, conn_struct} ->
+          case WandererApp.Map.Server.delete_connection(map_id, conn_struct) do
+            :ok -> {:ok, conn_struct}
+            error -> error
+          end
+        _ -> {:error, :invalid_id}
       end
     end)
-    deleted_count = Enum.count(deleted_systems, &match?({:ok, _}, &1)) + Enum.count(deleted_connections, &(&1 == :ok))
+
+    systems_deleted = Enum.count(deleted_systems, &match?({:ok, _}, &1))
+    connections_deleted = Enum.count(deleted_connections, &match?({:ok, _}, &1))
+    deleted_count = systems_deleted + connections_deleted
+
     APIUtils.respond_data(conn, %{deleted_count: deleted_count})
   end
 
