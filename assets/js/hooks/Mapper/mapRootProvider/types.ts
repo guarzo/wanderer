@@ -1,7 +1,7 @@
 export enum AvailableThemes {
   default = 'default',
   pathfinder = 'pathfinder',
-  faoble = 'zoo',
+  zoo = 'zoo',
 }
 
 export type InterfaceStoredSettings = {

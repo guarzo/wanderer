@@ -177,7 +177,7 @@ export const MapWrapper = () => {
     }
 
     outCommand({ type: OutCommand.loadSignatures, data: {} });
-  }, [isShowUnsplashedSignatures, systems]);
+  }, [isShowUnsplashedSignatures, outCommand, systems]);
 
   return (
     <>

@@ -9,7 +9,6 @@ export function useBackgroundVars(themeName?: string) {
   const [snapSizeX, setSnapSizeX] = useState<number>(25);
   const [snapSizeY, setSnapSizeY] = useState<number>(25);
 
-
   useEffect(() => {
     let themeEl = document.querySelector('[class$="-theme"]');
 
