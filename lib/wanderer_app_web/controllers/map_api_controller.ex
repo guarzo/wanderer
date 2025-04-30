@@ -186,35 +186,6 @@ defmodule WandererAppWeb.MapAPIController do
     end
   end
 
-  @doc """
-  Debug route for helping diagnose routing issues
-  """
-  def route_debug(conn, _params) do
-    require Logger
-
-    map_identifier = conn.params["map_identifier"]
-    Logger.warn("Debug route accessed - map_identifier: #{inspect(map_identifier)}")
-
-    # Gather parameters
-    path_params = conn.path_params
-    all_params = conn.params
-
-    # Log and return all relevant information
-    debug_info = %{
-      status: "ok",
-      path_params: path_params,
-      all_params: all_params,
-      conn_data: %{
-        method: conn.method,
-        request_path: conn.request_path,
-        host: conn.host
-      }
-    }
-
-    Logger.warn("Debug info: #{inspect(debug_info)}")
-    json(conn, debug_info)
-  end
-
   defp find_tracked_characters_by_map(map_id) do
     case WandererApp.Api.MapCharacterSettings.tracked_by_map_all(%{map_id: map_id}) do
       {:ok, settings} -> {:ok, settings}
