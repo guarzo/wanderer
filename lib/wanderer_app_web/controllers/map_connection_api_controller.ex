@@ -136,8 +136,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
     case Operations.create_connection(params, map_id) do
       {:ok, conn_struct} when is_map(conn_struct) ->
         conn
-        |> put_status(:created)
-        |> json(%{data: conn_struct})
+        |> APIUtils.respond_data(APIUtils.connection_to_json(conn_struct), :created)
       {:ok, :created} ->
         conn
         |> put_status(:created)
