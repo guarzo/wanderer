@@ -7,8 +7,6 @@ defmodule WandererAppWeb.MapAuditAPIController do
 
   alias WandererApp.Api
   alias WandererApp.Api.Character
-  alias WandererApp.MapSystemRepo
-  alias WandererApp.MapCharacterSettingsRepo
 
   alias WandererApp.Zkb.KillsProvider.KillsCache
 

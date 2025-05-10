@@ -301,21 +301,6 @@ defmodule WandererApp.Map.Operations do
   defp fetch_system_id(%{name: name}) when is_binary(name) and name != "", do: find_by_name(name)
   defp fetch_system_id(_), do: {:error, "Missing system identifier (id or name)"}
 
-  @doc """
-  Find system ID by name
-  Uses EveDataService for lookup
-  """
-  defp find_by_name(name) do
-    case WandererApp.EveDataService.find_system_id_by_name(name) do
-      {:ok, id} when is_integer(id) -> {:ok, id}
-      {:ok, _} ->
-        {:error, "Invalid system name: #{name}"}
-      {:error, reason} ->
-        {:error, "Failed to find system by name '#{name}': #{reason}"}
-      _ ->
-        {:error, "Unknown system name: #{name}"}
-    end
-  end
 
   defp parse_int(val, _field) when is_integer(val), do: {:ok, val}
   defp parse_int(val, field) when is_binary(val) do

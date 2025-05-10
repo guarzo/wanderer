@@ -73,8 +73,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   operation :index,
     summary: "List Map Connections",
     parameters: [
-      map_slug: [in: :path, type: :string],
-      map_id: [in: :path, type: :string],
+      map_identifier: [in: :path, type: :string],
       solar_system_source: [in: :query, type: :integer, required: false],
       solar_system_target: [in: :query, type: :integer, required: false]
     ],
@@ -116,7 +115,12 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
   operation :show,
     summary: "Show Connection (by id or by source/target)",
-    parameters: [map_slug: [in: :path], map_id: [in: :path], id: [in: :path, required: false], solar_system_source: [in: :query, type: :integer, required: false], solar_system_target: [in: :query, type: :integer, required: false]],
+    parameters: [
+      map_identifier: [in: :path, type: :string],
+      id: [in: :path, required: false],
+      solar_system_source: [in: :query, type: :integer, required: false],
+      solar_system_target: [in: :query, type: :integer, required: false]
+    ],
     responses: ResponseSchemas.standard_responses(@detail_response_schema)
   def show(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
     case Operations.get_connection(map_id, id) do
@@ -136,7 +140,10 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
   operation :create,
     summary: "Create Connection",
-    parameters: [map_slug: [in: :path], map_id: [in: :path], system_id: [in: :path]],
+    parameters: [
+      map_identifier: [in: :path, type: :string],
+      system_id: [in: :path]
+    ],
     request_body: {"Connection create", "application/json", @connection_request_schema},
     responses: ResponseSchemas.create_responses(@detail_response_schema)
   def create(conn, params) do
@@ -157,7 +164,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         conn
         |> put_status(:bad_request)
         |> json(%{error: reason})
-      other ->
+      _other ->
         conn
         |> put_status(:internal_server_error)
         |> json(%{error: "Unexpected error"})
@@ -168,7 +175,12 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
   operation :delete,
     summary: "Delete Connection (by id or by source/target)",
-    parameters: [map_slug: [in: :path], map_id: [in: :path], id: [in: :path, required: false], solar_system_source: [in: :query, type: :integer, required: false], solar_system_target: [in: :query, type: :integer, required: false]],
+    parameters: [
+      map_identifier: [in: :path, type: :string],
+      id: [in: :path, required: false],
+      solar_system_source: [in: :query, type: :integer, required: false],
+      solar_system_target: [in: :query, type: :integer, required: false]
+    ],
     responses: ResponseSchemas.delete_responses(nil)
   def delete(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
     case Operations.get_connection(map_id, id) do
@@ -195,7 +207,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
   operation :batch_delete,
     summary: "Batch Delete Connections",
-    parameters: [map_slug: [in: :path], map_id: [in: :path]],
+    parameters: [map_identifier: [in: :path, type: :string]],
     request_body: {"Batch delete", "application/json", @batch_delete_schema},
     responses: ResponseSchemas.standard_responses(@batch_delete_response_schema),
     deprecated: true,
@@ -223,7 +235,12 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
   operation :update,
     summary: "Update Connection (by id or by source/target)",
-    parameters: [map_slug: [in: :path], map_id: [in: :path], id: [in: :path, required: false], solar_system_source: [in: :query, type: :integer, required: false], solar_system_target: [in: :query, type: :integer, required: false]],
+    parameters: [
+      map_identifier: [in: :path, type: :string],
+      id: [in: :path, required: false],
+      solar_system_source: [in: :query, type: :integer, required: false],
+      solar_system_target: [in: :query, type: :integer, required: false]
+    ],
     request_body: {"Connection update", "application/json", @connection_request_schema},
     responses: ResponseSchemas.standard_responses(@detail_response_schema)
   def update(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
@@ -255,15 +272,12 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         {:error, :not_found}
       {:error, reason} ->
         {:error, reason}
-      error ->
+      _error ->
         {:error, :internal_server_error}
     end
   end
 
   # -- Helpers --
-
-  defp involves_system?(%{"solar_system_source" => s, "solar_system_target" => t}, id),
-    do: s == id or t == id
 
   defp involves_system?(%{solar_system_source: s, solar_system_target: t}, id),
     do: s == id or t == id

@@ -161,7 +161,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
 
   operation :index,
     summary: "List Map Systems and Connections",
-    parameters: [map_slug: [in: :path], map_id: [in: :path]],
+    parameters: [map_identifier: [in: :path]],
     responses: ResponseSchemas.standard_responses(@list_response_schema)
   def index(%{assigns: %{map_id: map_id}} = conn, _params) do
     systems = Operations.list_systems(map_id) |> Enum.map(&APIUtils.map_system_to_json/1)
@@ -171,7 +171,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
 
   operation :show,
     summary: "Show Map System",
-    parameters: [map_slug: [in: :path], map_id: [in: :path], id: [in: :path]],
+    parameters: [map_identifier: [in: :path], id: [in: :path]],
     responses: ResponseSchemas.standard_responses(@detail_response_schema)
   def show(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
     with {:ok, system_id} <- APIUtils.parse_int(id),
@@ -197,7 +197,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
 
   operation :update,
     summary: "Update System",
-    parameters: [map_slug: [in: :path], map_id: [in: :path], id: [in: :path]],
+    parameters: [map_identifier: [in: :path], id: [in: :path]],
     request_body: {"System update request", "application/json", @system_update_schema},
     responses: ResponseSchemas.update_responses(@detail_response_schema)
   def update(%{assigns: %{map_id: map_id}} = conn, %{"id" => id} = params) do
@@ -244,7 +244,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
 
   operation :delete_single,
     summary: "Delete a single Map System",
-    parameters: [map_slug: [in: :path], map_id: [in: :path], id: [in: :path]],
+    parameters: [map_identifier: [in: :path], id: [in: :path]],
     responses: ResponseSchemas.standard_responses(@delete_response_schema)
   def delete_single(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
     with {:ok, sid} <- APIUtils.parse_int(id),
