@@ -94,7 +94,9 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
   } = data;
 
   const {
-    storedSettings: { interfaceSettings },
+    storedSettings: {
+      interfaceSettings: { isShowUnsplashedSignatures },
+    },
     data: { systemSignatures: mapSystemSignatures },
   } = useMapRootState();
 
@@ -114,7 +116,6 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     solar_system_name,
   } = systemStaticInfo;
 
-  const { isShowUnsplashedSignatures } = interfaceSettings;
   const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
   const isShowLinkedSigId = useMapGetOption('show_linked_signature_id') === 'true';
   const isShowLinkedSigIdTempName = useMapGetOption('show_linked_signature_id_temp_name') === 'true';
@@ -195,11 +196,11 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
   const hubsAsStrings = useMemo(() => hubs.map(item => item.toString()), [hubs]);
 
   const isRally = useMemo(
-    () => pings.find(x => x.solar_system_id === solar_system_id && x.type === PingType.Rally),
+    () => !!pings.find(x => x.solar_system_id === solar_system_id && x.type === PingType.Rally),
     [pings, solar_system_id],
   );
 
-  const nodeVars: SolarSystemNodeVars = {
+  return {
     id,
     selected,
     visible,
@@ -237,6 +238,43 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     solarSystemName: solar_system_name,
     isRally,
   };
-
-  return nodeVars;
 };
+
+export interface SolarSystemNodeVars {
+  id: string;
+  selected: boolean;
+  visible: boolean;
+  isWormhole: boolean;
+  classTitleColor: string | null;
+  killsCount: number | null;
+  killsActivityType: string | null;
+  hasUserCharacters: boolean;
+  showHandlers: boolean;
+  regionClass: string | null;
+  systemName: string;
+  customName?: string | null;
+  labelCustom: string | null;
+  isShattered: boolean;
+  tag?: string | null;
+  status?: number;
+  labelsInfo: LabelInfo[];
+  dbClick: (event: React.MouseEvent<HTMLDivElement>) => void;
+  sortedStatics: Array<string | number>;
+  effectName: string | null;
+  regionName: string | null;
+  solarSystemId: string;
+  solarSystemName: string | null;
+  locked: boolean;
+  hubs: string[];
+  name: string | null;
+  isConnecting: boolean;
+  hoverNodeId: string | null;
+  charactersInSystem: Array<CharacterTypeRaw>;
+  userCharacters: string[];
+  unsplashedLeft: Array<SystemSignature>;
+  unsplashedRight: Array<SystemSignature>;
+  isThickConnections: boolean;
+  classTitle: string | null;
+  temporaryName?: string | null;
+  isRally: boolean;
+}
