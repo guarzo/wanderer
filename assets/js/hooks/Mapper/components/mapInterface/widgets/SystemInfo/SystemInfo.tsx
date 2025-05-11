@@ -3,8 +3,8 @@ import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { LayoutEventBlocker, SystemView, TooltipPosition, WdImgButton } from '@/hooks/Mapper/components/ui-kit';
 import { SystemInfoContent } from './SystemInfoContent';
 import { PrimeIcons } from 'primereact/api';
-import { useCallback, useState } from 'react';
-import { SystemSettingsDialog } from '@/hooks/Mapper/components/mapInterface/components/SystemSettingsDialog/SystemSettingsDialog.tsx';
+import { useState, useCallback } from 'react';
+import { CustomSystemSettingsDialog } from '@/hooks/Mapper/components/mapInterface/components/SystemSettingsDialog';
 import { ANOIK_ICON, DOTLAN_ICON, ZKB_ICON } from '@/hooks/Mapper/icons';
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
 
@@ -70,7 +70,7 @@ export const SystemInfo = () => {
         <SystemInfoContent systemId={systemId} onEditClick={() => setVisible(true)} />
       )}
 
-      {visible && <SystemSettingsDialog systemId={systemId} visible setVisible={setVisible} />}
+      {visible && <CustomSystemSettingsDialog systemId={systemId} visible setVisible={setVisible} />}
     </Widget>
   );
 };
