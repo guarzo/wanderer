@@ -30,6 +30,7 @@ export type GroupType = {
 export type SignatureCustomInfo = {
   k162Type?: string;
   isEOL?: boolean;
+  isCrit?: boolean;
 };
 
 export type SystemSignature = {
