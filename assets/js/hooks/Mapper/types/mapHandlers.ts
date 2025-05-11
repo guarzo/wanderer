@@ -219,6 +219,7 @@ export enum OutCommand {
   updateSignatures = 'update_signatures',
   updateSystemName = 'update_system_name',
   updateSystemTemporaryName = 'update_system_temporary_name',
+  updateSystemOwner = 'update_system_owner',
   updateSystemDescription = 'update_system_description',
   updateSystemLabels = 'update_system_labels',
   updateSystemLocked = 'update_system_locked',
@@ -250,6 +251,9 @@ export enum OutCommand {
   updateFollowingCharacter = 'updateFollowingCharacter',
   updateMainCharacter = 'updateMainCharacter',
 
+  updateSystemCustomFlags = 'update_system_custom_flags',
+  getAllianceNames = 'get_alliance_names',
+  getAllianceTicker = 'get_alliance_ticker',
   // Only UI commands
   openSettings = 'open_settings',
   showActivity = 'show_activity',
