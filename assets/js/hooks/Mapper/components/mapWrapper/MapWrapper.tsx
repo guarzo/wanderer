@@ -8,7 +8,7 @@ import { ContextMenuSystem, useContextMenuSystemHandlers } from '@/hooks/Mapper/
 import {
   SystemCustomLabelDialog,
   SystemLinkSignatureDialog,
-  SystemSettingsDialog,
+  CustomSystemSettingsDialog,
 } from '@/hooks/Mapper/components/mapInterface/components';
 import { Connections } from '@/hooks/Mapper/components/mapRootContent/components/Connections';
 import { ContextMenuSystemMultiple, useContextMenuSystemMultipleHandlers } from '../contexts/ContextMenuSystemMultiple';
@@ -257,7 +257,7 @@ export const MapWrapper = () => {
       />
 
       {openSettings != null && (
-        <SystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
+        <CustomSystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
       )}
       {openPing != null && (
         <SystemPingDialog
