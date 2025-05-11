@@ -8,7 +8,7 @@ import { ConnectionType, MassState, ShipSizeStatus, SolarSystemConnection, TimeS
 import { PrimeIcons } from 'primereact/api';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
 import { useMapState } from '@/hooks/Mapper/components/map/MapProvider.tsx';
-import { SHIP_SIZES_DESCRIPTION, SHIP_SIZES_NAMES_SHORT } from '@/hooks/Mapper/components/map/constants.ts';
+import { SHIP_SIZES_DESCRIPTION, SHIP_SIZES_NAMES_SHORT } from '@/hooks/Mapper/components/map/constants';
 
 const MAP_TRANSLATES: Record<string, string> = {
   [Position.Top]: 'translate(-48%, 0%)',
@@ -42,7 +42,8 @@ export const SHIP_SIZES_COLORS = {
 export const SolarSystemEdge = ({ id, source, target, markerEnd, style, data }: EdgeProps<SolarSystemConnection>) => {
   const sourceNode = useStore(useCallback(store => store.nodeInternals.get(source), [source]));
   const targetNode = useStore(useCallback(store => store.nodeInternals.get(target), [target]));
-  const isWormhole = data?.type !== ConnectionType.gate;
+  const isLoop = data?.type === ConnectionType.loop;
+  const isWormhole = data?.type === ConnectionType.wormhole || data?.type === ConnectionType.loop;
 
   const {
     data: { isThickConnections },
@@ -82,6 +83,7 @@ export const SolarSystemEdge = ({ id, source, target, markerEnd, style, data }: 
           [classes.TimeCrit]: isWormhole && data.time_status === TimeStatus.eol,
           [classes.Hovered]: hovered,
           [classes.Gate]: !isWormhole,
+          [classes.Loop]: isLoop,
         })}
         d={path}
         markerEnd={markerEnd}
@@ -96,6 +98,7 @@ export const SolarSystemEdge = ({ id, source, target, markerEnd, style, data }: 
           [classes.MassHalf]: isWormhole && data.mass_status === MassState.half,
           [classes.Frigate]: isWormhole && data.ship_size_type === ShipSizeStatus.small,
           [classes.Gate]: !isWormhole,
+          [classes.Loop]: isLoop,
         })}
         d={path}
         markerEnd={markerEnd}
