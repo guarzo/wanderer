@@ -12,8 +12,7 @@ import {
   SHIP_SIZES_NAMES_ORDER,
   SHIP_SIZES_NAMES_SHORT,
   SHIP_SIZES_SIZE,
-} from '@/hooks/Mapper/components/map/constants.ts';
-import { Edge } from 'reactflow';
+} from '@/hooks/Mapper/components/map/constants';
 
 export interface ContextMenuConnectionProps {
   contextMenuRef: RefObject<ContextMenu>;
