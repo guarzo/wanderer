@@ -601,6 +601,9 @@ defmodule WandererApp.Esi.ApiClient do
           expires_at: token.expires_at
         })
 
+        # Reset the auth_invalid flag if the refresh was successful
+        WandererApp.Character.Tracker.reset_auth_invalid(character_id)
+
         Phoenix.PubSub.broadcast(
           WandererApp.PubSub,
           "character:#{character_id}",
@@ -626,14 +629,35 @@ defmodule WandererApp.Esi.ApiClient do
           scopes: scopes
         })
 
-        Phoenix.PubSub.broadcast(
-          WandererApp.PubSub,
-          "character:#{character_id}",
-          :character_token_invalid
-        )
+        # Mark the character's auth as invalid and stop tracking
+        WandererApp.Character.Tracker.mark_auth_invalid(character_id)
 
         Logger.warning("Failed to refresh token for #{character_id}: #{error_message}")
         {:error, :invalid_grant}
+
+      {:error, %OAuth2.Error{reason: "Refresh token not available."}} ->
+        # Handle the specific case of missing refresh token
+        {:ok, _character} =
+          character
+          |> WandererApp.Api.Character.update(%{
+            access_token: nil,
+            refresh_token: nil,
+            expires_at: expires_at,
+            scopes: scopes
+          })
+
+        WandererApp.Character.update_character(character_id, %{
+          access_token: nil,
+          refresh_token: nil,
+          expires_at: expires_at,
+          scopes: scopes
+        })
+
+        # Mark the character's auth as invalid and stop tracking
+        WandererApp.Character.Tracker.mark_auth_invalid(character_id)
+
+        Logger.warning("Failed to refresh token for #{character_id}: Refresh token not available.")
+        {:error, :refresh_token_missing}
 
       error ->
         Logger.warning("Failed to refresh token for #{character_id}: #{inspect(error)}")

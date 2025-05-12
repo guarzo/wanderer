@@ -37,6 +37,9 @@ defmodule WandererAppWeb.AuthController do
 
           WandererApp.Character.update_character(character.id, character_update)
 
+          # Reset auth_invalid flag after successful authentication
+          WandererApp.Character.Tracker.reset_auth_invalid(character.id)
+
           {:ok, character}
 
         {:error, _error} ->

@@ -16,6 +16,7 @@ defmodule WandererApp.Character.Tracker do
     track_location: true,
     track_ship: true,
     track_wallet: false,
+    auth_invalid: false,
     status: "new"
   ]
 
@@ -30,6 +31,7 @@ defmodule WandererApp.Character.Tracker do
           track_location: boolean,
           track_ship: boolean,
           track_wallet: boolean,
+          auth_invalid: boolean,
           status: binary()
         }
 
@@ -52,13 +54,18 @@ defmodule WandererApp.Character.Tracker do
   def update_settings(character_id, track_settings) do
     {:ok, character_state} = WandererApp.Character.get_character_state(character_id)
 
-    {:ok,
-     character_state
-     |> maybe_update_active_maps(track_settings)
-     |> maybe_stop_tracking(track_settings)
-     |> maybe_start_online_tracking(track_settings)
-     |> maybe_start_location_tracking(track_settings)
-     |> maybe_start_ship_tracking(track_settings)}
+    # If auth is invalid, we shouldn't change tracking settings
+    if character_state.auth_invalid do
+      {:ok, character_state}
+    else
+      {:ok,
+       character_state
+       |> maybe_update_active_maps(track_settings)
+       |> maybe_stop_tracking(track_settings)
+       |> maybe_start_online_tracking(track_settings)
+       |> maybe_start_location_tracking(track_settings)
+       |> maybe_start_ship_tracking(track_settings)}
+    end
   end
 
   def update_info(character_id) do
@@ -103,7 +110,7 @@ defmodule WandererApp.Character.Tracker do
     |> update_ship()
   end
 
-  def update_ship(%{character_id: character_id, track_ship: true} = character_state) do
+  def update_ship(%{character_id: character_id, track_ship: true, auth_invalid: false} = character_state) do
     character_id
     |> WandererApp.Character.get_character()
     |> case do
@@ -146,6 +153,8 @@ defmodule WandererApp.Character.Tracker do
     end
   end
 
+  def update_ship(%{auth_invalid: true}), do: {:error, :auth_invalid}
+
   def update_ship(_), do: {:error, :skipped}
 
   def update_location(character_id) when is_binary(character_id) do
@@ -154,7 +163,7 @@ defmodule WandererApp.Character.Tracker do
     |> update_location()
   end
 
-  def update_location(%{track_location: true, character_id: character_id} = character_state) do
+  def update_location(%{track_location: true, auth_invalid: false, character_id: character_id} = character_state) do
     case WandererApp.Character.get_character(character_id) do
       {:ok, %{eve_id: eve_id, access_token: access_token}} when not is_nil(access_token) ->
         WandererApp.Cache.has_key?("character:#{character_id}:location_forbidden")
@@ -199,6 +208,8 @@ defmodule WandererApp.Character.Tracker do
     end
   end
 
+  def update_location(%{auth_invalid: true}), do: {:error, :auth_invalid}
+
   def update_location(_), do: {:error, :skipped}
 
   def update_online(character_id) when is_binary(character_id) do
@@ -207,7 +218,7 @@ defmodule WandererApp.Character.Tracker do
     |> update_online()
   end
 
-  def update_online(%{track_online: true, character_id: character_id} = character_state) do
+  def update_online(%{track_online: true, auth_invalid: false, character_id: character_id} = character_state) do
     case WandererApp.Character.get_character(character_id) do
       {:ok, %{eve_id: eve_id, access_token: access_token}}
       when not is_nil(access_token) ->
@@ -289,6 +300,8 @@ defmodule WandererApp.Character.Tracker do
     end
   end
 
+  def update_online(%{auth_invalid: true}), do: {:error, :auth_invalid}
+
   def update_online(_), do: {:error, :skipped}
 
   def check_online_errors(character_id) do
@@ -323,56 +336,62 @@ defmodule WandererApp.Character.Tracker do
   end
 
   def update_wallet(character_id) do
-    character_id
-    |> WandererApp.Character.get_character()
-    |> case do
-      {:ok, %{eve_id: eve_id, access_token: access_token} = character}
-      when not is_nil(access_token) ->
-        character
-        |> WandererApp.Character.can_track_wallet?()
+    # First check if auth is invalid
+    case WandererApp.Character.get_character_state(character_id) do
+      {:ok, %{auth_invalid: true}} ->
+        {:error, :auth_invalid}
+      _ ->
+        character_id
+        |> WandererApp.Character.get_character()
         |> case do
-          true ->
-            WandererApp.Cache.has_key?("character:#{character_id}:wallet_forbidden")
+          {:ok, %{eve_id: eve_id, access_token: access_token} = character}
+          when not is_nil(access_token) ->
+            character
+            |> WandererApp.Character.can_track_wallet?()
             |> case do
               true ->
-                {:error, :skipped}
+                WandererApp.Cache.has_key?("character:#{character_id}:wallet_forbidden")
+                |> case do
+                  true ->
+                    {:error, :skipped}
+
+                  _ ->
+                    case WandererApp.Esi.get_character_wallet(eve_id,
+                           params: %{datasource: "tranquility"},
+                           access_token: access_token,
+                           character_id: character_id,
+                           refresh_token?: true
+                         ) do
+                      {:ok, result} ->
+                        {:ok, state} = WandererApp.Character.get_character_state(character_id)
+                        maybe_update_wallet(state, result)
+
+                        :ok
+
+                      {:error, :forbidden} ->
+                        Logger.warning("#{__MODULE__} failed to _update_wallet: forbidden")
+
+                        WandererApp.Cache.put(
+                          "character:#{character_id}:wallet_forbidden",
+                          true,
+                          ttl: @forbidden_ttl
+                        )
+
+                        {:error, :forbidden}
+
+                      {:error, error} ->
+                        Logger.error("#{__MODULE__} failed to _update_wallet: #{inspect(error)}")
+                        {:error, error}
+                    end
+                end
 
               _ ->
-                case WandererApp.Esi.get_character_wallet(eve_id,
-                       params: %{datasource: "tranquility"},
-                       access_token: access_token,
-                       character_id: character_id,
-                       refresh_token?: true
-                     ) do
-                  {:ok, result} ->
-                    {:ok, state} = WandererApp.Character.get_character_state(character_id)
-                    maybe_update_wallet(state, result)
-
-                    :ok
-
-                  {:error, :forbidden} ->
-                    Logger.warning("#{__MODULE__} failed to _update_wallet: forbidden")
-
-                    WandererApp.Cache.put(
-                      "character:#{character_id}:wallet_forbidden",
-                      true,
-                      ttl: @forbidden_ttl
-                    )
-
-                    {:error, :forbidden}
-
-                  {:error, error} ->
-                    Logger.error("#{__MODULE__} failed to _update_wallet: #{inspect(error)}")
-                    {:error, error}
-                end
+                {:error, :skipped}
             end
 
           _ ->
             {:error, :skipped}
         end
-
-      _ ->
-        {:error, :skipped}
     end
   end
 
@@ -757,4 +776,65 @@ defmodule WandererApp.Character.Tracker do
   defp get_online(%{"online" => online}), do: %{online: online}
 
   defp get_online(_), do: %{online: false}
+
+  def mark_auth_invalid(character_id) do
+    {:ok, character} = WandererApp.Character.get_character(character_id)
+    character_name = character.name
+
+    Logger.info("Marking authentication as invalid for character #{character_name} (#{character_id})")
+
+    # Mark the character's auth as invalid and stop tracking
+    {:ok, character_state} = WandererApp.Character.get_character_state(character_id)
+
+    update = %{
+      character_state
+      | auth_invalid: true,
+        track_online: false,
+        track_location: false,
+        track_ship: false,
+        track_wallet: false
+    }
+
+    WandererApp.Character.update_character_state(character_id, update)
+
+    # Clean up any existing cache entries
+    WandererApp.Cache.delete("character:#{character_id}:online_forbidden")
+    WandererApp.Cache.delete("character:#{character_id}:location_forbidden")
+    WandererApp.Cache.delete("character:#{character_id}:ship_forbidden")
+    WandererApp.Cache.delete("character:#{character_id}:wallet_forbidden")
+
+    # Broadcast the event
+    Phoenix.PubSub.broadcast(
+      WandererApp.PubSub,
+      "character:#{character_id}",
+      :character_auth_invalid
+    )
+
+    {:ok, update}
+  end
+
+  def reset_auth_invalid(character_id) do
+    {:ok, character} = WandererApp.Character.get_character(character_id)
+    character_name = character.name
+
+    {:ok, character_state} = WandererApp.Character.get_character_state(character_id)
+
+    if character_state.auth_invalid do
+      Logger.info("Resetting authentication status to valid for character #{character_name} (#{character_id})")
+
+      update = %{character_state | auth_invalid: false}
+      WandererApp.Character.update_character_state(character_id, update)
+
+      Phoenix.PubSub.broadcast(
+        WandererApp.PubSub,
+        "character:#{character_id}",
+        :character_auth_reset
+      )
+
+      {:ok, update}
+    else
+      # Not logging if there's no change
+      {:ok, character_state}
+    end
+  end
 end

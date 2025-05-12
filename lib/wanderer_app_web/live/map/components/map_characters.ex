@@ -25,18 +25,29 @@ defmodule WandererAppWeb.MapCharacters do
         <li :for={character <- group.characters}>
           <div class="flex items-center justify-between w-full space-x-2 p-1 hover:bg-gray-900">
             <.character_entry character={character} />
-            <button
-              :if={character.tracked}
-              phx-click="untrack"
-              phx-value-event-data={character.id}
-              class="btn btn-sm btn-icon py-1"
-            >
-              <.icon name="hero-eye-slash" class="h-5 w-5" /> Untrack
-            </button>
 
-            <span :if={not character.tracked} class="text-white rounded-full px-2">
-              Viewer
-            </span>
+            <div class="flex items-center gap-2">
+              <.link
+                :if={has_auth_issue?(character.id)}
+                href={~p"/auth/eve?return_to=/map"}
+                class="btn btn-sm btn-warning py-1 flex items-center gap-1"
+              >
+                <.icon name="hero-key" class="h-4 w-4" /> Authenticate
+              </.link>
+
+              <button
+                :if={character.tracked}
+                phx-click="untrack"
+                phx-value-event-data={character.id}
+                class="btn btn-sm btn-icon py-1"
+              >
+                <.icon name="hero-eye-slash" class="h-5 w-5" /> Untrack
+              </button>
+
+              <span :if={not character.tracked} class="text-white rounded-full px-2">
+                Viewer
+              </span>
+            </div>
           </div>
         </li>
       </ul>
@@ -75,6 +86,10 @@ defmodule WandererAppWeb.MapCharacters do
         Offline
       </span>
 
+      <span :if={has_auth_issue?(@character.id)} class="text-orange-500 rounded-full px-2 py-1 tooltip tooltip-top" data-tip="Authentication required">
+        <.icon name="hero-exclamation-triangle" class="h-4 w-4 inline" /> Auth Required
+      </span>
+
       <span :if={@character.tracked} class="text-green-500 rounded-full px-2 py-1">
         Tracked
       </span>
@@ -86,6 +101,13 @@ defmodule WandererAppWeb.MapCharacters do
     """
   end
 
+  defp has_auth_issue?(character_id) do
+    case WandererApp.Character.get_character_state(character_id) do
+      {:ok, %{auth_invalid: flag}} -> flag
+      _ -> false
+    end
+  end
+
   @impl true
   def handle_event("undo", %{"event-data" => _event_data} = _params, socket) do
     # notify_to(socket.assigns.notify_to, socket.assigns.event_name, map_slug)
@@ -94,7 +116,9 @@ defmodule WandererAppWeb.MapCharacters do
   end
 
   defp is_online?(character_id) do
-    {:ok, state} = WandererApp.Character.get_character_state(character_id)
-    state.is_online
+    case WandererApp.Character.get_character_state(character_id) do
+      {:ok, %{is_online: status}} -> status
+      _ -> false
+    end
   end
 end
