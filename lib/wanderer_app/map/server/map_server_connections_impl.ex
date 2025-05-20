@@ -361,6 +361,12 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
 
         if connection_type == @connection_type_wormhole do
           set_start_time(map_id, connection.id, DateTime.utc_now())
+
+          # Set ship size type to medium for C1 systems
+          {:ok, source_system_info} = get_system_static_info(old_location.solar_system_id)
+          if source_system_info.system_class == @c1 do
+            WandererApp.MapConnectionRepo.update_ship_size_type(connection, %{ship_size_type: 1})
+          end
         end
 
         WandererApp.Map.add_connection(map_id, connection)
