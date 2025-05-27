@@ -186,8 +186,15 @@ defmodule WandererAppWeb.MapKillsEventHandler do
         case KillsProvider.Fetcher.fetch_kills_for_systems(parsed_ids, since_hours, %{
                calls_count: 0
              }) do
-          {:ok, systems_map} ->
-            {:detailed_kills_updated, systems_map}
+          systems_map when is_map(systems_map) ->
+            # Convert {:ok, []} results to just [] for consistency
+            processed_map = Map.new(systems_map, fn {system_id, result} ->
+              case result do
+                {:ok, kills, _state} -> {system_id, kills}
+                {:error, _reason, _state} -> {system_id, []}
+              end
+            end)
+            {:detailed_kills_updated, processed_map}
 
           {:error, reason} ->
             Logger.warning("[#{__MODULE__}] fetch_kills_for_systems => error=#{inspect(reason)}")

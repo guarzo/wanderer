@@ -8,32 +8,55 @@ defmodule WandererApp.Zkb.KillsPreloader do
   use GenServer
   require Logger
 
-  alias WandererApp.Zkb.KillsProvider
+  alias WandererApp.Zkb.KillsProvider.Fetcher
   alias WandererApp.Zkb.KillsProvider.KillsCache
+
+  @type system_id :: integer()
+  @type hours :: non_neg_integer()
+  @type state :: %{
+    systems: [system_id()],
+    hours: hours(),
+    interval: non_neg_integer(),
+    timer: reference() | nil,
+    last_active_maps: %{optional(system_id()) => [system_id()]}
+  }
 
   # ----------------
   # Configuration
   # ----------------
 
-  # (1) Quick pass
-  @quick_limit 1
-  @quick_hours 1
+  @passes %{
+    quick: %{limit: 5, hours: 1},
+    expanded: %{limit: 100, hours: 24}
+  }
 
-  # (2) Expanded pass
-  @expanded_limit 25
-  @expanded_hours 24
-
-  # How many minutes back we look for “last active” maps
+  # How many minutes back we look for "last active" maps
   @last_active_cutoff 30
 
   # Default concurrency if not provided
   @default_max_concurrency 2
 
+  # Client API
+
   @doc """
   Starts the GenServer with optional opts (like `max_concurrency`).
   """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @doc """
+  Public helper to explicitly request a fresh preload pass (both quick & expanded).
+  """
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :worker,
+      restart: :permanent,
+      shutdown: 5000
+    }
   end
 
   @doc """
@@ -48,7 +71,8 @@ defmodule WandererApp.Zkb.KillsPreloader do
     state = %{
       phase: :idle,
       calls_count: 0,
-      max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency)
+      max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
+      last_active_maps: %{}
     }
 
     # Kick off the preload passes once at startup
@@ -64,73 +88,137 @@ defmodule WandererApp.Zkb.KillsPreloader do
       |> DateTime.add(-@last_active_cutoff, :minute)
 
     last_active_maps_result = WandererApp.Api.MapState.get_last_active(cutoff_time)
-    last_active_maps = resolve_last_active_maps(last_active_maps_result)
-    active_maps_with_subscription = get_active_maps_with_subscription(last_active_maps)
 
-    # Gather systems from those maps
-    system_tuples = gather_visible_systems(active_maps_with_subscription)
-    unique_systems = Enum.uniq(system_tuples)
+    case resolve_last_active_maps(last_active_maps_result) do
+      {:ok, last_active_maps} ->
+        active_maps_with_subscription = get_active_maps_with_subscription(last_active_maps)
 
-    Logger.debug(fn -> "
-    [KillsPreloader] Found #{length(unique_systems)} unique systems \
-    across #{length(last_active_maps)} map(s)
-    " end)
+        # Gather systems from those maps
+        system_tuples = gather_visible_systems(active_maps_with_subscription)
+        unique_systems = Enum.uniq(system_tuples)
 
-    # ---- QUICK PASS ----
-    state_quick = %{state | phase: :quick_pass}
+        Logger.debug(fn -> "
+        [KillsPreloader] Found #{length(unique_systems)} unique systems \
+        across #{length(last_active_maps)} map(s)
+        " end)
 
-    {time_quick_ms, state_after_quick} =
-      measure_execution_time(fn ->
-        do_pass(unique_systems, :quick, @quick_hours, @quick_limit, state_quick)
-      end)
+        # Run both passes in sequence
+        {time_quick_ms, state_after_quick} =
+          measure_execution_time(fn ->
+            handle_pass(state, :quick)
+          end)
 
-    Logger.info(
-      "[KillsPreloader] Phase 1 (quick) done => calls_count=#{state_after_quick.calls_count}, elapsed=#{time_quick_ms}ms"
-    )
+        Logger.info(
+          "[KillsPreloader] Phase 1 (quick) done => calls_count=#{state_after_quick.calls_count}, elapsed=#{time_quick_ms}ms"
+        )
 
-    # ---- EXPANDED PASS ----
-    state_expanded = %{state_after_quick | phase: :expanded_pass}
+        {time_expanded_ms, final_state} =
+          measure_execution_time(fn ->
+            handle_pass(state, :expanded)
+          end)
 
-    {time_expanded_ms, final_state} =
-      measure_execution_time(fn ->
-        do_pass(unique_systems, :expanded, @quick_hours, @expanded_limit, state_expanded)
-      end)
+        Logger.info(
+          "[KillsPreloader] Phase 2 (expanded) done => calls_count=#{final_state.calls_count}, elapsed=#{time_expanded_ms}ms"
+        )
 
-    Logger.info(
-      "[KillsPreloader] Phase 2 (expanded) done => calls_count=#{final_state.calls_count}, elapsed=#{time_expanded_ms}ms"
-    )
+        # Reset phase to :idle
+        {:noreply, %{final_state | phase: :idle}}
 
-    # Reset phase to :idle
-    {:noreply, %{final_state | phase: :idle}}
+      {:error, reason} ->
+        Logger.error("[KillsPreloader] Failed to get active maps: #{inspect(reason)}")
+        {:noreply, %{state | phase: :idle}}
+    end
+  end
+
+  @impl true
+  def handle_info(:pass, state) do
+    # Get the pass configuration
+    pass_config = @passes[state.pass_type]
+    since_hours = pass_config[:since_hours]
+    limit = pass_config[:limit]
+
+    Logger.info("[KillsPreloader] Starting pass type=#{state.pass_type}, since_hours=#{since_hours}, limit=#{limit}")
+
+    # Get last active maps and filter for active subscriptions
+    case resolve_last_active_maps() do
+      {:ok, last_active_maps} ->
+        Logger.info("[KillsPreloader] Found #{length(last_active_maps)} last active maps")
+
+        # Filter maps with active subscriptions
+        active_maps = get_active_maps_with_subscription(last_active_maps)
+        Logger.info("[KillsPreloader] Found #{length(active_maps)} maps with active subscriptions")
+
+        # Gather visible systems from all active maps
+        systems = gather_visible_systems(active_maps)
+        Logger.info("[KillsPreloader] Found #{length(systems)} visible systems to process")
+
+        # Process systems in parallel with rate limiting
+        tasks =
+          systems
+          |> Enum.map(fn system_id ->
+            Task.async(fn ->
+              Logger.info("[KillsPreloader] Fetching kills for system=#{system_id}, since_hours=#{since_hours}, limit=#{limit}")
+              result = Fetcher.fetch_kills_for_system(system_id, since_hours, state, limit: limit)
+              Logger.info("[KillsPreloader] Result for system=#{system_id}: #{inspect(result)}")
+              result
+            end)
+          end)
+
+        # Wait for all tasks to complete
+        results = Task.await_many(tasks, 30_000)
+        Logger.info("[KillsPreloader] Completed processing #{length(results)} systems")
+
+        # Update state with new calls count
+        new_state = %{state | calls_count: state.calls_count + length(systems)}
+
+        # Schedule next pass
+        schedule_next_pass(new_state)
+        {:noreply, new_state}
+
+      {:error, reason} ->
+        Logger.error("[KillsPreloader] Failed to get active maps: #{inspect(reason)}")
+        {:noreply, state}
+    end
   end
 
   @impl true
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp resolve_last_active_maps({:ok, []}) do
-    Logger.warning("[KillsPreloader] No last-active maps found. Using fallback logic...")
+  @doc """
+  Resolves the last active maps from the state.
+  Returns {:ok, maps} or {:error, reason}.
+  """
+  def resolve_last_active_maps(result \\ nil) do
+    case result do
+      nil ->
+        case WandererApp.Maps.get_last_active_maps() do
+          {:ok, maps} when is_list(maps) and length(maps) > 0 ->
+            Logger.info("[KillsPreloader] Successfully resolved #{length(maps)} last active maps")
+            {:ok, maps}
 
-    case WandererApp.Maps.get_available_maps() do
-      {:ok, []} ->
-        Logger.error("[KillsPreloader] Fallback: get_available_maps returned zero maps!")
-        []
+          {:ok, []} ->
+            Logger.warning("[KillsPreloader] No last active maps found")
+            {:error, :no_active_maps}
 
-      {:ok, maps} ->
-        # pick the newest map by updated_at
-        fallback_map = Enum.max_by(maps, & &1.updated_at, fn -> nil end)
-        if fallback_map, do: [fallback_map], else: []
+          {:error, reason} ->
+            Logger.error("[KillsPreloader] Failed to resolve last active maps: #{inspect(reason)}")
+            {:error, reason}
+        end
+
+      {:ok, maps} when is_list(maps) ->
+        Logger.info("[KillsPreloader] Using provided maps: #{length(maps)} maps")
+        {:ok, maps}
+
+      {:error, reason} ->
+        Logger.error("[KillsPreloader] Error in provided maps: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
-  defp resolve_last_active_maps({:ok, maps}) when is_list(maps),
-    do: maps
-
-  defp resolve_last_active_maps({:error, reason}) do
-    Logger.error("[KillsPreloader] Could not load last-active maps => #{inspect(reason)}")
-    []
-  end
-
-  defp get_active_maps_with_subscription(maps) do
+  @doc """
+  Gets active maps that have an active subscription.
+  """
+  def get_active_maps_with_subscription(maps) do
     maps
     |> Enum.filter(fn map ->
       {:ok, is_subscription_active} = map.id |> WandererApp.Map.is_subscription_active?()
@@ -138,7 +226,10 @@ defmodule WandererApp.Zkb.KillsPreloader do
     end)
   end
 
-  defp gather_visible_systems(maps) do
+  @doc """
+  Gathers all visible systems from the given maps.
+  """
+  def gather_visible_systems(maps) do
     maps
     |> Enum.flat_map(fn map_record ->
       the_map_id = Map.get(map_record, :map_id) || Map.get(map_record, :id)
@@ -157,129 +248,79 @@ defmodule WandererApp.Zkb.KillsPreloader do
     end)
   end
 
-  defp do_pass(unique_systems, pass_type, hours, limit, state) do
-    Logger.info(
-      "[KillsPreloader] Starting #{pass_type} pass => #{length(unique_systems)} systems"
-    )
+  defp handle_pass(state, pass_type) do
+    # Get the pass configuration
+    pass_config = Map.get(@passes, pass_type)
+    since_hours = pass_config.hours
+    limit = pass_config.limit
 
-    {final_state, _kills_map} =
-      unique_systems
-      |> Task.async_stream(
-        fn {_map_id, system_id} ->
-          fetch_kills_for_system(system_id, pass_type, hours, limit, state)
-        end,
-        max_concurrency: state.max_concurrency,
-        timeout: pass_timeout_ms(pass_type)
-      )
-      |> Enum.reduce({state, %{}}, fn task_result, {acc_state, acc_map} ->
-        reduce_task_result(pass_type, task_result, acc_state, acc_map)
-      end)
+    Logger.info("[KillsPreloader] Starting #{pass_type} pass with config: hours=#{since_hours}, limit=#{limit}")
 
-    final_state
-  end
+    # Get systems from last active maps
+    cutoff_time = DateTime.utc_now() |> DateTime.add(-@last_active_cutoff, :minute)
+    last_active_maps_result = WandererApp.Api.MapState.get_last_active(cutoff_time)
 
-  defp fetch_kills_for_system(system_id, :quick, hours, limit, state) do
-    Logger.debug(fn -> "[KillsPreloader] Quick fetch => system=#{system_id}, hours=#{hours}, limit=#{limit}" end)
+    case resolve_last_active_maps(last_active_maps_result) do
+      {:ok, last_active_maps} ->
+        active_maps_with_subscription = get_active_maps_with_subscription(last_active_maps)
+        system_tuples = gather_visible_systems(active_maps_with_subscription)
+        system_ids = Enum.map(system_tuples, &elem(&1, 1)) |> Enum.uniq()
 
-    case KillsProvider.Fetcher.fetch_kills_for_system(system_id, hours, state,
-           limit: limit,
-           force: false
-         ) do
-      {:ok, kills, updated_state} ->
-        {:ok, system_id, kills, updated_state}
+        Logger.info("[KillsPreloader] Starting #{pass_type} pass => #{length(system_ids)} systems: #{inspect(system_ids)}")
 
-      {:error, reason, updated_state} ->
-        Logger.warning(
-          "[KillsPreloader] Quick fetch failed => system=#{system_id}, reason=#{inspect(reason)}"
-        )
+        # Process systems in parallel with rate limiting
+        results =
+          system_ids
+          |> Enum.map(fn system_id ->
+            Task.async(fn ->
+              {system_id, fetch_kills_for_system(system_id, since_hours, state, limit: limit)}
+            end)
+          end)
+          |> Enum.map(&Task.await(&1, 30_000))
 
-        {:error, reason, updated_state}
-    end
-  end
+        # Process results
+        total_kills = Enum.reduce(results, 0, fn {system_id, result}, acc ->
+          case result do
+            {:ok, kills, _state} when is_list(kills) ->
+              if Enum.empty?(kills) do
+                Logger.info("[KillsPreloader] No kills found for system=#{system_id}")
+                acc
+              else
+                Logger.info("[KillsPreloader] Fetched #{length(kills)} kills for system=#{system_id}")
+                acc + length(kills)
+              end
 
-  defp fetch_kills_for_system(system_id, :expanded, hours, limit, state) do
-    Logger.debug(fn -> "[KillsPreloader] Expanded fetch => system=#{system_id}, hours=#{hours}, limit=#{limit} (forcing refresh)" end)
+            {:error, reason, _state} ->
+              Logger.warning("[KillsPreloader] Failed to fetch kills for system=#{system_id}: #{inspect(reason)}")
+              acc
+          end
+        end)
 
-    with {:ok, kills_1h, updated_state} <-
-           KillsProvider.Fetcher.fetch_kills_for_system(system_id, hours, state,
-             limit: limit,
-             force: true
-           ),
-         {:ok, final_kills, final_state} <-
-           maybe_fetch_more_if_needed(system_id, kills_1h, limit, updated_state) do
-      {:ok, system_id, final_kills, final_state}
-    else
-      {:error, reason, updated_state} ->
-        Logger.warning(
-          "[KillsPreloader] Expanded fetch (#{hours}h) failed => system=#{system_id}, reason=#{inspect(reason)}"
-        )
+        Logger.info("[KillsPreloader] #{pass_type} pass complete => total_kills=#{total_kills}, systems_processed=#{length(system_ids)}")
 
-        {:error, reason, updated_state}
-    end
-  end
-
-  # If we got fewer kills than `limit` from the 1h fetch, top up from 24h
-  defp maybe_fetch_more_if_needed(system_id, kills_1h, limit, state) do
-    if length(kills_1h) < limit do
-      needed = limit - length(kills_1h)
-      Logger.debug(fn -> "[KillsPreloader] Expanding to #{@expanded_hours}h => system=#{system_id}, need=#{needed} more kills" end)
-
-      case KillsProvider.Fetcher.fetch_kills_for_system(system_id, @expanded_hours, state,
-             limit: needed,
-             force: true
-           ) do
-        {:ok, _kills_24h, updated_state2} ->
-          final_kills =
-            KillsCache.fetch_cached_kills(system_id)
-            |> Enum.take(limit)
-
-          {:ok, final_kills, updated_state2}
-
-        {:error, reason2, updated_state2} ->
-          Logger.warning(
-            "[KillsPreloader] #{@expanded_hours}h fetch failed => system=#{system_id}, reason=#{inspect(reason2)}"
-          )
-
-          {:error, reason2, updated_state2}
-      end
-    else
-      {:ok, kills_1h, state}
-    end
-  end
-
-  defp reduce_task_result(pass_type, task_result, acc_state, acc_map) do
-    case task_result do
-      {:ok, {:ok, sys_id, kills, updated_state}} ->
-        # Merge calls count from updated_state into acc_state
-        new_state = merge_calls_count(acc_state, updated_state)
-        new_map = Map.put(acc_map, sys_id, kills)
-        {new_state, new_map}
-
-      {:ok, {:error, reason, updated_state}} ->
-        log_failed_task(pass_type, reason)
-        new_state = merge_calls_count(acc_state, updated_state)
-        {new_state, acc_map}
+        # Update state with new calls count
+        %{state | calls_count: state.calls_count + length(system_ids)}
 
       {:error, reason} ->
-        Logger.error("[KillsPreloader] #{pass_type} fetch task crashed => #{inspect(reason)}")
-        {acc_state, acc_map}
+        Logger.error("[KillsPreloader] Failed to get active maps for #{pass_type} pass: #{inspect(reason)}")
+        state
     end
   end
 
-  defp log_failed_task(:quick, reason),
-    do: Logger.warning("[KillsPreloader] Quick fetch task failed => #{inspect(reason)}")
+  defp fetch_kills_for_system(system_id, since_hours, state, limit: _limit) do
+    force = since_hours == 24
+    Logger.info("[KillsPreloader] Fetching kills for system=#{system_id}, since_hours=#{since_hours}, force=#{force}")
 
-  defp log_failed_task(:expanded, reason),
-    do: Logger.error("[KillsPreloader] Expanded fetch task failed => #{inspect(reason)}")
+    case Fetcher.fetch_kills_for_system(system_id, since_hours, state, force: force) do
+      {:ok, kills, new_state} when is_list(kills) ->
+        Logger.info("[KillsPreloader] Successfully fetched #{length(kills)} kills for system=#{system_id}")
+        {:ok, kills, new_state}
 
-  defp merge_calls_count(%{calls_count: c1} = st1, %{calls_count: c2}),
-    do: %{st1 | calls_count: c1 + c2}
-
-  defp merge_calls_count(st1, _other),
-    do: st1
-
-  defp pass_timeout_ms(:quick), do: :timer.minutes(2)
-  defp pass_timeout_ms(:expanded), do: :timer.minutes(5)
+      {:error, reason, new_state} ->
+        Logger.warning("[KillsPreloader] Error fetching kills for system=#{system_id}: #{inspect(reason)}")
+        {:error, reason, new_state}
+    end
+  end
 
   defp measure_execution_time(fun) when is_function(fun, 0) do
     start = System.monotonic_time()
@@ -287,5 +328,16 @@ defmodule WandererApp.Zkb.KillsPreloader do
     finish = System.monotonic_time()
     ms = System.convert_time_unit(finish - start, :native, :millisecond)
     {ms, result}
+  end
+
+  defp schedule_next_pass(state) do
+    # Schedule next pass based on pass type
+    interval = case state.pass_type do
+      :quick -> 5 * 60 * 1000  # 5 minutes
+      :expanded -> 30 * 60 * 1000  # 30 minutes
+      _ -> 5 * 60 * 1000  # default to 5 minutes
+    end
+
+    Process.send_after(self(), :pass, interval)
   end
 end

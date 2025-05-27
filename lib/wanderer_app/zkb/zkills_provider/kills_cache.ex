@@ -5,6 +5,7 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
 
   require Logger
   alias WandererApp.Cache
+  alias WandererApp.Zkb.Key
 
   @killmail_ttl :timer.hours(24)
   @system_kills_ttl :timer.hours(1)
@@ -21,7 +22,7 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   """
   def put_killmail(killmail_id, kill_data) do
     Logger.debug(fn -> "[KillsCache] Storing killmail => killmail_id=#{killmail_id}" end)
-    Cache.put(killmail_key(killmail_id), kill_data, ttl: @killmail_ttl)
+    Cache.put(Key.killmail_key(killmail_id), kill_data, ttl: @killmail_ttl)
   end
 
   @doc """
@@ -52,16 +53,16 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   Fetch the killmail data (if any) from the cache, by killmail_id.
   """
   def get_killmail(killmail_id) do
-    Cache.get(killmail_key(killmail_id))
+    Cache.get(Key.killmail_key(killmail_id))
   end
 
   @doc """
   Adds `killmail_id` to the list of killmail IDs for the system
-  if it’s not already present. The TTL is 24 hours.
+  if it's not already present. The TTL is 24 hours.
   """
   def add_killmail_id_to_system_list(solar_system_id, killmail_id) do
     Cache.update(
-      system_kills_list_key(solar_system_id),
+      Key.system_kills_list_key(solar_system_id),
       [],
       fn existing_list ->
         existing_list = existing_list || []
@@ -79,7 +80,7 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   Returns a list of killmail IDs for the given system, or [] if none.
   """
   def get_system_killmail_ids(solar_system_id) do
-    Cache.get(system_kills_list_key(solar_system_id)) || []
+    Cache.get(Key.system_kills_list_key(solar_system_id)) || []
   end
 
   @doc """
@@ -87,7 +88,7 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   """
   def incr_system_kill_count(solar_system_id, amount \\ 1) do
     Cache.incr(
-      system_kills_key(solar_system_id),
+      Key.system_kills_key(solar_system_id),
       amount,
       default: 0,
       ttl: @system_kills_ttl
@@ -98,7 +99,7 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   Returns the integer count of kills for this system in the last hour, or 0.
   """
   def get_system_kill_count(solar_system_id) do
-    Cache.get(system_kills_key(solar_system_id)) || 0
+    Cache.get(Key.system_kills_key(solar_system_id)) || 0
   end
 
   @doc """
@@ -107,9 +108,9 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   this system is still considered "recently fetched".
   """
   def recently_fetched?(system_id) do
-    case Cache.lookup(fetched_timestamp_key(system_id)) do
+    case Cache.lookup(Key.fetched_timestamp_key(system_id)) do
       {:ok, expires_at_ms} when is_integer(expires_at_ms) ->
-        now_ms = current_time_ms()
+        now_ms = Key.current_time_ms()
         now_ms < expires_at_ms
 
       _ ->
@@ -122,43 +123,11 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   marking it as fully fetched for ~15 minutes (+/- 10%).
   """
   def put_full_fetched_timestamp(system_id) do
-    now_ms = current_time_ms()
-    max_jitter = round(@base_full_fetch_expiry_ms * @jitter_percent)
-    # random offset in range [-max_jitter..+max_jitter]
-    offset = :rand.uniform(2 * max_jitter + 1) - (max_jitter + 1)
-    final_expiry_ms = max(@base_full_fetch_expiry_ms + offset, 60_000)
-    expires_at_ms = now_ms + final_expiry_ms
+    base_expiry = @base_full_fetch_expiry_ms
+    jitter = trunc(base_expiry * @jitter_percent)
+    jittered_expiry = base_expiry + :rand.uniform(jitter * 2) - jitter
+    expires_at = Key.current_time_ms() + jittered_expiry
 
-    Logger.debug(fn -> "[KillsCache] Marking system=#{system_id} recently_fetched? until #{expires_at_ms} (ms)" end)
-    Cache.put(fetched_timestamp_key(system_id), expires_at_ms)
-  end
-
-  @doc """
-  Returns how many ms remain until this system's "recently fetched" window ends.
-  If it's already expired (or doesn't exist), returns -1.
-  """
-  def fetch_age_ms(system_id) do
-    now_ms = current_time_ms()
-
-    case Cache.lookup(fetched_timestamp_key(system_id)) do
-      {:ok, expires_at_ms} when is_integer(expires_at_ms) ->
-        if now_ms < expires_at_ms do
-          expires_at_ms - now_ms
-        else
-          -1
-        end
-
-      _ ->
-        -1
-    end
-  end
-
-  defp killmail_key(killmail_id), do: "zkb_killmail_#{killmail_id}"
-  defp system_kills_key(solar_system_id), do: "zkb_kills_#{solar_system_id}"
-  defp system_kills_list_key(solar_system_id), do: "zkb_kills_list_#{solar_system_id}"
-  defp fetched_timestamp_key(system_id), do: "zkb_system_fetched_at_#{system_id}"
-
-  defp current_time_ms() do
-    DateTime.utc_now() |> DateTime.to_unix(:millisecond)
+    Cache.put(Key.fetched_timestamp_key(system_id), expires_at, ttl: jittered_expiry)
   end
 end

@@ -1,36 +1,32 @@
 defmodule WandererApp.Zkb.Supervisor do
+  @moduledoc """
+  Supervisor for the zKillboard module.
+  """
+
   use Supervisor
 
-  @name __MODULE__
+  @type child_spec :: Supervisor.child_spec()
+  @type children :: [child_spec()]
 
-  def start_link(opts \\ []) do
-    Supervisor.start_link(@name, opts, name: @name)
+  @doc """
+  Start the supervisor.
+  """
+  @spec start_link(keyword()) :: Supervisor.on_start()
+  def start_link(opts) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def init(_init_args) do
-    preloader_child =
-      unless WandererApp.Env.zkill_preload_disabled?() do
-        {WandererApp.Zkb.KillsPreloader, []}
-      end
+  @impl true
+  @spec init(keyword()) :: {:ok, {Supervisor.strategy(), children()}}
+  def init(_opts) do
+    children = [
+      # Dynamic supervisor for runtime-spawned workers
+      {DynamicSupervisor, strategy: :one_for_one, name: WandererApp.Zkb.DynamicSupervisor},
 
-    children =
-      [
-        {
-          WandererApp.Zkb.KillsProvider,
-          uri: "wss://zkillboard.com/websocket/",
-          state: %WandererApp.Zkb.KillsProvider{
-            connected: false
-          },
-          opts: [
-            name: {:local, :zkb_kills_provider},
-            reconnect: true,
-            reconnect_after: 5_000,
-            max_reconnects: :infinity
-          ]
-        },
-        preloader_child
-      ]
-      |> Enum.reject(&is_nil/1)
+      # Static workers
+      WandererApp.Zkb.KillsProvider.RedisQ,
+      WandererApp.Zkb.KillsPreloader
+    ]
 
     Supervisor.init(children, strategy: :one_for_one)
   end

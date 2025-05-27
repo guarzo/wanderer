@@ -507,11 +507,14 @@ defmodule WandererApp.Esi.ApiClient do
       )
 
   defp get(path, api_opts \\ [], opts \\ []) do
+    Logger.info(fn -> "[ESI] Attempting to get #{path}" end)
     case Cachex.get(:api_cache, path) do
       {:ok, cached_data} when not is_nil(cached_data) ->
+        Logger.info(fn -> "[ESI] Cache hit for #{path}" end)
         {:ok, cached_data}
 
       _ ->
+        Logger.info(fn -> "[ESI] Cache miss for #{path}, making request" end)
         do_get_request(path, api_opts, opts)
     end
   end
