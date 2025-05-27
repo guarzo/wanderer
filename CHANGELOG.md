@@ -2,6 +2,271 @@
 
 <!-- changelog -->
 
+## [v1.66.0](https://github.com/wanderer-industries/wanderer/compare/v1.65.9...v1.66.0) (2025-05-27)
+
+
+
+
+### Features:
+
+* default connections from c1 holes to medium size
+
+* support german and french signatures
+
+* Core: Updated map active characters page
+
+* improve signature undo process
+
+* api: add additional structure/signature methods (#365)
+
+* api: add additional system/connections methods (#351)
+
+* Core: force checking main character set for all map activity
+
+* api: api showing character by user and main character (#334)
+
+* Core: force map page reload after 30 mins of user inactivity (switched browser/tab)
+
+* update character activity to use main character (#333)
+
+* Core: added user routes support
+
+* Core: added handling cases when wrong connections created
+
+* Core: Show online state on map characters page
+
+* api: update character activity and api to allow date range (#299)
+
+* api: update character activity and api to allow date range
+
+* doc: update bot news (#294)
+
+* add static wh info (#262)
+
+* add static wh info
+
+* api: add character activity api (#263)
+
+* api: add character activity api
+
+* News: added map subscription news
+
+* Api: added map audit base API. Added comments server validations.
+
+* enhance character activty and summmarize by user (#206)
+
+* enhance character activty and summmarize by user (#206)
+
+* added auto-refresh timeout for cloud new version updates
+
+* add selectable sig deletion timing, and color options (#208)
+
+* Auto-set connection EOL status and ship size when linking/editing signatures (#194)
+
+* Automatically set connection EOL status and ship size type when linking/updating signatures
+
+* Map: Added map characters view
+
+* add undo deletion for signatures (#155)
+
+* add undo for signature deletion and addition
+
+* allow addition of characters to acl without preregistration (#176)
+
+* add api for acl management (#171)
+
+* autosize local character tooltip and increase hover target (#165)
+
+### Bug Fixes:
+
+* Core: Fixed map character tracking issues
+
+* Core: Fixed map character tracking issues
+
+* Core: Fixed map character tracking issues
+
+* Signature: Update restored signature character
+
+* Signature: Force signature update even if there are no any changes
+
+* Signature: Fixed signature clenup
+
+* Signature: Fixed signature updates
+
+* Core: Added unsync map events timeout handling (force page refresh if outdated map events found)
+
+* remove required id field from character schema
+
+* update openapi spec response types
+
+* fix issue with connection generation between k-space
+
+* Signature: Fixed signatures updates
+
+* Core: Added unsync map events timeout handling (force page refresh if outdated map events found)
+
+* update openapi spec for other apis
+
+* Core: Fixed connection EOL time refreshed every 2 minutes
+
+* Core: Added map hubs limits checking & a proper warning message shown
+
+* Core: Added character name update on re-auth
+
+* Core: Added 1 min timeout for ship and location updates on ESI API errors
+
+* Core: Fixed character tracking initialization logic & removed search caching
+
+* Core: Fixed tracking of ship & location for offline characters
+
+* Core: Fixed tracking stopped due to server errors
+
+* Core: Fixed EOL connections cleanup
+
+* Core: Avoid Zarzakh system in routes widget
+
+* remove repeat errors for token refresh (#375)
+
+* updated openapi spec for character activity (#374)
+
+* removed error from characters endpoint, and updated routes (#372)
+
+* cleanup examples for system and connections (#370)
+
+* Core: Fixed map characters got untracked
+
+* Core: Fixed map characters got untracked
+
+* remove error on websocket reconnect (#367)
+
+* Core: Fixed audit export API
+
+* Map: Fixed link signature modal crash afrer destination system removed
+
+* Map: Change design for tags (#358)
+
+* Map: Removed paywall restriction from public routes
+
+* Core: Fixed issues with structures loading
+
+* Map: Removed unnecessary logs
+
+* Map: Add support user routes
+
+* Core: Fixed main character checking & manual systems delete logic
+
+* Map: Add support for User Routes on FE side.
+
+* Core: Fixed additional price calc for map sub updates
+
+* Map: Refactor Local - show ship name, change placement of ship name. Refactor On the Map - show corp and ally logo. Fixed problem with ellipsis at long character and ship names.
+
+* Map: Refactored routes widget. Add loader for routes. Prepared for custom hubs
+
+* Map: Refactor init and update of mapper
+
+* Map: Removed unnecessary code onFE part
+
+* Map: Removed unnecessary debugger
+
+* Map: Changed name for drifters systems. Fixed static info for Barbican.
+
+* Map: Fixed lifetime for A009 from 16h to 4.5h. Fixed problem with no appearing icon of shattered for Drifter wormholes. Fixed wanderings for Drifter wormholes. For system J011355 added static K346. For system J011824 added static K346. (#329)
+
+* Core: Fixed issues with map server manager
+
+* Core: Fixed issues with main character & tracking
+
+* Core: Fixed auto-select splashed systems
+
+* Map: Fix icons of main, follow and shattered (#321)
+
+* Signatures: avoid signatures delete on wrong buffer
+
+* Core: fixed connection validation
+
+* doc: improve bot setup instructions (#309)
+
+* cloak key error behavior (#288)
+
+* show signature tooltip on top
+
+* update activity api (#284)
+
+* qol updates for dev (#283)
+
+* character activity hide error
+
+* character added to map on follow (#272)
+
+* Core: fixed lazy delete reset state
+
+* Core: fixed lazy delete timeouts
+
+* Core: fixed lazy delete settings
+
+* keep character api off by default (#258)
+
+* Core: updated balance top up instructions
+
+* updated connections cleanup logic
+
+* removed placeholder favicon (#240)
+
+* fixed activity aggregation and new user tracking (#230)
+
+* fixed activity aggregation and new user tracking (#230)
+
+* fixed activity aggregation and new user tracking (#230)
+
+* fixed activity aggregation and new user tracking (#230)
+
+* fix scroll and size issues with kills widget (#219)
+
+* fix scroll and size issues with kills widget
+
+* add retry on kills retrieval (#207)
+
+* add missing masses to wh sizes const (#215)
+
+* Map: little bit up performance for windows manager
+
+* Core: Fixed map ACLs add/remove behaviour
+
+* Map: Added delete systems hotkey
+
+* update news image link (#204)
+
+* Map: Block map events for old client versions
+
+* Map: Fixed delete systems on map changes
+
+* Map: Fixed delete system on signature deletion
+
+* Map: Fixed delete system on signature deletion
+
+* signature paste for russian lang
+
+* remove signature expiration (#196)
+
+* prevent constant full signature widget rerender (#195)
+
+* proper virtual scroller usage (#192)
+
+* restore delete key functionality for nodes (#191)
+
+* pending deletion working again (#185)
+
+* sync kills count bookmark and the kills widget (#160)
+
+* lazy load kills widget
+
+* lazy load kills widget (#157)
+
+* lazy load kills widget
+
+* updates for eslint and pr feedback
+
 ## [v1.65.9](https://github.com/wanderer-industries/wanderer/compare/v1.65.8...v1.65.9) (2025-05-26)
 
 
