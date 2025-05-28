@@ -11,6 +11,8 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   require Logger
   alias WandererApp.Zkb.KillsProvider.KillsCache
   alias WandererApp.Esi.ApiClient
+  alias WandererApp.Utils.HttpUtil
+  use Retry
 
   @type killmail :: map()
   @type partial_killmail :: map()
@@ -53,20 +55,12 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   @spec parse_and_store_killmail(killmail()) :: result()
   def parse_and_store_killmail(km) do
     cutoff_dt = DateTime.utc_now() |> DateTime.add(-3600, :second)
-
-    # Log what fields we have
-    Logger.info(fn -> "[Parser] Processing killmail with fields: #{inspect(Map.keys(km))}" end)
-    Logger.info(fn -> "[Parser] Killmail ID: #{inspect(km["killmail_id"])}" end)
-    Logger.info(fn -> "[Parser] ZKB hash: #{inspect(get_in(km, ["zkb", "hash"]))}" end)
-
     # First check if we have the required fields for ESI fetch
     case {km["killmail_id"], get_in(km, ["zkb", "hash"])} do
       {kill_id, hash} when is_integer(kill_id) and is_binary(hash) ->
         # We have the required fields, try ESI fetch
-        Logger.info(fn -> "[Parser] Attempting to fetch killmail #{kill_id} from ESI with hash #{hash}" end)
         case ApiClient.get_killmail(kill_id, hash) do
           {:ok, full_km} ->
-            Logger.info(fn -> "[Parser] Successfully fetched full killmail for #{kill_id} with time: #{inspect(get_in(full_km, ["killmail_time"]))}" end)
             # Merge the zkb data from the partial killmail into the full one
             full_km = Map.put(full_km, "zkb", km["zkb"])
             case process_killmail(full_km, cutoff_dt) do
@@ -83,10 +77,8 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
         # No required fields, check if we have a time field
         case get_in(km, ["killmail_time"]) do
           nil ->
-            Logger.info(fn -> "[Parser] Skipping kill #{km["killmail_id"]} - no killmail_time and missing required fields for ESI fetch" end)
             :skip
-          time ->
-            Logger.info(fn -> "[Parser] Using existing killmail_time: #{time}" end)
+          _time ->
             case process_killmail(km, cutoff_dt) do
               :ok -> :ok
               :skip -> :skip
@@ -100,11 +92,14 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   # Helper function to process a killmail once we have it
   defp process_killmail(km, cutoff_dt) do
     case check_killmail_time(km, cutoff_dt) do
-      :older -> :older
-      :skip -> :skip
+      :older ->
+        :older
+      :skip ->
+        :skip
       {km, kill_time_dt} ->
         case build_kill_data(km, kill_time_dt) do
-          nil -> :skip
+          nil ->
+            :skip
           built_km ->
             built_km
             |> maybe_enrich()
@@ -126,19 +121,12 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
     case parse_killmail_time(km) do
       {:ok, km_dt} ->
         if older_than_cutoff?(km_dt, cutoff_dt) do
-          Logger.info(fn ->
-            "[Parser] Skipping kill #{km["killmail_id"]} - older than cutoff (kill_time=#{DateTime.to_iso8601(km_dt)}, cutoff=#{DateTime.to_iso8601(cutoff_dt)}, diff_hours=#{DateTime.diff(km_dt, cutoff_dt) / 3600})"
-          end)
           :older
         else
-          Logger.info(fn ->
-            "[Parser] Accepting kill #{km["killmail_id"]} - within time window (kill_time=#{DateTime.to_iso8601(km_dt)}, cutoff=#{DateTime.to_iso8601(cutoff_dt)}, diff_hours=#{DateTime.diff(km_dt, cutoff_dt) / 3600})"
-          end)
           {km, km_dt}
         end
 
       _ ->
-        Logger.info(fn -> "[Parser] Skipping kill #{km["killmail_id"]} - invalid time format" end)
         :skip
     end
   end
@@ -150,10 +138,12 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
     npc_flag = get_in(km, ["zkb", "npc"]) || false
 
     if npc_flag do
-      Logger.info(fn -> "[Parser] Skipping kill #{kill_id} - NPC kill" end)
       nil
     else
-      %{
+      final_blow = Enum.find(attackers, & &1["final_blow"])
+
+      # Build base killmail
+      base_km = %{
         "killmail_id" => kill_id,
         "kill_time" => kill_time_dt,
         "solar_system_id" => km["solar_system_id"],
@@ -162,8 +152,25 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
         "total_value" => get_in(km, ["zkb", "totalValue"]) || 0,
         "victim" => victim,
         "attackers" => attackers,
-        "npc" => npc_flag
+        "npc" => npc_flag,
+        # Add victim IDs at root level
+        "victim_char_id" => victim["character_id"],
+        "victim_corp_id" => victim["corporation_id"],
+        "victim_alliance_id" => victim["alliance_id"],
+        "victim_ship_type_id" => victim["ship_type_id"]
       }
+
+      # Add final blow data at root level if it exists
+      if final_blow do
+        base_km
+        |> Map.put("final_blow", final_blow)
+        |> Map.put("final_blow_char_id", final_blow["character_id"])
+        |> Map.put("final_blow_corp_id", final_blow["corporation_id"])
+        |> Map.put("final_blow_alliance_id", final_blow["alliance_id"])
+        |> Map.put("final_blow_ship_type_id", final_blow["ship_type_id"])
+      else
+        base_km
+      end
     end
   end
 
@@ -180,7 +187,6 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   @spec put_into_cache(killmail() | nil) :: killmail() | :skip
   defp put_into_cache(nil), do: :skip
   defp put_into_cache(km) do
-    Logger.info(fn -> "[Parser] Storing kill #{km["killmail_id"]} in cache" end)
     KillsCache.put_killmail(km["killmail_id"], km)
     KillsCache.add_killmail_id_to_system_list(km["solar_system_id"], km["killmail_id"])
     km
@@ -190,11 +196,9 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   defp inc_counter_if_recent(:skip), do: :skip
   defp inc_counter_if_recent(km) do
     if recent_kill?(km) do
-      Logger.info(fn -> "[Parser] Incrementing kill counter for system #{km["solar_system_id"]}" end)
       KillsCache.incr_system_kill_count(km["solar_system_id"])
       :ok
     else
-      Logger.info(fn -> "[Parser] Skipping kill counter increment for system #{km["solar_system_id"]} - not recent" end)
       :skip
     end
   end
@@ -205,15 +209,29 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
   defp parse_killmail_time(%{"killmail_time" => time_str}) when is_binary(time_str) do
     # zKillboard returns time in format "2024-02-14T19:04:39Z"
     case DateTime.from_iso8601(time_str) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        # Convert to UTC if not already
+        {:ok, DateTime.shift_zone!(dt, "Etc/UTC")}
       error ->
-        Logger.info(fn -> "[Parser] Failed to parse time #{time_str}: #{inspect(error)}" end)
+        Logger.warning(fn -> "[Parser] Failed to parse time: #{inspect(time_str)}, error: #{inspect(error)}" end)
+        error
+    end
+  end
+
+  defp parse_killmail_time(%{"killTime" => time_str}) when is_binary(time_str) do
+    # Handle alternative time format from zKillboard
+    case DateTime.from_iso8601(time_str) do
+      {:ok, dt, _offset} ->
+        # Convert to UTC if not already
+        {:ok, DateTime.shift_zone!(dt, "Etc/UTC")}
+      error ->
+        Logger.warning(fn -> "[Parser] Failed to parse time: #{inspect(time_str)}, error: #{inspect(error)}" end)
         error
     end
   end
 
   defp parse_killmail_time(km) do
-    Logger.info(fn -> "[Parser] Invalid killmail time format: #{inspect(km)}" end)
+    Logger.warning(fn -> "[Parser] No time field found in killmail: #{inspect(km)}" end)
     {:error, :invalid_time}
   end
 
@@ -245,12 +263,206 @@ defmodule WandererApp.Zkb.KillsProvider.Parser do
       "corporation_id" => victim["corporation_id"],
       "alliance_id" => victim["alliance_id"]
     })
-    Map.put(km, "victim", enriched_victim)
+    km = Map.put(km, "victim", enriched_victim)
+
+    km
+    |> maybe_put_character_name("victim", "character_id", "victim_char_name")
+    |> maybe_put_corp_info("victim", "corporation_id", "victim_corp_ticker", "victim_corp_name")
+    |> maybe_put_alliance_info("victim", "alliance_id", "victim_alliance_ticker", "victim_alliance_name")
+    |> maybe_put_ship_name("victim", "ship_type_id", "victim_ship_name")
   end
 
   @spec enrich_final_blow(killmail()) :: killmail()
   defp enrich_final_blow(km) do
     final_blow = Enum.find(km["attackers"], & &1["final_blow"])
-    Map.put(km, "final_blow", final_blow)
+    km = Map.put(km, "final_blow", final_blow)
+
+    enriched_km = km
+    |> maybe_put_character_name("final_blow", "character_id", "final_blow_char_name")
+    |> maybe_put_corp_info("final_blow", "corporation_id", "final_blow_corp_ticker", "final_blow_corp_name")
+    |> maybe_put_alliance_info("final_blow", "alliance_id", "final_blow_alliance_ticker", "final_blow_alliance_name")
+    |> maybe_put_ship_name("final_blow", "ship_type_id", "final_blow_ship_name")
+
+    enriched_km
   end
+
+  @spec maybe_put_character_name(killmail(), String.t(), String.t(), String.t()) :: killmail()
+  defp maybe_put_character_name(km, source_key, id_key, name_key) do
+    case get_in(km, [source_key, id_key]) do
+      nil -> km
+      0 -> km
+      eve_id ->
+        result = retry with: exponential_backoff(200) |> randomize() |> cap(2_000) |> expiry(10_000), rescue_only: [RuntimeError] do
+          case WandererApp.Esi.get_character_info(eve_id) do
+            {:ok, %{"name" => char_name}} ->
+              {:ok, char_name}
+
+            {:error, :timeout} ->
+              Logger.debug(fn -> "[Parser] Character info timeout, retrying => id=#{eve_id}" end)
+              raise "Character info timeout, will retry"
+
+            {:error, :not_found} ->
+              Logger.debug(fn -> "[Parser] Character not found => id=#{eve_id}" end)
+              :skip
+
+            {:error, reason} ->
+              if HttpUtil.retriable_error?(reason) do
+                Logger.debug(fn -> "[Parser] Character info retriable error => id=#{eve_id}, reason=#{inspect(reason)}" end)
+                raise "Character info error: #{inspect(reason)}, will retry"
+              else
+                Logger.debug(fn -> "[Parser] Character info failed => id=#{eve_id}, reason=#{inspect(reason)}" end)
+                :skip
+              end
+          end
+        end
+
+        case result do
+          {:ok, char_name} -> Map.put(km, name_key, char_name)
+          _ -> km
+        end
+    end
+  end
+
+  @spec maybe_put_corp_info(killmail(), String.t(), String.t(), String.t(), String.t()) :: killmail()
+  defp maybe_put_corp_info(km, source_key, id_key, ticker_key, name_key) do
+    case get_in(km, [source_key, id_key]) do
+      nil -> km
+      0 -> km
+      corp_id ->
+        result = retry with: exponential_backoff(200) |> randomize() |> cap(2_000) |> expiry(10_000), rescue_only: [RuntimeError] do
+          case WandererApp.Esi.get_corporation_info(corp_id) do
+            {:ok, %{"ticker" => ticker, "name" => corp_name}} ->
+              {:ok, {ticker, corp_name}}
+
+            {:error, :timeout} ->
+              Logger.debug(fn -> "[Parser] Corporation info timeout, retrying => id=#{corp_id}" end)
+              raise "Corporation info timeout, will retry"
+
+            {:error, :not_found} ->
+              Logger.debug(fn -> "[Parser] Corporation not found => id=#{corp_id}" end)
+              :skip
+
+            {:error, reason} ->
+              if HttpUtil.retriable_error?(reason) do
+                Logger.debug(fn -> "[Parser] Corporation info retriable error => id=#{corp_id}, reason=#{inspect(reason)}" end)
+                raise "Corporation info error: #{inspect(reason)}, will retry"
+              else
+                Logger.warning("[Parser] Failed to fetch corp info: ID=#{corp_id}, reason=#{inspect(reason)}")
+                :skip
+              end
+          end
+        end
+
+        case result do
+          {:ok, {ticker, corp_name}} ->
+            km
+            |> Map.put(ticker_key, ticker)
+            |> Map.put(name_key, corp_name)
+          _ -> km
+        end
+    end
+  end
+
+  @spec maybe_put_alliance_info(killmail(), String.t(), String.t(), String.t(), String.t()) :: killmail()
+  defp maybe_put_alliance_info(km, source_key, id_key, ticker_key, name_key) do
+    case get_in(km, [source_key, id_key]) do
+      nil -> km
+      0 -> km
+      alliance_id ->
+        result = retry with: exponential_backoff(200) |> randomize() |> cap(2_000) |> expiry(10_000), rescue_only: [RuntimeError] do
+          case WandererApp.Esi.get_alliance_info(alliance_id) do
+            {:ok, %{"ticker" => alliance_ticker, "name" => alliance_name}} ->
+              {:ok, {alliance_ticker, alliance_name}}
+
+            {:error, :timeout} ->
+              Logger.debug(fn -> "[Parser] Alliance info timeout, retrying => id=#{alliance_id}" end)
+              raise "Alliance info timeout, will retry"
+
+            {:error, :not_found} ->
+              Logger.debug(fn -> "[Parser] Alliance not found => id=#{alliance_id}" end)
+              :skip
+
+            {:error, reason} ->
+              if HttpUtil.retriable_error?(reason) do
+                Logger.debug(fn -> "[Parser] Alliance info retriable error => id=#{alliance_id}, reason=#{inspect(reason)}" end)
+                raise "Alliance info error: #{inspect(reason)}, will retry"
+              else
+                Logger.debug(fn -> "[Parser] Alliance info failed => id=#{alliance_id}, reason=#{inspect(reason)}" end)
+                :skip
+              end
+          end
+        end
+
+        case result do
+          {:ok, {alliance_ticker, alliance_name}} ->
+            km
+            |> Map.put(ticker_key, alliance_ticker)
+            |> Map.put(name_key, alliance_name)
+          _ -> km
+        end
+    end
+  end
+
+  @spec maybe_put_ship_name(killmail(), String.t(), String.t(), String.t()) :: killmail()
+  defp maybe_put_ship_name(km, source_key, id_key, name_key) do
+    case get_in(km, [source_key, id_key]) do
+      nil -> km
+      0 -> km
+      type_id ->
+        result = retry with: exponential_backoff(200) |> randomize() |> cap(2_000) |> expiry(10_000), rescue_only: [RuntimeError] do
+          case WandererApp.CachedInfo.get_ship_type(type_id) do
+            {:ok, nil} -> :skip
+            {:ok, %{name: ship_name}} -> {:ok, ship_name}
+            {:error, :timeout} ->
+              Logger.debug(fn -> "[Parser] Ship type timeout, retrying => id=#{type_id}" end)
+              raise "Ship type timeout, will retry"
+
+            {:error, :not_found} ->
+              Logger.debug(fn -> "[Parser] Ship type not found => id=#{type_id}" end)
+              :skip
+
+            {:error, reason} ->
+              if HttpUtil.retriable_error?(reason) do
+                Logger.debug(fn -> "[Parser] Ship type retriable error => id=#{type_id}, reason=#{inspect(reason)}" end)
+                raise "Ship type error: #{inspect(reason)}, will retry"
+              else
+                Logger.debug(fn -> "[Parser] Ship type failed => id=#{type_id}, reason=#{inspect(reason)}" end)
+                :skip
+              end
+          end
+        end
+
+        case result do
+          {:ok, ship_name} -> Map.put(km, name_key, ship_name)
+          _ -> km
+        end
+    end
+  end
+
+  @spec parse_partial(map(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def parse_partial(%{"killmail_id" => kill_id, "zkb" => %{"hash" => kill_hash}} = partial, cutoff_dt) do
+    case WandererApp.Esi.ApiClient.get_killmail(kill_id, kill_hash) do
+      {:ok, full_kill} ->
+        case check_killmail_time(full_kill, cutoff_dt) do
+          :older -> {:error, :older_than_cutoff}
+          :skip -> {:error, :invalid_time}
+          {km, kill_time_dt} ->
+            km
+            |> merge_zkb_data(partial)
+            |> build_kill_data(kill_time_dt)
+            |> maybe_enrich()
+            |> put_into_cache()
+            |> case do
+              :skip -> {:error, :failed_to_store}
+              km ->
+                {:ok, km}
+            end
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def parse_partial(_, _), do: {:error, :invalid_killmail}
 end

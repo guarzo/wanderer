@@ -18,32 +18,44 @@ defmodule WandererApp.Zkb.KillsProvider.Fetcher do
   @spec fetch_kills_for_system(system_id(), integer(), state(), opts()) ::
           {:ok, list(map()), state()} | {:error, term(), state()}
   def fetch_kills_for_system(system_id, since_hours, state, opts \\ []) do
-    _limit = Keyword.get(opts, :limit, 50)
+    limit = Keyword.get(opts, :limit, 5)  # Default to 5 for quick passes
     force = Keyword.get(opts, :force, false)
 
     if force || !KillsCache.recently_fetched?(system_id) do
+
       case HttpClient.fetch_kills(system_id) do
         {:ok, kills} ->
-          # Calculate cutoff time based on since_hours
-          cutoff_dt = DateTime.utc_now() |> DateTime.add(-since_hours * 3600, :second)
-          Logger.info(fn -> "[Fetcher] Processing #{length(kills)} kills for system=#{system_id} with cutoff=#{DateTime.to_iso8601(cutoff_dt)}" end)
 
-          # Parse and store each kill in the cache
-          parsed_kills = Enum.map(kills, fn kill ->
-            case Parser.parse_and_store_killmail(kill) do
-              :ok ->
-                Logger.info(fn -> "[Fetcher] Successfully processed kill #{kill["killmail_id"]}" end)
-                kill
-              :skip ->
-                Logger.info(fn -> "[Fetcher] Skipped kill #{kill["killmail_id"]}" end)
-                nil
-              :older ->
-                Logger.info(fn -> "[Fetcher] Kill #{kill["killmail_id"]} is older than cutoff" end)
-                nil
+          # Calculate cutoff time based on since_hours, ensuring UTC
+          cutoff_dt = DateTime.utc_now()
+            |> DateTime.shift_zone!("Etc/UTC")
+            |> DateTime.add(-since_hours * 3600, :second)
+
+          # Take only the first 'limit' kills to process
+          kills_to_process = Enum.take(kills, limit)
+
+          # Parse and store each kill in the cache, filtering by cutoff time
+          # Stop when we find a kill older than cutoff
+          {parsed_kills, _} = Enum.reduce_while(kills_to_process, {[], false}, fn kill, {acc, stop} ->
+            if stop do
+              {:halt, {acc, true}}
+            else
+              case parse_partial(kill, cutoff_dt) do
+                {:ok, parsed_kill} ->
+                  {:cont, {[parsed_kill | acc], false}}
+                {:error, :skip} ->
+                  {:cont, {acc, false}}
+                {:error, :older} ->
+                  {:halt, {acc, true}}
+                {:error, reason} ->
+                  Logger.warning(fn -> "[Zkb.Fetcher] Failed to parse kill #{kill["killmail_id"]} for system=#{system_id}: #{inspect(reason)}" end)
+                  {:cont, {acc, false}}
+              end
             end
-          end) |> Enum.reject(&is_nil/1)
+          end)
 
-          Logger.info(fn -> "[Fetcher] Processed #{length(parsed_kills)} valid kills out of #{length(kills)} total for system=#{system_id}" end)
+          parsed_kills = Enum.reverse(parsed_kills)
+
           KillsCache.put_full_fetched_timestamp(system_id)
           {:ok, parsed_kills, state}
 
@@ -91,15 +103,19 @@ defmodule WandererApp.Zkb.KillsProvider.Fetcher do
   """
   @spec parse_partial(map(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def parse_partial(%{"killmail_id" => kill_id, "zkb" => %{"hash" => kill_hash}} = partial, cutoff_dt) do
-    case fetch_full_killmail(kill_id, kill_hash) do
+    case WandererApp.Esi.ApiClient.get_killmail(kill_id, kill_hash) do
       {:ok, full_kill} ->
-        case Parser.parse_full_and_store(full_kill, partial, cutoff_dt) do
-          {:ok, killmail} -> {:ok, killmail}
-          {:error, reason} -> {:error, reason}
+        case WandererApp.Zkb.KillsProvider.Parser.parse_full_and_store(full_kill, partial, cutoff_dt) do
+          :ok -> {:ok, full_kill}
+          :skip -> {:error, :skip}
+          :older -> {:error, :older}
+          error -> {:error, error}
         end
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  def parse_partial(_, _), do: {:error, :invalid_killmail}
 end

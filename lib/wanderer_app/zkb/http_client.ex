@@ -30,15 +30,12 @@ defmodule WandererApp.Zkb.HttpClient do
   @spec fetch_kills(integer(), keyword()) :: response()
   def fetch_kills(system_id, opts \\ []) when is_integer(system_id) do
     url = "#{@zkillboard_api}/kills/systemID/#{system_id}/"
-    Logger.info("[Zkb.HttpClient] Fetching kills from url=#{url}")
-
     case HttpUtil.get_with_rate_limit(url,
            limit: @rate_limit,
            scale_ms: @rate_scale_ms,
            bucket: "zkillboard"
          ) do
       {:ok, %{status: 200, body: kills}} ->
-        Logger.info("[Zkb.HttpClient] Successfully fetched #{length(kills)} kills for system=#{system_id}")
         {:ok, kills}
 
       {:ok, %{status: status}} ->
