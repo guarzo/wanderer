@@ -5,8 +5,6 @@ defmodule WandererAppWeb.MapAuditLive do
 
   alias WandererAppWeb.UserActivity
 
-  @active_subscription_periods ["2M", "3M"]
-
   def mount(
         %{"slug" => map_slug, "period" => period, "activity" => activity} = _params,
         _session,
@@ -146,7 +144,7 @@ defmodule WandererAppWeb.MapAuditLive do
       activity: activity,
       map_id: map_id,
       map_slug: map_slug,
-      map_subscription_active: map_subscription_active,
+      map_subscription_active: _map_subscription_active,
       period: period
     } =
       socket.assigns
@@ -164,13 +162,4 @@ defmodule WandererAppWeb.MapAuditLive do
     end
   end
 
-  defp get_valid_period(period, true), do: period
-
-  defp get_valid_period(period, _map_subscription_active) do
-    if period in @active_subscription_periods do
-      "1H"
-    else
-      period
-    end
-  end
 end

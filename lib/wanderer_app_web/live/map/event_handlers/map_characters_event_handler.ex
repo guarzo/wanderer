@@ -303,12 +303,6 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       station_id: character.station_id
     }
 
-  defp get_map_with_acls(map_id) do
-    with {:ok, map} <- WandererApp.Api.Map.by_id(map_id) do
-      {:ok, Ash.load!(map, :acls)}
-    end
-  end
-
   def needs_tracking_setup?(
         only_tracked_characters,
         characters,

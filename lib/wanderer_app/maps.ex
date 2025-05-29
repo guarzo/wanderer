@@ -48,7 +48,7 @@ defmodule WandererApp.Maps do
     {:ok, %{routes: routes, systems_static_data: systems_static_data}}
   end
 
-  def find_routes(map_id, hubs, origin, routes_settings, true) do
+  def find_routes(_map_id, hubs, origin, _routes_settings, true) do
     origin = origin |> String.to_integer()
     hubs = hubs |> Enum.map(&(&1 |> String.to_integer()))
 
@@ -173,11 +173,12 @@ defmodule WandererApp.Maps do
       }
 
   @decorate cacheable(
-              cache: WandererApp.Cache,
-              key: "map_characters-#{map_id}",
-              opts: [ttl: :timer.seconds(2)]
-            )
-  defp _get_map_characters(%{id: map_id} = map) do
+    cache: WandererApp.Cache,
+    # defer key construction to runtime
+    key: fn %{id: id} -> "map_characters-#{id}" end,
+    opts: [ttl: :timer.seconds(2)]
+  )
+  defp _get_map_characters(%{id: _map_id} = map) do
     map_acls =
       map.acls
       |> Enum.map(fn acl -> acl |> Ash.load!(:members) end)
@@ -208,12 +209,12 @@ defmodule WandererApp.Maps do
       |> Enum.map(fn member -> member.eve_alliance_id end)
 
     {:ok,
-     %{
-       map_acl_owner_ids: map_acl_owner_ids,
-       map_member_eve_ids: map_member_eve_ids,
-       map_member_corporation_ids: map_member_corporation_ids,
-       map_member_alliance_ids: map_member_alliance_ids
-     }}
+    %{
+      map_acl_owner_ids: map_acl_owner_ids,
+      map_member_eve_ids: map_member_eve_ids,
+      map_member_corporation_ids: map_member_corporation_ids,
+      map_member_alliance_ids: map_member_alliance_ids
+    }}
   end
 
   defp get_map_available_characters(map, user_characters) do

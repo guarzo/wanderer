@@ -5,6 +5,19 @@ defmodule WandererApp.Map.Server.CharactersImpl do
 
   alias WandererApp.Map.Server.{Impl, ConnectionsImpl, SystemsImpl}
 
+  def get_characters(%{map_id: map_id} = _state) do
+    map_id
+    |> WandererApp.Map.get_map!()
+    |> Map.get(:characters, [])
+    |> Enum.map(fn character_id ->
+      case WandererApp.Character.get_map_character(map_id, character_id) do
+        {:ok, character} -> character
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
   def add_character(%{map_id: map_id} = state, %{id: character_id} = character, track_character) do
     Task.start_link(fn ->
       with :ok <- map_id |> WandererApp.Map.add_character(character),
@@ -328,7 +341,7 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     end
   end
 
-  defp is_character_in_space?(%{station_id: station_id, structure_id: structure_id} = location) do
+  defp is_character_in_space?(%{station_id: station_id, structure_id: structure_id} = _location) do
     is_nil(structure_id) and is_nil(station_id)
   end
 

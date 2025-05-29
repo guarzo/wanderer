@@ -2,12 +2,10 @@ defmodule WandererAppWeb.MapAPIController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  import Ash.Query, only: [filter: 2]
+  require Ash.Query
   require Logger
 
-  alias WandererApp.Api.Character
   alias WandererApp.MapSystemRepo
-  alias WandererApp.MapCharacterSettingsRepo
   alias WandererApp.MapConnectionRepo
   alias WandererApp.Zkb.Provider.Cache
   alias WandererAppWeb.Helpers.APIUtils
@@ -177,13 +175,6 @@ defmodule WandererAppWeb.MapAPIController do
   # -----------------------------------------------------------------
   # Helper functions for the API controller
   # -----------------------------------------------------------------
-
-  defp get_map_id_by_slug(slug) do
-    case WandererApp.Api.Map.get_map_by_slug(slug) do
-      {:ok, map} -> {:ok, map.id}
-      {:error, error} -> {:error, "Map not found for slug: #{slug}, error: #{inspect(error)}"}
-    end
-  end
 
   defp normalize_map_identifier(params) do
     case Map.get(params, "map_identifier") do

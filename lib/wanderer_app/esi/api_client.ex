@@ -387,11 +387,13 @@ defmodule WandererApp.Esi.ApiClient do
   end
 
   @decorate cacheable(
-              cache: Cache,
-              key: "search-#{character_eve_id}-#{categories_val}-#{search_val |> Slug.slugify()}",
-              opts: [ttl: @ttl]
-            )
-  defp get_search(character_eve_id, search_val, categories_val, merged_opts) do
+    cache: Cache,
+    key: fn character_eve_id, search_val, categories_val, _merged_opts ->
+      "search-#{character_eve_id}-#{categories_val}-#{Slug.slugify(search_val)}"
+    end,
+    opts: [ttl: @ttl]
+  )
+  defp get_search(character_eve_id, _search_val, _categories_val, merged_opts) do
     get_character_auth_data(character_eve_id, "search", merged_opts)
   end
 
@@ -516,7 +518,7 @@ defmodule WandererApp.Esi.ApiClient do
     end
   end
 
-  defp do_get_request(path, api_opts \\ [], opts \\ []) do
+  defp do_get_request(path, api_opts, opts) do
     try do
       case Req.get(
              "#{@base_url}#{path}",
@@ -691,10 +693,10 @@ defmodule WandererApp.Esi.ApiClient do
 
   defp handle_refresh_token_result(
          {:error, %OAuth2.Error{reason: :econnrefused} = error},
-         character,
+         _character,
          character_id,
-         expires_at,
-         scopes
+         _expires_at,
+         _scopes
        ) do
     Logger.warning("Failed to refresh token for #{character_id}: #{inspect(error)}")
     {:error, :econnrefused}

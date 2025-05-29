@@ -163,9 +163,7 @@ defmodule WandererApp.Character.Tracker do
     |> update_location()
   end
 
-  def update_location(
-        %{track_location: true, is_online: true, character_id: character_id} = character_state
-      ) do
+  def update_location(%{track_location: true, character_id: character_id} = character_state) do
     case WandererApp.Character.get_character(character_id) do
       {:ok, %{eve_id: eve_id, access_token: access_token}} when not is_nil(access_token) ->
         WandererApp.Cache.has_key?("character:#{character_id}:location_forbidden")
@@ -207,9 +205,6 @@ defmodule WandererApp.Character.Tracker do
 
                 {:error, error}
             end
-
-          _ ->
-            {:error, :skipped}
         end
 
       _ ->

@@ -85,18 +85,20 @@ defmodule WandererApp.Zkb.Provider.Fetcher do
   end
 
   defp do_fetch_killmails_for_system(system_id, limit, since_hours) do
-    with {:ok, raws} <- Api.get_system_killmails(system_id) do
-      cutoff = DateTime.utc_now() |> DateTime.add(-since_hours * 3600, :second)
+    case Api.get_system_killmails(system_id) do
+      {:ok, raws} ->
+        cutoff = DateTime.utc_now() |> DateTime.add(-since_hours * 3600, :second)
 
-      kills =
-        raws
-        |> Enum.take(limit)
-        |> parse_until_older(cutoff)
+        kills =
+          raws
+          |> Enum.take(limit)
+          |> parse_until_older(cutoff)
 
-      Cache.put_full_fetched_timestamp(system_id)
-      {:ok, kills}
-    else
-      {:error, reason} -> {:error, reason}
+        Cache.put_full_fetched_timestamp(system_id)
+        {:ok, kills}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

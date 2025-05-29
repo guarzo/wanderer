@@ -43,6 +43,7 @@
               <.form :let={f} for={@form} phx-change="check-amount" phx-submit="update-balance">
                 <.live_select
                   field={f[:character_id]}
+                  mode={:single}
                   dropdown_extra_class="max-h-64 overflow-y-auto flex flex-row"
                   available_option_class="w-full"
                   debounce={250}
@@ -56,6 +57,7 @@
                 </.live_select>
                 <.live_select
                   field={f[:amount]}
+                  mode={:single}
                   update_min_len={0}
                   options={@amounts}
                   placeholder="Amount"
@@ -77,6 +79,7 @@
               <.form :let={f} for={@unlink_character_form} phx-submit="unlink-character">
                 <.live_select
                   field={f[:unlink_character_id]}
+                  mode={:single}
                   dropdown_extra_class="max-h-64 overflow-y-auto flex flex-row"
                   available_option_class="w-full"
                   debounce={250}
@@ -166,6 +169,8 @@
                               class="!max-h-[40vh] !overflow-y-auto"
                             >
                               <:col :let={transaction}>
+                                <%# silence unused "transaction" from <:col :let={transaction}> %>
+                                <% _ = transaction %>
                                 <div class=" text-22">
                                   <.icon name="hero-credit-card-solid" class="h-5 w-5" />
                                 </div>
@@ -199,7 +204,6 @@
                         </div>
                       </div>
                     </div>
-                    <div class="simplebar-placeholder"></div>
                   </div>
                 </div>
               </div>
@@ -224,6 +228,8 @@
                                 class="!max-h-[40vh] !overflow-y-auto"
                               >
                                 <:col :let={subscription}>
+                                  <%# silence unused "subscription" from <:col :let={subscription}> %>
+                                  <% _ = subscription %>
                                   <div class=" text-22">
                                     <.icon name="hero-check-badge-solid" class="w-5 h-5" />
                                   </div>

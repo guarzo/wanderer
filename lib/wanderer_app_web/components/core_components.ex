@@ -615,7 +615,7 @@ defmodule WandererAppWeb.CoreComponents do
   attr(:empty_label, :string, default: nil)
   attr(:rows, :list, required: true)
   attr(:row_id, :any, default: nil, doc: "the function for generating the row id")
-  attr(:row_selected, :boolean, default: false, doc: "the function for generating the row id")
+  attr(:row_selected, :any, default: nil, doc: "the function for determining if a row is selected")
   attr(:row_click, :any, default: nil, doc: "the function for handling phx-click on each row")
 
   attr(:row_item, :any,
@@ -710,7 +710,15 @@ defmodule WandererAppWeb.CoreComponents do
   attr(:input_class, :string, default: nil)
   attr(:dropdown_extra_class, :string, default: nil)
   attr(:option_extra_class, :string, default: nil)
+  attr(:field, :any, default: nil)
+  attr(:options, :list, default: [])
+  attr(:available_option_class, :string, default: nil)
+  attr(:update_min_len, :integer, default: nil)
+  attr(:debounce, :integer, default: nil)
+  attr(:mode, :atom, default: nil)
+  attr(:value_mapper, :any, default: nil)
   slot(:inner_block)
+  slot(:option)
 
   def live_select(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     assigns =
@@ -740,6 +748,7 @@ defmodule WandererAppWeb.CoreComponents do
       <div for="form_description" class="label">
         <span class="label-text"></span>
       </div>
+      @LiveSelect.live_select
       <LiveSelect.live_select
         field={@field}
         dropdown_class={[
@@ -780,16 +789,13 @@ defmodule WandererAppWeb.CoreComponents do
   def back(assigns) do
     ~H"""
     <div class="pt-16">
-      <.link
+      <.nav_button
         navigate={@navigate}
-        class={[
-          "text-sm font-semibold leading-6",
-          @class
-        ]}
+        class={"text-sm font-semibold leading-6 #{@class}"}
       >
         <.icon name="hero-arrow-left-solid" class="h-3 w-3" />
         <%= render_slot(@inner_block) %>
-      </.link>
+      </.nav_button>
     </div>
     """
   end
@@ -1009,6 +1015,32 @@ defmodule WandererAppWeb.CoreComponents do
 
     ~H"""
     <p>Nothing found.</p>
+    """
+  end
+
+  @doc """
+  Renders a navigation button.
+
+  ## Examples
+
+      <.nav_button navigate={~p"/posts"}>Posts</.nav_button>
+      <.nav_button patch={~p"/posts"} class="btn">Posts</.nav_button>
+  """
+  attr(:navigate, :any, default: nil)
+  attr(:patch, :any, default: nil)
+  attr(:class, :string, default: nil)
+  attr(:disabled, :boolean, default: false)
+  slot(:inner_block, required: true)
+
+  def nav_button(assigns) do
+    ~H"""
+    <.link
+      navigate={@navigate}
+      patch={@patch}
+      class={"text-sm font-semibold leading-6 #{@class} #{if @disabled, do: "opacity-50 cursor-not-allowed pointer-events-none", else: ""}"}
+    >
+      <%= render_slot(@inner_block) %>
+    </.link>
     """
   end
 end

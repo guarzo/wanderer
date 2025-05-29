@@ -60,6 +60,8 @@
                               class="!max-h-[40vh] !overflow-y-auto"
                             >
                               <:col :let={transaction}>
+                                <%# silence unused "transaction" from <:col :let={transaction}> %>
+                                <% _ = transaction %>
                                 <div class=" text-22">
                                   <.icon name="hero-credit-card-solid" class="h-5 w-5" />
                                 </div>
@@ -146,6 +148,8 @@
                               class="!max-h-[40vh] !overflow-y-auto"
                             >
                               <:col :let={invoice}>
+                                <%# silence unused "invoice" from <:col :let={invoice}> %>
+                                <% _ = invoice %>
                                 <div class=" text-22">
                                   Map subscription
                                 </div>
