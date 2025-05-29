@@ -45,110 +45,36 @@ defmodule WandererApp.Map.Operations.Connections do
   end
 
   defp build_and_add_connection(attrs, map_id, char_id, src_info, tgt_info) do
-    info = %{
-      solar_system_source_id: src_info.solar_system_id,
-      solar_system_target_id: tgt_info.solar_system_id,
-      character_id: char_id,
-      type: parse_type(attrs["type"]),
-      ship_size_type: resolve_ship_size(attrs, src_info, tgt_info)
-    }
+    with {:ok, source} <- parse_int(attrs["solar_system_source"], "solar_system_source"),
+         {:ok, target} <- parse_int(attrs["solar_system_target"], "solar_system_target") do
+      info = %{
+        solar_system_source_id: source,
+        solar_system_target_id: target,
+        character_id: char_id
+      }
 
-    case Server.add_connection(map_id, info) do
-      :ok                 -> {:ok, :created}
-      {:ok, []}           -> log_warn_and(:inconsistent_state, info)
-      {:error, %Invalid{errors: errs}} = err ->
-        if Enum.any?(errs, &is_unique_constraint_error?/1), do: {:skip, :exists}, else: err
-      {:error, _} = err  -> Logger.error("[add_connection] #{inspect(err)}"); {:error, :server_error}
-      other               -> Logger.error("[add_connection] unexpected: #{inspect(other)}"); {:error, :unexpected_error}
+      case Server.add_connection(map_id, info) do
+        :ok -> {:ok, info}
+        {:error, :already_exists} -> {:skip, :exists}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
-  defp resolve_ship_size(attrs, src_info, tgt_info) do
-    type = parse_type(attrs["type"])
-
-    if type == @connection_type_wormhole and
-       (src_info.system_class == @c1_system_class or
-        tgt_info.system_class == @c1_system_class) do
-      @medium_ship_size
-    else
-      parse_ship_size(attrs["ship_size_type"], @large_ship_size)
+  defp parse_int(value, field) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> {:ok, int}
+      :error -> {:error, "Invalid #{field}: #{value}"}
     end
   end
-
-  defp parse_ship_size(nil, default),     do: default
-  defp parse_ship_size(val, _default) when is_integer(val), do: val
-  defp parse_ship_size(val, default) when is_binary(val) do
-    case Integer.parse(val) do
-      {i, _} -> i
-      :error -> default
-    end
-  end
-  defp parse_ship_size(_, default),       do: default
-
-  defp parse_type(nil), do: @connection_type_wormhole
-  defp parse_type(val) when is_integer(val), do: val
-  defp parse_type(val) when is_binary(val) do
-    case Integer.parse(val) do
-      {i, _} -> i
-      :error -> @connection_type_wormhole
-    end
-  end
-  defp parse_type(_), do: @connection_type_wormhole
-
-  defp parse_int(nil, field), do: {:error, {:missing_field, field}}
-  defp parse_int(val, _) when is_integer(val), do: {:ok, val}
-  defp parse_int(val, _) when is_binary(val) do
-    case Integer.parse(val) do
-      {i, _} -> {:ok, i}
-      :error -> {:error, :invalid_integer}
-    end
-  end
-  defp parse_int(_, field), do: {:error, {:invalid_field, field}}
+  defp parse_int(value, field), do: {:error, "Invalid #{field}: #{inspect(value)}"}
 
   defp handle_precondition_error(reason, attrs) do
-    Logger.warning("[add_connection] precondition failed: #{inspect(reason)} for #{inspect(attrs)}")
-    {:error, :precondition_failed, reason}
+    Logger.error("[create_connection] Precondition error: #{inspect(reason)}")
+    {:error, "Failed to create connection: #{inspect(reason)}"}
   end
 
-  defp log_warn_and(return, info) do
-    Logger.warning("[add_connection] inconsistent for #{inspect(info)}")
-    {:error, return}
-  end
-
-  defp is_unique_constraint_error?(%{code: :unique_constraint}), do: true
-  defp is_unique_constraint_error?(_), do: false
-
-  @spec list_connections(String.t()) :: [map()] | {:error, atom()}
-  def list_connections(map_id) do
-    with {:ok, conns} <- MapConnectionRepo.get_by_map(map_id) do
-      conns
-    else
-      {:error, err} ->
-        Logger.warning("[list_connections] Repo error: #{inspect(err)}")
-        {:error, :repo_error}
-      other ->
-        Logger.error("[list_connections] Unexpected repo result: #{inspect(other)}")
-        {:error, :unexpected_repo_result}
-    end
-  end
-
-  @spec list_connections(String.t(), integer()) :: [map()]
-  def list_connections(map_id, system_id) do
-    list_connections(map_id)
-    |> Enum.filter(fn c ->
-      c.solar_system_source == system_id or c.solar_system_target == system_id
-    end)
-  end
-
-  @spec get_connection(String.t(), String.t()) :: {:ok, map()} | {:error, String.t()}
-  def get_connection(map_id, conn_id) do
-    case MapConnectionRepo.get_by_id(map_id, conn_id) do
-      {:ok, conn} -> {:ok, conn}
-      _ -> {:error, "Connection not found"}
-    end
-  end
-
-  @spec update_connection(Plug.Conn.t(), String.t(), map()) :: {:ok, map()} | {:error, atom()}
+  @spec update_connection(Plug.Conn.t(), integer(), map()) :: {:ok, map()} | {:error, atom()}
   def update_connection(%{assigns: %{map_id: map_id, owner_character_id: char_id}} = _conn, conn_id, attrs) do
     with {:ok, conn_struct} <- MapConnectionRepo.get_by_id(map_id, conn_id),
          result <- (
@@ -198,46 +124,6 @@ defmodule WandererApp.Map.Operations.Connections do
   end
   def delete_connection(_conn, _src, _tgt), do: {:error, :missing_params}
 
-  @doc "Batch upsert for connections"
-  @spec upsert_batch(Plug.Conn.t(), [map()]) :: %{created: integer(), updated: integer(), skipped: integer()}
-  def upsert_batch(%{assigns: %{map_id: map_id, owner_character_id: char_id}} = conn, conns) do
-    _assigns = %{map_id: map_id, char_id: char_id}
-    Enum.reduce(conns, %{created: 0, updated: 0, skipped: 0}, fn conn_attrs, acc ->
-      case upsert_single(conn, conn_attrs) do
-        {:ok, :created} -> %{acc | created: acc.created + 1}
-        {:ok, :updated} -> %{acc | updated: acc.updated + 1}
-        _ -> %{acc | skipped: acc.skipped + 1}
-      end
-    end)
-  end
-  def upsert_batch(_conn, _conns), do: %{created: 0, updated: 0, skipped: 0}
-
-  @doc "Upsert a single connection"
-  @spec upsert_single(Plug.Conn.t(), map()) :: {:ok, :created | :updated} | {:error, atom()}
-  def upsert_single(%{assigns: %{map_id: map_id, owner_character_id: char_id}} = conn, conn_data) do
-    source = conn_data["solar_system_source"] || conn_data[:solar_system_source]
-    target = conn_data["solar_system_target"] || conn_data[:solar_system_target]
-    with {:ok, %{} = existing_conn} <- get_connection_by_systems(map_id, source, target),
-         {:ok, _} <- update_connection(conn, existing_conn.id, conn_data) do
-      {:ok, :updated}
-    else
-      {:ok, nil} ->
-        case create_connection(map_id, conn_data, char_id) do
-          {:ok, _} -> {:ok, :created}
-          {:skip, :exists} -> {:ok, :updated}
-          err -> {:error, err}
-        end
-      {:error, _} = err ->
-        Logger.warning("[upsert_single] Connection lookup error: #{inspect(err)}")
-        {:error, :lookup_error}
-      err ->
-        Logger.error("[upsert_single] Update failed: #{inspect(err)}")
-        {:error, :unexpected_error}
-    end
-  end
-  def upsert_single(_conn, _conn_data), do: {:error, :missing_params}
-
-  @doc "Get a connection by source and target system IDs"
   @spec get_connection_by_systems(String.t(), integer(), integer()) :: {:ok, map()} | {:error, String.t()}
   def get_connection_by_systems(map_id, source, target) do
     with {:ok, conn} <- WandererApp.Map.find_connection(map_id, source, target) do
@@ -296,17 +182,4 @@ defmodule WandererApp.Map.Operations.Connections do
       type: value
     })
   end
-
-  @doc "Creates a connection between two systems"
-  @spec create_connection(String.t(), map(), String.t()) :: {:ok, :created} | {:skip, :exists} | {:error, atom()}
-  def create_connection(map_id, attrs, char_id) do
-    do_create(attrs, map_id, char_id)
-  end
-
-  @doc "Creates a connection between two systems from a Plug.Conn"
-  @spec create_connection(Plug.Conn.t(), map()) :: {:ok, :created} | {:skip, :exists} | {:error, atom()}
-  def create_connection(%{assigns: %{map_id: map_id, owner_character_id: char_id}} = _conn, attrs) do
-    do_create(attrs, map_id, char_id)
-  end
-
 end

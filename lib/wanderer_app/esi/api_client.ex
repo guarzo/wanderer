@@ -35,7 +35,7 @@ defmodule WandererApp.Esi.ApiClient do
   @default_avoid_systems [@zarzakh_system]
 
   @cache_opts [cache: true]
-  @retry_opts [max_retries: 0, retry_log_level: :warning]
+  @retry_opts [retry: :transient, max_retries: 3, retry_log_level: :warning]
   @timeout_opts [pool_timeout: 15_000, receive_timeout: :timer.seconds(30)]
   @api_retry_count 1
 
@@ -506,7 +506,7 @@ defmodule WandererApp.Esi.ApiClient do
         [params: opts[:params] || []] ++ (opts |> get_auth_opts())
       )
 
-  defp get(path, api_opts \\ [], opts \\ []) do
+  def get(path, api_opts \\ [], opts \\ []) do
     case Cachex.get(:api_cache, path) do
       {:ok, cached_data} when not is_nil(cached_data) ->
         {:ok, cached_data}
@@ -775,4 +775,16 @@ defmodule WandererApp.Esi.ApiClient do
   end
 
   defp map_route_info(_), do: nil
+
+  @decorate cacheable(
+              cache: Cache,
+              key: "type-#{type_id}",
+              opts: [ttl: @ttl]
+            )
+  def get_type_info(type_id, opts \\ []) do
+    case get("/universe/types/#{type_id}/", opts, @cache_opts) do
+      {:ok, result} -> {:ok, result |> Map.put("type_id", type_id)}
+      {:error, error} -> {:error, error}
+    end
+  end
 end
