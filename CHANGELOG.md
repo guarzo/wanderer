@@ -2,6 +2,37 @@
 
 <!-- changelog -->
 
+## [v1.65.18](https://github.com/wanderer-industries/wanderer/compare/v1.65.17...v1.65.18) (2025-05-29)
+
+
+
+
+### Bug Fixes:
+
+* Core: fix updating systems and connections
+
+* Comments: fix error loading comments
+
+* Map: Allow lock systems for members
+
+* Signatures: small wh size is now passed from signature to connection
+
+* Map: Fixed showing character ship
+
+* Map: Fixed showing character ship
+
+* Map: Fixed sorting for characters in Local
+
+* Map: Rally: fixed conflict style of status and rally
+
+* Core: Fixed character token refresh
+
+* Map: Add Rally point. Change placement of settings in Map User Settings. Add ability to placement minimap.
+
+* Map: Routes - hide user routes btn from context if subscriptions is not active or widget is closed. Also now hidden widget will show again in place where it was on moment of hide (except cases when screen size has changed.
+
+* Map: PINGS - Rally point first prototype
+
 ## [v1.65.17](https://github.com/wanderer-industries/wanderer/compare/v1.65.16...v1.65.17) (2025-05-29)
 
 
