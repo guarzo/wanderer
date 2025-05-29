@@ -9,7 +9,7 @@ defmodule WandererAppWeb.MapAPIController do
   alias WandererApp.MapSystemRepo
   alias WandererApp.MapCharacterSettingsRepo
   alias WandererApp.MapConnectionRepo
-  alias WandererApp.Zkb.KillsProvider.KillsCache
+  alias WandererApp.Zkb.Provider.Cache
   alias WandererAppWeb.Helpers.APIUtils
   alias WandererAppWeb.Schemas.{ApiSchemas, ResponseSchemas}
 
@@ -423,7 +423,7 @@ defmodule WandererAppWeb.MapAPIController do
            || params["hour_ago"]  # legacy typo
          ) do
       solar_ids = Enum.map(systems, & &1.solar_system_id)
-      kills_map = KillsCache.fetch_cached_kills_for_systems(solar_ids)
+      kills_map = Cache.fetch_cached_kills_for_systems(solar_ids)
 
       data =
         Enum.map(systems, fn sys ->

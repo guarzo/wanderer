@@ -24,8 +24,10 @@ defmodule WandererApp.Cache do
     do: lookup!("#{id}:#{key}", default)
 
   def lookup!(key, default) when is_binary(key) or is_atom(key) do
-    {:ok, result} = lookup(key, default)
-    result
+    case lookup(key, default) do
+      {:ok, result} -> result
+      {:error, _} -> default
+    end
   end
 
   def get_and_remove(key, default) when is_binary(key) or is_atom(key) do

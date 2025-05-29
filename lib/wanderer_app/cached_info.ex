@@ -29,7 +29,28 @@ defmodule WandererApp.CachedInfo do
           )
         end)
 
-        Cachex.get(:ship_types_cache, type_id)
+        case Cachex.get(:ship_types_cache, type_id) do
+          {:ok, nil} ->
+            case WandererApp.Esi.ApiClient.get_type_info(type_id) do
+              {:ok, type_info} ->
+                ship_type = %{
+                  type_id: type_id,
+                  group_id: type_info["group_id"],
+                  name: type_info["name"],
+                  description: type_info["description"],
+                  mass: type_info["mass"],
+                  capacity: type_info["capacity"],
+                  volume: type_info["volume"],
+                  group_name: "Unknown" # We'll need to look this up separately if needed
+                }
+                Cachex.put(:ship_types_cache, type_id, ship_type)
+                {:ok, ship_type}
+              {:error, _error} ->
+                {:ok, nil}
+            end
+          {:ok, ship_type} ->
+            {:ok, ship_type}
+        end
 
       {:ok, ship_type} ->
         {:ok, ship_type}

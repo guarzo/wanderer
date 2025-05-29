@@ -775,4 +775,16 @@ defmodule WandererApp.Esi.ApiClient do
   end
 
   defp map_route_info(_), do: nil
+
+  @decorate cacheable(
+              cache: Cache,
+              key: "type-#{type_id}",
+              opts: [ttl: @ttl]
+            )
+  def get_type_info(type_id, opts \\ []) do
+    case get("/universe/types/#{type_id}/", opts, @cache_opts) do
+      {:ok, result} -> {:ok, result |> Map.put("type_id", type_id)}
+      {:error, error} -> {:error, error}
+    end
+  end
 end
