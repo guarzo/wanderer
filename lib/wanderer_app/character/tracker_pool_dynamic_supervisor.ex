@@ -100,7 +100,7 @@ defmodule WandererApp.Character.TrackerPoolDynamicSupervisor do
         GenServer.cast(pid, :stop)
 
       _ ->
-        Logger.warn("Unable to locate pool assigned to #{inspect(uuid)}")
+        Logger.warning("Unable to locate pool assigned to #{inspect(uuid)}")
         :ok
     end
   end
