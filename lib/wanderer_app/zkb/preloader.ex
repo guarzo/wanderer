@@ -79,18 +79,21 @@ defmodule WandererApp.Zkb.Preloader do
 
   @impl true
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
-    Logger.error("[ZkbPreloader] Preload task crashed: #{inspect(reason)}")
+    # Only log actual crashes, not normal exits or expected errors
+    case reason do
+      :normal -> :ok
+      :no_active_subscribed_maps -> :ok
+      :no_active_systems -> :ok
+      _ -> Logger.error("[ZkbPreloader] Preload task crashed: #{inspect(reason)}")
+    end
     {:noreply, state}
   end
 
   ## Internal
 
   defp spawn_pass(pass_type, max_concurrency) do
-    case Task.Supervisor.start_child(WandererApp.TaskSupervisor, fn ->
-      do_pass(pass_type, max_concurrency)
-    end) do
+    case Task.start(fn -> do_pass(pass_type, max_concurrency) end) do
       {:ok, task} ->
-        # Monitor the task to handle crashes
         Process.monitor(task)
         :ok
       {:error, reason} ->

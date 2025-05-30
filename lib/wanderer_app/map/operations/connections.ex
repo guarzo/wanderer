@@ -5,7 +5,7 @@ defmodule WandererApp.Map.Operations.Connections do
   """
 
   require Logger
-  alias WandererApp.Map.Server.{ConnectionsImpl, Server}
+  alias WandererApp.Map.Server
   alias WandererApp.MapConnectionRepo
 
   # Connection type constants
@@ -26,6 +26,14 @@ defmodule WandererApp.Map.Operations.Connections do
   Handles parsing of input parameters, validates system information, and manages
   unique constraint violations gracefully.
   """
+  def create(%{assigns: %{map_id: map_id, owner_character_id: char_id}} = _conn, attrs) do
+    do_create(attrs, map_id, char_id)
+  end
+  def create(_conn, _attrs), do: {:error, :missing_params}
+
+  @doc """
+  Creates a connection with explicit parameters (used internally and for testing).
+  """
   def create(attrs, map_id, char_id) do
     do_create(attrs, map_id, char_id)
   end
@@ -33,8 +41,8 @@ defmodule WandererApp.Map.Operations.Connections do
   defp do_create(attrs, map_id, char_id) do
     with {:ok, source} <- parse_int(attrs["solar_system_source"], "solar_system_source"),
          {:ok, target} <- parse_int(attrs["solar_system_target"], "solar_system_target"),
-         {:ok, src_info} <- ConnectionsImpl.get_system_static_info(source),
-         {:ok, tgt_info} <- ConnectionsImpl.get_system_static_info(target) do
+         {:ok, src_info} <- WandererApp.CachedInfo.get_system_static_info(source),
+         {:ok, tgt_info} <- WandererApp.CachedInfo.get_system_static_info(target) do
       build_and_add_connection(attrs, map_id, char_id, src_info, tgt_info)
     else
       {:error, reason} -> handle_precondition_error(reason, attrs)
@@ -43,7 +51,7 @@ defmodule WandererApp.Map.Operations.Connections do
     end
   end
 
-  defp build_and_add_connection(attrs, map_id, char_id, src_info, tgt_info) do
+  defp build_and_add_connection(_attrs, map_id, char_id, src_info, tgt_info) do
     info = %{
       solar_system_source_id: src_info.id,
       solar_system_target_id: tgt_info.id,
@@ -65,7 +73,7 @@ defmodule WandererApp.Map.Operations.Connections do
   end
   defp parse_int(value, field), do: {:error, "Invalid #{field}: #{inspect(value)}"}
 
-  defp handle_precondition_error(reason, attrs) do
+  defp handle_precondition_error(reason, _attrs) do
     Logger.error("[create_connection] Precondition error: #{inspect(reason)}")
     {:error, "Failed to create connection: #{inspect(reason)}"}
   end
@@ -161,6 +169,20 @@ defmodule WandererApp.Map.Operations.Connections do
       {:error, reason} -> {:error, "Failed to get connection: #{inspect(reason)}"}
     end
   end
+
+  @doc """
+  Upserts (creates or updates) a single connection.
+  Returns {:ok, :created}, {:ok, :updated}, or {:error, reason}.
+  """
+  @spec upsert_single(Plug.Conn.t(), map()) :: {:ok, :created | :updated} | {:error, term()}
+  def upsert_single(%{assigns: %{map_id: _map_id, owner_character_id: _char_id}} = conn, conn_data) do
+    case create(conn, conn_data) do
+      {:ok, _} -> {:ok, :created}
+      {:skip, :exists} -> {:ok, :updated}  # Connection already exists, consider it updated
+      {:error, reason} -> {:error, reason}
+    end
+  end
+  def upsert_single(_conn, _conn_data), do: {:error, :missing_params}
 
   # -- Helpers ---------------------------------------------------------------
 

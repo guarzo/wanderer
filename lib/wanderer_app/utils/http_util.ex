@@ -66,7 +66,7 @@ defmodule WandererApp.Utils.HttpUtil do
     retry_with_backoff(
       fn ->
         case Req.get(url, decode_body: :json) do
-          {:ok, %{status: 200, body: body}} when is_map(body) ->
+          {:ok, %{status: 200, body: body}} when is_map(body) or is_list(body) ->
             {:ok, body}
 
           {:ok, %{status: 200, body: body}} ->

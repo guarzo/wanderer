@@ -109,8 +109,10 @@ defmodule WandererApp.Map.ZkbDataFetcher do
         systems
         |> Map.keys()
         |> Enum.reduce(%{}, fn system_id, acc ->
-          kills = Cache.get_killmails_for_system(system_id)
-          Map.put(acc, system_id, kills)
+          case Cache.get_killmails_for_system(system_id) do
+            {:ok, kills} -> Map.put(acc, system_id, kills)
+            {:error, _reason} -> Map.put(acc, system_id, [])
+          end
         end)
 
       # Store updated data

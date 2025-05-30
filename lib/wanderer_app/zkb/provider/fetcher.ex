@@ -70,55 +70,95 @@ defmodule WandererApp.Zkb.Provider.Fetcher do
 
   Returns `{:ok, [enriched_killmail]}` or `{:error, reason}`.
   """
-  @spec fetch_killmails_for_system(system_id(), fetch_opts()) ::
+  @spec fetch_killmails_for_system(system_id() | String.t(), fetch_opts()) ::
           {:ok, [killmail()]} | {:error, term()}
-  def fetch_killmails_for_system(system_id, opts \\ []) when is_integer(system_id) do
+  def fetch_killmails_for_system(system_id, opts \\ [])
+
+  def fetch_killmails_for_system(system_id, opts) when is_binary(system_id) do
+    case Integer.parse(system_id) do
+      {id, ""} -> fetch_killmails_for_system(id, opts)
+      _ -> {:error, :invalid_system_id}
+    end
+  end
+
+  def fetch_killmails_for_system(system_id, opts) when is_integer(system_id) do
     limit       = Keyword.get(opts, :limit, @default_limit)
     force       = Keyword.get(opts, :force, false)
     since_hours = Keyword.get(opts, :since_hours, @default_since_hours)
+
 
     if force || not Cache.recently_fetched?(system_id) do
       do_fetch_killmails_for_system(system_id, limit, since_hours)
     else
       case Cache.get_killmails_for_system(system_id) do
-        {:ok, killmails} -> {:ok, killmails}
+        {:ok, killmails} ->
+          # If we get a list of already enriched killmails, return them directly
+          if Enum.all?(killmails, &is_killmail_enriched?/1) do
+            {:ok, killmails}
+          else
+            do_fetch_killmails_for_system(system_id, limit, since_hours)
+          end
+
         {:error, reason} ->
-          Logger.error("[Fetcher] Cache error for system #{system_id}: #{inspect(reason)}")
-          {:error, {:cache_error, reason}}
+
+          do_fetch_killmails_for_system(system_id, limit, since_hours)
       end
     end
   end
 
   defp do_fetch_killmails_for_system(system_id, limit, since_hours) do
+
     with {:ok, raws} <- Api.get_system_killmails(system_id) do
-      cutoff = DateTime.utc_now() |> DateTime.add(-since_hours * 3600, :second)
+      # Check if the killmails are already enriched
+      if Enum.all?(raws, &is_killmail_enriched?/1) do
+        Cache.put_full_fetched_timestamp(system_id)
+        {:ok, raws}
+      else
+        cutoff = DateTime.utc_now() |> DateTime.add(-since_hours * 3600, :second)
 
-      kills =
-        raws
-        |> Enum.take(limit)
-        |> parse_until_older(cutoff)
+        kills =
+          raws
+          |> Enum.take(limit)
+          |> parse_until_older(cutoff)
 
-      Cache.put_full_fetched_timestamp(system_id)
-      {:ok, kills}
+        Cache.put_full_fetched_timestamp(system_id)
+        {:ok, kills}
+      end
     else
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        Logger.error("[Fetcher] API error for system #{system_id}: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
   # Stop parsing as soon as we hit an "older" kill
-  defp parse_until_older(raws, cutoff) do
+  defp parse_until_older([], _cutoff), do: []
+  defp parse_until_older(raws, cutoff) when is_list(raws) do
     raws
     |> Enum.reduce_while([], fn raw, acc ->
-      case Parser.parse_partial(raw, cutoff) do
-        {:ok, enriched} ->
-          {:cont, [enriched | acc]}
 
-        :older ->
-          {:halt, acc}
+      # Check if this is an already enriched killmail
+      if is_killmail_enriched?(raw) do
+        {:cont, [raw | acc]}
+      else
+        case Parser.parse_partial(raw, cutoff) do
+          {:ok, enriched} when is_map(enriched) ->
+            {:cont, [enriched | acc]}
 
-        {:error, reason} ->
-          Logger.error("[Fetcher] parse_partial failed for #{inspect(raw["killmail_id"])}: #{inspect(reason)}")
-          {:cont, acc}
+          {:ok, :kill_skipped} ->
+            {:cont, acc}
+
+          :older ->
+            {:halt, acc}
+
+          {:error, {:enrichment_failed, _}} ->
+            Logger.warning("[Fetcher] Enrichment failed for killmail: #{inspect(raw["killmail_id"])}")
+            {:cont, acc}
+
+          {:error, reason} ->
+            Logger.error("[Fetcher] parse_partial failed for #{inspect(raw["killmail_id"])}: #{inspect(reason)}")
+            {:cont, acc}
+        end
       end
     end)
     |> Enum.reverse()
@@ -148,5 +188,48 @@ defmodule WandererApp.Zkb.Provider.Fetcher do
     end)
     |> Map.new()
   end
+
+  # Helper function to check if a killmail is properly enriched
+  # A killmail is considered enriched if it has at least some of the key enriched fields
+  # that should be present after the enrichment process
+  defp is_killmail_enriched?(killmail) when is_map(killmail) do
+    # Check for any victim enrichment fields
+    victim_enriched =
+      Map.has_key?(killmail, "victim_char_name") or
+      Map.has_key?(killmail, "victim_corp_name") or
+      Map.has_key?(killmail, "victim_alliance_name") or
+      Map.has_key?(killmail, "victim_ship_name")
+
+    # Check for any final blow enrichment fields
+    final_blow_enriched =
+      Map.has_key?(killmail, "final_blow_char_name") or
+      Map.has_key?(killmail, "final_blow_corp_name") or
+      Map.has_key?(killmail, "final_blow_alliance_name") or
+      Map.has_key?(killmail, "final_blow_ship_name")
+
+    # Check for any nested victim enrichment
+    victim_nested_enriched = case Map.get(killmail, "victim") do
+      %{} = victim ->
+        Map.has_key?(victim, "character_name") or
+        Map.has_key?(victim, "corporation_name") or
+        Map.has_key?(victim, "alliance_name") or
+        Map.has_key?(victim, "ship_name")
+      _ -> false
+    end
+
+    # Check for any nested final blow enrichment
+    final_blow_nested_enriched = case Map.get(killmail, "final_blow") do
+      %{} = final_blow ->
+        Map.has_key?(final_blow, "character_name") or
+        Map.has_key?(final_blow, "corporation_name") or
+        Map.has_key?(final_blow, "alliance_name") or
+        Map.has_key?(final_blow, "ship_name")
+      _ -> false
+    end
+
+    # A killmail is enriched if it has enrichment in at least one of these areas
+    victim_enriched or final_blow_enriched or victim_nested_enriched or final_blow_nested_enriched
+  end
+  defp is_killmail_enriched?(_), do: false
 
 end

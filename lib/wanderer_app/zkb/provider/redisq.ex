@@ -12,7 +12,6 @@ defmodule WandererApp.Zkb.Provider.Redisq do
 
   alias WandererApp.Zkb.Provider.Parser
   alias WandererApp.Utils.HttpUtil
-  alias WandererApp.Env
 
   @base_url           "https://zkillredisq.stream/listen.php"
   @fast_interval_ms   1_000

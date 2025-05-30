@@ -45,11 +45,9 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
   @spec enrich_victim(killmail()) :: {:ok, killmail()} | {:error, term()}
   defp enrich_victim(km) do
     try do
-      Logger.info("[Enricher] Starting victim enrichment for killmail #{inspect(km["killmail_id"])}")
 
       # First enrich the victim data
       victim = km["victim"] || %{}
-      Logger.info("[Enricher] Enriching nested victim data: #{inspect(victim)}")
 
       enriched_victim = victim
         |> maybe_put_character_name("character_id", "character_name")
@@ -58,7 +56,6 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
         |> maybe_put_ship_name("ship_type_id", "ship_name")
 
       # Then enrich the root level victim fields
-      Logger.info("[Enricher] Enriching root level victim fields")
       enriched = km
         |> Map.put("victim", enriched_victim)
         |> maybe_put_character_name("victim_char_id", "victim_char_name")
@@ -70,7 +67,6 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
     rescue
       e ->
         Logger.error("[Enricher] Failed to enrich victim data for killmail #{inspect(km["killmail_id"])}: #{inspect(e)}")
-        Logger.error("[Enricher] Victim data: #{inspect(km)}")
         {:error, :victim_enrichment_failed}
     end
   end
@@ -78,11 +74,8 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
   @spec enrich_final_blow(killmail()) :: {:ok, killmail()} | {:error, term()}
   defp enrich_final_blow(km) do
     try do
-      Logger.info("[Enricher] Starting final blow enrichment for killmail #{inspect(km["killmail_id"])}")
-
       # First enrich the final_blow data
       final_blow = km["final_blow"] || %{}
-      Logger.info("[Enricher] Enriching nested final blow data: #{inspect(final_blow)}")
 
       enriched_final_blow = final_blow
         |> maybe_put_character_name("character_id", "character_name")
@@ -91,7 +84,6 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
         |> maybe_put_ship_name("ship_type_id", "ship_name")
 
       # Then enrich the root level final blow fields
-      Logger.info("[Enricher] Enriching root level final blow fields")
       enriched = km
         |> Map.put("final_blow", enriched_final_blow)
         |> maybe_put_character_name("final_blow_char_id", "final_blow_char_name")
@@ -103,7 +95,6 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
     rescue
       e ->
         Logger.error("[Enricher] Failed to enrich final blow data for killmail #{inspect(km["killmail_id"])}: #{inspect(e)}")
-        Logger.error("[Enricher] Final blow data: #{inspect(km)}")
         {:error, :final_blow_enrichment_failed}
     end
   end
@@ -112,13 +103,17 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
   defp maybe_put_character_name(km, id_key, name_key) do
     case Map.get(km, id_key) do
       id when id in [nil, 0] ->
-        Logger.debug("[Enricher] Skipping character name enrichment for nil/0 ID")
         km
+      id when is_binary(id) ->
+        case Integer.parse(id) do
+          {eve_id, ""} ->
+            handle_character_info(km, eve_id, name_key)
+          _ ->
+            km
+        end
       eve_id when is_integer(eve_id) ->
-        Logger.info("[Enricher] Fetching character info for ID #{eve_id}")
         handle_character_info(km, eve_id, name_key)
       _ ->
-        Logger.debug("[Enricher] Skipping character name enrichment for invalid ID type")
         km
     end
   end
@@ -127,10 +122,8 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
   defp handle_character_info(km, eve_id, name_key) do
     case fetch_character_info(eve_id) do
       {:ok, char_name} ->
-        Logger.info("[Enricher] Successfully fetched character name for ID #{eve_id}")
         Map.put(km, name_key, char_name)
       :skip ->
-        Logger.info("[Enricher] Skipping character info for ID #{eve_id}")
         km
       {:error, reason} ->
         Logger.warning("[Enricher] Error fetching character info for ID #{eve_id}: #{inspect(reason)}")
@@ -164,9 +157,17 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
   defp maybe_put_corp_info(km, id_key, ticker_key, name_key) do
     case Map.get(km, id_key) do
       id when id in [nil, 0] -> km
-      corp_id ->
-        Logger.info("[Enricher] Fetching corp info for ID #{corp_id}")
+      id when is_binary(id) ->
+        case Integer.parse(id) do
+          {corp_id, ""} ->
+            handle_corp_info(km, corp_id, ticker_key, name_key)
+          _ ->
+            km
+        end
+      corp_id when is_integer(corp_id) ->
         handle_corp_info(km, corp_id, ticker_key, name_key)
+      _ ->
+        km
     end
   end
 
@@ -213,7 +214,6 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
     |> Map.put(name_key, corp_name)
   end
   defp handle_corp_result(:skip, km, corp_id, _ticker_key, _name_key) do
-    Logger.info("[Enricher] Skipping corp info for ID #{corp_id}")
     km
   end
   defp handle_corp_result({:error, reason}, km, corp_id, _ticker_key, _name_key) do
@@ -225,9 +225,19 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
   defp maybe_put_alliance_info(km, id_key, ticker_key, name_key) do
     case Map.get(km, id_key) do
       id when id in [nil, 0] -> km
-      alliance_id ->
-        Logger.info("[Enricher] Fetching alliance info for ID #{alliance_id}")
+      id when is_binary(id) ->
+        case Integer.parse(id) do
+          {alliance_id, ""} ->
+            handle_alliance_info(km, alliance_id, ticker_key, name_key)
+          _ ->
+            Logger.debug("[Enricher] Invalid alliance ID format: #{inspect(id)}")
+            km
+        end
+      alliance_id when is_integer(alliance_id) ->
         handle_alliance_info(km, alliance_id, ticker_key, name_key)
+      _ ->
+        Logger.debug("[Enricher] Skipping alliance info for invalid ID type: #{inspect(Map.get(km, id_key))}")
+        km
     end
   end
 
@@ -274,7 +284,6 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
     |> Map.put(name_key, alliance_name)
   end
   defp handle_alliance_result(:skip, km, alliance_id, _ticker_key, _name_key) do
-    Logger.info("[Enricher] Skipping alliance info for ID #{alliance_id}")
     km
   end
   defp handle_alliance_result({:error, reason}, km, alliance_id, _ticker_key, _name_key) do
@@ -287,7 +296,6 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
     case Map.get(km, id_key) do
       id when id in [nil, 0] -> km
       type_id ->
-        Logger.info("[Enricher] Fetching ship info for type ID #{type_id}")
         handle_ship_info(km, type_id, name_key)
     end
   end

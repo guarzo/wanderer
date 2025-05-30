@@ -31,7 +31,7 @@ defmodule WandererAppWeb.MapKillsEventHandler do
       {:ok, kills_map} ->
         socket
         |> assign(kills_map: kills_map)
-        |> MapEventHandler.push_map_event("kills_updated", normalize_items(kills_map))
+        |> MapEventHandler.push_map_event("kills_updated", kills_map)
       {:error, reason} ->
         Logger.error("[MapKillsEventHandler] Failed to get kill counts: #{inspect(reason)}")
         socket
@@ -39,9 +39,7 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   end
 
   def handle_server_event(%{event: :kills_updated, payload: payload}, socket) do
-    payload
-    |> normalize_items()
-    |> then(&MapEventHandler.push_map_event(socket, "kills_updated", &1))
+    MapEventHandler.push_map_event(socket, "kills_updated", payload)
   end
 
   def handle_server_event(
@@ -50,13 +48,8 @@ defmodule WandererAppWeb.MapKillsEventHandler do
       ) do
     case WandererApp.Map.is_subscription_active?(map_id) do
       {:ok, true} ->
-        processed =
-          for {sid, items} <- payload, into: %{} do
-            {sid, normalize_items(items)}
-          end
-
         socket
-        |> MapEventHandler.push_map_event("detailed_kills_updated", processed)
+        |> MapEventHandler.push_map_event("detailed_kills_updated", payload)
 
       _ ->
         socket
@@ -81,7 +74,13 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   def handle_ui_event("get_system_kills", %{"system_id" => sid, "since_hours" => sh} = payload, socket) do
     with {:ok, system_id}   <- parse_id(sid),
          {:ok, since_hours} <- parse_id(sh) do
-      reply = %{kills: Cache.get_killmails_for_system(system_id) || []}
+
+      cached_kills = case Cache.get_killmails_for_system(system_id) do
+        {:ok, kills} -> kills
+        {:error, _reason} -> []
+      end
+
+      reply = %{kills: cached_kills}
 
       case Task.Supervisor.start_child(WandererApp.TaskSupervisor, fn ->
         case Fetcher.fetch_killmails_for_system(system_id, since_hours: since_hours) do
@@ -112,31 +111,39 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     end
   end
 
-  def handle_ui_event("get_systems_kills", %{"system_ids" => ids, "since_hours" => sh} = payload, socket) do
-    with {:ok, system_ids}   <- parse_system_ids(ids),
-         {:ok, since_hours} <- parse_id(sh),
-         true                <- system_ids != [] do
-      systems_kills =
-        for id <- system_ids, into: %{} do
-          case Fetcher.fetch_killmails_for_system(id, since_hours: since_hours) do
-            {:ok, kills} -> {id, kills}
-            {:error, reason} ->
-              Logger.warning(fn ->
-                "[MapKillsEventHandler] Failed to fetch kills for system #{id}: #{inspect(reason)}"
-              end)
+  def handle_ui_event("get_systems_kills", %{"system_ids" => system_ids, "since_hours" => since_hours}, socket) do
+    with {:ok, parsed_ids} <- parse_system_ids(system_ids),
+         {:ok, hours} <- parse_id(since_hours) do
+      systems_kills = parsed_ids
+        |> Enum.map(fn id -> {id, Fetcher.fetch_killmails_for_system(id, since_hours: hours)} end)
+        |> Enum.map(fn
+          {id, {:ok, kills}} when is_list(kills) ->
+            # Ensure kills are serializable by converting any structs to maps
+            serializable_kills = Enum.map(kills, fn kill ->
+              case kill do
+                %{ship_type_info: ship_info} = k when is_struct(ship_info) ->
+                  # Convert ship_type_info struct to a simple map with only needed fields
+                  ship_info_map = %{
+                    "type_id" => ship_info.type_id,
+                    "name" => ship_info.name,
+                    "group_name" => ship_info.group_name
+                  }
+                  Map.put(k, :ship_type_info, ship_info_map)
+                k -> k
+              end
+            end)
+            {id, serializable_kills}
+          {id, {:error, reason}} ->
+            Logger.error("[MapKillsEventHandler] Failed to fetch kills for system #{id}: #{inspect(reason)}")
+            {id, []}
+        end)
+        |> Map.new()
 
-              {id, []}
-          end
-        end
-
-      {:reply, %{systems_kills: systems_kills}, socket}
+      {:noreply, push_event(socket, "systems_kills_updated", systems_kills)}
     else
       _ ->
-        Logger.warning(fn ->
-          "[MapKillsEventHandler] Invalid get_systems_kills payload: #{inspect(payload)}"
-        end)
-
-        {:reply, %{systems_kills: %{}}, socket}
+        Logger.error("[MapKillsEventHandler] Invalid get_systems_kills payload: system_ids=#{inspect(system_ids)}, since_hours=#{inspect(since_hours)}")
+        {:noreply, push_event(socket, "systems_kills_updated", %{})}
     end
   end
 
@@ -144,21 +151,6 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     do: MapCoreEventHandler.handle_ui_event(event, payload, socket)
 
   # — Private helpers —
-
-  defp normalize_items(items) when is_list(items) do
-    items
-    |> Enum.map(&normalize_item/1)
-    |> Enum.reject(&is_nil/1)
-  end
-  defp normalize_items(items) when is_map(items) do
-    items
-    |> Enum.reject(fn {_k, v} -> is_nil(normalize_item(v)) end)
-    |> Enum.map(fn {k, v} -> {k, normalize_item(v)} end)
-  end
-  defp normalize_item({:ok, v}),        do: v
-  defp normalize_item([ok: v]),          do: v
-  defp normalize_item(v) when is_map(v), do: v
-  defp normalize_item(_),                do: nil
 
   defp filter_positive_kills(%{} = km),
     do: Enum.filter(km, fn {_id, count} -> count > 0 end)

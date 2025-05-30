@@ -86,26 +86,44 @@ defmodule WandererApp.Zkb.Provider.Cache do
   end
 
   @doc "Get all killmail maps for a system, filtering out misses and logging errors."
-  @spec get_killmails_for_system(system_id()) :: [killmail()]
+  @spec get_killmails_for_system(system_id()) :: {:ok, [killmail()]} | {:error, term()}
   def get_killmails_for_system(system_id) when is_integer(system_id) do
-    ids = get_system_killmail_ids(system_id)
-    result = ids
-    |> Enum.reduce([], fn id, acc ->
-      case get_killmail(id) do
-        {:ok, nil} ->
-          acc
+    try do
+      ids = get_system_killmail_ids(system_id)
+      {killmails, errors} = ids
+      |> Enum.reduce({[], []}, fn id, {acc, err_acc} ->
+        case get_killmail(id) do
+          {:ok, nil} ->
+            {acc, err_acc}
 
-        {:ok, killmail} ->
-          [killmail | acc]
+          {:ok, killmail} ->
+            {[killmail | acc], err_acc}
 
-        {:error, reason} ->
-          Logger.error("[Cache] Failed to fetch killmail #{id}: #{inspect(reason)}")
-          acc
+          {:error, reason} ->
+            Logger.error("[Cache] Failed to fetch killmail #{id}: #{inspect(reason)}")
+            {acc, [reason | err_acc]}
+        end
+      end)
+
+      result = Enum.reverse(killmails)
+
+      case errors do
+        [] -> {:ok, result}
+        _ ->
+          if length(killmails) > 0 do
+            # Return partial results with a warning
+            Logger.warning("[Cache] Returning #{length(killmails)} killmails for system #{system_id}, but #{length(errors)} failed to load")
+            {:ok, result}
+          else
+            # If no killmails loaded and we have errors, return the first error
+            {:error, List.first(errors)}
+          end
       end
-    end)
-    |> Enum.reverse()
-
-    result
+    rescue
+      e ->
+        Logger.error("[Cache] Exception in get_killmails_for_system for system #{system_id}: #{inspect(e)}")
+        {:error, {:exception, e}}
+    end
   end
 
   # -------------------------------------------------------------------
@@ -228,7 +246,10 @@ defmodule WandererApp.Zkb.Provider.Cache do
   @spec fetch_cached_kills_for_systems([system_id()]) :: %{system_id() => [killmail()]}
   def fetch_cached_kills_for_systems(system_ids) when is_list(system_ids) do
     for sid <- system_ids, into: %{} do
-      {sid, get_killmails_for_system(sid)}
+      case get_killmails_for_system(sid) do
+        {:ok, kills} -> {sid, kills}
+        {:error, _reason} -> {sid, []}
+      end
     end
   end
 

@@ -2,7 +2,7 @@ defmodule WandererAppWeb.MapAPIController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  import Ash.Query, only: [filter: 2]
+  require Ash.Query
   require Logger
 
   alias WandererApp.MapSystemRepo
