@@ -133,7 +133,7 @@ defmodule WandererApp.Zkb.Preloader do
     elapsed_s = (System.monotonic_time(:millisecond) - start_ms) / 1_000
 
     Logger.info("""
-    Completed #{type} preload:
+    Completed #{type} zkill preload:
       • Systems: #{length(ids)}
       • Success: #{s}
       • Failed: #{f}
@@ -164,6 +164,28 @@ defmodule WandererApp.Zkb.Preloader do
     end
   end
 
+  @doc """
+  Loads system IDs from active maps with active subscriptions.
+
+  ## Race Condition Note
+  This function has a potential race condition where `subscription_active?/1` is
+  called separately after fetching active maps from `MapState.get_last_active/1`.
+
+  If subscriptions change between the time maps are fetched and when subscription
+  status is checked, there could be minor inconsistencies where:
+  - A map with an expired subscription might still be included
+  - A map with a newly activated subscription might be excluded
+
+  For strict consistency, the last active and subscription checks should be
+  combined into a single atomic query, possibly by updating
+  `MapState.get_last_active/1` to join subscription data or adding a new
+  function that performs both checks atomically.
+
+  In practice, this race condition has minimal impact as:
+  - The window for inconsistency is very small
+  - Missing or including a few extra systems doesn't affect correctness
+  - The next preload cycle will correct any inconsistencies
+  """
   @spec load_system_ids() :: {:ok, [integer()]} | {:error, term()}
   defp load_system_ids do
     cutoff =

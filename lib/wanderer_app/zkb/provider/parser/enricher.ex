@@ -133,23 +133,40 @@ defmodule WandererApp.Zkb.Provider.Parser.Enricher do
 
   @spec fetch_character_info(integer()) :: {:ok, String.t()} | :skip | {:error, term()}
   defp fetch_character_info(eve_id) when is_integer(eve_id) do
-    HttpUtil.retry_with_backoff(
-      fn ->
-        case ApiClient.get_character_info(eve_id) do
-          {:ok, %{"name" => char_name}} -> {:ok, char_name}
-          {:error, :timeout} ->
-            Logger.warning("[Enricher] Timeout fetching character info for ID #{eve_id}")
-            :skip
-          {:error, :not_found} ->
-            Logger.warning("[Enricher] Character not found for ID #{eve_id}")
-            :skip
-          {:error, reason} ->
-            Logger.error("[Enricher] Error fetching character info for ID #{eve_id}: #{inspect(reason)}")
-            :skip
-        end
-      end,
-      max_retries: 3
-    )
+    try do
+      HttpUtil.retry_with_backoff(
+        fn ->
+          case ApiClient.get_character_info(eve_id) do
+            {:ok, %{"name" => char_name}} -> {:ok, char_name}
+            {:error, :timeout} ->
+              Logger.warning("[Enricher] Timeout fetching character info for ID #{eve_id}")
+              raise "Character info timeout, will retry"
+            {:error, :not_found} ->
+              Logger.warning("[Enricher] Character not found for ID #{eve_id}")
+              :skip
+            {:error, reason} ->
+              Logger.error("[Enricher] Error fetching character info for ID #{eve_id}: #{inspect(reason)}")
+              if HttpUtil.retriable_error?(reason) do
+                raise "Character info error: #{inspect(reason)}, will retry"
+              else
+                :skip
+              end
+          end
+        end,
+        max_retries: 3
+      )
+    rescue
+      e ->
+        Logger.warning("[Enricher] All retries exhausted for character info #{eve_id}: #{inspect(e)}")
+        :skip
+    catch
+      :exit, reason ->
+        Logger.warning("[Enricher] Exit during character info fetch for #{eve_id}: #{inspect(reason)}")
+        :skip
+      kind, reason ->
+        Logger.warning("[Enricher] Unexpected error during character info fetch for #{eve_id}: #{inspect({kind, reason})}")
+        :skip
+    end
   end
   defp fetch_character_info(_), do: :skip
 

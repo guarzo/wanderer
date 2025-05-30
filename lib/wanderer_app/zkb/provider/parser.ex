@@ -10,7 +10,7 @@ defmodule WandererApp.Zkb.Provider.Parser do
   alias WandererApp.Zkb.Provider.Parser.{Core, TimeHandler, Enricher, CacheHandler}
 
   @type killmail :: map()
-  @type parse_result :: {:ok, killmail()} | :older | :skip | {:error, term()}
+  @type parse_result :: {:ok, killmail()} | {:ok, :kill_skipped} | :older | :skip | {:error, term()}
 
   # How far back to accept kills (in seconds)
   @cutoff_seconds 3_600
@@ -95,7 +95,7 @@ defmodule WandererApp.Zkb.Provider.Parser do
   @spec parse_full(killmail(), DateTime.t()) :: {:ok, killmail()} | :older | :skip
   def parse_full(km, cutoff), do: do_parse(km, cutoff)
 
-  @spec do_parse(killmail(), DateTime.t()) :: {:ok, killmail()} | :older | {:ok, :kill_skipped} | {:error, term()}
+  @spec do_parse(killmail(), DateTime.t()) :: parse_result()
   defp do_parse(%{"killmail_id" => id} = km, cutoff) do
     parse_result =
       with {:ok, {km_with_time, time_dt}} <- TimeHandler.validate_killmail_time(km, cutoff),
@@ -119,11 +119,11 @@ defmodule WandererApp.Zkb.Provider.Parser do
 
       {:error, reason} ->
         Logger.error("[ZkbParser] parsing failed for #{id}: #{inspect(reason)}")
-        {:ok, :kill_skipped}
+        {:error, reason}
 
       other ->
         Logger.error("[ZkbParser] unexpected result for #{id}: #{inspect(other)}")
-        {:ok, :kill_skipped}
+        {:error, {:unexpected_result, other}}
     end
   end
   defp do_parse(_, _), do: {:ok, :kill_skipped}

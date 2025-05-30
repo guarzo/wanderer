@@ -47,7 +47,9 @@ defmodule WandererApp.Zkb.Provider.Fetcher do
   end
 
   defp fetch_and_parse_killmail(id) do
-    cutoff = DateTime.utc_now()
+    # For individual killmail fetches, use a very old cutoff to avoid rejecting historical killmails
+    # Individual fetches are typically for specific killmails and shouldn't be time-restricted
+    cutoff = DateTime.utc_now() |> DateTime.add(-365 * 24 * 3600, :second)  # 1 year ago
 
     with {:ok, raw}      <- Api.get_killmail(id),
          {:ok, enriched} <- Parser.parse_full_and_store(raw, raw, cutoff) do
@@ -86,6 +88,7 @@ defmodule WandererApp.Zkb.Provider.Fetcher do
     force       = Keyword.get(opts, :force, false)
     since_hours = Keyword.get(opts, :since_hours, @default_since_hours)
 
+
     if force || not Cache.recently_fetched?(system_id) do
       do_fetch_killmails_for_system(system_id, limit, since_hours)
     else
@@ -95,6 +98,7 @@ defmodule WandererApp.Zkb.Provider.Fetcher do
           {:ok, killmails}
 
         {:error, reason} ->
+          Logger.warning("[Fetcher] Cache error for system #{system_id}, falling back to fresh fetch: #{inspect(reason)}")
           do_fetch_killmails_for_system(system_id, limit, since_hours)
       end
     end
@@ -161,14 +165,27 @@ defmodule WandererApp.Zkb.Provider.Fetcher do
     system_ids
     |> Task.Supervisor.async_stream(
       WandererApp.TaskSupervisor,
-      fn sid -> {sid, fetch_killmails_for_system(sid, opts)} end,
+      fn sid ->
+        try do
+          {sid, fetch_killmails_for_system(sid, opts)}
+        catch
+          kind, reason ->
+            Logger.error("[Fetcher] Task failed for system #{sid}: #{inspect({kind, reason})}")
+            {sid, {:error, {:task_failed, kind, reason}}}
+        end
+      end,
       max_concurrency: 8,
       timeout: 30_000
     )
     |> Enum.map(fn
       {:ok, {sid, result}} -> {sid, result}
-      {:exit, {sid, reason}} -> {sid, {:error, reason}}
+      {:exit, reason} ->
+        Logger.error("[Fetcher] Task exit: #{inspect(reason)}")
+        # When task exits, we lose the system ID, so we can't map it properly
+        # This is a limitation of the current approach
+        {:unknown_system, {:error, {:task_exit, reason}}}
     end)
+    |> Enum.reject(fn {sid, _result} -> sid == :unknown_system end)  # Filter out unmappable exits
     |> Map.new()
   end
 

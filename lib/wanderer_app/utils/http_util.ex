@@ -52,15 +52,22 @@ defmodule WandererApp.Utils.HttpUtil do
   end
 
   @doc """
-  Makes a GET request with rate limiting and automatic retries.
+  Makes a GET request with automatic retries and server-side rate limit handling.
+
+  This function handles server-side rate limiting by detecting HTTP 429/503 responses
+  and retrying with exponential backoff. It does NOT implement client-side rate limiting.
 
   ## Options
   * `:max_retries` - Maximum number of retry attempts (default: 3)
   * `:base_delay` - Initial delay in milliseconds (default: 200)
   * `:max_delay` - Maximum delay in milliseconds (default: 2000)
-  * `:bucket` - Rate limit bucket name
-  * `:limit` - Maximum requests per time window
-  * `:scale_ms` - Time window in milliseconds
+
+  ## Rate Limiting
+  The function automatically handles:
+  * HTTP 429 (Too Many Requests) responses
+  * HTTP 503 (Service Unavailable) responses
+
+  Both trigger automatic retries with exponential backoff.
   """
   def get_with_rate_limit(url, opts \\ []) do
     retry_with_backoff(

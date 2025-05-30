@@ -53,6 +53,11 @@ defmodule WandererApp.Zkb.Provider.Api do
     end
   end
 
+  def get_kill_count(system_id) do
+    Logger.warning("[ZkbProvider.Api] Invalid system_id type: #{inspect(system_id)}")
+    {:error, :invalid_system_id}
+  end
+
   defp log_cache_error(reason) do
     Logger.error("[ZkbProvider.Api] Cache error: #{inspect(reason)}")
   end
@@ -61,8 +66,13 @@ defmodule WandererApp.Zkb.Provider.Api do
     case get_system_killmails(system_id) do
       {:ok, killmails} ->
         count = length(killmails)
-        Cache.set(key, count, @kill_count_ttl)
-        {:ok, count}
+        case Cache.set(key, count, @kill_count_ttl) do
+          :ok ->
+            {:ok, count}
+          {:error, reason} ->
+            Logger.warning("[ZkbProvider.Api] Failed to cache kill count for system #{system_id}: #{inspect(reason)}")
+            {:ok, count}  # Still return the count even if caching failed
+        end
 
       {:error, reason} ->
         Logger.error("[ZkbProvider.Api] Failed to fetch killmails for system #{system_id}: #{inspect(reason)}")

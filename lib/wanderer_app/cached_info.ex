@@ -79,10 +79,20 @@ defmodule WandererApp.CachedInfo do
         volume:      info["volume"]
       }
 
-      Cachex.put(@ship_cache, type_id, ship)
+      Cachex.put(@ship_cache, type_id, ship, ttl: :timer.seconds(300))
       {:ok, ship}
     else
-      _ -> {:ok, nil}
+      {:error, :not_found} ->
+        Logger.debug("[CachedInfo] Ship type #{type_id} not found in ESI")
+        {:ok, nil}  # This is expected for invalid/missing ship types
+
+      {:error, reason} = error ->
+        Logger.warning("[CachedInfo] API error fetching ship type #{type_id}: #{inspect(reason)}")
+        error  # Propagate the actual error instead of masking it
+
+      other ->
+        Logger.warning("[CachedInfo] Unexpected error fetching ship type #{type_id}: #{inspect(other)}")
+        {:error, {:unexpected_error, other}}
     end
   end
 

@@ -68,13 +68,27 @@ defmodule WandererApp.Zkb.Provider.Cache do
   def add_killmail_id_to_system_list(system_id, killmail_id) when is_integer(system_id) and is_integer(killmail_id) do
     key = Key.system_kills_list_key(system_id)
 
-    case get(key) do
-      {:ok, nil} ->
-        Cache.insert(key, [killmail_id], ttl: @killmail_ttl)
-      {:ok, existing} when is_list(existing) ->
-        Cache.insert(key, [killmail_id | existing], ttl: @killmail_ttl)
-      {:error, _reason} ->
-        Cache.insert(key, [killmail_id], ttl: @killmail_ttl)
+    try do
+      _updated_list = Cache.insert_or_update(
+        key,
+        [killmail_id],  # Initial value if key doesn't exist
+        fn existing_list -> [killmail_id | existing_list] end,  # Update function to prepend
+        ttl: @killmail_ttl
+      )
+      :ok
+    rescue
+      # Handle ETS errors during shutdown gracefully
+      error in [ArgumentError] ->
+        Logger.warning("[Cache] Failed to add killmail #{killmail_id} to system #{system_id} list during shutdown: #{inspect(error)}")
+        {:error, error}
+      error ->
+        Logger.error("[Cache] Unexpected error adding killmail #{killmail_id} to system #{system_id} list: #{inspect(error)}")
+        {:error, error}
+    catch
+      # Handle ETS table not existing errors
+      :error, :badarg ->
+        Logger.warning("[Cache] ETS table not available for system #{system_id} killmail list (likely shutting down)")
+        {:error, :cache_unavailable}
     end
   end
 
@@ -90,6 +104,7 @@ defmodule WandererApp.Zkb.Provider.Cache do
   def get_killmails_for_system(system_id) when is_integer(system_id) do
     try do
       ids = get_system_killmail_ids(system_id)
+
       {killmails, errors} = ids
       |> Enum.reduce({[], []}, fn id, {acc, err_acc} ->
         case get_killmail(id) do
@@ -139,12 +154,28 @@ defmodule WandererApp.Zkb.Provider.Cache do
   @doc "Increment the kill count for a system."
   @spec increment_kill_count(system_id()) :: cache_result()
   def increment_kill_count(system_id) when is_integer(system_id) do
-    Cache.insert_or_update(
-      Key.kill_count_key(system_id),
-      1,
-      &(&1 + 1),
-      ttl: @system_kills_ttl
-    )
+    try do
+      _updated_count = Cache.insert_or_update(
+        Key.kill_count_key(system_id),
+        1,
+        &(&1 + 1),
+        ttl: @system_kills_ttl
+      )
+      :ok
+    rescue
+      # Handle ETS errors during shutdown gracefully
+      error in [ArgumentError] ->
+        Logger.warning("[Cache] Failed to increment kill count for system #{system_id} during shutdown: #{inspect(error)}")
+        {:error, error}
+      error ->
+        Logger.error("[Cache] Unexpected error incrementing kill count for system #{system_id}: #{inspect(error)}")
+        {:error, error}
+    catch
+      # Handle ETS table not existing errors
+      :error, :badarg ->
+        Logger.warning("[Cache] ETS table not available for system #{system_id} kill count (likely shutting down)")
+        {:error, :cache_unavailable}
+    end
   end
 
   # -------------------------------------------------------------------
