@@ -2,6 +2,31 @@
 
 <!-- changelog -->
 
+## [v1.67.0](https://github.com/wanderer-industries/wanderer/compare/v1.66.0...v1.67.0) (2025-06-05)
+
+
+
+
+### Features:
+
+* show deleted signatures during undo timer
+
+### Bug Fixes:
+
+* Core: Fixed errors duration check to reduce requests amount to ESI
+
+* remove callbacks from effect dependencies
+
+* Core: Added back arm docker image build
+
+* Core: Fix character tracking issues
+
+* Core: Fix connection pool errors
+
+* Core: fix waypoint set timeout errors
+
+* Core: fix updating character online
+
 ## [v1.66.0](https://github.com/wanderer-industries/wanderer/compare/v1.65.24...v1.66.0) (2025-06-05)
 
 
