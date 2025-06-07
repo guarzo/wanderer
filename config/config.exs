@@ -27,7 +27,8 @@ config :wanderer_app,
   generators: [timestamp_type: :utc_datetime],
   ddrt: DDRT,
   logger: Logger,
-  pubsub_client: Phoenix.PubSub
+  pubsub_client: Phoenix.PubSub,
+  wanderer_kills_base_url: System.get_env("WANDERER_KILLS_URL", "http://wanderer-kills:4004/api/v1")
 
 config :wanderer_app, WandererAppWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,

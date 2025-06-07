@@ -22,7 +22,7 @@
 
 # Temporary files, for example, from tests.
 /tmp/
-
+/docs
 
 .env
 *.local.env
