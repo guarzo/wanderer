@@ -28,7 +28,8 @@ config :wanderer_app,
   ddrt: DDRT,
   logger: Logger,
   pubsub_client: Phoenix.PubSub,
-  wanderer_kills_base_url: System.get_env("WANDERER_KILLS_URL", "http://wanderer-kills:4004/api/v1")
+  wanderer_kills_base_url: System.get_env("WANDERER_KILLS_URL", "http://host.docker.internal:4004/api/v1"),
+  use_wanderer_kills_service: System.get_env("USE_WANDERER_KILLS_SERVICE", "false") == "true"
 
 config :wanderer_app, WandererAppWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,

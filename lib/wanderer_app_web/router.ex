@@ -221,6 +221,14 @@ defmodule WandererAppWeb.Router do
   end
 
   #
+  # Webhook routes for external services
+  #
+  scope "/api/webhooks", WandererAppWeb do
+    pipe_through [:api]
+    post "/kills", WebhookController, :kills
+  end
+
+  #
   # Unified RESTful routes for systems & connections by slug or ID
   #
   scope "/api/maps/:map_identifier", WandererAppWeb do

@@ -1,134 +1,225 @@
 defmodule WandererApp.Kills.PubSubSubscriber do
   @moduledoc """
-  Subscribes to WandererKills service PubSub topics for real-time updates.
-
-  Listens to kill updates from the WandererKills service and broadcasts them
-  to the appropriate maps using the existing broadcast patterns.
+  Subscribes to kill updates from WandererKills service via webhooks.
+  This replaces direct PubSub subscription since containers can't share PubSub registries.
   """
 
   use GenServer
   require Logger
 
-  alias WandererApp.Kills.DataAdapter
+  alias WandererApp.Kills.WandererKillsClient
 
-  def start_link(_) do
+  def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
   @impl true
   def init(state) do
-    # Subscribe to global kill updates from WandererKills service
-    # Note: These topic names match the WandererKills service PubSub topics
-    subscribe_to_wanderer_kills_topics()
-
-    Logger.info("[PubSubSubscriber] Started and subscribed to WandererKills topics")
+    # Instead of subscribing to PubSub, register a webhook with WandererKills service
+    schedule_webhook_registration()
+    Logger.info("[PubSubSubscriber] Started webhook-based subscription system")
     {:ok, state}
   end
 
-  # Handle kill count updates from WandererKills service
   @impl true
-  def handle_info(%{type: :kill_count_update, solar_system_id: system_id, count: count}, state) do
-    Logger.debug(fn ->
-      "[PubSubSubscriber] Received kill count update => system_id=#{system_id}, count=#{count}"
-    end)
+  def handle_info(:register_webhook, state) do
+    Logger.debug("[PubSubSubscriber] Attempting webhook registration...")
 
-    # Update local cache for backward compatibility with existing code
-    update_local_kill_count_cache(system_id, count)
-
-    # Find all maps containing this system and broadcast updates
-    broadcast_kill_count_to_maps(system_id, count)
-
+    case register_webhook() do
+      :ok ->
+        Logger.info("[PubSubSubscriber] Successfully registered webhook with WandererKills")
+        # No need to re-register unless something changes
+      {:error, reason} ->
+        Logger.warning("[PubSubSubscriber] Failed to register webhook: #{inspect(reason)}")
+        # Retry registration in 10 seconds
+        schedule_webhook_registration(10_000)
+      :no_systems ->
+        Logger.debug("[PubSubSubscriber] No systems to track, retrying in 30 seconds...")
+        schedule_webhook_registration(30_000)
+    end
     {:noreply, state}
   end
 
-  # Handle detailed kill updates from WandererKills service
-  @impl true
-  def handle_info(%{type: :detailed_kill_update, solar_system_id: system_id, kills: kills}, state) do
-    Logger.debug(fn ->
-      "[PubSubSubscriber] Received detailed kill update => system_id=#{system_id}, kills=#{length(kills)}"
-    end)
-
-    # Adapt the kill data format to match frontend expectations
-    adapted_kills = DataAdapter.adapt_kills_list(kills)
-
-    # Find all maps containing this system and broadcast detailed updates
-    broadcast_detailed_kills_to_maps(system_id, adapted_kills)
-
-    {:noreply, state}
-  end
-
-  # Handle bulk kill updates (multiple systems at once)
-  @impl true
-  def handle_info(%{type: :bulk_kill_update, systems_kills: systems_kills}, state) do
-    Logger.debug(fn ->
-      "[PubSubSubscriber] Received bulk kill update => #{map_size(systems_kills)} systems"
-    end)
-
-    # Adapt all kills data
-    adapted_systems_kills = DataAdapter.adapt_systems_kills(systems_kills)
-
-    # Broadcast to each affected map
-    Enum.each(adapted_systems_kills, fn {system_id, kills} ->
-      broadcast_detailed_kills_to_maps(system_id, kills)
-    end)
-
-    {:noreply, state}
-  end
-
-  # Handle service status updates
-  @impl true
-  def handle_info(%{type: :service_status, status: status}, state) do
-    Logger.info("[PubSubSubscriber] WandererKills service status: #{status}")
-    {:noreply, state}
-  end
-
-  # Catch any other messages
   @impl true
   def handle_info(message, state) do
     Logger.debug(fn -> "[PubSubSubscriber] Received unhandled message: #{inspect(message)}" end)
     {:noreply, state}
   end
 
-  # Private functions
+    # Handle webhook calls from WandererKills service
+  def handle_webhook(%{"type" => "kill_count_update"} = payload) do
+    %{"data" => %{"solar_system_id" => system_id, "count" => count}} = payload
 
-  defp subscribe_to_wanderer_kills_topics() do
-    # Subscribe to the main topics from WandererKills service
-    # These topic names should match what the WandererKills service publishes to
+    Logger.info("[PubSubSubscriber] 🔴 Kill count update => system_id=#{system_id}, count=#{count}")
 
-    # Global kill count updates
-    Phoenix.PubSub.subscribe(WandererKills.PubSub, "zkb:kills:updated")
-
-    # Global detailed kill updates
-    Phoenix.PubSub.subscribe(WandererKills.PubSub, "zkb:detailed_kills:updated")
-
-    # Service status updates
-    Phoenix.PubSub.subscribe(WandererKills.PubSub, "zkb:service:status")
-
-    Logger.debug("[PubSubSubscriber] Subscribed to WandererKills PubSub topics")
-  rescue
-    error ->
-      Logger.error("[PubSubSubscriber] Failed to subscribe to WandererKills topics: #{inspect(error)}")
-      # Continue anyway - topics might not be available yet
+    broadcast_kill_count_to_maps(system_id, count)
   end
 
-  defp update_local_kill_count_cache(system_id, count) do
-    # Update the local cache to maintain compatibility with existing code
-    # that might still check the cache directly
-    WandererApp.Cache.put("zkb_kills_#{system_id}", count, ttl: :timer.hours(1))
+    def handle_webhook(%{"type" => "detailed_kill_update"} = payload) do
+    %{"data" => %{"solar_system_id" => system_id, "kills" => kills}} = payload
+
+    Logger.info("[PubSubSubscriber] ⚔️  Detailed kill update => system_id=#{system_id}, kills=#{length(kills)}")
+
+    broadcast_detailed_kills_to_maps(system_id, kills)
+  end
+
+  def handle_webhook(%{"type" => "kill_update"} = payload) do
+    # Handle single kill updates
+    case payload do
+      %{"data" => %{"solar_system_id" => system_id, "kill" => kill}} ->
+        Logger.info("[PubSubSubscriber] ⚔️  Single kill update => system_id=#{system_id}")
+        broadcast_detailed_kills_to_maps(system_id, [kill])
+
+      %{"data" => %{"solar_system_id" => system_id, "kills" => kills}} ->
+        Logger.info("[PubSubSubscriber] ⚔️  Kill batch update => system_id=#{system_id}, kills=#{length(kills)}")
+        broadcast_detailed_kills_to_maps(system_id, kills)
+
+      _ ->
+        Logger.warning("[PubSubSubscriber] ⚠️  Unrecognized kill_update format: #{inspect(payload)}")
+    end
+  end
+
+  def handle_webhook(%{"type" => "preload_kill_update"} = payload) do
+    # Handle preload updates (background data loading)
+    case payload do
+      %{"data" => %{"solar_system_id" => system_id, "kills" => kills}} ->
+        Logger.info("[PubSubSubscriber] 🔄 Preload update => system_id=#{system_id}, kills=#{length(kills)}")
+        broadcast_detailed_kills_to_maps(system_id, kills)
+
+      _ ->
+        Logger.warning("[PubSubSubscriber] ⚠️  Unrecognized preload_kill_update format: #{inspect(payload)}")
+    end
+  end
+
+  def handle_webhook(%{"type" => "bulk_kill_update"} = payload) do
+    %{"data" => %{"systems_kills" => systems_kills}} = payload
+
+    total_kills = systems_kills |> Map.values() |> List.flatten() |> length()
+    Logger.info("[PubSubSubscriber] 📦 Bulk kill update => #{map_size(systems_kills)} systems, #{total_kills} total kills")
+
+    Enum.each(systems_kills, fn {system_id, kills} ->
+      broadcast_detailed_kills_to_maps(String.to_integer(system_id), kills)
+    end)
+  end
+
+  def handle_webhook(payload) do
+    Logger.debug(fn -> "[PubSubSubscriber] Received unhandled webhook: #{inspect(payload)}" end)
+  end
+
+
+
+  defp schedule_webhook_registration(delay \\ 1000) do
+    Process.send_after(self(), :register_webhook, delay)
+  end
+
+      defp register_webhook do
+    # Register webhook with WandererKills service
+    subscriber_id = "wanderer_main_app"
+    callback_url = webhook_callback_url()
+
+    # Get all system IDs we want to track (could be from active maps)
+    system_ids = get_tracked_system_ids()
+
+    Logger.debug("[PubSubSubscriber] Found #{length(system_ids)} systems to track: #{inspect(Enum.take(system_ids, 5))}...")
+
+    if length(system_ids) > 0 do
+      # Clean up any existing subscriptions first to avoid duplicates
+      case WandererKillsClient.unsubscribe_from_kills(subscriber_id) do
+        :ok -> Logger.debug("[PubSubSubscriber] Cleaned up existing subscriptions")
+        {:error, _} -> Logger.debug("[PubSubSubscriber] No existing subscriptions to clean up")
+      end
+
+      # Create fresh subscription
+      case WandererKillsClient.subscribe_to_kills(subscriber_id, system_ids, callback_url) do
+        {:ok, _data} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :no_systems
+    end
+  end
+
+  defp webhook_callback_url do
+    # This would be the URL that WandererKills can call back to
+    # Use host.docker.internal for container-to-container communication
+    base_url = System.get_env("WANDERER_APP_URL", "http://host.docker.internal:4444")
+    "#{base_url}/api/webhooks/kills"
+  end
+
+    defp get_tracked_system_ids do
+    # Use the same logic as KillsPreloader to get active maps and their systems
+    try do
+      # Get last-active maps (like KillsPreloader does)
+      cutoff_time = DateTime.utc_now() |> DateTime.add(-30, :minute)
+
+      last_active_maps =
+        case WandererApp.Api.MapState.get_last_active(cutoff_time) do
+          {:ok, []} ->
+            Logger.debug("[PubSubSubscriber] No last-active maps, using fallback...")
+            case WandererApp.Maps.get_available_maps() do
+              {:ok, maps} ->
+                fallback_map = Enum.max_by(maps, & &1.updated_at, fn -> nil end)
+                if fallback_map, do: [fallback_map], else: []
+              _ -> []
+            end
+          {:ok, maps} -> maps
+          {:error, reason} ->
+            Logger.warning("[PubSubSubscriber] Could not load last-active maps: #{inspect(reason)}")
+            []
+        end
+
+      Logger.debug("[PubSubSubscriber] Found #{length(last_active_maps)} last-active maps")
+
+      # Filter for maps with active subscriptions (like KillsPreloader does)
+      active_maps_with_subscription =
+        last_active_maps
+        |> Enum.filter(fn map ->
+          {:ok, is_subscription_active} = map.id |> WandererApp.Map.is_subscription_active?()
+          is_subscription_active
+        end)
+
+      Logger.debug("[PubSubSubscriber] #{length(active_maps_with_subscription)} maps have active subscriptions")
+
+      # Get visible systems from those maps (like KillsPreloader does)
+      system_ids =
+        active_maps_with_subscription
+        |> Enum.flat_map(fn map_record ->
+          the_map_id = Map.get(map_record, :map_id) || Map.get(map_record, :id)
+
+          case WandererApp.MapSystemRepo.get_visible_by_map(the_map_id) do
+            {:ok, systems} ->
+              Logger.debug("[PubSubSubscriber] Map #{the_map_id} has #{length(systems)} visible systems")
+              Enum.map(systems, fn sys -> sys.solar_system_id end)
+            {:error, reason} ->
+              Logger.debug("[PubSubSubscriber] get_visible_by_map failed for map #{the_map_id}: #{inspect(reason)}")
+              []
+          end
+        end)
+        |> Enum.uniq()
+
+      Logger.debug("[PubSubSubscriber] Total unique systems: #{length(system_ids)}")
+      system_ids
+    rescue
+      error ->
+        Logger.warning("[PubSubSubscriber] Error getting tracked systems: #{inspect(error)}")
+        []
+    end
   end
 
   defp broadcast_kill_count_to_maps(system_id, count) do
-    # Find all active maps containing this system
-    active_maps_with_system = get_active_maps_containing_system(system_id)
-
-    Enum.each(active_maps_with_system, fn map_id ->
-      payload = %{system_id => count}
-
+    WandererApp.Map.RegistryHelper.list_all_maps()
+    |> Enum.each(fn %{id: map_id} ->
       try do
-        WandererApp.Map.Server.Impl.broadcast!(map_id, :kills_updated, payload)
-        Logger.debug(fn ->
-          "[PubSubSubscriber] Broadcasted kill count to map_id=#{map_id}, system_id=#{system_id}, count=#{count}"
-        end)
+        case WandererApp.Map.get_map(map_id) do
+          {:ok, %{systems: systems}} ->
+            if Map.has_key?(systems, system_id) do
+              WandererApp.Map.Server.Impl.broadcast!(map_id, :kills_updated, %{system_id => count})
+              Logger.debug(fn ->
+                "[PubSubSubscriber] Broadcasted kill count to map_id=#{map_id}, system_id=#{system_id}, count=#{count}"
+              end)
+            end
+          _ -> :ok
+        end
       rescue
         error ->
           Logger.warning("[PubSubSubscriber] Failed to broadcast to map #{map_id}: #{inspect(error)}")
@@ -137,47 +228,25 @@ defmodule WandererApp.Kills.PubSubSubscriber do
   end
 
   defp broadcast_detailed_kills_to_maps(system_id, kills) do
-    # Find all active maps containing this system with active subscriptions
-    active_maps_with_subscriptions = get_active_maps_with_subscriptions_containing_system(system_id)
+    # Adapt the kills to frontend format if needed
+    adapted_kills = WandererApp.Kills.DataAdapter.adapt_kills_list(kills)
 
-    Enum.each(active_maps_with_subscriptions, fn map_id ->
-      payload = %{system_id => kills}
-
+    WandererApp.Map.RegistryHelper.list_all_maps()
+    |> Enum.each(fn %{id: map_id} ->
       try do
-        WandererApp.Map.Server.Impl.broadcast!(map_id, :detailed_kills_updated, payload)
-        Logger.debug(fn ->
-          "[PubSubSubscriber] Broadcasted detailed kills to map_id=#{map_id}, system_id=#{system_id}, kills=#{length(kills)}"
-        end)
+        case WandererApp.Map.get_map(map_id) do
+          {:ok, %{systems: systems}} ->
+            if Map.has_key?(systems, system_id) do
+              WandererApp.Map.Server.Impl.broadcast!(map_id, :detailed_kills_updated, %{system_id => adapted_kills})
+              Logger.debug(fn ->
+                "[PubSubSubscriber] Broadcasted #{length(adapted_kills)} kills to map_id=#{map_id}, system_id=#{system_id}"
+              end)
+            end
+          _ -> :ok
+        end
       rescue
         error ->
           Logger.warning("[PubSubSubscriber] Failed to broadcast detailed kills to map #{map_id}: #{inspect(error)}")
-      end
-    end)
-  end
-
-  defp get_active_maps_containing_system(system_id) do
-    WandererApp.Map.RegistryHelper.list_all_maps()
-    |> Enum.filter(fn %{id: map_id} ->
-      # Check if map is started
-      WandererApp.Cache.lookup!("map_#{map_id}:started", false)
-    end)
-    |> Enum.filter(fn %{id: map_id} ->
-      # Check if map contains this system
-      case WandererApp.Map.get_map(map_id) do
-        {:ok, %{systems: systems}} when is_map_key(systems, system_id) -> true
-        _ -> false
-      end
-    end)
-    |> Enum.map(& &1.id)
-  end
-
-  defp get_active_maps_with_subscriptions_containing_system(system_id) do
-    get_active_maps_containing_system(system_id)
-    |> Enum.filter(fn map_id ->
-      # Only broadcast detailed kills to maps with active subscriptions
-      case WandererApp.Map.is_subscription_active?(map_id) do
-        {:ok, true} -> true
-        _ -> false
       end
     end)
   end

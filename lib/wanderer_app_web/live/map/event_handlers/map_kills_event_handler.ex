@@ -1,6 +1,7 @@
 defmodule WandererAppWeb.MapKillsEventHandler do
   @moduledoc """
-  Handles kills-related UI/server events using WandererKills service.
+  Handles kills-related UI/server events.
+  Conditionally uses either WandererKills service or legacy zKillboard system.
   """
 
   use WandererAppWeb, :live_component
@@ -9,10 +10,22 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
   alias WandererApp.Kills.{WandererKillsClient, DataAdapter}
 
+  defp use_wanderer_kills_service? do
+    Application.get_env(:wanderer_app, :use_wanderer_kills_service, false)
+  end
+
   def handle_server_event(
         %{event: :init_kills},
         %{assigns: %{map_id: map_id}} = socket
       ) do
+    if use_wanderer_kills_service?() do
+      init_kills_wanderer_service(socket, map_id)
+    else
+      init_kills_legacy(socket, map_id)
+    end
+  end
+
+  defp init_kills_wanderer_service(socket, map_id) do
     # Get system IDs for this map
     case WandererApp.Map.get_map(map_id) do
       {:ok, %{systems: systems}} ->
@@ -26,6 +39,36 @@ defmodule WandererAppWeb.MapKillsEventHandler do
               _ -> acc
             end
           end)
+
+        socket
+        |> MapEventHandler.push_map_event(
+          "map_updated",
+          %{
+            kills:
+              kill_counts
+              |> Enum.map(fn {system_id, kills} ->
+                %{solar_system_id: system_id, kills: kills}
+              end)
+          }
+        )
+
+      _ ->
+        socket
+    end
+  end
+
+  defp init_kills_legacy(socket, map_id) do
+    # Use legacy system - get kill counts from cache
+    case WandererApp.Map.get_map(map_id) do
+      {:ok, %{systems: systems}} ->
+        kill_counts =
+          systems
+          |> Enum.into(%{}, fn {solar_system_id, _system} ->
+            kills_count = WandererApp.Cache.get("zkb_kills_#{solar_system_id}") || 0
+            {solar_system_id, kills_count}
+          end)
+          |> Enum.filter(fn {_system_id, count} -> count > 0 end)
+          |> Enum.into(%{})
 
         socket
         |> MapEventHandler.push_map_event(
@@ -114,6 +157,14 @@ defmodule WandererAppWeb.MapKillsEventHandler do
         %{"system_id" => sid, "since_hours" => sh} = payload,
         socket
       ) do
+    if use_wanderer_kills_service?() do
+      handle_get_system_kills_wanderer_service(sid, sh, payload, socket)
+    else
+      handle_get_system_kills_legacy(sid, sh, payload, socket)
+    end
+  end
+
+  defp handle_get_system_kills_wanderer_service(sid, sh, payload, socket) do
     with {:ok, system_id} <- parse_id(sid),
          {:ok, since_hours} <- parse_id(sh) do
 
@@ -148,11 +199,39 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     end
   end
 
+  defp handle_get_system_kills_legacy(sid, sh, payload, socket) do
+    with {:ok, system_id} <- parse_id(sid),
+         {:ok, since_hours} <- parse_id(sh) do
+
+      # Get cached kills from legacy cache
+      cached_map = WandererApp.Cache.get("map_#{socket.assigns.map_id}:zkb_detailed_kills") || %{}
+      cached_kills = Map.get(cached_map, system_id, [])
+
+      reply_payload = %{"system_id" => system_id, "kills" => cached_kills}
+
+      # The legacy system doesn't do async fetching on UI requests
+      # It relies on the background ZkbDataFetcher
+      {:reply, reply_payload, socket}
+    else
+      :error ->
+        Logger.warning("[#{__MODULE__}] Invalid input to get_system_kills: #{inspect(payload)}")
+        {:reply, %{"error" => "invalid_input"}, socket}
+    end
+  end
+
   def handle_ui_event(
         "get_systems_kills",
         %{"system_ids" => sids, "since_hours" => sh} = payload,
         socket
       ) do
+    if use_wanderer_kills_service?() do
+      handle_get_systems_kills_wanderer_service(sids, sh, payload, socket)
+    else
+      handle_get_systems_kills_legacy(sids, sh, payload, socket)
+    end
+  end
+
+  defp handle_get_systems_kills_wanderer_service(sids, sh, payload, socket) do
     with {:ok, since_hours} <- parse_id(sh),
          {:ok, parsed_ids} <- parse_system_ids(sids) do
       Logger.debug(fn ->
@@ -172,6 +251,27 @@ defmodule WandererAppWeb.MapKillsEventHandler do
       reply_payload = %{"systems_kills" => cached_map}
 
       # No need for async fetch since WandererKills service handles this internally
+      {:reply, reply_payload, socket}
+    else
+      :error ->
+        Logger.warning("[#{__MODULE__}] Invalid multiple-systems input: #{inspect(payload)}")
+        {:reply, %{"error" => "invalid_input"}, socket}
+    end
+  end
+
+  defp handle_get_systems_kills_legacy(sids, sh, payload, socket) do
+    with {:ok, since_hours} <- parse_id(sh),
+         {:ok, parsed_ids} <- parse_system_ids(sids) do
+      Logger.debug(fn ->
+        "[#{__MODULE__}] get_systems_kills => system_ids=#{inspect(parsed_ids)}, since_hours=#{since_hours}"
+      end)
+
+      # Get kills from legacy cache
+      cached_map = WandererApp.Cache.get("map_#{socket.assigns.map_id}:zkb_detailed_kills") || %{}
+      filtered_map = Map.take(cached_map, parsed_ids)
+
+      reply_payload = %{"systems_kills" => filtered_map}
+
       {:reply, reply_payload, socket}
     else
       :error ->

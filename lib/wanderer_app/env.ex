@@ -60,4 +60,12 @@ defmodule WandererApp.Env do
   def to_client_env do
     %{detailedKillsDisabled: zkill_preload_disabled?()}
   end
+
+  @doc """
+  Returns true if the WandererKills service should be used instead of legacy zKillboard system.
+  Controlled by USE_WANDERER_KILLS_SERVICE environment variable.
+  """
+  def use_wanderer_kills_service? do
+    Application.get_env(:wanderer_app, :use_wanderer_kills_service, false)
+  end
 end

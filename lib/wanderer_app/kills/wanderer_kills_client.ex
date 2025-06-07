@@ -7,9 +7,12 @@ defmodule WandererApp.Kills.WandererKillsClient do
   require Logger
   use Retry
 
-  @base_url Application.compile_env(:wanderer_app, :wanderer_kills_base_url, "http://wanderer-kills:4004/api/v1")
   @timeout 30_000
   @max_retries 3
+
+  defp base_url do
+    Application.get_env(:wanderer_app, :wanderer_kills_base_url, "http://localhost:4004/api/v1")
+  end
 
   @doc """
   Fetch kills for a specific system within the given time range.
@@ -24,7 +27,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def fetch_system_kills(system_id, since_hours, limit \\ 100) do
-    url = "#{@base_url}/kills/system/#{system_id}"
+    url = "#{base_url()}/kills/system/#{system_id}"
     params = %{since_hours: since_hours, limit: limit}
 
     Logger.debug(fn ->
@@ -57,7 +60,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def fetch_systems_kills(system_ids, since_hours, limit \\ 100) when is_list(system_ids) do
-    url = "#{@base_url}/kills/systems"
+    url = "#{base_url()}/kills/systems"
     body = %{system_ids: system_ids, since_hours: since_hours, limit: limit}
 
     Logger.debug(fn ->
@@ -89,7 +92,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def fetch_cached_kills(system_id) do
-    url = "#{@base_url}/kills/cached/#{system_id}"
+    url = "#{base_url()}/kills/cached/#{system_id}"
 
     Logger.debug(fn -> "[WandererKillsClient] fetch_cached_kills => system_id=#{system_id}" end)
 
@@ -117,7 +120,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def get_system_kill_count(system_id) do
-    url = "#{@base_url}/kills/count/#{system_id}"
+    url = "#{base_url()}/kills/count/#{system_id}"
 
     Logger.debug(fn -> "[WandererKillsClient] get_system_kill_count => system_id=#{system_id}" end)
 
@@ -145,7 +148,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def get_killmail(killmail_id) do
-    url = "#{@base_url}/killmail/#{killmail_id}"
+    url = "#{base_url()}/killmail/#{killmail_id}"
 
     Logger.debug(fn -> "[WandererKillsClient] get_killmail => killmail_id=#{killmail_id}" end)
 
@@ -175,7 +178,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def subscribe_to_kills(subscriber_id, system_ids, callback_url \\ nil) when is_list(system_ids) do
-    url = "#{@base_url}/subscriptions"
+    url = "#{base_url()}/subscriptions"
     body = %{
       subscriber_id: subscriber_id,
       system_ids: system_ids,
@@ -208,13 +211,16 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def unsubscribe_from_kills(subscriber_id) do
-    url = "#{@base_url}/subscriptions/#{subscriber_id}"
+    url = "#{base_url()}/subscriptions/#{subscriber_id}"
 
     Logger.info("[WandererKillsClient] unsubscribe_from_kills => subscriber=#{subscriber_id}")
 
     case http_delete(url) do
       {:ok, _} ->
         Logger.info("[WandererKillsClient] unsubscribe_from_kills => subscription removed")
+        :ok
+      {:error, "HTTP 404:" <> _} ->
+        Logger.debug("[WandererKillsClient] unsubscribe_from_kills => no subscription found (expected during cleanup)")
         :ok
       {:error, reason} ->
         Logger.error("[WandererKillsClient] unsubscribe_from_kills => request error: #{inspect(reason)}")
@@ -230,18 +236,37 @@ defmodule WandererApp.Kills.WandererKillsClient do
   - {:error, reason} on failure
   """
   def health_check() do
-    url = "#{@base_url}/health"
+    url = "#{base_url() |> String.replace("/api/v1", "")}/health"
 
-    case http_get(url, %{}) do
-      {:ok, %{"status" => "ok"} = response} ->
-        Logger.debug("[WandererKillsClient] health_check => service healthy")
-        {:ok, response}
-      {:ok, response} ->
-        Logger.warning("[WandererKillsClient] health_check => unexpected response: #{inspect(response)}")
-        {:error, "unexpected_response"}
+    case Req.get(url, connect_options: [timeout: @timeout], receive_timeout: @timeout) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:http_error, status, body}}
+
       {:error, reason} ->
-        Logger.error("[WandererKillsClient] health_check => request error: #{inspect(reason)}")
-        {:error, reason}
+        {:error, {:connection_error, reason}}
+    end
+  end
+
+  # Test function for manual connectivity testing
+  def test_connection do
+    Logger.info("[WandererKillsClient] Testing connection to #{base_url()}")
+
+    case health_check() do
+      {:ok, body} ->
+        Logger.info("[WandererKillsClient] ✅ Connection successful! Response: #{inspect(body)}")
+        {:ok, :connected}
+
+      {:error, {:connection_error, reason}} ->
+        Logger.warning("[WandererKillsClient] ❌ Connection failed: #{inspect(reason)}")
+        Logger.warning("[WandererKillsClient] Make sure WandererKills service is running on #{base_url()}")
+        {:error, :connection_failed}
+
+      {:error, {:http_error, status, body}} ->
+        Logger.warning("[WandererKillsClient] ❌ HTTP error #{status}: #{inspect(body)}")
+        {:error, {:http_error, status}}
     end
   end
 
@@ -249,7 +274,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
 
   defp http_get(url, params) do
     retry with: exponential_backoff(500) |> randomize() |> cap(5_000) |> Stream.take(@max_retries) do
-      case Req.get(url, params: params, decode_body: :json, connect_timeout: @timeout, receive_timeout: @timeout) do
+      case Req.get(url, params: params, decode_body: :json, connect_options: [timeout: @timeout], receive_timeout: @timeout) do
         {:ok, %{status: status, body: body}} when status in 200..299 ->
           {:ok, body}
         {:ok, %{status: 429}} ->
@@ -273,7 +298,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
 
   defp http_post(url, body) do
     retry with: exponential_backoff(500) |> randomize() |> cap(5_000) |> Stream.take(@max_retries) do
-      case Req.post(url, json: body, decode_body: :json, connect_timeout: @timeout, receive_timeout: @timeout) do
+      case Req.post(url, json: body, decode_body: :json, connect_options: [timeout: @timeout], receive_timeout: @timeout) do
         {:ok, %{status: status, body: body}} when status in 200..299 ->
           {:ok, body}
         {:ok, %{status: 429}} ->
@@ -297,7 +322,7 @@ defmodule WandererApp.Kills.WandererKillsClient do
 
   defp http_delete(url) do
     retry with: exponential_backoff(500) |> randomize() |> cap(5_000) |> Stream.take(@max_retries) do
-      case Req.delete(url, connect_timeout: @timeout, receive_timeout: @timeout) do
+      case Req.delete(url, connect_options: [timeout: @timeout], receive_timeout: @timeout) do
         {:ok, %{status: status}} when status in 200..299 ->
           {:ok, :deleted}
         {:ok, %{status: 429}} ->
