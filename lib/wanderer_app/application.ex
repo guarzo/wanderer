@@ -47,17 +47,16 @@ defmodule WandererApp.Application do
          child_spec: DynamicSupervisor, name: WandererApp.Map.DynamicSupervisors},
         {PartitionSupervisor,
          child_spec: DynamicSupervisor, name: WandererApp.Character.DynamicSupervisors},
-        WandererApp.Zkb.Supervisor,
         WandererApp.Server.ServerStatusTracker,
         WandererApp.Server.TheraDataFetcher,
         {WandererApp.Character.TrackerPoolSupervisor, []},
         WandererApp.Character.TrackerManager,
         WandererApp.Map.Manager,
-        WandererApp.Map.ZkbDataFetcher,
         WandererAppWeb.Presence,
         WandererAppWeb.Endpoint
       ] ++
-        maybe_start_corp_wallet_tracker(WandererApp.Env.map_subscriptions_enabled?())
+        maybe_start_corp_wallet_tracker(WandererApp.Env.map_subscriptions_enabled?()) ++
+        maybe_start_kills_services()
 
     opts = [strategy: :one_for_one, name: WandererApp.Supervisor]
 
@@ -85,4 +84,21 @@ defmodule WandererApp.Application do
 
   defp maybe_start_corp_wallet_tracker(_),
     do: []
+
+    defp maybe_start_kills_services do
+    use_wanderer_kills = Application.get_env(:wanderer_app, :use_wanderer_kills_service, false)
+
+    if use_wanderer_kills do
+      Logger.info("Starting WandererKills service integration...")
+      [
+        WandererApp.Kills.WebSocketClient
+      ]
+    else
+      Logger.info("Starting legacy zKillboard integration...")
+      [
+        WandererApp.Zkb.Supervisor,
+        WandererApp.Map.ZkbDataFetcher
+      ]
+    end
+  end
 end

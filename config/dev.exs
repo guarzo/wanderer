@@ -84,3 +84,11 @@ config :swoosh, :api_client, false
 config :logger, :console,
   level: :info,
   format: "$time $metadata[$level] $message\n"
+
+# WandererKills service configuration (WebSocket-based)
+config :wanderer_app,
+  # Enable WandererKills service integration
+  use_wanderer_kills_service: true,
+
+  # WebSocket connection URL for WandererKills service
+  wanderer_kills_base_url: "ws://wanderer-kills:4004"
