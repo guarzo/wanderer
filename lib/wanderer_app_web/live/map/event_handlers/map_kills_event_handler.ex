@@ -8,7 +8,7 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   require Logger
 
   alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
-  alias WandererApp.Kills.{WandererKillsClient, DataAdapter}
+  alias WandererApp.Kills.WandererKillsClient
 
   defp use_wanderer_kills_service? do
     Application.get_env(:wanderer_app, :use_wanderer_kills_service, false)
@@ -169,6 +169,18 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     end
   end
 
+  def handle_ui_event(
+        "get_systems_kills",
+        %{"system_ids" => sids, "since_hours" => sh} = payload,
+        socket
+      ) do
+    if use_wanderer_kills_service?() do
+      handle_get_systems_kills_wanderer_service(sids, sh, payload, socket)
+    else
+      handle_get_systems_kills_legacy(sids, sh, payload, socket)
+    end
+  end
+
   defp handle_get_system_kills_wanderer_service(sid, sh, payload, socket) do
     with {:ok, system_id} <- parse_id(sid),
          {:ok, since_hours} <- parse_id(sh) do
@@ -214,17 +226,6 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     end
   end
 
-  def handle_ui_event(
-        "get_systems_kills",
-        %{"system_ids" => sids, "since_hours" => sh} = payload,
-        socket
-      ) do
-    if use_wanderer_kills_service?() do
-      handle_get_systems_kills_wanderer_service(sids, sh, payload, socket)
-    else
-      handle_get_systems_kills_legacy(sids, sh, payload, socket)
-    end
-  end
 
   defp handle_get_systems_kills_wanderer_service(sids, sh, payload, socket) do
     with {:ok, since_hours} <- parse_id(sh),
@@ -306,9 +307,4 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   end
 
   defp parse_system_ids(_), do: :error
-
-  defp map_ui_kill({solar_system_id, kills}),
-    do: %{solar_system_id: solar_system_id, kills: kills}
-
-  defp map_ui_kill(_kill), do: %{}
 end

@@ -300,8 +300,23 @@ defmodule WandererApp.Kills.WandererKillsClient do
   """
   @spec health_check() :: {:ok, map()} | {:error, any()}
   def health_check() do
-    url = Path.join(base_url() |> String.replace("/api/v1", ""), "health")
+    url = derive_health_url(base_url())
     http_get(url, %{})
+  end
+
+  # Private helper to derive health check URL from base URL
+  defp derive_health_url(base_url) do
+    uri = URI.parse(base_url)
+
+    # Remove /api/v1 from the path if it exists
+    clean_path = case uri.path do
+      "/api/v1" -> ""
+      path when is_binary(path) -> String.replace_suffix(path, "/api/v1", "")
+      _ -> ""
+    end
+
+    %{uri | path: clean_path <> "/health"}
+    |> URI.to_string()
   end
 
   # Test function for manual connectivity testing

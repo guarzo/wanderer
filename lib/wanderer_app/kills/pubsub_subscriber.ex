@@ -18,18 +18,33 @@ defmodule WandererApp.Kills.PubSubSubscriber do
     if Application.get_env(:wanderer_app, :use_wanderer_kills_service, false) do
       Logger.info("[PubSubSubscriber] Starting WebSocket-based subscription system")
 
-      # Start WebSocket client
-      case WebSocketClient.start_link() do
+      # Start WebSocket client with retry logic
+      case start_websocket_client_with_retry() do
         {:ok, _pid} ->
           Logger.info("[PubSubSubscriber] ✅ WebSocket client started successfully")
+          {:ok, state}
         {:error, reason} ->
-          Logger.error("[PubSubSubscriber] ❌ Failed to start WebSocket client: #{inspect(reason)}")
+          Logger.error("[PubSubSubscriber] ❌ Failed to start WebSocket client after retries: #{inspect(reason)}")
+          {:stop, {:websocket_client_failed, reason}}
       end
     else
       Logger.info("[PubSubSubscriber] WandererKills service disabled, using legacy zkillboard")
+      {:ok, state}
     end
+  end
 
-    {:ok, state}
+  # Private helper to start WebSocket client with retry logic
+  defp start_websocket_client_with_retry(attempt \\ 1, max_attempts \\ 3) do
+    case WebSocketClient.start_link() do
+      {:ok, pid} ->
+        {:ok, pid}
+      {:error, reason} when attempt < max_attempts ->
+        Logger.warning("[PubSubSubscriber] WebSocket client start attempt #{attempt} failed: #{inspect(reason)}, retrying...")
+        :timer.sleep(1000 * attempt)  # Progressive delay: 1s, 2s, 3s
+        start_websocket_client_with_retry(attempt + 1, max_attempts)
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @impl true
@@ -63,11 +78,5 @@ defmodule WandererApp.Kills.PubSubSubscriber do
     end
   end
 
-  def update_subscriptions do
-    if Application.get_env(:wanderer_app, :use_wanderer_kills_service, false) do
-      WebSocketClient.update_subscriptions()
-    else
-      Logger.debug("[PubSubSubscriber] WandererKills service disabled, ignoring subscription update")
-    end
-  end
+
 end

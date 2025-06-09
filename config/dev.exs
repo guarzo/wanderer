@@ -91,4 +91,4 @@ config :wanderer_app,
   use_wanderer_kills_service: true,
 
   # WebSocket connection URL for WandererKills service
-  wanderer_kills_base_url: "ws://wanderer-kills:4004"
+  wanderer_kills_base_url: System.get_env("WANDERER_KILLS_URL", "ws://host.docker.internal:4004")
