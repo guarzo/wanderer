@@ -18,6 +18,8 @@ services:
       DB_HOST: db
       WEB_APP_URL: "http://localhost:4444"
       ERL_AFLAGS: "-kernel shell_history enabled"
+      # WandererKills service configuration (WebSocket-based)
+      USE_WANDERER_KILLS_SERVICE: "true"
     build:
       context: .
       dockerfile: Dockerfile

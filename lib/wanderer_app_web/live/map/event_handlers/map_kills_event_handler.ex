@@ -1,41 +1,55 @@
 defmodule WandererAppWeb.MapKillsEventHandler do
   @moduledoc """
   Handles kills-related UI/server events.
+  Uses cache data populated by the WandererKills WebSocket service.
   """
 
   use WandererAppWeb, :live_component
   require Logger
 
   alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
-  alias WandererApp.Zkb.KillsProvider
-  alias WandererApp.Zkb.KillsProvider.KillsCache
+
+  defp get_detailed_kills_cache_key(map_id), do: "map_#{map_id}:zkb_detailed_kills"
 
   def handle_server_event(
         %{event: :init_kills},
-        %{
-          assigns: %{
-            map_id: map_id
-          }
-        } = socket
+        %{assigns: %{map_id: map_id}} = socket
       ) do
-    {:ok, kills} = WandererApp.Cache.lookup("map_#{map_id}:zkb_kills", Map.new())
+    # Get kill counts from cache
+    case WandererApp.Map.get_map(map_id) do
+      {:ok, %{systems: systems}} ->
+        kill_counts =
+          systems
+          |> Enum.into(%{}, fn {solar_system_id, _system} ->
+            kills_count = WandererApp.Cache.get("zkb_kills_#{solar_system_id}") || 0
+            {solar_system_id, kills_count}
+          end)
+          |> Enum.filter(fn {_system_id, count} -> count > 0 end)
+          |> Enum.into(%{})
 
-    socket
-    |> MapEventHandler.push_map_event(
-      "map_updated",
-      %{
-        kills:
-          kills
-          |> Enum.filter(fn {_, kills} -> kills > 0 end)
-          |> Enum.map(&map_ui_kill/1)
-      }
-    )
+        socket
+        |> MapEventHandler.push_map_event(
+          "map_updated",
+          %{
+            kills:
+              kill_counts
+              |> Enum.map(fn {system_id, kills} ->
+                %{solar_system_id: system_id, kills: kills}
+              end)
+          }
+        )
+
+      _ ->
+        socket
+    end
   end
 
   def handle_server_event(%{event: :kills_updated, payload: kills}, socket) do
     kills =
       kills
-      |> Enum.map(&map_ui_kill/1)
+      |> Enum.map(fn {system_id, count} ->
+        %{solar_system_id: system_id, kills: count}
+      end)
 
     socket
     |> MapEventHandler.push_map_event(
@@ -100,22 +114,34 @@ defmodule WandererAppWeb.MapKillsEventHandler do
         %{"system_id" => sid, "since_hours" => sh} = payload,
         socket
       ) do
+    handle_get_system_kills(sid, sh, payload, socket)
+  end
+
+  def handle_ui_event(
+        "get_systems_kills",
+        %{"system_ids" => sids, "since_hours" => sh} = payload,
+        socket
+      ) do
+    handle_get_systems_kills(sids, sh, payload, socket)
+  end
+
+  def handle_ui_event(event, payload, socket) do
+    MapCoreEventHandler.handle_ui_event(event, payload, socket)
+  end
+
+  defp handle_get_system_kills(sid, sh, payload, socket) do
     with {:ok, system_id} <- parse_id(sid),
-         {:ok, since_hours} <- parse_id(sh) do
-      kills_from_cache = KillsCache.fetch_cached_kills(system_id)
-      reply_payload = %{"system_id" => system_id, "kills" => kills_from_cache}
+         {:ok, _since_hours} <- parse_id(sh) do
+      # Read from local cache
+      cached_map =
+        WandererApp.Cache.get(get_detailed_kills_cache_key(socket.assigns.map_id)) || %{}
 
-      Task.async(fn ->
-        case KillsProvider.Fetcher.fetch_kills_for_system(system_id, since_hours, %{
-               calls_count: 0
-             }) do
-          {:ok, fresh_kills, _new_state} ->
-            {:detailed_kills_updated, %{system_id => fresh_kills}}
+      cached_kills = Map.get(cached_map, system_id, [])
 
-          {:error, reason, _new_state} ->
-            Logger.warning("[#{__MODULE__}] fetch_kills_for_system => error=#{inspect(reason)}")
-            {:system_kills_error, {system_id, reason}}
-        end
+      reply_payload = %{"system_id" => system_id, "kills" => cached_kills}
+
+      Logger.debug(fn ->
+        "[#{__MODULE__}] get_system_kills => system_id=#{system_id}, cached_kills=#{length(cached_kills)}"
       end)
 
       {:reply, reply_payload, socket}
@@ -126,73 +152,23 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     end
   end
 
-  def handle_ui_event(
-        "get_systems_kills",
-        %{"system_ids" => sids, "since_hours" => sh} = payload,
-        socket
-      ) do
-    with {:ok, since_hours} <- parse_id(sh),
+  defp handle_get_systems_kills(sids, sh, payload, socket) do
+    with {:ok, _since_hours} <- parse_id(sh),
          {:ok, parsed_ids} <- parse_system_ids(sids) do
       Logger.debug(fn ->
-        "[#{__MODULE__}] get_systems_kills => system_ids=#{inspect(parsed_ids)}, since_hours=#{since_hours}"
+        "[#{__MODULE__}] get_systems_kills => system_ids=#{inspect(parsed_ids)}"
       end)
 
-      # Get the cutoff time based on since_hours
-      cutoff = DateTime.utc_now() |> DateTime.add(-since_hours * 3600, :second)
+      # Read from local cache
+      cached_map =
+        WandererApp.Cache.get(get_detailed_kills_cache_key(socket.assigns.map_id)) || %{}
+
+      filtered_map = Map.take(cached_map, parsed_ids)
+
+      reply_payload = %{"systems_kills" => filtered_map}
 
       Logger.debug(fn ->
-        "[#{__MODULE__}] get_systems_kills => cutoff=#{DateTime.to_iso8601(cutoff)}"
-      end)
-
-      # Fetch and filter kills for each system
-      cached_map =
-        Enum.reduce(parsed_ids, %{}, fn sid, acc ->
-          # Get all cached kills for this system
-          all_kills = KillsCache.fetch_cached_kills(sid)
-
-          # Filter kills based on the cutoff time
-          filtered_kills =
-            Enum.filter(all_kills, fn kill ->
-              kill_time = kill["kill_time"]
-
-              case kill_time do
-                %DateTime{} = dt ->
-                  # Keep kills that occurred after the cutoff
-                  DateTime.compare(dt, cutoff) != :lt
-
-                time when is_binary(time) ->
-                  # Try to parse the string time
-                  case DateTime.from_iso8601(time) do
-                    {:ok, dt, _} -> DateTime.compare(dt, cutoff) != :lt
-                    _ -> false
-                  end
-
-                # If it's something else (nil, or a weird format), skip
-                _ ->
-                  false
-              end
-            end)
-
-          Logger.debug(fn ->
-            "[#{__MODULE__}] get_systems_kills => system_id=#{sid}, all_kills=#{length(all_kills)}, filtered_kills=#{length(filtered_kills)}"
-          end)
-
-          Map.put(acc, sid, filtered_kills)
-        end)
-
-      reply_payload = %{"systems_kills" => cached_map}
-
-      Task.async(fn ->
-        case KillsProvider.Fetcher.fetch_kills_for_systems(parsed_ids, since_hours, %{
-               calls_count: 0
-             }) do
-          {:ok, systems_map} ->
-            {:detailed_kills_updated, systems_map}
-
-          {:error, reason} ->
-            Logger.warning("[#{__MODULE__}] fetch_kills_for_systems => error=#{inspect(reason)}")
-            {:systems_kills_error, {parsed_ids, reason}}
-        end
+        "[#{__MODULE__}] get_systems_kills => returning #{map_size(filtered_map)} systems from cache"
       end)
 
       {:reply, reply_payload, socket}
@@ -201,10 +177,6 @@ defmodule WandererAppWeb.MapKillsEventHandler do
         Logger.warning("[#{__MODULE__}] Invalid multiple-systems input: #{inspect(payload)}")
         {:reply, %{"error" => "invalid_input"}, socket}
     end
-  end
-
-  def handle_ui_event(event, payload, socket) do
-    MapCoreEventHandler.handle_ui_event(event, payload, socket)
   end
 
   defp parse_id(value) when is_binary(value) do
@@ -233,9 +205,4 @@ defmodule WandererAppWeb.MapKillsEventHandler do
   end
 
   defp parse_system_ids(_), do: :error
-
-  defp map_ui_kill({solar_system_id, kills}),
-    do: %{solar_system_id: solar_system_id, kills: kills}
-
-  defp map_ui_kill(_kill), do: %{}
 end
