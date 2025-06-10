@@ -2,6 +2,57 @@
 
 <!-- changelog -->
 
+## [v1.69.0](https://github.com/wanderer-industries/wanderer/compare/v1.68.3...v1.69.0) (2025-06-10)
+
+
+
+
+### Features:
+
+* Core: Added invites store support
+
+* Core: Added support for WANDERER_CHARACTER_TRACKING_PAUSE_DISABLED env variable to pause inactive character trackers
+
+### Bug Fixes:
+
+* Core: Fixed character auth with wallet (on characters page)
+
+* Core: Fixed auth from welcome page if invites disabled
+
+* Core: Added back ARM docker image build
+
+* Core: Fixed issue with system splash updates
+
+* Core: Fixed issue with system splash updates
+
+* Core: Disabled kills fetching based on env settings
+
+* Core: Fixed kills fetching based on env settings
+
+* Core: Added check for offline characters timeouts
+
+* Core: Increased tracking pause timeout for offline characters up to 10 hours
+
+* Core: Increased tracking pause timeout for offline characters up to 10 hours
+
+* Core: Added back arm docker image build
+
+* Core: fixed online updates
+
+* Core: fixed location tracking issues
+
+* Core: fixed refresh character tokens
+
+* fixed disable detailed kills env check
+
+* fixed disable detailed kills env check
+
+* respect error limits for ESI APIs
+
+* respect error limits for ESI APIs
+
+* respect error limits for ESI APIs
+
 ## [v1.68.3](https://github.com/wanderer-industries/wanderer/compare/v1.68.2...v1.68.3) (2025-06-09)
 
 
