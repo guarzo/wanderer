@@ -2,6 +2,21 @@
 
 <!-- changelog -->
 
+## [v1.71.0](https://github.com/wanderer-industries/wanderer/compare/v1.70.0...v1.71.0) (2025-06-13)
+
+
+
+
+### Features:
+
+* Core: Fix admin page error
+
+* Core: Added multiple tracking pools support
+
+### Bug Fixes:
+
+* Core: Fixed updating map options
+
 ## [v1.70.0](https://github.com/wanderer-industries/wanderer/compare/v1.69.1...v1.70.0) (2025-06-11)
 
 
