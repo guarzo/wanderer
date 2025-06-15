@@ -37,7 +37,7 @@ defmodule WandererApp.MapApiTest do
       
       response =
         conn
-        |> authenticate_user(user)
+        |> authenticate_character(character)
         |> get_paginated("/api/maps", %{page: 1, page_size: 10})
         |> assert_status(200)
         |> json_response(200)
@@ -67,7 +67,7 @@ defmodule WandererApp.MapApiTest do
 
       response =
         conn
-        |> authenticate_user(user)
+        |> authenticate_character(character)
         |> api_request(:post, "/api/maps", params)
         |> assert_status(201)
         |> json_response(201)
@@ -95,7 +95,7 @@ defmodule WandererApp.MapApiTest do
       # Make multiple requests to trigger rate limiting
       for _ <- 1..10 do
         conn
-        |> authenticate_user(user)
+        |> authenticate_character(character)
         |> api_request(:post, "/api/maps", %{name: "Map"})
       end
 
@@ -117,7 +117,7 @@ defmodule WandererApp.MapApiTest do
     test "returns map details for authorized user", %{conn: conn, user: user, map: map} do
       response =
         conn
-        |> authenticate_user(user)
+        |> authenticate_character(character)
         |> get("/api/maps/#{map.id}")
         |> assert_status(200)
         |> json_response(200)
@@ -161,7 +161,7 @@ defmodule WandererApp.MapApiTest do
 
       response =
         conn
-        |> authenticate_user(user)
+        |> authenticate_character(character)
         |> api_request(:put, "/api/maps/#{map.id}", params)
         |> assert_status(200)
         |> json_response(200)
