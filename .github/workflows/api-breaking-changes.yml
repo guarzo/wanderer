@@ -1,0 +1,96 @@
+name: API Breaking Changes Check
+
+on:
+  pull_request:
+    paths:
+      - 'lib/wanderer_app_web/controllers/**'
+      - 'lib/wanderer_app_web/schemas/**'
+      - 'lib/wanderer_app_web/api_spec.ex'
+      - 'lib/wanderer_app/api/**'
+
+jobs:
+  check-breaking-changes:
+    name: Check for API Breaking Changes
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          path: pr
+
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.15.4'
+          otp-version: '26.0'
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            main/deps
+            main/_build
+            pr/deps
+            pr/_build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Export main branch OpenAPI spec
+        working-directory: main
+        run: |
+          mix deps.get
+          mix compile
+          mix openapi.export --output ../main-spec.json
+
+      - name: Export PR branch OpenAPI spec
+        working-directory: pr
+        run: |
+          mix deps.get
+          mix compile
+          mix openapi.export --output ../pr-spec.json
+
+      - name: Check for breaking changes
+        working-directory: pr
+        run: |
+          elixir scripts/check_api_breaking_changes.exs ../main-spec.json ../pr-spec.json
+
+      - name: Comment on PR if breaking changes detected
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `
+            ⚠️ **API Breaking Changes Detected**
+            
+            This PR contains breaking changes to the API. Please ensure:
+            1. The changes are intentional and necessary
+            2. API version is bumped appropriately
+            3. Migration guide is provided for API consumers
+            4. Deprecation notices are added to affected endpoints
+            
+            Run \`mix openapi.export\` locally and use \`elixir scripts/check_api_breaking_changes.exs\` to see details.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Upload OpenAPI diff artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: openapi-specs
+          path: |
+            main-spec.json
+            pr-spec.json

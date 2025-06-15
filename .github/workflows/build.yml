@@ -87,6 +87,12 @@ jobs:
         if: steps.cache-build.outputs.cache-hit != 'true'
         run: mix compile
 
+      # Export OpenAPI specification for documentation and versioning
+      - name: 📚 Export OpenAPI Specification
+        run: |
+          mix openapi.export --output openapi-v1.json
+          echo "OpenAPI spec exported to openapi-v1.json"
+
       - name: Generate Changelog & Update Tag Version
         id: generate-changelog
         run: |
@@ -95,6 +101,14 @@ jobs:
           mix git_ops.release --force-patch --yes
           git push --follow-tags
           echo "commit_hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      # Upload OpenAPI spec as artifact
+      - name: Upload OpenAPI Specification
+        uses: actions/upload-artifact@v3
+        with:
+          name: openapi-spec
+          path: openapi-v1.json
+          retention-days: 90
 
   docker:
     name: 🛠 Build Docker Images

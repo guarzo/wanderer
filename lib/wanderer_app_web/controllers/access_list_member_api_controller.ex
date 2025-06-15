@@ -24,7 +24,6 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
           eve_alliance_id: %OpenApiSpex.Schema{type: :string},
           role: %OpenApiSpex.Schema{type: :string}
         }
-        # no 'required' fields if you truly allow any of them
       }
     },
     required: ["member"]
@@ -99,6 +98,99 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
   # ------------------------------------------------------------------------
 
   @doc """
+  GET /api/acls/:acl_id/members
+
+  Lists ACL members with optional filtering.
+  """
+  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation(:index,
+    summary: "List ACL Members",
+    description: "Lists all members of an ACL with optional filtering by role or type.",
+    parameters: [
+      acl_id: [
+        in: :path,
+        description: "Access List ID",
+        type: :string,
+        required: true
+      ],
+      role: [
+        in: :query,
+        description: "Filter by member role",
+        type: :string,
+        required: false
+      ],
+      type: [
+        in: :query,
+        description: "Filter by member type (character, corporation, alliance)",
+        type: :string,
+        required: false
+      ]
+    ],
+    responses: [
+      ok: {
+        "List of ACL Members",
+        "application/json",
+        %OpenApiSpex.Schema{
+          type: :object,
+          properties: %{
+            data: %OpenApiSpex.Schema{
+              type: :array,
+              items: @acl_member_create_response_schema.properties.data
+            }
+          },
+          required: ["data"]
+        }
+      }
+    ]
+  )
+
+  def index(conn, %{"acl_id" => acl_id} = params) do
+    base_query =
+      AccessListMember
+      |> Ash.Query.new()
+      |> filter(access_list_id == ^acl_id)
+
+    # Apply role filter if provided
+    query =
+      case Map.get(params, "role") do
+        nil ->
+          base_query
+
+        role when role in ["admin", "manager", "member", "viewer"] ->
+          filter(base_query, role == ^String.to_atom(role))
+
+        _ ->
+          base_query
+      end
+
+    # Apply type filter if provided
+    query =
+      case Map.get(params, "type") do
+        "character" ->
+          filter(query, not is_nil(eve_character_id))
+
+        "corporation" ->
+          filter(query, not is_nil(eve_corporation_id))
+
+        "alliance" ->
+          filter(query, not is_nil(eve_alliance_id))
+
+        _ ->
+          query
+      end
+
+    case WandererApp.Api.read(query) do
+      {:ok, members} ->
+        json(conn, %{data: Enum.map(members, &member_to_json/1)})
+
+      {:error, error} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Error reading ACL members: #{inspect(error)}"})
+    end
+  end
+
+  @doc """
   POST /api/acls/:acl_id/members
 
   Creates a new ACL member.
@@ -155,12 +247,23 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
     else
       {key, type} = chosen
       raw_id = Map.get(member_params, key)
-      id_str = to_string(raw_id)
+
+      # Safely convert ID to string, handling invalid types
+      id_str =
+        case raw_id do
+          val when is_binary(val) -> val
+          val when is_integer(val) -> Integer.to_string(val)
+          # Lists can't be converted to valid EVE IDs
+          val when is_list(val) -> inspect(val)
+          # Other types like nil, booleans, etc.
+          val -> inspect(val)
+        end
+
       role = Map.get(member_params, "role", "viewer")
 
       if type in ["corporation", "alliance"] and role in ["admin", "manager"] do
         conn
-        |> put_status(:bad_request)
+        |> put_status(:unprocessable_entity)
         |> json(%{
           error: "#{String.capitalize(type)} members cannot have an admin or manager role"
         })
@@ -184,11 +287,20 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
 
           case AccessListMember.create(new_params) do
             {:ok, new_member} ->
-              json(conn, %{data: member_to_json(new_member)})
+              conn
+              |> put_status(:created)
+              |> json(%{data: member_to_json(new_member)})
 
             {:error, error} ->
+              # Check if this is a validation/constraint error (duplicate member)
+              status =
+                case error do
+                  %Ash.Error.Invalid{} -> :unprocessable_entity
+                  _ -> :bad_request
+                end
+
               conn
-              |> put_status(:bad_request)
+              |> put_status(status)
               |> json(%{error: "Creation failed: #{inspect(error)}"})
           end
         else
@@ -269,7 +381,7 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
 
         if member_type in ["corporation", "alliance"] and new_role in ["admin", "manager"] do
           conn
-          |> put_status(:bad_request)
+          |> put_status(:unprocessable_entity)
           |> json(%{
             error:
               "#{String.capitalize(member_type)} members cannot have an admin or manager role"
@@ -347,7 +459,9 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
       {:ok, [membership]} ->
         case AccessListMember.destroy(membership) do
           :ok ->
-            json(conn, %{ok: true})
+            conn
+            |> put_status(:no_content)
+            |> json(%{})
 
           {:error, error} ->
             conn

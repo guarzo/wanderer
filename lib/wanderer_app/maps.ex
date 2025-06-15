@@ -73,9 +73,21 @@ defmodule WandererApp.Maps do
   end
 
   def get_available_maps(current_user) do
+    require Logger
+    Logger.info("get_available_maps called with current_user: #{inspect(current_user)}")
+
     case WandererApp.Api.Map.available(%{}, actor: current_user) do
-      {:ok, maps} -> {:ok, maps |> filter_blocked_maps(current_user)}
-      _ -> {:ok, []}
+      {:ok, maps} ->
+        Logger.info("get_available_maps success: found #{length(maps)} maps")
+        {:ok, maps |> filter_blocked_maps(current_user)}
+
+      {:error, error} ->
+        Logger.error("get_available_maps failed with error: #{inspect(error)}")
+        {:ok, []}
+
+      other ->
+        Logger.error("get_available_maps unexpected result: #{inspect(other)}")
+        {:ok, []}
     end
   end
 

@@ -60,7 +60,8 @@ defmodule WandererApp.Api.MapSystem do
       :solar_system_id,
       :position_x,
       :position_y,
-      :status
+      :status,
+      :temporary_name
     ]
 
     defaults [:create, :read, :update, :destroy]
@@ -72,7 +73,43 @@ defmodule WandererApp.Api.MapSystem do
 
     read :read_visible_by_map do
       argument(:map_id, :string, allow_nil?: false)
+      argument(:search, :string, allow_nil?: true)
+      argument(:status, :integer, allow_nil?: true)
+      argument(:tag, :string, allow_nil?: true)
+
       filter(expr(map_id == ^arg(:map_id) and visible == true))
+
+      # Add optional filters
+      filter(
+        expr(
+          if(
+            is_nil(^arg(:search)),
+            true,
+            contains(string_downcase(name), string_downcase(^arg(:search))) or
+              contains(string_downcase(temporary_name), string_downcase(^arg(:search)))
+          )
+        )
+      )
+
+      filter(
+        expr(
+          if(
+            is_nil(^arg(:status)),
+            true,
+            status == ^arg(:status)
+          )
+        )
+      )
+
+      filter(
+        expr(
+          if(
+            is_nil(^arg(:tag)),
+            true,
+            tag == ^arg(:tag)
+          )
+        )
+      )
     end
 
     read :read_by_map_and_solar_system do

@@ -1,0 +1,160 @@
+# Example: AccessListMember with AshJsonApi
+# This shows how the resource would look with AshJsonApi extension added
+# Copy this over access_list_member.ex when ready to migrate
+
+defmodule WandererApp.Api.AccessListMember do
+  @moduledoc """
+  Access List Member resource with AshJsonApi support.
+  
+  This resource automatically provides JSON:API compliant endpoints for
+  managing access list members without needing a separate controller.
+  """
+
+  use Ash.Resource,
+    domain: WandererApp.Api,
+    data_layer: AshPostgres.DataLayer,
+    extensions: [AshJsonApi.Resource]  # Add JSON:API support
+
+  postgres do
+    repo(WandererApp.Repo)
+    table("access_list_members_v1")
+  end
+
+  # JSON:API configuration
+  json_api do
+    type "access_list_member"  # Resource type in JSON:API
+    
+    routes do
+      # Base path for all routes
+      base "/access_list_members"
+      
+      # Standard CRUD routes
+      get :read                   # GET    /access_list_members/:id
+      index :read                 # GET    /access_list_members
+      post :create               # POST   /access_list_members
+      patch :update              # PATCH  /access_list_members/:id
+      delete :destroy            # DELETE /access_list_members/:id
+      
+      # Custom action routes
+      patch :update_role, route: "/:id/role"  # PATCH /access_list_members/:id/role
+      patch :block, route: "/:id/block"       # PATCH /access_list_members/:id/block
+      patch :unblock, route: "/:id/unblock"   # PATCH /access_list_members/:id/unblock
+      
+      # Filtered index route
+      index :read_by_access_list, route: "/by_acl/:access_list_id"
+    end
+    
+    # Include related data by default
+    default_fields [:id, :name, :eve_character_id, :eve_corporation_id, 
+                    :eve_alliance_id, :role, :is_blocked, :inserted_at, :updated_at]
+  end
+
+  code_interface do
+    define(:create, action: :create)
+    define(:update_role, action: :update_role)
+    define(:block, action: :block)
+    define(:unblock, action: :unblock)
+    define(:read_by_access_list, action: :read_by_access_list)
+    define(:destroy, action: :destroy)
+
+    define(:by_id,
+      get_by: [:id],
+      action: :read
+    )
+  end
+
+  actions do
+    default_accept [
+      :access_list_id,
+      :name,
+      :eve_character_id,
+      :eve_corporation_id,
+      :eve_alliance_id,
+      :role
+    ]
+
+    defaults [:create, :read, :update, :destroy]
+
+    # Custom read action for filtering by access list
+    read :read_by_access_list do
+      argument(:access_list_id, :string, allow_nil?: false)
+      filter(expr(access_list_id == ^arg(:access_list_id)))
+    end
+
+    # Custom update actions
+    update :update_role do
+      accept [:role]
+      require_atomic? false
+    end
+
+    update :block do
+      accept([])
+      change(set_attribute(:is_blocked, true))
+    end
+
+    update :unblock do
+      accept([])
+      change(set_attribute(:is_blocked, false))
+    end
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :name, :string do
+      allow_nil? false
+    end
+
+    attribute :eve_character_id, :integer
+    attribute :eve_corporation_id, :integer
+    attribute :eve_alliance_id, :integer
+
+    attribute :role, :atom do
+      default :member
+      constraints(
+        one_of: [
+          :owner,
+          :admin,
+          :manager,
+          :member,
+          :viewer,
+          :none
+        ]
+      )
+      allow_nil?(false)
+    end
+
+    attribute :is_blocked, :boolean do
+      default false
+      allow_nil? false
+    end
+
+    create_timestamp(:inserted_at)
+    update_timestamp(:updated_at)
+  end
+
+  relationships do
+    belongs_to :access_list, WandererApp.Api.AccessList do
+      attribute_writable? true
+    end
+  end
+
+  identities do
+    # Ensure unique members per access list
+    identity :unique_member, [:access_list_id, :eve_character_id, :eve_corporation_id, :eve_alliance_id]
+  end
+end
+
+# With this configuration, you get these endpoints automatically:
+#
+# GET    /api/v1/ash/access_list_members
+# GET    /api/v1/ash/access_list_members/:id
+# POST   /api/v1/ash/access_list_members
+# PATCH  /api/v1/ash/access_list_members/:id
+# DELETE /api/v1/ash/access_list_members/:id
+# PATCH  /api/v1/ash/access_list_members/:id/role
+# PATCH  /api/v1/ash/access_list_members/:id/block
+# PATCH  /api/v1/ash/access_list_members/:id/unblock
+# GET    /api/v1/ash/access_list_members/by_acl/:access_list_id
+#
+# All with proper JSON:API formatting, filtering, sorting, pagination, and includes!

@@ -3,11 +3,32 @@ defmodule WandererApp.Api.AccessListMember do
 
   use Ash.Resource,
     domain: WandererApp.Api,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    extensions: [AshJsonApi.Resource]
 
   postgres do
     repo(WandererApp.Repo)
     table("access_list_members_v1")
+  end
+
+  json_api do
+    type "access_list_member"
+
+    routes do
+      # Shorter, consistent with /acls
+      base("/acl_members")
+
+      get(:read)
+      index :read
+      post(:create)
+      patch(:update)
+      delete(:destroy)
+
+      # Custom action routes
+      patch(:update_role, route: "/:id/role")
+      patch(:block, route: "/:id/block")
+      patch(:unblock, route: "/:id/unblock")
+    end
   end
 
   code_interface do

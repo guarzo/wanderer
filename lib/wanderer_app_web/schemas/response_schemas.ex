@@ -8,60 +8,109 @@ defmodule WandererAppWeb.Schemas.ResponseSchemas do
 
   alias WandererAppWeb.Schemas.ApiSchemas
 
-  # Standard response status codes
-  def ok(schema, description \\ "Successful operation") do
+  # Standard response status codes for v1 API (with data wrapper)
+  def ok(schema, description \\ "Successful operation", use_legacy_format \\ false) do
+    response_schema =
+      if use_legacy_format do
+        schema
+      else
+        ApiSchemas.data_wrapper(schema)
+      end
+
     {
       description,
       "application/json",
-      schema
+      response_schema
     }
   end
 
-  def created(schema, description \\ "Resource created") do
+  def created(schema, description \\ "Resource created", use_legacy_format \\ false) do
+    response_schema =
+      if use_legacy_format do
+        schema
+      else
+        ApiSchemas.data_wrapper(schema)
+      end
+
     {
       description,
       "application/json",
-      schema
+      response_schema
     }
   end
 
-  def bad_request(description \\ "Bad request") do
+  def bad_request(description \\ "Bad request", use_legacy_format \\ false) do
+    response_schema =
+      if use_legacy_format do
+        ApiSchemas.legacy_error_response(description)
+      else
+        ApiSchemas.error_response(description)
+      end
+
     {
       description,
       "application/json",
-      ApiSchemas.error_response(description)
+      response_schema
     }
   end
 
-  def not_found(description \\ "Resource not found") do
+  def not_found(description \\ "Resource not found", use_legacy_format \\ false) do
+    response_schema =
+      if use_legacy_format do
+        ApiSchemas.legacy_error_response(description)
+      else
+        ApiSchemas.error_response(description)
+      end
+
     {
       description,
       "application/json",
-      ApiSchemas.error_response(description)
+      response_schema
     }
   end
 
-  def internal_server_error(description \\ "Internal server error") do
+  def internal_server_error(description \\ "Internal server error", use_legacy_format \\ false) do
+    response_schema =
+      if use_legacy_format do
+        ApiSchemas.legacy_error_response(description)
+      else
+        ApiSchemas.error_response(description)
+      end
+
     {
       description,
       "application/json",
-      ApiSchemas.error_response(description)
+      response_schema
     }
   end
 
-  def unauthorized(description \\ "Unauthorized") do
+  def unauthorized(description \\ "Unauthorized", use_legacy_format \\ false) do
+    response_schema =
+      if use_legacy_format do
+        ApiSchemas.legacy_error_response(description)
+      else
+        ApiSchemas.error_response(description)
+      end
+
     {
       description,
       "application/json",
-      ApiSchemas.error_response(description)
+      response_schema
     }
   end
 
-  def forbidden(description \\ "Forbidden") do
+  def forbidden(description \\ "Forbidden", use_legacy_format \\ false) do
+    response_schema =
+      if use_legacy_format do
+        ApiSchemas.legacy_error_response(description)
+      else
+        ApiSchemas.error_response(description)
+      end
+
     {
       description,
       "application/json",
-      ApiSchemas.error_response(description)
+      response_schema
     }
   end
 
@@ -104,8 +153,7 @@ defmodule WandererAppWeb.Schemas.ResponseSchemas do
       ]
     else
       [
-        no_content:
-          {deleted_description <> " (no content)", nil, nil},
+        no_content: {deleted_description <> " (no content)", nil, nil},
         not_found: not_found(),
         internal_server_error: internal_server_error()
       ]

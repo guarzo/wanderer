@@ -5,6 +5,8 @@ defmodule WandererAppWeb.CharactersAPIController do
 
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
+  use WandererAppWeb.JsonAction
+
   alias WandererApp.Api.Character
 
   @characters_index_response_schema %OpenApiSpex.Schema{
@@ -33,7 +35,7 @@ defmodule WandererAppWeb.CharactersAPIController do
   GET /api/characters
   """
   @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  operation :index,
+  operation(:index,
     summary: "List Characters",
     description: "Lists ALL characters in the database.",
     responses: [
@@ -43,19 +45,14 @@ defmodule WandererAppWeb.CharactersAPIController do
         @characters_index_response_schema
       }
     ]
+  )
+
   def index(conn, _params) do
-    case WandererApp.Api.read(Character) do
-      {:ok, characters} ->
-        result =
-          characters
-          |> Enum.map(&WandererAppWeb.MapEventHandler.map_ui_character_stat/1)
-
-        json(conn, %{data: result})
-
-      {:error, error} ->
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: inspect(error)})
-    end
+    json_action_with(conn,
+      do: WandererApp.Api.read(Character),
+      with: fn characters ->
+        Enum.map(characters, &WandererAppWeb.MapEventHandler.map_ui_character_stat/1)
+      end
+    )
   end
 end
