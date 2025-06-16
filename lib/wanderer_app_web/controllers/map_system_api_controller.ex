@@ -11,40 +11,11 @@ defmodule WandererAppWeb.MapSystemAPIController do
   alias OpenApiSpex.Schema
   alias WandererApp.Map.Operations
   alias WandererAppWeb.Helpers.{APIUtils, MapSerializer}
-  alias WandererAppWeb.Schemas.{ApiSchemas, ResponseSchemas}
+  alias WandererAppWeb.Schemas.{ApiSchemas, MapSchemas, ResponseSchemas}
 
   action_fallback WandererAppWeb.FallbackController
 
   # -- JSON Schemas --
-  @map_system_schema %Schema{
-    type: :object,
-    properties: %{
-      id: %Schema{type: :string, description: "Map system UUID"},
-      map_id: %Schema{type: :string, description: "Map UUID"},
-      solar_system_id: %Schema{type: :integer, description: "EVE solar system ID"},
-      solar_system_name: %Schema{type: :string, description: "EVE solar system name"},
-      region_name: %Schema{type: :string, description: "EVE region name"},
-      custom_name: %Schema{
-        type: :string,
-        nullable: true,
-        description: "Custom name for the system"
-      },
-      position_x: %Schema{type: :integer, description: "X coordinate"},
-      position_y: %Schema{type: :integer, description: "Y coordinate"},
-      status: %Schema{
-        type: :integer,
-        description:
-          "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)"
-      },
-      visible: %Schema{type: :boolean, description: "Visibility flag"},
-      description: %Schema{type: :string, nullable: true, description: "Custom description"},
-      tag: %Schema{type: :string, nullable: true, description: "Custom tag"},
-      locked: %Schema{type: :boolean, description: "Lock flag"},
-      temporary_name: %Schema{type: :string, nullable: true, description: "Temporary name"},
-      labels: %Schema{type: :string, description: "Comma-separated list of labels"}
-    },
-    required: ~w(id map_id solar_system_id)a
-  }
 
   @system_request_schema %Schema{
     type: :object,
@@ -111,23 +82,6 @@ defmodule WandererAppWeb.MapSystemAPIController do
     }
   }
 
-  @map_connection_schema %Schema{
-    type: :object,
-    properties: %{
-      id: %Schema{type: :string, description: "Connection UUID"},
-      map_id: %Schema{type: :string, description: "Map UUID"},
-      solar_system_source: %Schema{type: :integer},
-      solar_system_target: %Schema{type: :integer},
-      type: %Schema{type: :integer},
-      mass_status: %Schema{type: :integer, nullable: true},
-      time_status: %Schema{type: :integer, nullable: true},
-      ship_size_type: %Schema{type: :integer, nullable: true},
-      locked: %Schema{type: :boolean},
-      custom_info: %Schema{type: :string, nullable: true},
-      wormhole_type: %Schema{type: :string, nullable: true}
-    },
-    required: ~w(id map_id solar_system_source solar_system_target)a
-  }
 
   @list_response_schema %Schema{
     type: :object,
@@ -135,115 +89,16 @@ defmodule WandererAppWeb.MapSystemAPIController do
       data: %Schema{
         type: :object,
         properties: %{
-          systems: %Schema{type: :array, items: @map_system_schema},
-          connections: %Schema{type: :array, items: @map_connection_schema}
+          systems: %Schema{type: :array, items: MapSchemas.map_system_schema()},
+          connections: %Schema{type: :array, items: MapSchemas.map_connection_schema()}
         }
       }
-    },
-    example: %{
-      data: %{
-        systems: [
-          %{
-            id: "sys-uuid-1",
-            map_id: "map-uuid-1",
-            solar_system_id: 30_000_142,
-            solar_system_name: "Jita",
-            region_name: "The Forge",
-            custom_name: "Trade Hub Central",
-            position_x: 100.5,
-            position_y: 200.3,
-            status: "active",
-            visible: true,
-            description: "Trade hub",
-            tag: "HQ",
-            locked: false,
-            temporary_name: nil,
-            labels: ["market", "hub"]
-          }
-        ],
-        connections: [
-          %{
-            id: "conn-uuid-1",
-            map_id: "map-uuid-1",
-            solar_system_source: 30_000_142,
-            solar_system_target: 30_000_144,
-            type: 0,
-            mass_status: 1,
-            time_status: 2,
-            ship_size_type: 1,
-            locked: false,
-            custom_info: "Frigate only",
-            wormhole_type: "C2"
-          }
-        ]
-      }
     }
   }
 
-  @detail_response_schema %Schema{
-    type: :object,
-    properties: %{
-      data: @map_system_schema
-    },
-    example: %{
-      data: %{
-        id: "sys-uuid-1",
-        map_id: "map-uuid-1",
-        solar_system_id: 30_000_142,
-        solar_system_name: "Jita",
-        region_name: "The Forge",
-        custom_name: "Trade Hub Central",
-        position_x: 100.5,
-        position_y: 200.3,
-        status: "active",
-        visible: true,
-        description: "Trade hub",
-        tag: "HQ",
-        locked: false,
-        temporary_name: nil,
-        labels: ["market", "hub"]
-      }
-    }
-  }
+  @detail_response_schema ResponseSchemas.item_response(MapSchemas.map_system_schema())
 
-  @delete_response_schema %Schema{
-    type: :object,
-    properties: %{deleted: %Schema{type: :boolean, description: "Deleted flag"}},
-    required: ["deleted"],
-    example: %{deleted: true}
-  }
 
-  @batch_response_schema %Schema{
-    type: :object,
-    properties: %{
-      data: %Schema{
-        type: :object,
-        properties: %{
-          systems: %Schema{
-            type: :object,
-            properties: %{created: %Schema{type: :integer}, updated: %Schema{type: :integer}},
-            required: ~w(created updated)a
-          },
-          connections: %Schema{
-            type: :object,
-            properties: %{
-              created: %Schema{type: :integer},
-              updated: %Schema{type: :integer},
-              deleted: %Schema{type: :integer}
-            },
-            required: ~w(created updated deleted)a
-          }
-        },
-        required: ~w(systems connections)a
-      }
-    },
-    example: %{
-      data: %{
-        systems: %{created: 2, updated: 1},
-        connections: %{created: 1, updated: 0, deleted: 1}
-      }
-    }
-  }
 
   @batch_delete_schema %Schema{
     type: :object,
@@ -267,12 +122,6 @@ defmodule WandererAppWeb.MapSystemAPIController do
     }
   }
 
-  @batch_delete_response_schema %Schema{
-    type: :object,
-    properties: %{deleted_count: %Schema{type: :integer, description: "Deleted count"}},
-    required: ["deleted_count"],
-    example: %{deleted_count: 2}
-  }
 
   @batch_request_schema ApiSchemas.data_wrapper(%Schema{
                           type: :object,
@@ -443,7 +292,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       ]
     ],
     request_body: {"Systems+Connections upsert", "application/json", @batch_request_schema},
-    responses: ResponseSchemas.standard_responses(@batch_response_schema)
+    responses: ResponseSchemas.standard_responses(ResponseSchemas.systems_connections_batch_response())
   )
 
   def create(conn, params) do
@@ -501,7 +350,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
       ]
     ],
     request_body: {"Batch delete", "application/json", @batch_delete_schema},
-    responses: ResponseSchemas.standard_responses(@batch_delete_response_schema)
+    responses: ResponseSchemas.standard_responses(ResponseSchemas.bulk_delete_response_schema())
   )
 
   def delete(conn, params) do
@@ -558,7 +407,14 @@ defmodule WandererAppWeb.MapSystemAPIController do
         required: true
       ]
     ],
-    responses: ResponseSchemas.standard_responses(@delete_response_schema)
+    responses: ResponseSchemas.standard_responses(%Schema{
+      type: :object,
+      properties: %{
+        deleted: %Schema{type: :boolean, description: "Deletion success flag"}
+      },
+      required: ["deleted"],
+      example: %{deleted: true}
+    })
   )
 
   def delete_single(conn, %{"id" => id}) do

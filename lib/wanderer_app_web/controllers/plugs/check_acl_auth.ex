@@ -45,7 +45,7 @@ defmodule WandererAppWeb.Plugs.CheckAclAuth do
           is_nil(acl.api_key) ->
             {:error, :no_api_key}
 
-          acl.api_key == token ->
+          Plug.Crypto.secure_compare(acl.api_key, token) ->
             {:ok, conn |> assign(:current_acl, acl)}
 
           true ->

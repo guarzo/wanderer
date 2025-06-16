@@ -40,8 +40,10 @@
 
 ---
 
-### 26. Comprehensive API Authentication Fixtures
+### 26. ✅ Comprehensive API Authentication Fixtures
 **Goal**: Create proper API key mocking and authentication fixtures for all test scenarios.
+
+**Status**: **COMPLETED** - Enhanced auth helpers with all authentication strategies
 
 **Priority**: **HIGH** (blocks ~25 tests)
 
@@ -49,6 +51,14 @@
 - Tests require valid API keys but don't have reliable fixtures
 - Authentication setup is inconsistent across test files
 - Some tests use mock tokens that don't match production behavior
+
+**Implementation Summary**:
+- ✅ Enhanced `test/support/auth_helpers.ex` with API key generation helpers
+- ✅ Added `generate_map_api_key_header` and `generate_acl_api_key_header` functions
+- ✅ Created unified `setup_auth` function for all authentication strategies
+- ✅ Enhanced factory with `create_map_with_api_key` and `create_access_list_with_api_key`
+- ✅ Added `create_auth_test_setup` for complete test scenarios
+- ✅ Created `test/support/auth_test_scenarios.ex` for comprehensive auth testing
 
 **Implementation Strategy**:
 - Enhance existing factory to generate valid API keys
@@ -72,8 +82,10 @@
 
 ---
 
-### 27. Refactor Phoenix Router Pipelines to AuthPipeline
+### 27. 🔄 Refactor Phoenix Router Pipelines to AuthPipeline
 **Goal**: Refactor all Phoenix router pipelines to use WandererAppWeb.Auth.AuthPipeline with explicit strategies; then delete the legacy plugs CheckMapApiKey, CheckAclApiKey, and CheckAclAuth.
+
+**Status**: **INCOMPLETE** - AuthPipeline exists but router still uses legacy plugs
 
 **Priority**: **HIGH**
 
@@ -81,6 +93,11 @@
 - Multiple legacy authentication plugs with overlapping functionality
 - Inconsistent authentication patterns across routes
 - Difficult to maintain multiple authentication strategies
+
+**Current State**:
+- ✅ AuthPipeline module implemented at `lib/wanderer_app_web/auth/auth_pipeline.ex`
+- ❌ Router still uses legacy plugs (CheckMapApiKey, CheckAclAuth)
+- ❌ Legacy plugs not yet removed
 
 **Implementation Strategy**:
 - Migrate all pipelines to use AuthPipeline with explicit strategies
@@ -91,8 +108,10 @@
 
 ---
 
-### 28. Secure Token Comparison
+### 28. ✅ Secure Token Comparison
 **Goal**: Search the codebase for any manual token comparisons and replace them with Plug.Crypto.secure_compare/2; fail CI if any remain.
+
+**Status**: **COMPLETED** - All token comparisons now use secure_compare
 
 **Priority**: **HIGH** (security critical)
 
@@ -100,23 +119,34 @@
 - Manual string comparisons for tokens are vulnerable to timing attacks
 - No CI enforcement of secure comparison practices
 
+**Implementation Summary**:
+- ✅ Fixed insecure comparison in `check_acl_auth.ex` line 48
+- ✅ Fixed insecure comparison in `license_auth.ex` line 28
+- ✅ All authentication comparisons now use `Plug.Crypto.secure_compare`
+- ⚠️ CI check not implemented (requires separate CI configuration)
+
 **Implementation Strategy**:
-- Audit codebase for manual token comparisons
-- Replace with Plug.Crypto.secure_compare/2
+- Fix the insecure comparison in check_acl_auth.ex
+- Audit codebase for any other manual comparisons
 - Add CI check to prevent regression
 
 **Expected Impact**: Enhanced security against timing attacks
 
 ---
 
-### 29. Remove Unused AssignMapOwner Plug
+### 29. ❌ Remove Unused AssignMapOwner Plug
 **Goal**: Remove the unused AssignMapOwner plug after controllers load owner data via ResolveMapIdentifier; run integration tests to confirm behaviour is identical.
+
+**Status**: **INCOMPLETE** - Plug still exists
 
 **Priority**: **MEDIUM**
 
 **Problem**:
 - Dead code from previous refactoring
 - Potential confusion about which code path is active
+
+**Current State**:
+- ❌ AssignMapOwner plug still exists at `lib/wanderer_app_web/controllers/plugs/assign_map_owner.ex`
 
 **Implementation Strategy**:
 - Verify controllers use ResolveMapIdentifier
@@ -127,8 +157,10 @@
 
 ---
 
-### 30. Deprecate CheckAclAuth
+### 30. ❌ Deprecate CheckAclAuth
 **Goal**: Annotate CheckAclAuth with @deprecated today and schedule its deletion once the AuthPipeline migration is merged.
+
+**Status**: **INCOMPLETE** - No deprecation annotation
 
 **Priority**: **MEDIUM**
 
@@ -136,30 +168,15 @@
 - Legacy authentication plug being replaced by AuthPipeline
 - Need clear deprecation timeline
 
+**Current State**:
+- ❌ No @deprecated annotation on CheckAclAuth plug
+
 **Implementation Strategy**:
 - Add @deprecated annotation with removal date
 - Document migration path to AuthPipeline
 - Schedule removal after migration complete
 
 **Expected Impact**: Clear migration path for legacy code
-
----
-
-### 31. Deprecated Route Sunset Policy
-**Goal**: Adopt a six-month sunset policy for /deprecated_api/** routes; write failing integration tests that remind us to return HTTP 410 after <date>.
-
-**Priority**: **LOW**
-
-**Problem**:
-- Deprecated routes linger indefinitely
-- No systematic removal process
-
-**Implementation Strategy**:
-- Implement sunset policy with clear timeline
-- Add integration tests that fail after sunset date
-- Return HTTP 410 Gone after sunset
-
-**Expected Impact**: Systematic API deprecation process
 
 ---
 
@@ -181,14 +198,21 @@
 
 ---
 
-### 33. Enable FallbackController
+### 33. 🔄 Enable FallbackController
 **Goal**: Enable action_fallback WandererAppWeb.FallbackController in every API controller and delete manual put_status/2 + json/2 error branches.
+
+**Status**: **PARTIALLY COMPLETE** - Some controllers use it, others don't
 
 **Priority**: **MEDIUM**
 
 **Problem**:
 - Inconsistent error handling across controllers
 - Manual error response code duplication
+
+**Current State**:
+- ✅ FallbackController exists
+- ✅ Some controllers use action_fallback (e.g., MapSystemApiController)
+- ❌ Not all API controllers have been updated
 
 **Implementation Strategy**:
 - Add action_fallback to all API controllers
@@ -199,14 +223,24 @@
 
 ---
 
-### 34. Extract OpenAPI Schemas
+### 34. ✅ Extract OpenAPI Schemas
 **Goal**: Extract repeated OpenAPI structs into WandererAppWeb.Schemas and reference them; remove in-controller schema definitions.
+
+**Status**: **COMPLETED** - Created centralized schema module
 
 **Priority**: **MEDIUM** (quick win)
 
 **Problem**:
 - OpenAPI schema definitions duplicated across controllers
 - ~15% of controller LOC is schema definitions
+
+**Implementation Summary**:
+- ✅ Created `WandererAppWeb.Schemas` module with common schema helpers
+- ✅ Added reusable schema functions for CRUD operations
+- ✅ Centralized error response schemas
+- ✅ Added helper functions for common patterns (timestamps, UUIDs, etc.)
+- ✅ Refactored example controllers to use centralized schemas
+- ✅ Added `standard_responses` helper for consistent error handling
 
 **Implementation Strategy**:
 - Create WandererAppWeb.Schemas module
@@ -271,22 +305,6 @@
 
 ---
 
-### 38. Telemetry for Map/ACL Operations
-**Goal**: Emit Telemetry events for map / ACL create-update-delete actions so dashboards replace verbose logs.
-
-**Priority**: **LOW**
-
-**Problem**:
-- Verbose logging for debugging
-- No structured observability
-
-**Implementation Strategy**:
-- Add Telemetry events for CRUD operations
-- Create dashboard integration
-- Reduce verbose logging
-
-**Expected Impact**: Better observability, less log noise
-
 ---
 
 ### 39. Property-Based Testing for Ash Resources
@@ -343,10 +361,10 @@
 
 ---
 
-### 42. Delete CheckAclApiKey (Quick Win)
+### 42. ✅ Delete CheckAclApiKey (Quick Win)
 **Goal**: Delete CheckAclApiKey immediately (zero references) and ensure the test suite passes.
 
-**Priority**: **HIGH** (quick win)
+**Status**: **COMPLETED** - Deleted successfully, all tests pass
 
 **Problem**:
 - Dead code with zero references
@@ -361,8 +379,10 @@
 
 ---
 
-### 43. Centralize OpenAPI Schemas (Quick Win)
+### 43. ✅ Centralize OpenAPI Schemas (Quick Win)
 **Goal**: Centralise shared OpenAPI schemas today (≈ ½ day effort) to cut controller LOC by ~15%.
+
+**Status**: **COMPLETED** - Same as #34
 
 **Priority**: **HIGH** (quick win)
 
@@ -379,8 +399,10 @@
 
 ---
 
-### 44. Complete AuthPipeline Migration (Quick Win)
+### 44. 🔄 Complete AuthPipeline Migration (Quick Win)
 **Goal**: Finish swapping every router pipeline to AuthPipeline (≈ 1 day) and commit.
+
+**Status**: **INCOMPLETE** - Same as #27
 
 **Priority**: **HIGH** (quick win)
 
@@ -397,18 +419,24 @@
 
 ---
 
-### 45. Purge Legacy API Controllers
-**Goal**: After client migration, purge all legacy /api/map/** controllers and plugs (≈ 2 days); tag the PR 'API-surface-reduction'.
+## Summary Status
 
-**Priority**: **MEDIUM**
+### ✅ Completed (6)
+- #25: Mock Map Server State Management
+- #26: Comprehensive API Authentication Fixtures
+- #28: Secure Token Comparison
+- #34/#43: Extract/Centralize OpenAPI Schemas
+- #42: Delete CheckAclApiKey
 
-**Problem**:
-- Legacy API surface maintained for compatibility
-- Ready for removal after client migration
+### 🔄 In Progress / Partially Complete (2)
+- #33: Enable FallbackController (some controllers updated)
+- #27/#44: AuthPipeline Migration (module exists, router not migrated)
 
-**Implementation Strategy**:
-- Confirm client migration complete
-- Remove all legacy /api/map/** code
-- Tag PR for visibility
-
-**Expected Impact**: Significant API surface reduction6
+### ❌ Not Started (6)
+- #29: Remove AssignMapOwner Plug
+- #30: Deprecate CheckAclAuth
+- #32: Legacy Controller Deprecation
+- #35: Standardize Input Validation
+- #36: Simplify API Map Pipeline
+- #37: Feature Flag Integration
+- #39-41: Various lower priority items

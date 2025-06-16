@@ -14,138 +14,131 @@ defmodule WandererAppWeb.MapAccessListAPIController do
 
   alias WandererApp.Api.{AccessList, Character}
   alias WandererAppWeb.Helpers.APIUtils
+  alias WandererAppWeb.Schemas
+  alias OpenApiSpex.Schema
   import Ash.Query
   require Logger
 
   # ------------------------------------------------------------------------
-  # Inline Schemas for OpenApiSpex
+  # Schemas for OpenApiSpex
   # ------------------------------------------------------------------------
 
-  # Used in operation :index => the response "List of ACLs"
-  @acl_index_response_schema %OpenApiSpex.Schema{
+  @acl_list_item_schema %Schema{
     type: :object,
     properties: %{
-      data: %OpenApiSpex.Schema{
-        type: :array,
-        items: %OpenApiSpex.Schema{
-          type: :object,
-          properties: %{
-            id: %OpenApiSpex.Schema{type: :string},
-            name: %OpenApiSpex.Schema{type: :string},
-            description: %OpenApiSpex.Schema{type: :string},
-            owner_eve_id: %OpenApiSpex.Schema{type: :string},
-            inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-            updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
-          },
-          required: ["id", "name"]
-        }
-      }
+      id: Schemas.uuid_schema("ACL ID"),
+      name: %Schema{type: :string, description: "ACL name"},
+      description: %Schema{type: :string, description: "ACL description"},
+      owner_eve_id: %Schema{type: :string, description: "Owner's EVE character ID"},
+      inserted_at: Schemas.timestamp_schema("Creation timestamp"),
+      updated_at: Schemas.timestamp_schema("Last update timestamp")
     },
-    required: ["data"]
+    required: ["id", "name"]
   }
 
-  # Used in operation :create => the request body "ACL parameters"
-  @acl_create_request_schema %OpenApiSpex.Schema{
+  @acl_index_response_schema Schemas.index_response_schema(
+    @acl_list_item_schema,
+    "List of access control lists"
+  )
+
+  @acl_create_properties %{
+    owner_eve_id: %Schema{
+      type: :string,
+      description: "EVE character ID of the owner (must match an existing character)"
+    },
+    name: %Schema{
+      type: :string,
+      description: "Name of the access list"
+    },
+    description: %Schema{
+      type: :string,
+      description: "Optional description of the access list"
+    }
+  }
+
+  @acl_create_request_schema %Schema{
     type: :object,
     properties: %{
-      acl: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          owner_eve_id: %OpenApiSpex.Schema{
-            type: :string,
-            description: "EVE character ID of the owner (must match an existing character)"
-          },
-          name: %OpenApiSpex.Schema{
-            type: :string,
-            description: "Name of the access list"
-          },
-          description: %OpenApiSpex.Schema{
-            type: :string,
-            description: "Optional description of the access list"
-          }
-        },
-        required: ["owner_eve_id", "name"],
-        example: %{
-          "owner_eve_id" => "2112073677",
-          "name" => "My Access List",
-          "description" => "Optional description"
-        }
-      }
+      acl: Schemas.create_request_schema(
+        @acl_create_properties,
+        ["owner_eve_id", "name"]
+      )
+      |> Schemas.with_example(%{
+        "owner_eve_id" => "2112073677",
+        "name" => "My Access List",
+        "description" => "Optional description"
+      })
     },
     required: ["acl"]
   }
 
-  # Used in operation :create => the response "Created ACL"
-  @acl_create_response_schema %OpenApiSpex.Schema{
+  @acl_resource_schema %Schema{
     type: :object,
     properties: %{
-      data: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          id: %OpenApiSpex.Schema{type: :string},
-          name: %OpenApiSpex.Schema{type: :string},
-          description: %OpenApiSpex.Schema{type: :string},
-          owner_id: %OpenApiSpex.Schema{type: :string},
-          api_key: %OpenApiSpex.Schema{type: :string},
-          inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-          updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
-        },
-        required: ["id", "name"]
-      }
+      id: Schemas.uuid_schema("ACL ID"),
+      name: %Schema{type: :string, description: "ACL name"},
+      description: %Schema{type: :string, description: "ACL description"},
+      owner_id: Schemas.uuid_schema("Owner ID"),
+      api_key: Schemas.api_key_schema("ACL API key for authentication"),
+      inserted_at: Schemas.timestamp_schema("Creation timestamp"),
+      updated_at: Schemas.timestamp_schema("Last update timestamp")
     },
-    required: ["data"]
+    required: ["id", "name"]
   }
 
-  # Used in operation :show => the response "ACL details"
-  @acl_show_response_schema %OpenApiSpex.Schema{
+  @acl_create_response_schema Schemas.create_response_schema(
+    @acl_resource_schema,
+    "Created access control list"
+  )
+
+  @acl_member_schema %Schema{
     type: :object,
     properties: %{
-      data: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          id: %OpenApiSpex.Schema{type: :string},
-          name: %OpenApiSpex.Schema{type: :string},
-          description: %OpenApiSpex.Schema{type: :string},
-          owner_id: %OpenApiSpex.Schema{type: :string},
-          api_key: %OpenApiSpex.Schema{type: :string},
-          inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-          updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-          members: %OpenApiSpex.Schema{
-            type: :array,
-            items: %OpenApiSpex.Schema{
-              type: :object,
-              properties: %{
-                id: %OpenApiSpex.Schema{type: :string},
-                name: %OpenApiSpex.Schema{type: :string},
-                role: %OpenApiSpex.Schema{type: :string},
-                eve_character_id: %OpenApiSpex.Schema{type: :string},
-                eve_corporation_id: %OpenApiSpex.Schema{type: :string},
-                eve_alliance_id: %OpenApiSpex.Schema{type: :string},
-                inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-                updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
-              },
-              required: ["id", "name", "role"]
-            }
-          }
-        },
-        required: ["id", "name"]
-      }
+      id: Schemas.uuid_schema("Member ID"),
+      name: %Schema{type: :string, description: "Member name"},
+      role: %Schema{type: :string, description: "Member role"},
+      eve_character_id: Schemas.eve_character_id_schema(),
+      eve_corporation_id: %Schema{type: :string, description: "EVE corporation ID"},
+      eve_alliance_id: %Schema{type: :string, description: "EVE alliance ID"},
+      inserted_at: Schemas.timestamp_schema("Member added timestamp"),
+      updated_at: Schemas.timestamp_schema("Member updated timestamp")
     },
-    required: ["data"]
+    required: ["id", "name", "role"]
   }
 
-  # Used in operation :update => the request body "ACL update payload"
-  @acl_update_request_schema %OpenApiSpex.Schema{
+  @acl_detailed_schema %Schema{
     type: :object,
     properties: %{
-      acl: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          name: %OpenApiSpex.Schema{type: :string},
-          description: %OpenApiSpex.Schema{type: :string}
-        }
-        # If "name" is truly required, add it to required: ["name"] here
+      id: Schemas.uuid_schema("ACL ID"),
+      name: %Schema{type: :string, description: "ACL name"},
+      description: %Schema{type: :string, description: "ACL description"},
+      owner_id: Schemas.uuid_schema("Owner ID"),
+      api_key: Schemas.api_key_schema("ACL API key for authentication"),
+      inserted_at: Schemas.timestamp_schema("Creation timestamp"),
+      updated_at: Schemas.timestamp_schema("Last update timestamp"),
+      members: %Schema{
+        type: :array,
+        items: @acl_member_schema,
+        description: "List of ACL members"
       }
+    },
+    required: ["id", "name"]
+  }
+
+  @acl_show_response_schema Schemas.show_response_schema(
+    @acl_detailed_schema,
+    "Access control list details with members"
+  )
+
+  @acl_update_properties %{
+    name: %Schema{type: :string, description: "ACL name"},
+    description: %Schema{type: :string, description: "ACL description"}
+  }
+
+  @acl_update_request_schema %Schema{
+    type: :object,
+    properties: %{
+      acl: Schemas.update_request_schema(@acl_update_properties)
     },
     required: ["acl"]
   }
