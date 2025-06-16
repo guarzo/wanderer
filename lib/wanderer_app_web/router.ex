@@ -162,7 +162,7 @@ defmodule WandererAppWeb.Router do
   end
 
   pipeline :api do
-    plug :accepts, ["json"]
+    plug :accepts, ["json", "json-api"]
     plug WandererAppWeb.Plugs.CheckApiDisabled
   end
 
@@ -209,7 +209,7 @@ defmodule WandererAppWeb.Router do
   scope "/api/v1", WandererAppWeb do
     # AshJsonApi routes - standard CRUD resources (JSON:API compliant)
     pipe_through [:api]
-    forward "/", WandererAppWeb.AshJsonApiRouter
+    forward "/", AshJsonApiRouter
   end
 
   # Custom V1 endpoints that don't fit standard CRUD

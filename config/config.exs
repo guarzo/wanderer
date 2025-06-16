@@ -143,6 +143,11 @@ config :wanderer_app, WandererApp.Guardian,
       "gHr9WzuXVfKhTaC5RyU4JQZs6N7xT2pE1qW8mB3vL0iY9oA4cF7dV6nK2jS8hG1uZ5tQ3xR7yE9pL0mA6fC4vD8",
   ttl: {30, :days}
 
+# Configure MIME types for JSON:API support
+config :mime, :types, %{
+  "application/vnd.api+json" => ["json-api"]
+}
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

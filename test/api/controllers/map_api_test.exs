@@ -1,226 +1,198 @@
 defmodule WandererApp.MapApiTest do
   use WandererApp.ApiCase
 
-  alias WandererApp.Api.Map
-  alias WandererApp.Api.User
+  @moduledoc """
+  Tests for map-specific API endpoints using the new map server mock infrastructure.
+  Note: Map management endpoints (CRUD) are handled by AshJsonApi at /api/v1/maps.
+  These tests focus on map-specific operations that require map server state.
+  """
 
-  describe "GET /api/maps" do
+  describe "GET /api/maps/:map_identifier/systems" do
     setup do
-      user = insert(:user)
-      map1 = insert(:map, owner: user, name: "Test Map 1")
-      map2 = insert(:map, owner: user, name: "Test Map 2", public: true)
-      _private_map = insert(:map, name: "Private Map")
+      map_data = create_test_map_with_auth()
       
-      {:ok, user: user, maps: [map1, map2]}
+      # Add systems to the map using the mock infrastructure
+      system1 = add_system_to_mock(map_data, %{
+        name: "System A",
+        solar_system_id: 30000001,
+        position_x: 100,
+        position_y: 200
+      })
+      
+      system2 = add_system_to_mock(map_data, %{
+        name: "System B",
+        solar_system_id: 30000002,
+        position_x: 200,
+        position_y: 300
+      })
+      
+      {:ok, map_data: map_data, systems: [system1, system2]}
     end
 
-    test "lists all maps for authenticated user", %{conn: conn, user: user, maps: maps} do
+    test "lists all systems in the map", %{conn: conn, map_data: map_data, systems: systems} do
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> get("/api/maps/#{map_data.map.slug}/systems")
+        |> json_response(200)
+
+      assert length(response["data"]["systems"]) == 2
+      
+      # Verify system data
+      system_names = Enum.map(response["data"]["systems"], & &1["name"])
+      assert "System A" in system_names
+      assert "System B" in system_names
+    end
+
+    test "returns empty list for map with no systems", %{conn: conn} do
+      map_data = create_test_map_with_auth()
+      
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> get("/api/maps/#{map_data.map.slug}/systems")
+        |> json_response(200)
+
+      assert response["data"]["systems"] == []
+    end
+
+    test "requires authentication", %{conn: conn, map_data: map_data} do
       conn
-      |> authenticate_user(user)
-      |> get("/api/maps")
-      |> assert_status(200)
+      |> get("/api/maps/#{map_data.map.slug}/systems")
+      |> json_response(401)
+    end
+  end
+
+  describe "GET /api/maps/:map_identifier/characters" do
+    setup do
+      map_data = create_test_map_with_auth()
+      system = add_system_to_mock(map_data)
+      
+      # Track character in the map
+      track_character_in_map(map_data.map.id, map_data.owner, system.solar_system_id)
+      
+      {:ok, map_data: map_data, system: system}
+    end
+
+    test "lists tracked characters in the map", %{conn: conn, map_data: map_data} do
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> get("/api/maps/#{map_data.map_slug}/characters")
+        |> json_response(200)
+
+      assert length(response["data"]) > 0
+      
+      character = hd(response["data"])
+      assert character["eve_id"] == map_data.owner.eve_id
+      assert character["name"] == map_data.owner.name
+    end
+  end
+
+  describe "POST /api/maps/:map_identifier/systems" do
+    setup do
+      map_data = create_test_map_with_auth()
+      {:ok, map_data: map_data}
+    end
+
+    test "creates a new system in the map", %{conn: conn, map_data: map_data} do
+      params = %{
+        "systems" => [%{
+          "solar_system_id" => 30000142,
+          "temporary_name" => "Jita",
+          "position_x" => 150,
+          "position_y" => 250
+        }]
+      }
+
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> post("/api/maps/#{map_data.map_slug}/systems", params)
+        |> json_response(200)
+
+      assert response["data"]["systems"]["created"] == 1
+      
+      # Verify system was added to mock
+      assert_map_has_systems(map_data.map.id, 1)
+    end
+
+    test "validates required fields", %{conn: conn, map_data: map_data} do
+      params = %{
+        "systems" => [%{
+          "temporary_name" => "Missing solar_system_id"
+        }]
+      }
+
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> post("/api/maps/#{map_data.map_slug}/systems", params)
+        |> json_response(200)
+      
+      # Should return 0 created since invalid
+      assert response["data"]["systems"]["created"] == 0
+    end
+  end
+
+  describe "DELETE /api/maps/:map_identifier/systems" do
+    setup do
+      map_data = create_test_map_with_auth()
+      system1 = add_system_to_mock(map_data)
+      system2 = add_system_to_mock(map_data)
+      system3 = add_system_to_mock(map_data)
+      
+      {:ok, map_data: map_data, systems: [system1, system2, system3]}
+    end
+
+    test "bulk deletes systems", %{conn: conn, map_data: map_data, systems: [s1, s2, _s3]} do
+      # Delete first two systems
+      params = %{
+        "system_ids" => [s1.solar_system_id, s2.solar_system_id]
+      }
+
+      conn
+      |> authenticate_map(map_data.api_key)
+      |> delete("/api/maps/#{map_data.map_slug}/systems", params)
       |> json_response(200)
-      |> assert_maps_count(2)
-      |> assert_map_names(Enum.map(maps, & &1.name))
-    end
 
-    test "returns 401 for unauthenticated requests", %{conn: conn} do
-      conn
-      |> get("/api/maps")
-      |> assert_status(401)
-      |> assert_error_response(401, :unauthorized)
-    end
-
-    test "supports pagination", %{conn: conn, user: user} do
-      # Create more maps for pagination
-      for i <- 1..20, do: insert(:map, owner: user, name: "Map #{i}")
-      
-      response =
-        conn
-        |> authenticate_character(character)
-        |> get_paginated("/api/maps", %{page: 1, page_size: 10})
-        |> assert_status(200)
-        |> json_response(200)
-        |> assert_pagination(%{
-          page: 1,
-          page_size: 10,
-          total_pages: 3,
-          total_count: 22
-        })
-      
-      assert length(response["data"]) == 10
+      # Verify only one system remains
+      assert_map_has_systems(map_data.map.id, 1)
     end
   end
 
-  describe "POST /api/maps" do
+  describe "GET /api/maps/:map_identifier/activity" do
     setup do
-      user = insert(:user)
-      {:ok, user: user}
+      map_data = create_test_map_with_auth()
+      {:ok, map_data: map_data}
     end
 
-    test "creates a new map with valid params", %{conn: conn, user: user} do
-      params = %{
-        name: "New Test Map",
-        description: "A test map created via API",
-        public: false
-      }
-
+    test "returns character activity data", %{conn: conn, map_data: map_data} do
       response =
         conn
-        |> authenticate_character(character)
-        |> api_request(:post, "/api/maps", params)
-        |> assert_status(201)
-        |> json_response(201)
-
-      assert response["data"]["name"] == params.name
-      assert response["data"]["description"] == params.description
-      assert response["data"]["public"] == params.public
-      assert response["data"]["owner_id"] == user.id
-    end
-
-    test "returns validation errors for invalid params", %{conn: conn, user: user} do
-      params = %{
-        # Missing required name field
-        description: "Invalid map"
-      }
-
-      conn
-      |> authenticate_user(user)
-      |> api_request(:post, "/api/maps", params)
-      |> assert_status(422)
-      |> assert_error_response(422, :name)
-    end
-
-    test "enforces rate limiting", %{conn: conn, user: user} do
-      # Make multiple requests to trigger rate limiting
-      for _ <- 1..10 do
-        conn
-        |> authenticate_character(character)
-        |> api_request(:post, "/api/maps", %{name: "Map"})
-      end
-
-      conn
-      |> authenticate_user(user)
-      |> api_request(:post, "/api/maps", %{name: "Too Many"})
-      |> assert_status(429)
-      |> assert_error_response(429, :rate_limit_exceeded)
-    end
-  end
-
-  describe "GET /api/maps/:id" do
-    setup do
-      user = insert(:user)
-      map = insert(:map, owner: user)
-      {:ok, user: user, map: map}
-    end
-
-    test "returns map details for authorized user", %{conn: conn, user: user, map: map} do
-      response =
-        conn
-        |> authenticate_character(character)
-        |> get("/api/maps/#{map.id}")
-        |> assert_status(200)
+        |> authenticate_map(map_data.api_key)
+        |> get("/api/maps/#{map_data.map_slug}/character-activity")
         |> json_response(200)
 
-      assert response["data"]["id"] == map.id
-      assert response["data"]["name"] == map.name
-    end
-
-    test "returns 404 for non-existent map", %{conn: conn, user: user} do
-      conn
-      |> authenticate_user(user)
-      |> get("/api/maps/999999")
-      |> assert_status(404)
-      |> assert_error_response(404, :not_found)
-    end
-
-    test "returns 403 for unauthorized access", %{conn: conn} do
-      other_user = insert(:user)
-      private_map = insert(:map, public: false)
-
-      conn
-      |> authenticate_user(other_user)
-      |> get("/api/maps/#{private_map.id}")
-      |> assert_status(403)
-      |> assert_error_response(403, :forbidden)
+      assert Map.has_key?(response, "data")
     end
   end
 
-  describe "PUT /api/maps/:id" do
+  describe "GET /api/map/systems-kills" do
     setup do
-      user = insert(:user)
-      map = insert(:map, owner: user)
-      {:ok, user: user, map: map}
+      map_data = create_test_map_with_auth()
+      _system = add_system_to_mock(map_data)
+      {:ok, map_data: map_data}
     end
 
-    test "updates map with valid params", %{conn: conn, user: user, map: map} do
-      params = %{
-        name: "Updated Map Name",
-        description: "Updated description"
-      }
-
+    test "returns kill data for systems in map", %{conn: conn, map_data: map_data} do
       response =
         conn
-        |> authenticate_character(character)
-        |> api_request(:put, "/api/maps/#{map.id}", params)
-        |> assert_status(200)
+        |> authenticate_map(map_data.api_key)
+        |> get("/api/map/systems-kills")
         |> json_response(200)
 
-      assert response["data"]["name"] == params.name
-      assert response["data"]["description"] == params.description
+      assert Map.has_key?(response, "data")
     end
-
-    test "only allows owner to update map", %{conn: conn, map: map} do
-      other_user = insert(:user)
-      
-      conn
-      |> authenticate_user(other_user)
-      |> api_request(:put, "/api/maps/#{map.id}", %{name: "Hacked!"})
-      |> assert_status(403)
-      |> assert_error_response(403, :forbidden)
-    end
-  end
-
-  describe "DELETE /api/maps/:id" do
-    setup do
-      user = insert(:user)
-      map = insert(:map, owner: user)
-      {:ok, user: user, map: map}
-    end
-
-    test "deletes map when requested by owner", %{conn: conn, user: user, map: map} do
-      conn
-      |> authenticate_user(user)
-      |> delete("/api/maps/#{map.id}")
-      |> assert_status(204)
-
-      # Verify map is deleted
-      conn
-      |> authenticate_user(user)
-      |> get("/api/maps/#{map.id}")
-      |> assert_status(404)
-    end
-
-    test "prevents deletion by non-owner", %{conn: conn, map: map} do
-      other_user = insert(:user)
-      
-      conn
-      |> authenticate_user(other_user)
-      |> delete("/api/maps/#{map.id}")
-      |> assert_status(403)
-      |> assert_error_response(403, :forbidden)
-    end
-  end
-
-  # Helper functions
-  defp assert_maps_count(response, expected_count) do
-    assert length(response["data"]) == expected_count
-    response
-  end
-
-  defp assert_map_names(response, expected_names) do
-    actual_names = Enum.map(response["data"], & &1["name"])
-    assert Enum.sort(actual_names) == Enum.sort(expected_names)
-    response
   end
 end

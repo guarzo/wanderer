@@ -3,11 +3,26 @@ defmodule WandererApp.Api.MapSystem do
 
   use Ash.Resource,
     domain: WandererApp.Api,
-    data_layer: AshPostgres.DataLayer
+    data_layer: AshPostgres.DataLayer,
+    extensions: [AshJsonApi.Resource]
 
   postgres do
     repo(WandererApp.Repo)
     table("map_system_v1")
+  end
+
+  json_api do
+    type "map_system"
+
+    routes do
+      base("/maps/:map_identifier/systems")
+
+      get(:read)
+      index :read
+      post(:create)
+      patch(:update)
+      delete(:destroy)
+    end
   end
 
   code_interface do
@@ -169,11 +184,13 @@ defmodule WandererApp.Api.MapSystem do
 
     attribute :solar_system_id, :integer do
       allow_nil? false
+      public? true
     end
 
     # by default it will default solar system name
     attribute :name, :string do
       allow_nil? false
+      public? true
     end
 
     attribute :custom_name, :string do
@@ -224,11 +241,13 @@ defmodule WandererApp.Api.MapSystem do
     attribute :position_x, :integer do
       default 0
       allow_nil? true
+      public? true
     end
 
     attribute :position_y, :integer do
       default 0
       allow_nil? true
+      public? true
     end
 
     attribute :added_at, :utc_datetime do
