@@ -8,6 +8,8 @@ defmodule WandererAppWeb.MapAuditAPIController do
 
   alias WandererAppWeb.Helpers.APIUtils
 
+  action_fallback WandererAppWeb.FallbackController
+
   # -----------------------------------------------------------------
   # Inline Schemas
   # -----------------------------------------------------------------

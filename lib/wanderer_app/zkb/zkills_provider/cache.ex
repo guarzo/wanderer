@@ -30,7 +30,10 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
   """
   def fetch_cached_kills(system_id) do
     killmail_ids = get_system_killmail_ids(system_id)
-    Logger.debug(fn -> "[KillsCache] fetch_cached_kills => system_id=#{system_id}, count=#{length(killmail_ids)}" end)
+
+    Logger.debug(fn ->
+      "[KillsCache] fetch_cached_kills => system_id=#{system_id}, count=#{length(killmail_ids)}"
+    end)
 
     killmail_ids
     |> Enum.map(&get_killmail/1)
@@ -65,6 +68,7 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
       [],
       fn existing_list ->
         existing_list = existing_list || []
+
         if killmail_id in existing_list do
           existing_list
         else
@@ -129,7 +133,10 @@ defmodule WandererApp.Zkb.KillsProvider.KillsCache do
     final_expiry_ms = max(@base_full_fetch_expiry_ms + offset, 60_000)
     expires_at_ms = now_ms + final_expiry_ms
 
-    Logger.debug(fn -> "[KillsCache] Marking system=#{system_id} recently_fetched? until #{expires_at_ms} (ms)" end)
+    Logger.debug(fn ->
+      "[KillsCache] Marking system=#{system_id} recently_fetched? until #{expires_at_ms} (ms)"
+    end)
+
     Cache.put(fetched_timestamp_key(system_id), expires_at_ms)
   end
 

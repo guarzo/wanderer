@@ -1,7 +1,8 @@
 defmodule WandererApp.Api do
   @moduledoc false
 
-  use Ash.Domain
+  use Ash.Domain,
+    extensions: [AshJsonApi.Domain]
 
   resources do
     resource WandererApp.Api.AccessList
