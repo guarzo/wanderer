@@ -9,143 +9,140 @@ defmodule WandererAppWeb.MapAccessListAPIController do
     - PUT /api/acls/:id                          (update ACL)
   """
 
+  @deprecated "Use /api/v1/access_lists JSON:API endpoints instead. This controller will be removed after 2025-12-31."
+
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias OpenApiSpex.Schema
   alias WandererApp.Api.{AccessList, Character}
   alias WandererAppWeb.Helpers.APIUtils
+  alias WandererAppWeb.Schemas
   import Ash.Query
   require Logger
 
+  action_fallback WandererAppWeb.FallbackController
+
   # ------------------------------------------------------------------------
-  # Inline Schemas for OpenApiSpex
+  # Schemas for OpenApiSpex
   # ------------------------------------------------------------------------
 
-  # Used in operation :index => the response "List of ACLs"
-  @acl_index_response_schema %OpenApiSpex.Schema{
+  @acl_list_item_schema %Schema{
     type: :object,
     properties: %{
-      data: %OpenApiSpex.Schema{
-        type: :array,
-        items: %OpenApiSpex.Schema{
-          type: :object,
-          properties: %{
-            id: %OpenApiSpex.Schema{type: :string},
-            name: %OpenApiSpex.Schema{type: :string},
-            description: %OpenApiSpex.Schema{type: :string},
-            owner_eve_id: %OpenApiSpex.Schema{type: :string},
-            inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-            updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
-          },
-          required: ["id", "name"]
-        }
-      }
+      id: Schemas.uuid_schema("ACL ID"),
+      name: %Schema{type: :string, description: "ACL name"},
+      description: %Schema{type: :string, description: "ACL description"},
+      owner_eve_id: %Schema{type: :string, description: "Owner's EVE character ID"},
+      inserted_at: Schemas.timestamp_schema("Creation timestamp"),
+      updated_at: Schemas.timestamp_schema("Last update timestamp")
     },
-    required: ["data"]
+    required: ["id", "name"]
   }
 
-  # Used in operation :create => the request body "ACL parameters"
-  @acl_create_request_schema %OpenApiSpex.Schema{
+  @acl_index_response_schema Schemas.index_response_schema(
+    @acl_list_item_schema,
+    "List of access control lists"
+  )
+
+  @acl_create_properties %{
+    owner_eve_id: %Schema{
+      type: :string,
+      description: "EVE character ID of the owner (must match an existing character)"
+    },
+    name: %Schema{
+      type: :string,
+      description: "Name of the access list"
+    },
+    description: %Schema{
+      type: :string,
+      description: "Optional description of the access list"
+    }
+  }
+
+  @acl_create_request_schema %Schema{
     type: :object,
     properties: %{
-      acl: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          owner_eve_id: %OpenApiSpex.Schema{
-            type: :string,
-            description: "EVE character ID of the owner (must match an existing character)"
-          },
-          name: %OpenApiSpex.Schema{
-            type: :string,
-            description: "Name of the access list"
-          },
-          description: %OpenApiSpex.Schema{
-            type: :string,
-            description: "Optional description of the access list"
-          }
-        },
-        required: ["owner_eve_id", "name"],
-        example: %{
-          "owner_eve_id" => "2112073677",
-          "name" => "My Access List",
-          "description" => "Optional description"
-        }
-      }
+      acl: Schemas.create_request_schema(
+        @acl_create_properties,
+        ["owner_eve_id", "name"]
+      )
+      |> Schemas.with_example(%{
+        "owner_eve_id" => "2112073677",
+        "name" => "My Access List",
+        "description" => "Optional description"
+      })
     },
     required: ["acl"]
   }
 
-  # Used in operation :create => the response "Created ACL"
-  @acl_create_response_schema %OpenApiSpex.Schema{
+  @acl_resource_schema %Schema{
     type: :object,
     properties: %{
-      data: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          id: %OpenApiSpex.Schema{type: :string},
-          name: %OpenApiSpex.Schema{type: :string},
-          description: %OpenApiSpex.Schema{type: :string},
-          owner_id: %OpenApiSpex.Schema{type: :string},
-          api_key: %OpenApiSpex.Schema{type: :string},
-          inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-          updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
-        },
-        required: ["id", "name"]
-      }
+      id: Schemas.uuid_schema("ACL ID"),
+      name: %Schema{type: :string, description: "ACL name"},
+      description: %Schema{type: :string, description: "ACL description"},
+      owner_id: Schemas.uuid_schema("Owner ID"),
+      api_key: Schemas.api_key_schema("ACL API key for authentication"),
+      inserted_at: Schemas.timestamp_schema("Creation timestamp"),
+      updated_at: Schemas.timestamp_schema("Last update timestamp")
     },
-    required: ["data"]
+    required: ["id", "name"]
   }
 
-  # Used in operation :show => the response "ACL details"
-  @acl_show_response_schema %OpenApiSpex.Schema{
+  @acl_create_response_schema Schemas.create_response_schema(
+    @acl_resource_schema,
+    "Created access control list"
+  )
+
+  @acl_member_schema %Schema{
     type: :object,
     properties: %{
-      data: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          id: %OpenApiSpex.Schema{type: :string},
-          name: %OpenApiSpex.Schema{type: :string},
-          description: %OpenApiSpex.Schema{type: :string},
-          owner_id: %OpenApiSpex.Schema{type: :string},
-          api_key: %OpenApiSpex.Schema{type: :string},
-          inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-          updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-          members: %OpenApiSpex.Schema{
-            type: :array,
-            items: %OpenApiSpex.Schema{
-              type: :object,
-              properties: %{
-                id: %OpenApiSpex.Schema{type: :string},
-                name: %OpenApiSpex.Schema{type: :string},
-                role: %OpenApiSpex.Schema{type: :string},
-                eve_character_id: %OpenApiSpex.Schema{type: :string},
-                eve_corporation_id: %OpenApiSpex.Schema{type: :string},
-                eve_alliance_id: %OpenApiSpex.Schema{type: :string},
-                inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
-                updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
-              },
-              required: ["id", "name", "role"]
-            }
-          }
-        },
-        required: ["id", "name"]
-      }
+      id: Schemas.uuid_schema("Member ID"),
+      name: %Schema{type: :string, description: "Member name"},
+      role: %Schema{type: :string, description: "Member role"},
+      eve_character_id: Schemas.eve_character_id_schema(),
+      eve_corporation_id: %Schema{type: :string, description: "EVE corporation ID"},
+      eve_alliance_id: %Schema{type: :string, description: "EVE alliance ID"},
+      inserted_at: Schemas.timestamp_schema("Member added timestamp"),
+      updated_at: Schemas.timestamp_schema("Member updated timestamp")
     },
-    required: ["data"]
+    required: ["id", "name", "role"]
   }
 
-  # Used in operation :update => the request body "ACL update payload"
-  @acl_update_request_schema %OpenApiSpex.Schema{
+  @acl_detailed_schema %Schema{
     type: :object,
     properties: %{
-      acl: %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          name: %OpenApiSpex.Schema{type: :string},
-          description: %OpenApiSpex.Schema{type: :string}
-        }
-        # If "name" is truly required, add it to required: ["name"] here
+      id: Schemas.uuid_schema("ACL ID"),
+      name: %Schema{type: :string, description: "ACL name"},
+      description: %Schema{type: :string, description: "ACL description"},
+      owner_id: Schemas.uuid_schema("Owner ID"),
+      api_key: Schemas.api_key_schema("ACL API key for authentication"),
+      inserted_at: Schemas.timestamp_schema("Creation timestamp"),
+      updated_at: Schemas.timestamp_schema("Last update timestamp"),
+      members: %Schema{
+        type: :array,
+        items: @acl_member_schema,
+        description: "List of ACL members"
       }
+    },
+    required: ["id", "name"]
+  }
+
+  @acl_show_response_schema Schemas.show_response_schema(
+    @acl_detailed_schema,
+    "Access control list details with members"
+  )
+
+  @acl_update_properties %{
+    name: %Schema{type: :string, description: "ACL name"},
+    description: %Schema{type: :string, description: "ACL description"}
+  }
+
+  @acl_update_request_schema %Schema{
+    type: :object,
+    properties: %{
+      acl: Schemas.update_request_schema(@acl_update_properties)
     },
     required: ["acl"]
   }
@@ -198,9 +195,10 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   Lists the ACLs for a given map.
   """
   @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  operation :index,
+  operation(:index,
     summary: "List ACLs for a Map",
-    description: "Lists the ACLs for a given map. Provide only one of map_id or slug as a query parameter. If both are provided, the request will fail.",
+    description:
+      "Lists the ACLs for a given map. Provide only one of map_id or slug as a query parameter. If both are provided, the request will fail.",
     parameters: [
       map_id: [
         in: :query,
@@ -217,13 +215,17 @@ defmodule WandererAppWeb.MapAccessListAPIController do
     ],
     responses: [
       ok: {"List of ACLs", "application/json", @acl_index_response_schema},
-      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{error: %OpenApiSpex.Schema{type: :string}},
-        required: ["error"],
-        example: %{"error" => "Must provide only one of map_id or slug as a query parameter"}
-      }}
+      bad_request:
+        {"Error", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           properties: %{error: %OpenApiSpex.Schema{type: :string}},
+           required: ["error"],
+           example: %{"error" => "Must provide only one of map_id or slug as a query parameter"}
+         }}
     ]
+  )
+
   def index(conn, params) do
     case APIUtils.fetch_map_id(params) do
       {:ok, map_identifier} ->
@@ -235,7 +237,9 @@ defmodule WandererAppWeb.MapAccessListAPIController do
           {:error, :map_not_found} ->
             conn
             |> put_status(:not_found)
-            |> json(%{error: "Map not found. Please provide a valid map_id or slug as a query parameter."})
+            |> json(%{
+              error: "Map not found. Please provide a valid map_id or slug as a query parameter."
+            })
 
           {:error, error} ->
             conn
@@ -256,9 +260,10 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   Creates a new ACL for a map.
   """
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  operation :create,
+  operation(:create,
     summary: "Create ACL for a Map",
-    description: "Creates a new ACL for a given map. Provide only one of map_id or slug as a query parameter. If both are provided, the request will fail.",
+    description:
+      "Creates a new ACL for a given map. Provide only one of map_id or slug as a query parameter. If both are provided, the request will fail.",
     parameters: [
       map_id: [
         in: :query,
@@ -276,13 +281,17 @@ defmodule WandererAppWeb.MapAccessListAPIController do
     request_body: {"ACL parameters", "application/json", @acl_create_request_schema},
     responses: [
       created: {"Created ACL", "application/json", @acl_create_response_schema},
-      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{error: %OpenApiSpex.Schema{type: :string}},
-        required: ["error"],
-        example: %{"error" => "Must provide only one of map_id or slug as a query parameter"}
-      }}
+      bad_request:
+        {"Error", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           properties: %{error: %OpenApiSpex.Schema{type: :string}},
+           required: ["error"],
+           example: %{"error" => "Must provide only one of map_id or slug as a query parameter"}
+         }}
     ]
+  )
+
   def create(conn, params) do
     with {:ok, map_identifier} <- APIUtils.fetch_map_id(params),
          {:ok, map} <- get_map(map_identifier),
@@ -298,12 +307,16 @@ defmodule WandererAppWeb.MapAccessListAPIController do
            |> Map.put("api_key", new_api_key),
          {:ok, new_acl} <- AccessList.new(new_params),
          {:ok, _updated_map} <- associate_acl_with_map(map, new_acl) do
-      json(conn, %{data: acl_to_json(new_acl)})
+      conn
+      |> put_status(:created)
+      |> json(%{data: acl_to_json(new_acl)})
     else
       {:error, :map_not_found} ->
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Map not found. Please provide a valid map_id or slug as a query parameter."})
+        |> json(%{
+          error: "Map not found. Please provide a valid map_id or slug as a query parameter."
+        })
 
       {:error, "Must provide either ?map_id=UUID or ?slug=SLUG"} ->
         conn
@@ -318,7 +331,10 @@ defmodule WandererAppWeb.MapAccessListAPIController do
       {:error, "owner_eve_id does not match any existing character"} = _error ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Character not found: The provided owner_eve_id does not match any existing character"})
+        |> json(%{
+          error:
+            "Character not found: The provided owner_eve_id does not match any existing character"
+        })
 
       %{} ->
         conn
@@ -333,12 +349,140 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   end
 
   @doc """
+  GET /api/acls
+
+  Lists all ACLs owned by the authenticated character.
+  """
+  @spec list(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation(:list,
+    summary: "List user's ACLs",
+    description: "Lists all ACLs owned by the authenticated character.",
+    responses: [
+      ok: {"List of user's ACLs", "application/json", @acl_index_response_schema}
+    ]
+  )
+
+  def list(conn, _params) do
+    # Get character from authentication context
+    character_id = conn.assigns.current_character.id
+
+    query =
+      AccessList
+      |> Ash.Query.new()
+      |> filter(owner_id == ^character_id)
+
+    case WandererApp.Api.read(query) do
+      {:ok, acls} ->
+        json(conn, %{data: Enum.map(acls, &acl_to_list_json/1)})
+
+      {:error, error} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Error reading ACLs: #{inspect(error)}"})
+    end
+  end
+
+  @doc """
+  POST /api/acls
+
+  Creates a new ACL owned by the authenticated character.
+  """
+  @spec create_simple(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation(:create_simple,
+    summary: "Create ACL",
+    description: "Creates a new ACL owned by the authenticated character.",
+    request_body:
+      {"ACL parameters", "application/json",
+       %OpenApiSpex.Schema{
+         type: :object,
+         properties: %{
+           acl: %OpenApiSpex.Schema{
+             type: :object,
+             properties: %{
+               name: %OpenApiSpex.Schema{type: :string},
+               description: %OpenApiSpex.Schema{type: :string}
+             },
+             required: ["name"]
+           }
+         },
+         required: ["acl"]
+       }},
+    responses: [
+      created: {"Created ACL", "application/json", @acl_create_response_schema}
+    ]
+  )
+
+  def create_simple(conn, params) do
+    case params do
+      %{"acl" => acl_params} ->
+        create_acl_with_params(conn, acl_params)
+
+      _ ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "Missing required 'acl' object in request body"})
+    end
+  end
+
+  defp create_acl_with_params(conn, acl_params) do
+    character_id = conn.assigns.current_character.id
+    api_key = 
+      :crypto.strong_rand_bytes(16)
+      |> Base.url_encode64(padding: false)
+      |> then(&"acl-api-key-#{&1}")
+
+    new_params =
+      acl_params
+      |> Map.put("owner_id", character_id)
+      |> Map.put("api_key", api_key)
+
+    case AccessList.new(new_params) do
+      {:ok, new_acl} ->
+        conn
+        |> put_status(:created)
+        |> json(%{data: acl_to_json(new_acl)})
+
+      {:error, error} ->
+        handle_acl_creation_error(conn, error)
+    end
+  end
+
+  defp handle_acl_creation_error(conn, %Ash.Error.Invalid{errors: validation_errors}) do
+    formatted_errors = format_validation_errors(validation_errors)
+
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{errors: formatted_errors})
+  end
+
+  defp handle_acl_creation_error(conn, error) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "Failed to create ACL: #{inspect(error)}"})
+  end
+
+  defp format_validation_errors(validation_errors) do
+    Enum.reduce(validation_errors, %{}, fn err, acc ->
+      case err do
+        %Ash.Error.Changes.InvalidAttribute{field: field, message: message} ->
+          Map.put(acc, field, [message])
+
+        %Ash.Error.Changes.Required{field: field} ->
+          Map.put(acc, field, ["is required"])
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  @doc """
   GET /api/acls/:id
 
   Shows a specific ACL (with its members).
   """
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  operation :show,
+  operation(:show,
     summary: "Get ACL details",
     description: "Retrieves details for a specific ACL by its ID.",
     parameters: [
@@ -356,54 +500,61 @@ defmodule WandererAppWeb.MapAccessListAPIController do
         "application/json",
         @acl_show_response_schema
       },
-      not_found: {"Error", "application/json", %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          error: %OpenApiSpex.Schema{type: :string}
-        },
-        required: ["error"],
-        example: %{
-          "error" => "ACL not found"
-        }
-      }},
-      internal_server_error: {"Error", "application/json", %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          error: %OpenApiSpex.Schema{type: :string}
-        },
-        required: ["error"],
-        example: %{
-          "error" => "Failed to load ACL members: reason"
-        }
-      }}
+      not_found:
+        {"Error", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           properties: %{
+             error: %OpenApiSpex.Schema{type: :string}
+           },
+           required: ["error"],
+           example: %{
+             "error" => "ACL not found"
+           }
+         }},
+      internal_server_error:
+        {"Error", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           properties: %{
+             error: %OpenApiSpex.Schema{type: :string}
+           },
+           required: ["error"],
+           example: %{
+             "error" => "Failed to load ACL members: reason"
+           }
+         }}
     ]
-  def show(conn, %{"id" => id}) do
-    query =
-      AccessList
-      |> Ash.Query.new()
-      |> filter(id == ^id)
+  )
 
-    case WandererApp.Api.read(query) do
-      {:ok, [acl]} ->
-        case Ash.load(acl, :members) do
-          {:ok, loaded_acl} ->
-            json(conn, %{data: acl_to_json(loaded_acl)})
+  def show(conn, %{"id" => id}) do
+    # Validate UUID format
+    case Ecto.UUID.cast(id) do
+      {:ok, _} ->
+        query =
+          AccessList
+          |> Ash.Query.new()
+          |> filter(id == ^id)
+
+        case WandererApp.Api.read(query) do
+          {:ok, [acl]} ->
+            load_and_show_acl(conn, acl)
+
+          {:ok, []} ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{error: "ACL not found"})
 
           {:error, error} ->
             conn
             |> put_status(:internal_server_error)
-            |> json(%{error: "Failed to load ACL members: #{inspect(error)}"})
+            |> json(%{error: "Error reading ACL: #{inspect(error)}"})
         end
 
-      {:ok, []} ->
+      :error ->
         conn
         |> put_status(:not_found)
         |> json(%{error: "ACL not found"})
-
-      {:error, error} ->
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: "Error reading ACL: #{inspect(error)}"})
     end
   end
 
@@ -413,7 +564,7 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   Updates an ACL.
   """
   @spec update(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  operation :update,
+  operation(:update,
     summary: "Update an ACL",
     description: "Updates an existing ACL by its ID.",
     parameters: [
@@ -436,37 +587,123 @@ defmodule WandererAppWeb.MapAccessListAPIController do
         "application/json",
         @acl_update_response_schema
       },
-      bad_request: {"Error", "application/json", %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          error: %OpenApiSpex.Schema{type: :string}
-        },
-        required: ["error"],
-        example: %{
-          "error" => "Failed to update ACL: invalid parameters"
-        }
-      }},
-      not_found: {"Error", "application/json", %OpenApiSpex.Schema{
-        type: :object,
-        properties: %{
-          error: %OpenApiSpex.Schema{type: :string}
-        },
-        required: ["error"],
-        example: %{
-          "error" => "ACL not found"
-        }
-      }}
+      bad_request:
+        {"Error", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           properties: %{
+             error: %OpenApiSpex.Schema{type: :string}
+           },
+           required: ["error"],
+           example: %{
+             "error" => "Failed to update ACL: invalid parameters"
+           }
+         }},
+      not_found:
+        {"Error", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           properties: %{
+             error: %OpenApiSpex.Schema{type: :string}
+           },
+           required: ["error"],
+           example: %{
+             "error" => "ACL not found"
+           }
+         }}
     ]
+  )
+
   def update(conn, %{"id" => id, "acl" => acl_params}) do
-    with {:ok, acl} <- AccessList.by_id(id),
-         {:ok, updated_acl} <- AccessList.update(acl, acl_params),
-         {:ok, updated_acl} <- Ash.load(updated_acl, :members) do
-      json(conn, %{data: acl_to_json(updated_acl)})
-    else
-      {:error, error} ->
+    # Validate UUID format
+    case Ecto.UUID.cast(id) do
+      {:ok, _} ->
+        with {:ok, acl} <- AccessList.by_id(id),
+             {:ok, updated_acl} <- AccessList.update(acl, acl_params),
+             {:ok, updated_acl} <- Ash.load(updated_acl, :members) do
+          json(conn, %{data: acl_to_json(updated_acl)})
+        else
+          {:error, %Ash.Error.Query.NotFound{}} ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{error: "ACL not found"})
+
+          {:error, %Ash.Error.Invalid{errors: validation_errors}} ->
+            handle_update_validation_errors(conn, validation_errors)
+
+          {:error, error} ->
+            conn
+            |> put_status(:bad_request)
+            |> json(%{error: "Failed to update ACL: #{inspect(error)}"})
+        end
+
+      :error ->
         conn
-        |> put_status(:bad_request)
-        |> json(%{error: "Failed to update ACL: #{inspect(error)}"})
+        |> put_status(:not_found)
+        |> json(%{error: "ACL not found"})
+    end
+  end
+
+  @doc """
+  DELETE /api/acls/:id
+
+  Deletes an ACL.
+  """
+  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation(:delete,
+    summary: "Delete an ACL",
+    description: "Deletes an existing ACL by its ID.",
+    parameters: [
+      id: [
+        in: :path,
+        description: "ACL identifier (UUID)",
+        type: :string,
+        required: true
+      ]
+    ],
+    responses: [
+      no_content:
+        {"ACL deleted successfully", "application/json", %OpenApiSpex.Schema{type: :object}},
+      not_found:
+        {"Error", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           properties: %{error: %OpenApiSpex.Schema{type: :string}},
+           required: ["error"]
+         }}
+    ]
+  )
+
+  def delete(conn, %{"id" => id}) do
+    # Validate UUID format
+    case Ecto.UUID.cast(id) do
+      {:ok, _} ->
+        with {:ok, acl} <- AccessList.by_id(id),
+             :ok <- AccessList.destroy(acl) do
+          conn
+          |> put_status(:no_content)
+          |> json(%{})
+        else
+          {:error, %Ash.Error.Invalid{}} ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{error: "ACL not found"})
+
+          {:error, %Ash.Error.Query.NotFound{}} ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{error: "ACL not found"})
+
+          {:error, error} ->
+            conn
+            |> put_status(:bad_request)
+            |> json(%{error: "Failed to delete ACL: #{inspect(error)}"})
+        end
+
+      :error ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "ACL not found"})
     end
   end
 
@@ -552,6 +789,26 @@ defmodule WandererAppWeb.MapAccessListAPIController do
     end
   end
 
+  defp load_and_show_acl(conn, acl) do
+    case Ash.load(acl, :members) do
+      {:ok, loaded_acl} ->
+        json(conn, %{data: acl_to_json(loaded_acl)})
+
+      {:error, error} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Failed to load ACL members: #{inspect(error)}"})
+    end
+  end
+
+  defp handle_update_validation_errors(conn, validation_errors) do
+    formatted_errors = format_validation_errors(validation_errors)
+
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{errors: formatted_errors})
+  end
+
   # Helper to associate a new ACL with a map.
   defp associate_acl_with_map(map, new_acl) do
     with {:ok, api_map} <- WandererApp.Api.Map.by_id(map.id),
@@ -559,12 +816,13 @@ defmodule WandererAppWeb.MapAccessListAPIController do
       new_acl_id = if is_binary(new_acl), do: new_acl, else: new_acl.id
 
       # Extract IDs from current ACLs to ensure we're working with UUIDs only
-      current_acl_ids = loaded_map.acls
-                        |> Kernel.||([])
-                        |> Enum.map(fn
-                          acl when is_binary(acl) -> acl
-                          acl -> acl.id
-                        end)
+      current_acl_ids =
+        loaded_map.acls
+        |> Kernel.||([])
+        |> Enum.map(fn
+          acl when is_binary(acl) -> acl
+          acl -> acl.id
+        end)
 
       updated_acls = current_acl_ids ++ [new_acl_id]
 

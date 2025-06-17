@@ -1,9 +1,12 @@
-defmodule WandererAppWeb.CommonAPIController do
+defmodule WandererAppWeb.SystemsAPIController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias OpenApiSpex.Operation
   alias WandererApp.CachedInfo
   alias WandererAppWeb.Helpers.APIUtils
+
+  action_fallback WandererAppWeb.FallbackController
 
   @system_static_response_schema %OpenApiSpex.Schema{
     type: :object,
@@ -63,19 +66,20 @@ defmodule WandererAppWeb.CommonAPIController do
   }
 
   @doc """
-  GET /api/common/system-static-info?id=<solar_system_id>
+  GET /api/v1/systems/:id (v1 API)
+  GET /api/common/system-static-info?id=<solar_system_id> (legacy API)
   """
-  @spec show_system_static(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  operation :show_system_static,
+  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation(:show,
     summary: "Get System Static Information",
     description: "Retrieves static information for a given solar system.",
     parameters: [
       id: [
         in: :query,
-        description: "Solar system ID",
+        description: "Solar system ID (legacy query param)",
         type: :string,
         example: "30000142",
-        required: true
+        required: false
       ]
     ],
     responses: [
@@ -85,9 +89,47 @@ defmodule WandererAppWeb.CommonAPIController do
         @system_static_response_schema
       }
     ]
+  )
+
+  def show(conn, params) do
+    show_system_static(conn, params)
+  end
+
+  # Alias for legacy route compatibility
+  operation(:show_system_static,
+    summary: "Show System Static Information (Legacy)",
+    description: "Legacy endpoint for retrieving system static information",
+    parameters: [
+      Operation.parameter(:id, :path, :string, "Solar system ID", required: true)
+    ],
+    responses: [
+      ok: {
+        "System static information",
+        "application/json",
+        @system_static_response_schema
+      }
+    ]
+  )
+
   def show_system_static(conn, params) do
-    with {:ok, solar_system_str} <- APIUtils.require_param(params, "id"),
-         {:ok, solar_system_id} <- APIUtils.parse_int(solar_system_str) do
+    # Handle both path param (v1) and query param (legacy)
+    solar_system_str =
+      case Map.fetch(params, "id") do
+        {:ok, id} when is_binary(id) and id != "" ->
+          id
+
+        _ ->
+          # For legacy API, check query params
+          case Map.fetch(conn.query_params, "id") do
+            {:ok, id} when is_binary(id) and id != "" -> id
+            _ -> nil
+          end
+      end
+
+    alias WandererAppWeb.Validations.ApiValidations
+    
+    with {:ok, _} when not is_nil(solar_system_str) <- {:ok, solar_system_str},
+         {:ok, solar_system_id} <- ApiValidations.parse_and_validate_integer(solar_system_str, :solar_system_id) do
       case CachedInfo.get_system_static_info(solar_system_id) do
         {:ok, system} ->
           # Get basic system data
@@ -96,19 +138,18 @@ defmodule WandererAppWeb.CommonAPIController do
           # Enhance with wormhole type information if statics exist
           enhanced_data = enhance_with_static_details(data)
 
-          # Return the enhanced data
-          json(conn, %{data: enhanced_data})
+          # Return the enhanced data using standardized response
+          APIUtils.respond_data(conn, enhanced_data)
 
         {:error, :not_found} ->
-          conn
-          |> put_status(:not_found)
-          |> json(%{error: "System not found"})
+          APIUtils.error_response(conn, :not_found, "System not found")
       end
     else
+      {:ok, nil} ->
+        APIUtils.error_response(conn, :bad_request, "Missing required parameter: id")
+
       {:error, msg} ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: msg})
+        APIUtils.error_response(conn, :bad_request, msg)
     end
   end
 
@@ -152,9 +193,10 @@ defmodule WandererAppWeb.CommonAPIController do
     wormhole_classes = CachedInfo.get_wormhole_classes!()
 
     # Create a map of wormhole classes by ID for quick lookup
-    classes_by_id = Enum.reduce(wormhole_classes, %{}, fn class, acc ->
-      Map.put(acc, class.id, class)
-    end)
+    classes_by_id =
+      Enum.reduce(wormhole_classes, %{}, fn class, acc ->
+        Map.put(acc, class.id, class)
+      end)
 
     # Find detailed information for each static
     Enum.map(statics, fn static_name ->
@@ -178,8 +220,8 @@ defmodule WandererAppWeb.CommonAPIController do
       name: wh_type.name,
       destination: %{
         id: to_string(wh_type.dest),
-        name: (if dest_class, do: dest_class.title, else: wh_type.dest),
-        short_name: (if dest_class, do: dest_class.short_name, else: wh_type.dest)
+        name: if(dest_class, do: dest_class.title, else: wh_type.dest),
+        short_name: if(dest_class, do: dest_class.short_name, else: wh_type.dest)
       },
       properties: %{
         lifetime: wh_type.lifetime,

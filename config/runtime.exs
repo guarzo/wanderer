@@ -107,6 +107,13 @@ restrict_maps_creation =
   |> get_var_from_path_or_env("WANDERER_RESTRICT_MAPS_CREATION", "false")
   |> String.to_existing_atom()
 
+character_api_disabled =
+  if config_env() == :test do
+    false
+  else
+    System.get_env("WANDERER_CHARACTER_API_DISABLED", "true") |> String.to_existing_atom()
+  end
+
 config :wanderer_app,
   web_app_url: web_app_url,
   git_sha: System.get_env("GIT_SHA", "111"),
@@ -125,8 +132,7 @@ config :wanderer_app,
   character_tracking_pause_disabled:
     System.get_env("WANDERER_CHARACTER_TRACKING_PAUSE_DISABLED", "true")
     |> String.to_existing_atom(),
-  character_api_disabled:
-    System.get_env("WANDERER_CHARACTER_API_DISABLED", "true") |> String.to_existing_atom(),
+  character_api_disabled: character_api_disabled,
   zkill_preload_disabled:
     System.get_env("WANDERER_ZKILL_PRELOAD_DISABLED", "false") |> String.to_existing_atom(),
   map_subscriptions_enabled: map_subscriptions_enabled,
@@ -206,6 +212,17 @@ config :ueberauth, WandererApp.Ueberauth.Strategy.Eve.OAuth,
     System.get_env("EVE_CLIENT_WITH_WALLET_SECRET", "<EVE_CLIENT_WITH_WALLET_SECRET>"),
   client_secret_with_corp_wallet:
     System.get_env("EVE_CLIENT_WITH_CORP_WALLET_SECRET", "<EVE_CLIENT_WITH_CORP_WALLET_SECRET>")
+
+# Guardian configuration - JWT authentication
+# Only configured when not in test environment
+if config_env() != :test do
+  config :wanderer_app, WandererApp.Guardian,
+    issuer: "wanderer_app",
+    secret_key:
+      System.get_env("GUARDIAN_SECRET_KEY") ||
+        raise("GUARDIAN_SECRET_KEY environment variable must be set. Generate one with: mix guardian.gen.secret"),
+    ttl: {30, :days}
+end
 
 config :logger,
   truncate: :infinity,
