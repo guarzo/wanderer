@@ -253,6 +253,7 @@ defmodule WandererAppWeb.Router do
     scope "/characters" do
       pipe_through [:api, :api_character]
       get "/", CharactersAPIController, :index
+      
     end
 
     # V1 OpenAPI spec
