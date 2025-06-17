@@ -222,13 +222,6 @@ defmodule WandererAppWeb.Router do
   # V1 API Routes - JSON:API compliant with AshJsonApi + custom endpoints
   #
   scope "/api/v1", WandererAppWeb do
-    # AshJsonApi routes - standard CRUD resources (JSON:API compliant)
-    pipe_through [:api]
-    forward "/", AshJsonApiRouter
-  end
-
-  # Custom V1 endpoints that don't fit standard CRUD
-  scope "/api/v1", WandererAppWeb do
     # Map-specific operations (non-CRUD)
     scope "/maps/:map_identifier" do
       pipe_through [:api, :api_map]
@@ -267,6 +260,11 @@ defmodule WandererAppWeb.Router do
       pipe_through [:browser, :api, :api_spec]
       get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
     end
+
+    # AshJsonApi routes - standard CRUD resources (JSON:API compliant)
+    # Forward remaining routes to AshJsonApi after custom endpoints
+    pipe_through [:api]
+    forward "/", AshJsonApiRouter
   end
 
   #

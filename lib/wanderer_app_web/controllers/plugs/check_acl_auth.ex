@@ -17,18 +17,28 @@ defmodule WandererAppWeb.Plugs.CheckAclAuth do
     header = get_req_header(conn, "authorization") |> List.first()
 
     case header do
-      "Bearer " <> token ->
-        # Try ACL API key authentication first if we have an ACL ID
-        acl_id = conn.params["id"] || conn.params["acl_id"]
+      bearer_header when is_binary(bearer_header) ->
+        # Make Bearer token matching case-insensitive
+        case extract_bearer_token(bearer_header) do
+          {:ok, token} ->
+            # Try ACL API key authentication first if we have an ACL ID
+            acl_id = conn.params["id"] || conn.params["acl_id"]
 
-        if acl_id do
-          case try_acl_api_key_auth(conn, acl_id, token) do
-            {:ok, conn} -> conn
-            {:error, _} -> try_character_auth(conn, token)
-          end
-        else
-          # No ACL ID, try character authentication
-          try_character_auth(conn, token)
+            if acl_id do
+              case try_acl_api_key_auth(conn, acl_id, token) do
+                {:ok, conn} -> conn
+                {:error, _} -> try_character_auth(conn, token)
+              end
+            else
+              # No ACL ID, try character authentication
+              try_character_auth(conn, token)
+            end
+
+          {:error, _} ->
+            conn
+            |> put_resp_content_type("application/json")
+            |> send_resp(401, Jason.encode!(%{error: "Invalid authorization header format"}))
+            |> halt()
         end
 
       _ ->
@@ -79,6 +89,14 @@ defmodule WandererAppWeb.Plugs.CheckAclAuth do
         |> put_resp_content_type("application/json")
         |> send_resp(401, Jason.encode!(%{error: "Unauthorized"}))
         |> halt()
+    end
+  end
+
+  # Extract Bearer token in a case-insensitive manner
+  defp extract_bearer_token(header) do
+    case Regex.run(~r/^bearer\s+(.+)$/i, header, capture: :all_but_first) do
+      [token] -> {:ok, String.trim(token)}
+      _ -> {:error, :invalid_format}
     end
   end
 

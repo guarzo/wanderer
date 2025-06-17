@@ -11,7 +11,7 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
 
   import Plug.Conn
   alias WandererApp.Guardian
-  alias WandererApp.Api.{User, Character}
+  alias WandererApp.Api.Character
 
   @impl true
   def name, do: :character_jwt
@@ -46,6 +46,9 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
       {:decode, {:error, reason}} ->
         {:error, {:invalid_token, reason}}
 
+      {:character_id, :skip} ->
+        :skip
+
       {:character_id, {:error, reason}} ->
         {:error, {:invalid_character_id, reason}}
 
@@ -78,7 +81,7 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
         end
         
       true ->
-        {:error, :no_character_id}
+        :skip
     end
   end
 

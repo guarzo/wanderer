@@ -22,22 +22,33 @@ defmodule WandererAppWeb.Plugs.LicenseAuth do
     auth_header = get_req_header(conn, "authorization")
     lm_auth_key = Application.get_env(:wanderer_app, :lm_auth_key)
 
-    case auth_header do
-      ["Bearer " <> token] ->
-        if Plug.Crypto.secure_compare(token, lm_auth_key) do
-          conn
-        else
-          conn
-          |> put_status(:unauthorized)
-          |> json(%{error: "Invalid authentication token"})
-          |> halt()
-        end
-
-      _ ->
+    # Fail fast and log mis-configuration rather than crashing on secure_compare/2
+    cond do
+      is_nil(lm_auth_key) or lm_auth_key == "" ->
+        Logger.error("LM auth key not configured – refusing all requests")
         conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "Missing authentication token"})
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Server configuration error"})
         |> halt()
+
+      true ->
+        case auth_header do
+          ["Bearer " <> token] when is_binary(token) ->
+            if Plug.Crypto.secure_compare(token, lm_auth_key) do
+              conn
+            else
+              conn
+              |> put_status(:unauthorized)
+              |> json(%{error: "Invalid authentication token"})
+              |> halt()
+            end
+
+          _ ->
+            conn
+            |> put_status(:unauthorized)
+            |> json(%{error: "Missing authentication token"})
+            |> halt()
+        end
     end
   end
 

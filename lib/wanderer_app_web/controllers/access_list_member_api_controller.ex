@@ -185,10 +185,30 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
       @acl_member_create_request_schema
     },
     responses: [
-      ok: {
+      created: {
         "Created ACL Member",
         "application/json",
         @acl_member_create_response_schema
+      },
+      unprocessable_entity: {
+        "Validation errors",
+        "application/json",
+        %OpenApiSpex.Schema{
+          type: :object,
+          properties: %{
+            error: %OpenApiSpex.Schema{type: :string}
+          }
+        }
+      },
+      bad_request: {
+        "Bad request",
+        "application/json",
+        %OpenApiSpex.Schema{
+          type: :object,
+          properties: %{
+            error: %OpenApiSpex.Schema{type: :string}
+          }
+        }
       }
     ]
   )
@@ -347,9 +367,7 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
       {:ok, [membership]} ->
         case AccessListMember.destroy(membership) do
           :ok ->
-            conn
-            |> put_status(:no_content)
-            |> json(%{})
+            send_resp(conn, 204, "")
 
           {:error, error} ->
             conn
@@ -384,9 +402,20 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
     |> apply_type_filter(Map.get(params, "type"))
   end
 
+  # Define valid roles as atoms to avoid String.to_atom/1
+  @valid_roles %{
+    "admin" => :admin,
+    "manager" => :manager, 
+    "member" => :member,
+    "viewer" => :viewer
+  }
+
   defp apply_role_filter(query, nil), do: query
-  defp apply_role_filter(query, role) when role in ["admin", "manager", "member", "viewer"] do
-    filter(query, role == ^String.to_atom(role))
+  defp apply_role_filter(query, role) when is_binary(role) do
+    case Map.get(@valid_roles, role) do
+      nil -> query  # Invalid role, don't filter
+      role_atom -> filter(query, role == ^role_atom)
+    end
   end
   defp apply_role_filter(query, _invalid_role), do: query
 

@@ -426,7 +426,10 @@ defmodule WandererAppWeb.MapAccessListAPIController do
 
   defp create_acl_with_params(conn, acl_params) do
     character_id = conn.assigns.current_character.id
-    api_key = "acl-api-key-#{System.unique_integer([:positive])}"
+    api_key = 
+      :crypto.strong_rand_bytes(16)
+      |> Base.url_encode64(padding: false)
+      |> then(&"acl-api-key-#{&1}")
 
     new_params =
       acl_params

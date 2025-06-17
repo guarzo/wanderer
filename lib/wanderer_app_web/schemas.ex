@@ -64,25 +64,31 @@ defmodule WandererAppWeb.Schemas do
   # Common response schemas
   @doc "Generic show response schema"
   def show_response_schema(resource_schema, description \\ nil) do
-    data_wrapper(resource_schema, description)
+    schema = data_wrapper(resource_schema)
+    if description, do: %{schema | description: description}, else: schema
   end
   
   @doc "Generic index response schema"
   def index_response_schema(resource_schema, description \\ nil) do
-    data_wrapper(%Schema{
+    schema = data_wrapper(%Schema{
       type: :array,
       items: resource_schema
-    }, description)
+    })
+    if description, do: %{schema | description: description}, else: schema
   end
   
   @doc "Generic create response schema"
   def create_response_schema(resource_schema, description \\ nil) do
-    data_wrapper(resource_schema, description || "Created resource")
+    schema = data_wrapper(resource_schema)
+    description = description || "Created resource"
+    %{schema | description: description}
   end
   
   @doc "Generic update response schema"
   def update_response_schema(resource_schema, description \\ nil) do
-    data_wrapper(resource_schema, description || "Updated resource")
+    schema = data_wrapper(resource_schema)
+    description = description || "Updated resource"
+    %{schema | description: description}
   end
   
   @doc "Generic delete response schema"

@@ -75,7 +75,11 @@ defmodule WandererAppWeb.JsonAction do
     quote do
       case unquote(action_block) do
         {:ok, result} ->
-          transformed = unquote(transform_fn).(result)
+          transformed =
+            case unquote(transform_fn) do
+              nil -> result
+              fun -> fun.(result)
+            end
           APIUtils.respond_data(unquote(conn), transformed, unquote(status))
 
         {:error, _reason} = error ->
@@ -136,7 +140,7 @@ defmodule WandererAppWeb.JsonAction do
     quote do
       case unquote(block) do
         :ok ->
-          send_resp(unquote(conn), :no_content, "")
+          send_resp(unquote(conn), 204, "")
 
         {:ok, result} ->
           APIUtils.respond_data(unquote(conn), result)

@@ -84,8 +84,8 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
   end
 
   defp call_ash_action(resource, action, params, conn) do
-    # Get the API module
-    api = resource.__ash_domain__()
+    # Get the API module using public API
+    api = Ash.Resource.Info.domain(resource)
 
     # Build options with actor from conn
     opts = [
@@ -134,9 +134,13 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
   end
 
   defp resource_to_legacy(resource) do
-    # Convert Ash resource to legacy format
-    # This strips the Ash metadata and returns just the attributes
-    Map.take(resource, resource.__struct__.__schema__(:fields))
+    # Convert Ash resource to legacy format using Ash introspection
+    attributes =
+      resource.__struct__
+      |> Ash.Resource.Info.attributes()
+      |> Enum.map(& &1.name)
+
+    Map.take(resource, attributes)
   end
 
   defp format_error(error) when is_binary(error) do
