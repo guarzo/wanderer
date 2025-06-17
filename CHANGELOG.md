@@ -2,6 +2,21 @@
 
 <!-- changelog -->
 
+## [v1.70.5](https://github.com/wanderer-industries/wanderer/compare/v1.70.4...v1.70.5) (2025-06-17)
+
+
+
+
+### Bug Fixes:
+
+* Core: Distribute tracking to minimal pool first
+
+* Core: Don't pause tracking for new pools
+
+* Core: Invalidate character copr and ally data on map server start
+
+* resolve api issue with custom name
+
 ## [v1.70.4](https://github.com/wanderer-industries/wanderer/compare/v1.70.3...v1.70.4) (2025-06-16)
 
 
