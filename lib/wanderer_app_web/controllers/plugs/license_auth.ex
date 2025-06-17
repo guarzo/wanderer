@@ -26,6 +26,7 @@ defmodule WandererAppWeb.Plugs.LicenseAuth do
     cond do
       is_nil(lm_auth_key) or lm_auth_key == "" ->
         Logger.error("LM auth key not configured – refusing all requests")
+
         conn
         |> put_status(:internal_server_error)
         |> json(%{error: "Server configuration error"})

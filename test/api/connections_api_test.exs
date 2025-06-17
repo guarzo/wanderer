@@ -49,7 +49,6 @@ defmodule WandererApp.ConnectionsApiTest do
       {:ok, map_data: map_data, system1: system1, system2: system2, system3: system3}
     end
 
-
     test "connection lifecycle and state transitions", context do
       %{map_data: map_data, system1: system1, system2: system2} = context
 
@@ -280,7 +279,6 @@ defmodule WandererApp.ConnectionsApiTest do
       assert response["data"]["time_status"] == 1
       assert response["data"]["ship_size_type"] == 0
     end
-
 
     test "POST /api/maps/:map_id/connections - validates systems exist", %{
       conn: conn,

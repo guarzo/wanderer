@@ -6,7 +6,7 @@ defmodule WandererAppWeb.MapAuditAPIController do
 
   alias WandererApp.Api
 
-  alias WandererAppWeb.Helpers.APIUtils
+  alias WandererAppWeb.Helpers.{APIUtils, PaginationHelpers}
 
   action_fallback WandererAppWeb.FallbackController
 
@@ -39,16 +39,12 @@ defmodule WandererAppWeb.MapAuditAPIController do
     required: ["entity_type", "event_name", "event_data", "inserted_at"]
   }
 
-  @map_audit_response_schema %OpenApiSpex.Schema{
-    type: :object,
-    properties: %{
-      data: %OpenApiSpex.Schema{
-        type: :array,
-        items: @map_audit_event_schema
-      }
-    },
-    required: ["data"]
-  }
+  @map_audit_response_schema WandererAppWeb.Schemas.ApiSchemas.paginated_response(
+                               %OpenApiSpex.Schema{
+                                 type: :array,
+                                 items: @map_audit_event_schema
+                               }
+                             )
 
   # -----------------------------------------------------------------
   # MAP endpoints
@@ -67,7 +63,7 @@ defmodule WandererAppWeb.MapAuditAPIController do
   operation(:index,
     summary: "List Map Audit events",
     description:
-      "Lists all audit events for a map. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
+      "Lists audit events for a map with pagination. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
     parameters: [
       map_id: [
         in: :query,
@@ -89,6 +85,18 @@ defmodule WandererAppWeb.MapAuditAPIController do
         type: :string,
         required: true,
         example: "1D"
+      ],
+      page: [
+        in: :query,
+        type: :integer,
+        description: "Page number (default: 1)",
+        example: 1
+      ],
+      page_size: [
+        in: :query,
+        type: :integer,
+        description: "Items per page (default: 20, max: 100)",
+        example: 20
       ]
     ],
     responses: [
@@ -116,11 +124,24 @@ defmodule WandererAppWeb.MapAuditAPIController do
     with {:ok, map_id} <- APIUtils.fetch_map_id(params),
          {:ok, period} <- APIUtils.require_param(params, "period"),
          query <- WandererApp.Map.Audit.get_activity_query(map_id, period, "all"),
-         {:ok, data} <-
-           Api.read(query) do
-      data = Enum.map(data, &map_audit_event_to_json/1)
-      json(conn, %{data: data})
+         {:ok, {data, pagination_meta}} <- PaginationHelpers.paginate_query(query, params, Api) do
+      # Transform audit data
+      audit_data = Enum.map(data, &map_audit_event_to_json/1)
+
+      # Format paginated response
+      response = PaginationHelpers.format_paginated_response(audit_data, pagination_meta)
+
+      # Add pagination headers and send response
+      conn
+      |> PaginationHelpers.add_pagination_headers(pagination_meta, conn.request_path)
+      |> put_status(:ok)
+      |> json(response)
     else
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(WandererAppWeb.Validations.ApiValidations.format_errors(changeset))
+
       {:error, msg} when is_binary(msg) ->
         conn
         |> put_status(:bad_request)

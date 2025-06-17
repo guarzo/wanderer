@@ -65,20 +65,23 @@ defmodule WandererApp.Api.AccessListMember do
     update :update_role do
       accept [:role]
       require_atomic? false
-      
+
       validate fn changeset, _context ->
         role = Ash.Changeset.get_attribute(changeset, :role)
         member = changeset.data
-        
-        member_type = cond do
-          member.eve_corporation_id -> "corporation"
-          member.eve_alliance_id -> "alliance"
-          member.eve_character_id -> "character"
-          true -> "character"
-        end
-        
+
+        member_type =
+          cond do
+            member.eve_corporation_id -> "corporation"
+            member.eve_alliance_id -> "alliance"
+            member.eve_character_id -> "character"
+            true -> "character"
+          end
+
         if member_type in ["corporation", "alliance"] and role in [:admin, :manager] do
-          {:error, field: :role, message: "#{String.capitalize(member_type)} members cannot have #{role} role"}
+          {:error,
+           field: :role,
+           message: "#{String.capitalize(member_type)} members cannot have #{role} role"}
         else
           :ok
         end

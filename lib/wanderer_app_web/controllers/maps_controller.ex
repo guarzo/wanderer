@@ -10,16 +10,19 @@ defmodule WandererAppWeb.MapsController do
       {:ok, map} ->
         conn
         |> redirect(to: ~p"/#{map.slug}")
+        |> halt()
 
       _ ->
         # If map not found or no access, redirect to maps list
         conn
         |> redirect(to: ~p"/maps")
+        |> halt()
     end
   end
 
   def last(conn, _params) do
     conn
     |> redirect(to: ~p"/maps")
+    |> halt()
   end
 end

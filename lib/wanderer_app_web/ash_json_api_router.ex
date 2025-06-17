@@ -1,9 +1,12 @@
 defmodule WandererAppWeb.AshJsonApiRouter do
   @moduledoc """
-  Router configuration for AshJsonApi resources.
+  Legacy AshJsonApi Router - Backward compatibility.
 
-  This module defines the JSON:API routes for Ash resources that support
-  standard CRUD operations through AshJsonApi.
+  @deprecated "Use WandererAppWeb.Routers.ApiV1Router for new code. This router is maintained for backward compatibility only and will be removed after 2025-12-31."
+
+  This module exists for backward compatibility with code that may directly
+  reference the old AshJsonApiRouter. New development should use the versioned
+  routers under WandererAppWeb.Routers.ApiV1Router or ApiV2Router.
   """
 
   use AshJsonApi.Router,
@@ -11,6 +14,6 @@ defmodule WandererAppWeb.AshJsonApiRouter do
     json_schema: "/json_schema",
     open_api: "/openapi"
 
-  # Configure JSON:API routes
-  # These will be mounted under /api/v1/ash in the main router
+  # Legacy JSON:API routes - delegates to the same resources as V1
+  # Maintained for backward compatibility only
 end

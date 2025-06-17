@@ -23,7 +23,8 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
   def authenticate(conn, opts) do
     with {:header, ["Bearer " <> token]} <- {:header, get_req_header(conn, "authorization")},
          {:decode, {:ok, claims}} <- {:decode, Guardian.decode_and_verify(token)},
-         {:character_id, {:ok, character_id}} <- {:character_id, extract_character_id(claims, conn, opts)},
+         {:character_id, {:ok, character_id}} <-
+           {:character_id, extract_character_id(claims, conn, opts)},
          {:character, {:ok, character}} <- {:character, load_character(character_id)} do
       # Authentication successful
       auth_data = %{
@@ -63,23 +64,23 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
     # 2. character_id in conn.params
     # 3. character_id claim in JWT
     # 4. Extract from sub claim if it's in format "character:uuid"
-    
+
     cond do
       opts[:character_id] ->
         {:ok, opts[:character_id]}
-        
+
       conn.params["character_id"] ->
         {:ok, conn.params["character_id"]}
-        
+
       claims["character_id"] ->
         {:ok, claims["character_id"]}
-        
+
       claims["sub"] ->
         case claims["sub"] do
           "character:" <> character_id -> {:ok, character_id}
           _ -> {:error, :no_character_id_in_token}
         end
-        
+
       true ->
         :skip
     end

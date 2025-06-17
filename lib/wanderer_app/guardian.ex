@@ -47,8 +47,7 @@ defmodule WandererApp.Guardian do
   """
   def generate_user_token(user, claims \\ %{}) do
     default_claims = %{
-      "name" => user.name,
-      "hash" => user.hash
+      "name" => user.name
     }
 
     encode_and_sign(user, Map.merge(default_claims, claims))

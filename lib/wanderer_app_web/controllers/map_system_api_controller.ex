@@ -1,11 +1,11 @@
 # lib/wanderer_app_web/controllers/map_system_api_controller.ex
 defmodule WandererAppWeb.MapSystemAPIController do
   @deprecated "Use /api/v1/systems JSON:API endpoints instead. This controller will be removed after 2025-12-31."
-  
+
   @moduledoc """
   API controller for managing map systems and their associated connections.
   Provides CRUD operations and batch upsert for systems and connections.
-  
+
   @deprecated Use /api/v1/systems JSON:API endpoints instead. This controller will be removed after 2025-12-31.
   """
 
@@ -86,7 +86,6 @@ defmodule WandererAppWeb.MapSystemAPIController do
     }
   }
 
-
   @list_response_schema %Schema{
     type: :object,
     properties: %{
@@ -101,8 +100,6 @@ defmodule WandererAppWeb.MapSystemAPIController do
   }
 
   @detail_response_schema ResponseSchemas.item_response(MapSchemas.map_system_schema())
-
-
 
   @batch_delete_schema %Schema{
     type: :object,
@@ -125,7 +122,6 @@ defmodule WandererAppWeb.MapSystemAPIController do
       connection_ids: ["conn-uuid-1", "conn-uuid-2"]
     }
   }
-
 
   @batch_request_schema ApiSchemas.data_wrapper(%Schema{
                           type: :object,
@@ -225,7 +221,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
     filter_opts =
       %{}
       |> maybe_add_filter(params, "search", :search)
-      |> maybe_add_filter(params, "status", :status, &String.to_integer/1)
+      |> maybe_add_filter(params, "status", :status, &safe_parse_integer/1)
       |> maybe_add_filter(params, "tag", :tag)
 
     systems =
@@ -249,13 +245,24 @@ defmodule WandererAppWeb.MapSystemAPIController do
          params,
          param_key,
          filter_key,
-         transform_fn \\ &Function.identity/1
+         transform_fn \\ fn x -> x end
        ) do
     case Map.get(params, param_key) do
       nil -> filter_opts
       value -> Map.put(filter_opts, filter_key, transform_fn.(value))
     end
   end
+
+  # Safe integer parsing function
+  defp safe_parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  defp safe_parse_integer(value) when is_integer(value), do: value
+  defp safe_parse_integer(_), do: nil
 
   operation(:show,
     summary: "Show Map System",
@@ -296,7 +303,8 @@ defmodule WandererAppWeb.MapSystemAPIController do
       ]
     ],
     request_body: {"Systems+Connections upsert", "application/json", @batch_request_schema},
-    responses: ResponseSchemas.standard_responses(ResponseSchemas.systems_connections_batch_response())
+    responses:
+      ResponseSchemas.standard_responses(ResponseSchemas.systems_connections_batch_response())
   )
 
   def create(conn, params) do
@@ -411,14 +419,15 @@ defmodule WandererAppWeb.MapSystemAPIController do
         required: true
       ]
     ],
-    responses: ResponseSchemas.standard_responses(%Schema{
-      type: :object,
-      properties: %{
-        deleted: %Schema{type: :boolean, description: "Deletion success flag"}
-      },
-      required: ["deleted"],
-      example: %{deleted: true}
-    })
+    responses:
+      ResponseSchemas.standard_responses(%Schema{
+        type: :object,
+        properties: %{
+          deleted: %Schema{type: :boolean, description: "Deletion success flag"}
+        },
+        required: ["deleted"],
+        example: %{deleted: true}
+      })
   )
 
   def delete_single(conn, %{"id" => id}) do

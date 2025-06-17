@@ -4,7 +4,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   API controller for managing map connections.
   Provides operations to list, show, create, delete, and batch-delete connections, with legacy routing support.
   """
-  
+
   @deprecated "Use /api/v1/map_connections JSON:API endpoints instead. This controller will be removed after 2025-12-31."
 
   use WandererAppWeb, :controller
@@ -182,7 +182,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
   def index(%{assigns: %{map_id: map_id}} = conn, params) do
     alias WandererAppWeb.Validations.ApiValidations
-    
+
     with {:ok, validated} <- ApiValidations.validate_connection_filters(params) do
       conns = MapData.list_connections!(map_id)
 
@@ -277,8 +277,8 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
       {:error, :precondition_failed, _reason} ->
         conn
-        |> put_status(:bad_request)
-        |> json(%{error: "Invalid request parameters"})
+        |> put_status(:precondition_failed)
+        |> json(%{error: "Precondition failed"})
 
       _other ->
         conn

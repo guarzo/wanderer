@@ -13,21 +13,26 @@ defmodule WandererApp.MapSystemsAPITest do
       {:ok, map_data: map_data}
     end
 
-    test "GET /api/maps/:map_identifier/systems lists all systems", %{conn: conn, map_data: map_data} do
+    test "GET /api/maps/:map_identifier/systems lists all systems", %{
+      conn: conn,
+      map_data: map_data
+    } do
       # Add some systems to the map
-      system1 = add_system_to_mock(map_data, %{
-        name: "Jita",
-        solar_system_id: 30000142,
-        position_x: 100,
-        position_y: 200
-      })
-      
-      system2 = add_system_to_mock(map_data, %{
-        name: "Amarr",
-        solar_system_id: 30002187,
-        position_x: 300,
-        position_y: 400
-      })
+      system1 =
+        add_system_to_mock(map_data, %{
+          name: "Jita",
+          solar_system_id: 30_000_142,
+          position_x: 100,
+          position_y: 200
+        })
+
+      system2 =
+        add_system_to_mock(map_data, %{
+          name: "Amarr",
+          solar_system_id: 30_002_187,
+          position_x: 300,
+          position_y: 400
+        })
 
       response =
         conn
@@ -38,18 +43,22 @@ defmodule WandererApp.MapSystemsAPITest do
         |> json_response(200)
 
       assert length(response["data"]["systems"]) == 2
-      
+
       # Verify system details - legacy format
       system_names = Enum.map(response["data"]["systems"], & &1["name"])
       assert "Jita" in system_names
       assert "Amarr" in system_names
     end
 
-    test "GET /api/maps/:map_identifier/systems with system shows system", %{conn: conn, map_data: map_data} do
-      system = add_system_to_mock(map_data, %{
-        name: "Test System",
-        solar_system_id: 30000001
-      })
+    test "GET /api/maps/:map_identifier/systems with system shows system", %{
+      conn: conn,
+      map_data: map_data
+    } do
+      system =
+        add_system_to_mock(map_data, %{
+          name: "Test System",
+          solar_system_id: 30_000_001
+        })
 
       response =
         conn
@@ -63,17 +72,22 @@ defmodule WandererApp.MapSystemsAPITest do
       assert length(systems) == 1
       test_system = hd(systems)
       assert test_system["name"] == "Test System"
-      assert test_system["solar_system_id"] == 30000001
+      assert test_system["solar_system_id"] == 30_000_001
     end
 
-    test "POST /api/maps/:map_identifier/systems creates new system", %{conn: conn, map_data: map_data} do
+    test "POST /api/maps/:map_identifier/systems creates new system", %{
+      conn: conn,
+      map_data: map_data
+    } do
       system_data = %{
-        "systems" => [%{
-          "solar_system_id" => 30000142,
-          "temporary_name" => "Jita",
-          "position_x" => 500,
-          "position_y" => 500
-        }]
+        "systems" => [
+          %{
+            "solar_system_id" => 30_000_142,
+            "temporary_name" => "Jita",
+            "position_x" => 500,
+            "position_y" => 500
+          }
+        ]
       }
 
       response =
@@ -85,21 +99,25 @@ defmodule WandererApp.MapSystemsAPITest do
         |> json_response(200)
 
       assert response["data"]["systems"]["created"] == 1
-      
+
       # Verify system was actually created in database
-      systems = WandererApp.Api.MapSystem
-      |> Ash.Query.filter(map_id == ^map_data.map.id)
-      |> Ash.read!()
-      
+      systems =
+        WandererApp.Api.MapSystem
+        |> Ash.Query.filter(map_id == ^map_data.map.id)
+        |> Ash.read!()
+
       assert length(systems) == 1
       created_system = hd(systems)
-      assert created_system.solar_system_id == 30000142
+      assert created_system.solar_system_id == 30_000_142
     end
 
     # Skipped: System update has a known issue where updates don't persist
     # test "PUT /api/maps/:map_identifier/systems/:id updates system"
 
-    test "DELETE /api/maps/:map_identifier/systems bulk deletes systems", %{conn: conn, map_data: map_data} do
+    test "DELETE /api/maps/:map_identifier/systems bulk deletes systems", %{
+      conn: conn,
+      map_data: map_data
+    } do
       system1 = add_system_to_mock(map_data)
       system2 = add_system_to_mock(map_data)
       system3 = add_system_to_mock(map_data)
@@ -109,41 +127,48 @@ defmodule WandererApp.MapSystemsAPITest do
         "system_ids" => [system1.solar_system_id, system2.solar_system_id]
       }
 
-      response = conn
-      |> authenticate_map(map_data.api_key)
-      |> put_req_header("accept", "application/json")
-      |> put_req_header("content-type", "application/json")
-      |> delete("/api/maps/#{map_data.map.slug}/systems", delete_data)
-      |> json_response(200)
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("content-type", "application/json")
+        |> delete("/api/maps/#{map_data.map.slug}/systems", delete_data)
+        |> json_response(200)
 
       # Verify only one system remains in database
-      systems = WandererApp.Api.MapSystem
-      |> Ash.Query.filter(map_id == ^map_data.map.id)
-      |> Ash.read!()
-      
+      systems =
+        WandererApp.Api.MapSystem
+        |> Ash.Query.filter(map_id == ^map_data.map.id)
+        |> Ash.read!()
+
       assert length(systems) == 1
       remaining_system = hd(systems)
       assert remaining_system.solar_system_id == system3.solar_system_id
     end
 
-    test "DELETE /api/maps/:map_identifier/systems/:id deletes single system", %{conn: conn, map_data: map_data} do
+    test "DELETE /api/maps/:map_identifier/systems/:id deletes single system", %{
+      conn: conn,
+      map_data: map_data
+    } do
       system = add_system_to_mock(map_data)
 
-      response = conn
-      |> authenticate_map(map_data.api_key)
-      |> put_req_header("accept", "application/json")
-      |> put_req_header("content-type", "application/json")
-      |> delete("/api/maps/#{map_data.map.slug}/systems/#{system.solar_system_id}")
-      |> json_response(200)
-      
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("content-type", "application/json")
+        |> delete("/api/maps/#{map_data.map.slug}/systems/#{system.solar_system_id}")
+        |> json_response(200)
+
       # Check that the API reports successful deletion
       assert response["data"]["deleted"] == true
 
       # Verify system was actually removed from database
-      systems = WandererApp.Api.MapSystem
-      |> Ash.Query.filter(map_id == ^map_data.map.id)
-      |> Ash.read!()
-      
+      systems =
+        WandererApp.Api.MapSystem
+        |> Ash.Query.filter(map_id == ^map_data.map.id)
+        |> Ash.read!()
+
       assert length(systems) == 0
     end
   end
@@ -151,18 +176,20 @@ defmodule WandererApp.MapSystemsAPITest do
   describe "Map Connections CRUD operations" do
     setup do
       map_data = create_test_map_with_auth()
-      
+
       # Create two systems to connect
-      system1 = add_system_to_mock(map_data, %{
-        name: "System A",
-        solar_system_id: 30000001
-      })
-      
-      system2 = add_system_to_mock(map_data, %{
-        name: "System B", 
-        solar_system_id: 30000002
-      })
-      
+      system1 =
+        add_system_to_mock(map_data, %{
+          name: "System A",
+          solar_system_id: 30_000_001
+        })
+
+      system2 =
+        add_system_to_mock(map_data, %{
+          name: "System B",
+          solar_system_id: 30_000_002
+        })
+
       {:ok, map_data: map_data, system1: system1, system2: system2}
     end
 
@@ -182,7 +209,7 @@ defmodule WandererApp.MapSystemsAPITest do
         |> json_response(200)
 
       assert length(response["data"]) == 1
-      
+
       conn_data = hd(response["data"])
       assert conn_data["solar_system_source"] == system1.solar_system_id
       assert conn_data["solar_system_target"] == system2.solar_system_id
@@ -219,13 +246,15 @@ defmodule WandererApp.MapSystemsAPITest do
           assert response["data"]["solar_system_source"] == system1.solar_system_id
           assert response["data"]["solar_system_target"] == system2.solar_system_id
           assert response["data"]["wormhole_type"] == "K162"
+
         %{"result" => "created"} ->
           # Got creation confirmation, verify via mock
           assert response["data"]["result"] == "created"
+
         _ ->
           flunk("Unexpected response format: #{inspect(response)}")
       end
-      
+
       # Verify connection was added
       assert_map_has_connections(map_data.map.id, 1)
     end
@@ -237,10 +266,11 @@ defmodule WandererApp.MapSystemsAPITest do
       system2: system2
     } do
       # Add initial connection
-      connection = add_connection_to_mock(map_data, system1, system2, %{
-        mass_status: 0,
-        ship_size_type: 1
-      })
+      connection =
+        add_connection_to_mock(map_data, system1, system2, %{
+          mass_status: 0,
+          ship_size_type: 1
+        })
 
       update_data = %{
         "mass_status" => 1,
@@ -286,7 +316,7 @@ defmodule WandererApp.MapSystemsAPITest do
     test "requests without authentication return 401", %{conn: conn} do
       # Create a real map to get a valid slug, but don't provide authentication
       map_data = create_test_map_with_auth()
-      
+
       conn
       |> put_req_header("accept", "application/json")
       |> put_req_header("content-type", "application/json")
@@ -296,7 +326,7 @@ defmodule WandererApp.MapSystemsAPITest do
 
     test "requests with invalid API key return 403", %{conn: conn} do
       map_data = create_test_map_with_auth()
-      
+
       conn
       |> put_req_header("authorization", "Bearer invalid-key")
       |> put_req_header("accept", "application/json")
@@ -308,7 +338,7 @@ defmodule WandererApp.MapSystemsAPITest do
     test "requests to non-existent map return 404", %{conn: conn} do
       # Create a valid map to get a valid API key
       map_data = create_test_map_with_auth()
-      
+
       conn
       |> authenticate_map(map_data.api_key)
       |> put_req_header("accept", "application/json")
@@ -324,47 +354,58 @@ defmodule WandererApp.MapSystemsAPITest do
       {:ok, map_data: map_data}
     end
 
-    test "POST systems with missing required fields returns error", %{conn: conn, map_data: map_data} do
+    test "POST systems with missing required fields returns error", %{
+      conn: conn,
+      map_data: map_data
+    } do
       invalid_system_data = %{
-        "systems" => [%{
-          "position_x" => 500,
-          "position_y" => 500
-          # Missing required solar_system_id
-        }]
+        "systems" => [
+          %{
+            "position_x" => 500,
+            "position_y" => 500
+            # Missing required solar_system_id
+          }
+        ]
       }
 
-      response = conn
-      |> authenticate_map(map_data.api_key)
-      |> put_req_header("accept", "application/json")
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/maps/#{map_data.map.slug}/systems", invalid_system_data)
-      |> json_response(200)
-      
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/maps/#{map_data.map.slug}/systems", invalid_system_data)
+        |> json_response(200)
+
       # Should return 0 created since invalid
       assert response["data"]["systems"]["created"] == 0
     end
 
-    test "POST connections with invalid data returns 400", %{conn: conn, map_data: map_data} do
+    test "POST connections with invalid data returns 412", %{conn: conn, map_data: map_data} do
       invalid_connection_data = %{
-        "solar_system_source" => "not-a-number",  # Should be integer
-        "solar_system_target" => 30000144,
+        # Should be integer
+        "solar_system_source" => "not-a-number",
+        "solar_system_target" => 30_000_144,
         "type" => 0
       }
 
-      conn
-      |> authenticate_map(map_data.api_key)
-      |> post("/api/maps/#{map_data.map.slug}/connections", invalid_connection_data)
-      |> json_response(400)
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> post("/api/maps/#{map_data.map.slug}/connections", invalid_connection_data)
+        |> json_response(412)
+
+      assert response["error"] == "Precondition failed"
     end
 
     test "DELETE systems with empty system_ids returns error", %{conn: conn, map_data: map_data} do
-      response = conn
-      |> authenticate_map(map_data.api_key)
-      |> put_req_header("accept", "application/json")
-      |> put_req_header("content-type", "application/json")
-      |> delete("/api/maps/#{map_data.map.slug}/systems", %{"system_ids" => []})
-      |> json_response(200)
-      
+      response =
+        conn
+        |> authenticate_map(map_data.api_key)
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("content-type", "application/json")
+        |> delete("/api/maps/#{map_data.map.slug}/systems", %{"system_ids" => []})
+        |> json_response(200)
+
       # Check that no systems were deleted (since empty list)
       assert is_map(response["data"])
     end

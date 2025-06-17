@@ -11,7 +11,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIController do
   @moduledoc """
   API controller for managing map system structures.
   """
-  
+
   @deprecated "Use /api/v1/map_system_structures JSON:API endpoints instead. This controller will be removed after 2025-12-31."
 
   # Inlined OpenAPI schema for a map system structure

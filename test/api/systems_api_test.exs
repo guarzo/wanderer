@@ -103,7 +103,6 @@ defmodule WandererApp.SystemsApiTest do
       |> json_response!(404)
     end
 
-
     test "validation scenarios with edge cases", context do
       map_data = context
 

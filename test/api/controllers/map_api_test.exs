@@ -10,22 +10,24 @@ defmodule WandererApp.MapApiTest do
   describe "GET /api/maps/:map_identifier/systems" do
     setup do
       map_data = create_test_map_with_auth()
-      
+
       # Add systems to the map using the mock infrastructure
-      system1 = add_system_to_mock(map_data, %{
-        name: "System A",
-        solar_system_id: 30000001,
-        position_x: 100,
-        position_y: 200
-      })
-      
-      system2 = add_system_to_mock(map_data, %{
-        name: "System B",
-        solar_system_id: 30000002,
-        position_x: 200,
-        position_y: 300
-      })
-      
+      system1 =
+        add_system_to_mock(map_data, %{
+          name: "System A",
+          solar_system_id: 30_000_001,
+          position_x: 100,
+          position_y: 200
+        })
+
+      system2 =
+        add_system_to_mock(map_data, %{
+          name: "System B",
+          solar_system_id: 30_000_002,
+          position_x: 200,
+          position_y: 300
+        })
+
       {:ok, map_data: map_data, systems: [system1, system2]}
     end
 
@@ -37,7 +39,7 @@ defmodule WandererApp.MapApiTest do
         |> json_response(200)
 
       assert length(response["data"]["systems"]) == 2
-      
+
       # Verify system data
       system_names = Enum.map(response["data"]["systems"], & &1["name"])
       assert "System A" in system_names
@@ -46,7 +48,7 @@ defmodule WandererApp.MapApiTest do
 
     test "returns empty list for map with no systems", %{conn: conn} do
       map_data = create_test_map_with_auth()
-      
+
       response =
         conn
         |> authenticate_map(map_data.api_key)
@@ -67,18 +69,19 @@ defmodule WandererApp.MapApiTest do
     setup do
       map_data = create_test_map_with_auth()
       system = add_system_to_mock(map_data)
-      
+
       # Create actual MapCharacterSettings record for character tracking
       # This is what the API actually reads from, not the mock cache
-      {:ok, _settings} = WandererApp.Api.MapCharacterSettings
-      |> Ash.Changeset.for_create(:create, %{
-        map_id: map_data.map.id,
-        character_id: map_data.owner.id,
-        tracked: true,
-        followed: false
-      })
-      |> WandererApp.Api.create()
-      
+      {:ok, _settings} =
+        WandererApp.Api.MapCharacterSettings
+        |> Ash.Changeset.for_create(:create, %{
+          map_id: map_data.map.id,
+          character_id: map_data.owner.id,
+          tracked: true,
+          followed: false
+        })
+        |> WandererApp.Api.create()
+
       {:ok, map_data: map_data, system: system}
     end
 
@@ -90,11 +93,11 @@ defmodule WandererApp.MapApiTest do
         |> json_response(200)
 
       assert length(response["data"]) > 0
-      
+
       character_setting = hd(response["data"])
       assert character_setting["character_id"] == map_data.owner.id
       assert character_setting["tracked"] == true
-      
+
       # Check character data is included
       character = character_setting["character"]
       assert character["eve_id"] == map_data.owner.eve_id
@@ -113,9 +116,11 @@ defmodule WandererApp.MapApiTest do
 
     test "validates required fields", %{conn: conn, map_data: map_data} do
       params = %{
-        "systems" => [%{
-          "temporary_name" => "Missing solar_system_id"
-        }]
+        "systems" => [
+          %{
+            "temporary_name" => "Missing solar_system_id"
+          }
+        ]
       }
 
       response =
@@ -123,7 +128,7 @@ defmodule WandererApp.MapApiTest do
         |> authenticate_map(map_data.api_key)
         |> post("/api/maps/#{map_data.map.slug}/systems", params)
         |> json_response(200)
-      
+
       # Should return 0 created since invalid
       assert response["data"]["systems"]["created"] == 0
     end

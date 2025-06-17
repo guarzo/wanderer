@@ -142,9 +142,7 @@ defmodule WandererApp.Api.MapSystemStructure do
         :status,
         :end_time
       ]
-
     end
-
   end
 
   attributes do

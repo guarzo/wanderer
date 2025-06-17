@@ -27,7 +27,8 @@ defmodule WandererApp.GuardianJwtTest do
       # Verify claims contain expected user data
       assert claims["sub"] == "user:#{user.id}"
       assert claims["name"] == user.name
-      assert claims["hash"] == user.hash
+      # Hash should NOT be in the JWT for security reasons
+      refute Map.has_key?(claims, "hash")
       assert claims["iss"] == "wanderer_app"
     end
 

@@ -405,36 +405,47 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
   # Define valid roles as atoms to avoid String.to_atom/1
   @valid_roles %{
     "admin" => :admin,
-    "manager" => :manager, 
+    "manager" => :manager,
     "member" => :member,
     "viewer" => :viewer
   }
 
   defp apply_role_filter(query, nil), do: query
+
   defp apply_role_filter(query, role) when is_binary(role) do
     case Map.get(@valid_roles, role) do
-      nil -> query  # Invalid role, don't filter
+      # Invalid role, don't filter
+      nil -> query
       role_atom -> filter(query, role == ^role_atom)
     end
   end
+
   defp apply_role_filter(query, _invalid_role), do: query
 
   defp apply_type_filter(query, "character") do
     filter(query, not is_nil(eve_character_id))
   end
+
   defp apply_type_filter(query, "corporation") do
     filter(query, not is_nil(eve_corporation_id))
   end
+
   defp apply_type_filter(query, "alliance") do
     filter(query, not is_nil(eve_alliance_id))
   end
+
   defp apply_type_filter(query, _), do: query
 
   defp determine_entity_details(validated) do
     cond do
-      Map.get(validated, :eve_corporation_id) -> {"eve_corporation_id", "corporation", Map.get(validated, :eve_corporation_id)}
-      Map.get(validated, :eve_alliance_id) -> {"eve_alliance_id", "alliance", Map.get(validated, :eve_alliance_id)}
-      Map.get(validated, :eve_character_id) -> {"eve_character_id", "character", Map.get(validated, :eve_character_id)}
+      Map.get(validated, :eve_corporation_id) ->
+        {"eve_corporation_id", "corporation", Map.get(validated, :eve_corporation_id)}
+
+      Map.get(validated, :eve_alliance_id) ->
+        {"eve_alliance_id", "alliance", Map.get(validated, :eve_alliance_id)}
+
+      Map.get(validated, :eve_character_id) ->
+        {"eve_character_id", "character", Map.get(validated, :eve_character_id)}
     end
   end
 
@@ -473,7 +484,8 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
         |> json(%{data: member_to_json(new_member)})
 
       {:error, error} ->
-        status = if match?(%Ash.Error.Invalid{}, error), do: :unprocessable_entity, else: :bad_request
+        status =
+          if match?(%Ash.Error.Invalid{}, error), do: :unprocessable_entity, else: :bad_request
 
         conn
         |> put_status(status)

@@ -194,9 +194,15 @@ defmodule WandererAppWeb.Validations.ApiValidations do
 
     case entity_count do
       0 ->
-        add_error(changeset, :base, "Must specify exactly one of: eve_character_id, eve_corporation_id, or eve_alliance_id")
+        add_error(
+          changeset,
+          :base,
+          "Must specify exactly one of: eve_character_id, eve_corporation_id, or eve_alliance_id"
+        )
+
       1 ->
         changeset
+
       _ ->
         add_error(changeset, :base, "Can only specify one entity type at a time")
     end
@@ -271,8 +277,12 @@ defmodule WandererAppWeb.Validations.ApiValidations do
       |> cast(params, [key])
 
     changeset = if required, do: validate_required(changeset, [key]), else: changeset
-    changeset = if min, do: validate_number(changeset, key, greater_than_or_equal_to: min), else: changeset
-    changeset = if max, do: validate_number(changeset, key, less_than_or_equal_to: max), else: changeset
+
+    changeset =
+      if min, do: validate_number(changeset, key, greater_than_or_equal_to: min), else: changeset
+
+    changeset =
+      if max, do: validate_number(changeset, key, less_than_or_equal_to: max), else: changeset
 
     apply_action(changeset, :validate)
   end
@@ -315,7 +325,11 @@ defmodule WandererAppWeb.Validations.ApiValidations do
     entity_type = get_field(changeset, :entity_type)
 
     if entity_type in ["corporation", "alliance"] and role in ["admin", "manager"] do
-      add_error(changeset, :role, "#{String.capitalize(entity_type)} members cannot have #{role} role")
+      add_error(
+        changeset,
+        :role,
+        "#{String.capitalize(entity_type)} members cannot have #{role} role"
+      )
     else
       changeset
     end
@@ -365,12 +379,15 @@ defmodule WandererAppWeb.Validations.ApiValidations do
 
       val when is_binary(val) ->
         case Integer.parse(val) do
-          {num, ""} -> {:ok, num}
+          {num, ""} ->
+            {:ok, num}
+
           _ ->
             changeset =
               {%{}, %{field_name => :integer}}
               |> cast(%{}, [])
               |> add_error(field_name, "must be a valid integer")
+
             {:error, changeset}
         end
 
@@ -379,6 +396,7 @@ defmodule WandererAppWeb.Validations.ApiValidations do
           {%{}, %{field_name => :integer}}
           |> cast(%{}, [])
           |> add_error(field_name, "must be a valid integer")
+
         {:error, changeset}
     end
   end
@@ -403,6 +421,7 @@ defmodule WandererAppWeb.Validations.ApiValidations do
           {%{}, %{key => :integer}}
           |> cast(%{}, [])
           |> add_error(key, "is required")
+
         {:error, changeset}
 
       val ->

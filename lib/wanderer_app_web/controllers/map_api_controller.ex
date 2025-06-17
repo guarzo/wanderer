@@ -405,6 +405,7 @@ defmodule WandererAppWeb.MapAPIController do
 
   def show_structure_timers(conn, params) do
     alias WandererAppWeb.Validations.ApiValidations
+
     with {:ok, map_id} <- APIUtils.fetch_map_id(params),
          {:ok, validated} <- ApiValidations.validate_optional_system_id(params) do
       case validated.system_id do
@@ -809,6 +810,7 @@ defmodule WandererAppWeb.MapAPIController do
     case hours_value do
       value when value in [nil, "0"] ->
         {:ok, %{hours: nil}}
+
       _ ->
         validate_hours_integer(hours_value)
     end
@@ -828,6 +830,7 @@ defmodule WandererAppWeb.MapAPIController do
       {%{}, %{hours: :integer}}
       |> Ecto.Changeset.cast(%{}, [])
       |> Ecto.Changeset.add_error(:hours, "must be a positive integer")
+
     {:error, changeset}
   end
 

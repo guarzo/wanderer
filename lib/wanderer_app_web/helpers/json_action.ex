@@ -80,6 +80,7 @@ defmodule WandererAppWeb.JsonAction do
               nil -> result
               fun -> fun.(result)
             end
+
           APIUtils.respond_data(unquote(conn), transformed, unquote(status))
 
         {:error, _reason} = error ->

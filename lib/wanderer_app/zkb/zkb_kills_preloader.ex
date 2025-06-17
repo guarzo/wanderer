@@ -179,7 +179,9 @@ defmodule WandererApp.Zkb.KillsPreloader do
   end
 
   defp fetch_kills_for_system(system_id, :quick, hours, limit, state) do
-    Logger.debug(fn -> "[KillsPreloader] Quick fetch => system=#{system_id}, hours=#{hours}, limit=#{limit}" end)
+    Logger.debug(fn ->
+      "[KillsPreloader] Quick fetch => system=#{system_id}, hours=#{hours}, limit=#{limit}"
+    end)
 
     case KillsProvider.Fetcher.fetch_kills_for_system(system_id, hours, state,
            limit: limit,
@@ -198,7 +200,9 @@ defmodule WandererApp.Zkb.KillsPreloader do
   end
 
   defp fetch_kills_for_system(system_id, :expanded, hours, limit, state) do
-    Logger.debug(fn -> "[KillsPreloader] Expanded fetch => system=#{system_id}, hours=#{hours}, limit=#{limit} (forcing refresh)" end)
+    Logger.debug(fn ->
+      "[KillsPreloader] Expanded fetch => system=#{system_id}, hours=#{hours}, limit=#{limit} (forcing refresh)"
+    end)
 
     with {:ok, kills_1h, updated_state} <-
            KillsProvider.Fetcher.fetch_kills_for_system(system_id, hours, state,
@@ -222,7 +226,10 @@ defmodule WandererApp.Zkb.KillsPreloader do
   defp maybe_fetch_more_if_needed(system_id, kills_1h, limit, state) do
     if length(kills_1h) < limit do
       needed = limit - length(kills_1h)
-      Logger.debug(fn -> "[KillsPreloader] Expanding to #{@expanded_hours}h => system=#{system_id}, need=#{needed} more kills" end)
+
+      Logger.debug(fn ->
+        "[KillsPreloader] Expanding to #{@expanded_hours}h => system=#{system_id}, need=#{needed} more kills"
+      end)
 
       case KillsProvider.Fetcher.fetch_kills_for_system(system_id, @expanded_hours, state,
              limit: needed,

@@ -163,6 +163,7 @@ defmodule WandererAppWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json", "json-api"]
+
     plug WandererAppWeb.Auth.AuthPipeline,
       strategies: [],
       required: false,
@@ -171,10 +172,12 @@ defmodule WandererAppWeb.Router do
 
   pipeline :api_map do
     plug WandererAppWeb.Plugs.ResolveMapIdentifier
+
     plug WandererAppWeb.Auth.AuthPipeline,
       strategies: [:map_api_key],
       required: true,
       error_message: "Invalid or missing API key"
+
     plug WandererAppWeb.Plugs.SubscriptionGuard
     plug WandererAppWeb.Plugs.AssignMapOwner
   end
@@ -253,7 +256,6 @@ defmodule WandererAppWeb.Router do
     scope "/characters" do
       pipe_through [:api, :api_character]
       get "/", CharactersAPIController, :index
-      
     end
 
     # V1 OpenAPI spec
@@ -262,10 +264,28 @@ defmodule WandererAppWeb.Router do
       get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
     end
 
-    # AshJsonApi routes - standard CRUD resources (JSON:API compliant)
-    # Forward remaining routes to AshJsonApi after custom endpoints
+    # AshJsonApi V1 routes - standard CRUD resources (JSON:API compliant)
+    # Forward remaining routes to versioned AshJsonApi router after custom endpoints
     pipe_through [:api]
-    forward "/", AshJsonApiRouter
+    forward "/", WandererAppWeb.Routers.ApiV1Router
+  end
+
+  #
+  # V2 API Routes - Future API version (prepared for breaking changes)
+  #
+  scope "/api/v2", WandererAppWeb do
+    # V2 custom endpoints will be added here as needed
+    # Currently V2 has no resources, so only placeholder structure
+
+    # V2 OpenAPI spec (when resources are added)
+    scope "/" do
+      pipe_through [:browser, :api, :api_spec]
+      get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
+    end
+
+    # AshJsonApi V2 routes - will contain evolved resources with breaking changes
+    pipe_through [:api]
+    forward "/", WandererAppWeb.Routers.ApiV2Router
   end
 
   #

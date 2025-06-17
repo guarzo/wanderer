@@ -258,7 +258,7 @@ defmodule WandererApp.Factory do
     }
 
     Cachex.put(:system_static_info_cache, system.solar_system_id, system_static_info)
-    
+
     # Also add to map server mock if map server is mocked
     if WandererApp.Test.MapServerMock.is_map_started?(system.map_id) do
       WandererApp.Test.MapServerMock.add_system_to_map(system.map_id, system)
@@ -386,7 +386,7 @@ defmodule WandererApp.Factory do
 
     # Update map cache with the connection
     map_id = connection.map_id
-    
+
     # Use map server mock if available, otherwise update cache directly
     if WandererApp.Test.MapServerMock.is_map_started?(map_id) do
       WandererApp.Test.MapServerMock.add_connection_to_map(map_id, connection)
@@ -744,11 +744,11 @@ defmodule WandererApp.Factory do
 
   @doc """
   Creates a map with a valid API key using Ash.
-  
+
   This ensures the map has a properly set public_api_key for testing.
-  
+
   ## Examples
-  
+
       map = create_map_with_api_key()
       map = create_map_with_api_key(%{name: "Custom Map"})
       map = create_map_with_api_key(%{}, character)  # With actor
@@ -756,10 +756,10 @@ defmodule WandererApp.Factory do
   def create_map_with_api_key(attrs \\ %{}, actor \\ nil) do
     # Generate a unique API key
     api_key = "map-api-key-#{System.unique_integer([:positive])}"
-    
+
     # Create the map first
     map = create_map(attrs, actor)
-    
+
     # Update with API key
     if actor do
       Ash.update!(map, %{public_api_key: api_key}, actor: actor, action: :update_api_key)
@@ -773,11 +773,11 @@ defmodule WandererApp.Factory do
 
   @doc """
   Creates an access list with a valid API key using Ash.
-  
+
   This ensures the ACL has a properly set api_key for testing.
-  
+
   ## Examples
-  
+
       acl = create_access_list_with_api_key()
       acl = create_access_list_with_api_key(%{name: "Custom ACL"})
       acl = create_access_list_with_api_key(%{}, character)  # With actor
@@ -785,39 +785,42 @@ defmodule WandererApp.Factory do
   def create_access_list_with_api_key(attrs \\ %{}, actor \\ nil) do
     # Generate a unique API key
     api_key = "acl-api-key-#{System.unique_integer([:positive])}"
-    
+
     # Merge API key into attrs
     attrs_with_key = Map.put(attrs, :api_key, api_key)
-    
+
     # Create the ACL with API key
     create_access_list(attrs_with_key, actor)
   end
 
   @doc """
   Creates a complete test setup with authenticated resources.
-  
+
   Returns a map with:
   - :user - User with JWT token
   - :character - Character with JWT token  
   - :map - Map with API key
   - :acl - ACL with API key
   - :tokens - Map of all authentication tokens
-  
+
   ## Examples
-  
+
       setup = create_auth_test_setup()
       conn |> put_req_header("authorization", "Bearer " <> setup.tokens.map_api_key)
   """
   def create_auth_test_setup(attrs \\ %{}) do
     user = create_user(attrs[:user] || %{})
     character = create_character(Map.merge(%{user_id: user.id}, attrs[:character] || %{}))
-    map = create_map_with_api_key(Map.merge(%{owner_id: character.id}, attrs[:map] || %{}), character)
+
+    map =
+      create_map_with_api_key(Map.merge(%{owner_id: character.id}, attrs[:map] || %{}), character)
+
     acl = create_access_list_with_api_key(attrs[:acl] || %{}, character)
-    
+
     # Generate tokens
     user_token = WandererApp.Test.AuthHelpers.generate_jwt_token(user)
     character_token = WandererApp.Test.AuthHelpers.generate_character_token(character)
-    
+
     %{
       user: user,
       character: character,
@@ -831,5 +834,4 @@ defmodule WandererApp.Factory do
       }
     }
   end
-
 end

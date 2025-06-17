@@ -9,8 +9,8 @@ defmodule WandererApp.Test.EsiFixtures do
   def character_fixture(attrs \\ %{}) do
     base = %{
       "name" => "Test Pilot",
-      "corporation_id" => "98000125",
-      "alliance_id" => "99000050",
+      "corporation_id" => 98_000_125,
+      "alliance_id" => 99_000_050,
       "birthday" => "2013-01-01T00:00:00Z",
       "bloodline_id" => 5,
       "description" => "Test character for Wanderer",
@@ -29,12 +29,12 @@ defmodule WandererApp.Test.EsiFixtures do
       "name" => "Test Corporation",
       "ticker" => "TEST",
       "member_count" => 150,
-      "ceo_id" => "95000001",
-      "alliance_id" => "99000050",
+      "ceo_id" => 95_000_001,
+      "alliance_id" => 99_000_050,
       "description" => "A test corporation",
       "tax_rate" => 0.1,
       "date_founded" => "2010-01-01T00:00:00Z",
-      "creator_id" => "90000001",
+      "creator_id" => 90_000_001,
       "url" => "http://test.example.com",
       "faction_id" => nil,
       "home_station_id" => 60_003_760,
@@ -49,9 +49,9 @@ defmodule WandererApp.Test.EsiFixtures do
     base = %{
       "name" => "Test Alliance",
       "ticker" => "TEST",
-      "creator_id" => "95000001",
-      "creator_corporation_id" => "98000001",
-      "executor_corporation_id" => "98000001",
+      "creator_id" => 95_000_001,
+      "creator_corporation_id" => 98_000_001,
+      "executor_corporation_id" => 98_000_001,
       "date_founded" => "2009-01-01T00:00:00Z",
       "faction_id" => nil
     }

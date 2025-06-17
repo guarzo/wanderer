@@ -36,7 +36,14 @@ defmodule Mix.Tasks.Openapi.Export do
       )
 
     output_path = opts[:output] || "priv/static/openapi.json"
-    format = String.to_atom(opts[:format] || "json")
+
+    # Safe format parsing - only allow predefined formats
+    format =
+      case opts[:format] || "json" do
+        "json" -> :json
+        "yaml" -> :yaml
+        other -> Mix.raise("Unknown format: #{other}. Supported formats: json, yaml")
+      end
 
     Mix.Task.run("compile")
     Mix.Task.run("app.start")
@@ -63,9 +70,6 @@ defmodule Mix.Tasks.Openapi.Export do
       :yaml ->
         # Note: YAML export would require additional dependency like yamerl or fast_yaml
         Mix.raise("YAML format not yet implemented. Please use JSON format.")
-
-      _ ->
-        Mix.raise("Unknown format: #{format}. Supported formats: json")
     end
   end
 end

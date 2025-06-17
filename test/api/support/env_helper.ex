@@ -3,7 +3,7 @@ defmodule WandererApp.EnvHelper do
   Helper module for loading environment variables from .env file for API tests.
   """
 
-  @env_file Path.join([File.cwd!(), "api-test", ".env"])
+  @env_file Path.join([File.cwd!(), "test", "api", ".env"])
 
   def load_env_file do
     if File.exists?(@env_file) do
@@ -46,11 +46,11 @@ defmodule WandererApp.EnvHelper do
         raise """
         Missing required environment variable: #{key}
 
-        Please create api-test/.env file with the following variables:
+        Please create test/api/.env file with the following variables:
         - API_TOKEN: Bearer token from your map's API settings
         - MAP_SLUG: The slug of your test map
 
-        See api-test/.env.example for a template.
+        See test/api/.env.example for a template.
         """
 
       value ->

@@ -11,10 +11,10 @@ defmodule WandererApp.CharacterApiTest do
       # Create test characters
       user1 = create_user()
       character1 = create_character(%{user_id: user1.id, name: "Test Character 1"}, user1)
-      
+
       user2 = create_user()
       character2 = create_character(%{user_id: user2.id, name: "Test Character 2"}, user2)
-      
+
       {:ok, characters: [character1, character2]}
     end
 
@@ -27,7 +27,7 @@ defmodule WandererApp.CharacterApiTest do
 
       # Should include all characters created in setup
       assert length(response["data"]) >= 2
-      
+
       character_names = Enum.map(response["data"], & &1["name"])
       assert "Test Character 1" in character_names
       assert "Test Character 2" in character_names

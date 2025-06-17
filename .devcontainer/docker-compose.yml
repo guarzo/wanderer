@@ -25,7 +25,6 @@ services:
       - 4444:4444
     volumes:
       - ..:/app:delegated
-      - ~/.ssh:/root/.ssh
       - elixir-artifacts:/opt/elixir-artifacts
     command: sleep infinity
 

@@ -109,15 +109,14 @@ defmodule WandererApp.ApiCase do
   end
 
   setup tags do
-    # Setup Ecto sandbox - handle both async and shared mode
-    if tags[:async] do
-      :ok = Ecto.Adapters.SQL.Sandbox.checkout(WandererApp.Repo)
-    else
-      :ok = Ecto.Adapters.SQL.Sandbox.checkout(WandererApp.Repo)
+    # Clean up any leftover processes from previous tests
+    WandererApp.TestCleanup.cleanup()
 
-      unless tags[:async] do
-        Ecto.Adapters.SQL.Sandbox.mode(WandererApp.Repo, {:shared, self()})
-      end
+    # Setup Ecto sandbox - handle both async and shared mode
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(WandererApp.Repo)
+
+    unless tags[:async] do
+      Ecto.Adapters.SQL.Sandbox.mode(WandererApp.Repo, {:shared, self()})
     end
 
     # Load environment variables if not already loaded
@@ -321,15 +320,15 @@ defmodule WandererApp.ApiCase do
   # Helper to create test data with proper Ash actions.
   def create_test_map_with_auth(attrs \\ %{}) do
     map_data = WandererApp.Factory.setup_test_map_with_auth(attrs)
-    
+
     # Automatically setup map server mock
     WandererApp.Test.MapServerMock.setup_map_mock(map_data.map.id)
-    
+
     # Register cleanup
     ExUnit.Callbacks.on_exit(fn ->
       WandererApp.Test.MapServerMock.cleanup_map_mock(map_data.map.id)
     end)
-    
+
     map_data
   end
 

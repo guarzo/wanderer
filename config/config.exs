@@ -23,7 +23,7 @@ config :wanderer_app, WandererApp.Cache,
 
 config :wanderer_app,
   ecto_repos: [WandererApp.Repo],
-  ash_domains: [WandererApp.Api],
+  ash_domains: [WandererApp.Api, WandererApp.Api.V1, WandererApp.Api.V2],
   generators: [timestamp_type: :utc_datetime],
   ddrt: DDRT,
   logger: Logger,

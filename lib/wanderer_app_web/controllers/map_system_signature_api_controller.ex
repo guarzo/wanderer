@@ -1,6 +1,6 @@
 defmodule WandererAppWeb.MapSystemSignatureAPIController do
   @deprecated "Use /api/v1/signatures JSON:API endpoints instead. This controller will be removed after 2025-12-31."
-  
+
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
@@ -12,7 +12,7 @@ defmodule WandererAppWeb.MapSystemSignatureAPIController do
   @moduledoc """
   API controller for managing map system signatures.
   """
-  
+
   @deprecated "Use /api/v1/map_system_signatures JSON:API endpoints instead. This controller will be removed after 2025-12-31."
 
   # Inlined OpenAPI schema for a map system signature

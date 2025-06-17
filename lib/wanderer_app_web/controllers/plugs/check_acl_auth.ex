@@ -4,7 +4,7 @@ defmodule WandererAppWeb.Plugs.CheckAclAuth do
   1. Character JWT authentication (for listing/creating ACLs)
   2. ACL API key authentication (for accessing specific ACLs)
   """
-  
+
   @deprecated "Use WandererAppWeb.Auth.AuthPipeline with strategies: [:acl_key, :character_jwt] instead. This plug will be removed after 2025-12-31."
 
   import Plug.Conn

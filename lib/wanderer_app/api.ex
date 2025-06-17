@@ -1,5 +1,13 @@
 defmodule WandererApp.Api do
-  @moduledoc false
+  @moduledoc """
+  Legacy API Domain - Backward compatibility alias to V1.
+
+  This domain exists for backward compatibility with existing code that
+  references WandererApp.Api directly. It delegates to the V1 API domain
+  to maintain the same resource set and behavior.
+
+  @deprecated "Use WandererApp.Api.V1 for new code. This module will be removed after 2025-12-31."
+  """
 
   use Ash.Domain,
     extensions: [AshJsonApi.Domain]

@@ -14,15 +14,18 @@ defmodule WandererApp.Esi.Mock do
 
   @impl WandererApp.Esi.CharacterBehavior
   def get_character_info(character_id, _opts \\ []) do
+    # Convert to string for pattern matching, handle both integer and string inputs
+    character_id_str = to_string(character_id)
+
     # Return mock character data based on ID patterns
-    case character_id do
+    case character_id_str do
       "95" <> _ ->
         # Special case for common test IDs
         {:ok,
          %{
            "name" => "Test Character #{character_id}",
-           "corporation_id" => "98" <> String.slice(character_id, 2..10),
-           "alliance_id" => "99" <> String.slice(character_id, 2..10),
+           "corporation_id" => "98" <> String.slice(character_id_str, 2..10),
+           "alliance_id" => "99" <> String.slice(character_id_str, 2..10),
            "birthday" => "2013-01-01T00:00:00Z",
            "bloodline_id" => 1,
            "description" => "Test character for unit tests",
@@ -118,15 +121,18 @@ defmodule WandererApp.Esi.Mock do
 
   @impl WandererApp.Esi.CorporationBehavior
   def get_corporation_info(corporation_id, _opts \\ []) do
-    case corporation_id do
+    # Convert to string for pattern matching, handle both integer and string inputs
+    corporation_id_str = to_string(corporation_id)
+
+    case corporation_id_str do
       "98" <> _ ->
         {:ok,
          %{
            "name" => "Test Corporation #{corporation_id}",
-           "ticker" => "TST" <> String.slice(corporation_id, -3..-1),
+           "ticker" => "TST" <> String.slice(corporation_id_str, -3..-1),
            "member_count" => 100,
            "ceo_id" => 95_000_001,
-           "alliance_id" => "99" <> String.slice(corporation_id, 2..10),
+           "alliance_id" => "99" <> String.slice(corporation_id_str, 2..10),
            "description" => "Test corporation for unit tests",
            "tax_rate" => 0.1,
            "date_founded" => "2010-01-01T00:00:00Z",

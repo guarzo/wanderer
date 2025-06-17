@@ -1,7 +1,7 @@
 defmodule WandererAppWeb.Schemas.ResponseSchemas do
   @moduledoc """
   Common response schema patterns for API endpoints.
-  
+
   This module provides standardized response schemas for common operations
   like delete confirmations, batch operations, and standard HTTP responses.
   """

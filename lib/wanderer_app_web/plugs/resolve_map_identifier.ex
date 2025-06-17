@@ -49,7 +49,7 @@ defmodule WandererAppWeb.Plugs.ResolveMapIdentifier do
 
   defp get_map_identifier_from_query(conn) do
     conn = Plug.Conn.fetch_query_params(conn)
-    
+
     cond do
       # Check for map_id in query params
       map_id = conn.query_params["map_id"] ->

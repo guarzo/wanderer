@@ -34,7 +34,6 @@ defmodule WandererApp.SimpleWorkingTest do
     end
   end
 
-
   describe "API endpoint availability" do
     test "health check endpoint works", %{conn: conn} do
       conn = get(conn, "/api/common/system-static-info?system_id=30000142")

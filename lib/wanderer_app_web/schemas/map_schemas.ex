@@ -1,7 +1,7 @@
 defmodule WandererAppWeb.Schemas.MapSchemas do
   @moduledoc """
   OpenAPI schema definitions for map-related resources.
-  
+
   This module contains schema definitions for map systems, connections,
   signatures, and other map-specific data structures.
   """
@@ -29,6 +29,7 @@ defmodule WandererAppWeb.Schemas.MapSchemas do
         position_y: %Schema{type: :number, description: "Y coordinate"},
         status: %Schema{
           type: :integer,
+          enum: [0, 1, 2, 3, 4, 5, 6, 7, 8],
           description:
             "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)"
         },
@@ -37,7 +38,11 @@ defmodule WandererAppWeb.Schemas.MapSchemas do
         tag: %Schema{type: :string, nullable: true, description: "Custom tag"},
         locked: %Schema{type: :boolean, description: "Lock flag"},
         temporary_name: %Schema{type: :string, nullable: true, description: "Temporary name"},
-        labels: %Schema{type: :string, description: "Comma-separated list of labels"},
+        labels: %Schema{
+          type: :array,
+          items: %Schema{type: :string},
+          description: "List of labels"
+        },
         inserted_at: %Schema{type: :string, format: :date_time, description: "Creation timestamp"},
         updated_at: %Schema{
           type: :string,
@@ -63,7 +68,11 @@ defmodule WandererAppWeb.Schemas.MapSchemas do
         type: %Schema{type: :integer, description: "Connection type (0: wormhole, 1: stargate)"},
         mass_status: %Schema{type: :integer, nullable: true, description: "Mass status (0-3)"},
         time_status: %Schema{type: :integer, nullable: true, description: "Time status (0-3)"},
-        ship_size_type: %Schema{type: :integer, nullable: true, description: "Ship size limit (0-3)"},
+        ship_size_type: %Schema{
+          type: :integer,
+          nullable: true,
+          description: "Ship size limit (0-3)"
+        },
         locked: %Schema{type: :boolean, description: "Locked flag"},
         custom_info: %Schema{type: :string, nullable: true, description: "Optional metadata"},
         wormhole_type: %Schema{type: :string, nullable: true, description: "Wormhole code"},

@@ -10,18 +10,18 @@ defmodule WandererAppWeb.Schemas.ApiSchemas do
 
   # Standard response wrappers
   def data_wrapper(schema, meta_schema \\ nil) do
+    base_properties = %{data: schema}
+
+    properties =
+      if meta_schema do
+        Map.put(base_properties, :meta, meta_schema)
+      else
+        base_properties
+      end
+
     %Schema{
       type: :object,
-      properties: %{
-        data: schema,
-        meta:
-          meta_schema ||
-            %Schema{
-              type: :object,
-              properties: %{},
-              description: "Additional metadata"
-            }
-      },
+      properties: properties,
       required: ["data"]
     }
   end

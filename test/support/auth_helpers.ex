@@ -57,9 +57,9 @@ defmodule WandererApp.Test.AuthHelpers do
 
   @doc """
   Generates a map API key header for testing.
-  
+
   ## Examples
-  
+
       # Using a map with existing API key
       auth_header = generate_map_api_key_header(map)
       conn |> put_req_header("authorization", auth_header)
@@ -69,21 +69,21 @@ defmodule WandererApp.Test.AuthHelpers do
       conn |> put_req_header("authorization", auth_header)
   """
   def generate_map_api_key_header(map_or_key) do
-    api_key = 
+    api_key =
       case map_or_key do
         %{public_api_key: key} when not is_nil(key) -> key
         key when is_binary(key) -> key
         _ -> raise ArgumentError, "Invalid map or API key provided"
       end
-    
+
     "Bearer #{api_key}"
   end
 
   @doc """
   Generates an ACL API key header for testing.
-  
+
   ## Examples
-  
+
       # Using an ACL with existing API key
       auth_header = generate_acl_api_key_header(acl)
       conn |> put_req_header("authorization", auth_header)
@@ -93,21 +93,21 @@ defmodule WandererApp.Test.AuthHelpers do
       conn |> put_req_header("authorization", auth_header)
   """
   def generate_acl_api_key_header(acl_or_key) do
-    api_key = 
+    api_key =
       case acl_or_key do
         %{api_key: key} when not is_nil(key) -> key
         key when is_binary(key) -> key
         _ -> raise ArgumentError, "Invalid ACL or API key provided"
       end
-    
+
     "Bearer #{api_key}"
   end
 
   @doc """
   Generates a JWT authentication header for a user.
-  
+
   ## Examples
-  
+
       auth_header = generate_jwt_header(user)
       conn |> put_req_header("authorization", auth_header)
   """
@@ -118,9 +118,9 @@ defmodule WandererApp.Test.AuthHelpers do
 
   @doc """
   Generates a JWT authentication header for a character.
-  
+
   ## Examples
-  
+
       auth_header = generate_character_jwt_header(character)
       conn |> put_req_header("authorization", auth_header)
   """
@@ -131,9 +131,9 @@ defmodule WandererApp.Test.AuthHelpers do
 
   @doc """
   Sets up authentication headers on a connection based on the strategy.
-  
+
   ## Examples
-  
+
       # JWT authentication for a user
       conn = setup_auth(conn, :jwt, user)
       
@@ -147,7 +147,7 @@ defmodule WandererApp.Test.AuthHelpers do
       conn = setup_auth(conn, :character_jwt, character)
   """
   def setup_auth(conn, strategy, resource) do
-    auth_header = 
+    auth_header =
       case strategy do
         :jwt -> generate_jwt_header(resource)
         :character_jwt -> generate_character_jwt_header(resource)
@@ -155,58 +155,67 @@ defmodule WandererApp.Test.AuthHelpers do
         :acl_key -> generate_acl_api_key_header(resource)
         _ -> raise ArgumentError, "Unknown authentication strategy: #{inspect(strategy)}"
       end
-    
+
     Plug.Conn.put_req_header(conn, "authorization", auth_header)
   end
 
   @doc """
   Creates a map with a valid API key for testing.
-  
+
   Returns a map struct with public_api_key set.
   """
   def create_map_with_api_key(attrs \\ %{}) do
     api_key = "test-map-api-key-#{System.unique_integer([:positive])}"
-    
+
     # Merge provided attrs with generated API key
     map_attrs = Map.merge(%{public_api_key: api_key}, attrs)
-    
+
     # Use factory to create the map
     WandererApp.Factory.create(:map, map_attrs)
   end
 
   @doc """
   Creates an ACL with a valid API key for testing.
-  
+
   Returns an ACL struct with api_key set.
   """
   def create_acl_with_api_key(attrs \\ %{}) do
     api_key = "test-acl-api-key-#{System.unique_integer([:positive])}"
-    
+
     # Merge provided attrs with generated API key
     acl_attrs = Map.merge(%{api_key: api_key}, attrs)
-    
+
     # Use factory to create the ACL
     WandererApp.Factory.create(:access_list, acl_attrs)
   end
 
   @doc """
   Tests authentication failure scenarios for a given strategy.
-  
+
   ## Examples
-  
+
       test_auth_failure(conn, :jwt, "invalid-token", :invalid_token)
       test_auth_failure(conn, :map_api_key, "wrong-key", :unauthorized)
   """
   def test_auth_failure(conn, strategy, invalid_credential, expected_error) do
-    conn_with_auth = 
+    conn_with_auth =
       case strategy do
-        :jwt -> Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
-        :character_jwt -> Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
-        :map_api_key -> Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
-        :acl_key -> Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
-        _ -> raise ArgumentError, "Unknown authentication strategy: #{inspect(strategy)}"
+        :jwt ->
+          Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
+
+        :character_jwt ->
+          Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
+
+        :map_api_key ->
+          Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
+
+        :acl_key ->
+          Plug.Conn.put_req_header(conn, "authorization", "Bearer #{invalid_credential}")
+
+        _ ->
+          raise ArgumentError, "Unknown authentication strategy: #{inspect(strategy)}"
       end
-    
+
     {conn_with_auth, expected_error}
   end
 end

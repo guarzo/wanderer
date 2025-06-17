@@ -84,8 +84,8 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
   end
 
   defp call_ash_action(resource, action, params, conn) do
-    # Get the API module using public API
-    api = Ash.Resource.Info.domain(resource)
+    # Use V1 API domain for legacy compatibility
+    api = WandererApp.Api.V1
 
     # Build options with actor from conn
     opts = [
@@ -93,13 +93,24 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
       tenant: conn.assigns[:tenant]
     ]
 
-    # Call the appropriate Ash function
+    # Call the appropriate Ash function with correct signatures
     case action do
-      :read -> api.read(resource, params, opts)
-      :create -> api.create(resource, params, opts)
-      :update -> api.update(resource, params, opts)
-      :destroy -> api.destroy(resource, params, opts)
-      custom -> api.run_action(resource, custom, params, opts)
+      :read ->
+        query = resource |> Ash.Query.new() |> Ash.Query.set_context(params)
+        api.read(query, opts)
+
+      :create ->
+        api.create(resource, params, opts)
+
+      :update ->
+        changeset = resource |> Ash.Changeset.for_update(action, params)
+        api.update(changeset, opts)
+
+      :destroy ->
+        api.destroy(resource, opts)
+
+      custom ->
+        api.run_action(resource, custom, params, opts)
     end
   end
 
@@ -112,9 +123,17 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
         translate_to_legacy_format(result)
       end
 
+    # Map action to appropriate HTTP status code
+    status =
+      case opts[:action] do
+        :create -> 201
+        :destroy -> 204
+        _ -> 200
+      end
+
     conn
     |> put_resp_content_type("application/json")
-    |> send_resp(200, Jason.encode!(response))
+    |> send_resp(status, Jason.encode!(response))
   end
 
   defp handle_ash_result(conn, {:error, error}, _opts) do

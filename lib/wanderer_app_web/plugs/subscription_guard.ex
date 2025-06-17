@@ -14,10 +14,10 @@ defmodule WandererAppWeb.Plugs.SubscriptionGuard do
     case conn.assigns do
       %{map: map} ->
         check_subscription(conn, map.id)
-      
+
       %{map_id: map_id} ->
         check_subscription(conn, map_id)
-      
+
       _ ->
         conn
         |> put_status(:bad_request)
@@ -30,15 +30,16 @@ defmodule WandererAppWeb.Plugs.SubscriptionGuard do
     case WandererApp.Map.is_subscription_active?(map_id) do
       {:ok, true} ->
         conn
-      
+
       {:ok, false} ->
         conn
         |> put_status(:payment_required)
         |> json(%{error: "Map subscription is not active"})
         |> halt()
-      
+
       {:error, reason} ->
         Logger.error("Failed to check subscription status: #{inspect(reason)}")
+
         conn
         |> put_status(:internal_server_error)
         |> json(%{error: "Failed to verify subscription status"})

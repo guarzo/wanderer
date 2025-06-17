@@ -127,9 +127,10 @@ defmodule WandererAppWeb.SystemsAPIController do
       end
 
     alias WandererAppWeb.Validations.ApiValidations
-    
+
     with {:ok, _} when not is_nil(solar_system_str) <- {:ok, solar_system_str},
-         {:ok, solar_system_id} <- ApiValidations.parse_and_validate_integer(solar_system_str, :solar_system_id) do
+         {:ok, solar_system_id} <-
+           ApiValidations.parse_and_validate_integer(solar_system_str, :solar_system_id) do
       case CachedInfo.get_system_static_info(solar_system_id) do
         {:ok, system} ->
           # Get basic system data

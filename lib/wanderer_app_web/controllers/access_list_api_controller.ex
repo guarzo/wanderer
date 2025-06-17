@@ -41,9 +41,9 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   }
 
   @acl_index_response_schema Schemas.index_response_schema(
-    @acl_list_item_schema,
-    "List of access control lists"
-  )
+                               @acl_list_item_schema,
+                               "List of access control lists"
+                             )
 
   @acl_create_properties %{
     owner_eve_id: %Schema{
@@ -63,15 +63,16 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   @acl_create_request_schema %Schema{
     type: :object,
     properties: %{
-      acl: Schemas.create_request_schema(
-        @acl_create_properties,
-        ["owner_eve_id", "name"]
-      )
-      |> Schemas.with_example(%{
-        "owner_eve_id" => "2112073677",
-        "name" => "My Access List",
-        "description" => "Optional description"
-      })
+      acl:
+        Schemas.create_request_schema(
+          @acl_create_properties,
+          ["owner_eve_id", "name"]
+        )
+        |> Schemas.with_example(%{
+          "owner_eve_id" => "2112073677",
+          "name" => "My Access List",
+          "description" => "Optional description"
+        })
     },
     required: ["acl"]
   }
@@ -91,9 +92,9 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   }
 
   @acl_create_response_schema Schemas.create_response_schema(
-    @acl_resource_schema,
-    "Created access control list"
-  )
+                                @acl_resource_schema,
+                                "Created access control list"
+                              )
 
   @acl_member_schema %Schema{
     type: :object,
@@ -130,9 +131,9 @@ defmodule WandererAppWeb.MapAccessListAPIController do
   }
 
   @acl_show_response_schema Schemas.show_response_schema(
-    @acl_detailed_schema,
-    "Access control list details with members"
-  )
+                              @acl_detailed_schema,
+                              "Access control list details with members"
+                            )
 
   @acl_update_properties %{
     name: %Schema{type: :string, description: "ACL name"},
@@ -426,7 +427,8 @@ defmodule WandererAppWeb.MapAccessListAPIController do
 
   defp create_acl_with_params(conn, acl_params) do
     character_id = conn.assigns.current_character.id
-    api_key = 
+
+    api_key =
       :crypto.strong_rand_bytes(16)
       |> Base.url_encode64(padding: false)
       |> then(&"acl-api-key-#{&1}")
