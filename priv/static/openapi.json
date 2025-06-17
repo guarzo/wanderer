@@ -159,21 +159,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -749,21 +739,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -943,8 +923,11 @@
                           "type": "string"
                         },
                         "labels": {
-                          "description": "Comma-separated list of labels",
-                          "type": "string"
+                          "description": "List of labels",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "locked": {
                           "description": "Lock flag",
@@ -976,6 +959,17 @@
                         },
                         "status": {
                           "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                          "enum": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8
+                          ],
                           "type": "integer"
                         },
                         "tag": {
@@ -1003,11 +997,6 @@
                         "map_id",
                         "solar_system_id"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -1246,15 +1235,35 @@
     "/api/v1/characters": {
       "get": {
         "callbacks": {},
-        "description": "Lists ALL characters in the database.",
+        "description": "Lists characters in the database with pagination support.",
         "operationId": "WandererAppWeb.CharactersAPIController.index (2)",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Page number (default: 1)",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page (default: 20, max: 100)",
+            "example": 20,
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "description": "List of all characters in the database",
                   "properties": {
                     "data": {
                       "items": {
@@ -1286,20 +1295,91 @@
                       },
                       "type": "array"
                     },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
+                    "pagination": {
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total_count": {
+                          "type": "integer"
+                        },
+                        "total_pages": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "page_size",
+                        "total_count"
+                      ],
                       "type": "object"
                     }
                   },
                   "required": [
-                    "data"
+                    "data",
+                    "pagination"
                   ],
                   "type": "object"
                 }
               }
             },
-            "description": "List of characters"
+            "description": "Paginated list of characters"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "errors": [
+                      {
+                        "details": "Additional information about the error",
+                        "message": "Invalid pagination parameters"
+                      }
+                    ]
+                  },
+                  "properties": {
+                    "errors": {
+                      "items": {
+                        "properties": {
+                          "code": {
+                            "description": "Error code",
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "details": {
+                            "description": "Detailed explanation",
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "field": {
+                            "description": "Field that caused the error",
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "message": {
+                            "description": "Error message",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "message"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "errors"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Validation error"
           }
         },
         "summary": "List Characters",
@@ -3397,7 +3477,7 @@
     "/api/v1/maps/{map_identifier}/audit": {
       "get": {
         "callbacks": {},
-        "description": "Lists all audit events for a map. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
+        "description": "Lists audit events for a map with pagination. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
         "operationId": "WandererAppWeb.MapAuditAPIController.index (2)",
         "parameters": [
           {
@@ -3428,6 +3508,26 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Page number (default: 1)",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page (default: 20, max: 100)",
+            "example": 20,
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
             }
           }
         ],
@@ -3490,10 +3590,33 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "pagination": {
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total_count": {
+                          "type": "integer"
+                        },
+                        "total_pages": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "page_size",
+                        "total_count"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
-                    "data"
+                    "data",
+                    "pagination"
                   ],
                   "type": "object"
                 }
@@ -5277,21 +5400,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -5345,15 +5458,35 @@
     "/api/characters": {
       "get": {
         "callbacks": {},
-        "description": "Lists ALL characters in the database.",
+        "description": "Lists characters in the database with pagination support.",
         "operationId": "WandererAppWeb.CharactersAPIController.index",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Page number (default: 1)",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page (default: 20, max: 100)",
+            "example": 20,
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "description": "List of all characters in the database",
                   "properties": {
                     "data": {
                       "items": {
@@ -5385,20 +5518,91 @@
                       },
                       "type": "array"
                     },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
+                    "pagination": {
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total_count": {
+                          "type": "integer"
+                        },
+                        "total_pages": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "page_size",
+                        "total_count"
+                      ],
                       "type": "object"
                     }
                   },
                   "required": [
-                    "data"
+                    "data",
+                    "pagination"
                   ],
                   "type": "object"
                 }
               }
             },
-            "description": "List of characters"
+            "description": "Paginated list of characters"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "errors": [
+                      {
+                        "details": "Additional information about the error",
+                        "message": "Invalid pagination parameters"
+                      }
+                    ]
+                  },
+                  "properties": {
+                    "errors": {
+                      "items": {
+                        "properties": {
+                          "code": {
+                            "description": "Error code",
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "details": {
+                            "description": "Detailed explanation",
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "field": {
+                            "description": "Field that caused the error",
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "message": {
+                            "description": "Error message",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "message"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "errors"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Validation error"
           }
         },
         "summary": "List Characters",
@@ -5565,11 +5769,6 @@
                         "id",
                         "name"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -6238,8 +6437,11 @@
                                 "type": "string"
                               },
                               "labels": {
-                                "description": "Comma-separated list of labels",
-                                "type": "string"
+                                "description": "List of labels",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
                               },
                               "locked": {
                                 "description": "Lock flag",
@@ -6271,6 +6473,17 @@
                               },
                               "status": {
                                 "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                                "enum": [
+                                  0,
+                                  1,
+                                  2,
+                                  3,
+                                  4,
+                                  5,
+                                  6,
+                                  7,
+                                  8
+                                ],
                                 "type": "integer"
                               },
                               "tag": {
@@ -6472,11 +6685,6 @@
                         "type": "array"
                       }
                     },
-                    "type": "object"
-                  },
-                  "meta": {
-                    "description": "Additional metadata",
-                    "properties": {},
                     "type": "object"
                   }
                 },
@@ -7023,21 +7231,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -7488,11 +7686,6 @@
                         "type": "object"
                       },
                       "type": "array"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
-                      "type": "object"
                     }
                   },
                   "required": [
@@ -7641,11 +7834,6 @@
                         "id",
                         "name"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -7808,21 +7996,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -8050,21 +8228,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -8626,8 +8794,11 @@
                           "type": "string"
                         },
                         "labels": {
-                          "description": "Comma-separated list of labels",
-                          "type": "string"
+                          "description": "List of labels",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "locked": {
                           "description": "Lock flag",
@@ -8659,6 +8830,17 @@
                         },
                         "status": {
                           "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                          "enum": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8
+                          ],
                           "type": "integer"
                         },
                         "tag": {
@@ -8686,11 +8868,6 @@
                         "map_id",
                         "solar_system_id"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -9049,8 +9226,11 @@
                           "type": "string"
                         },
                         "labels": {
-                          "description": "Comma-separated list of labels",
-                          "type": "string"
+                          "description": "List of labels",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "locked": {
                           "description": "Lock flag",
@@ -9082,6 +9262,17 @@
                         },
                         "status": {
                           "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                          "enum": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8
+                          ],
                           "type": "integer"
                         },
                         "tag": {
@@ -9109,11 +9300,6 @@
                         "map_id",
                         "solar_system_id"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -9472,8 +9658,11 @@
                           "type": "string"
                         },
                         "labels": {
-                          "description": "Comma-separated list of labels",
-                          "type": "string"
+                          "description": "List of labels",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "locked": {
                           "description": "Lock flag",
@@ -9505,6 +9694,17 @@
                         },
                         "status": {
                           "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                          "enum": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8
+                          ],
                           "type": "integer"
                         },
                         "tag": {
@@ -9532,11 +9732,6 @@
                         "map_id",
                         "solar_system_id"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -9909,21 +10104,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -10438,8 +10623,11 @@
                                 "type": "string"
                               },
                               "labels": {
-                                "description": "Comma-separated list of labels",
-                                "type": "string"
+                                "description": "List of labels",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
                               },
                               "locked": {
                                 "description": "Lock flag",
@@ -10471,6 +10659,17 @@
                               },
                               "status": {
                                 "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                                "enum": [
+                                  0,
+                                  1,
+                                  2,
+                                  3,
+                                  4,
+                                  5,
+                                  6,
+                                  7,
+                                  8
+                                ],
                                 "type": "integer"
                               },
                               "tag": {
@@ -10672,11 +10871,6 @@
                         "type": "array"
                       }
                     },
-                    "type": "object"
-                  },
-                  "meta": {
-                    "description": "Additional metadata",
-                    "properties": {},
                     "type": "object"
                   }
                 },
@@ -11098,21 +11292,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -11612,21 +11796,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -11839,21 +12013,11 @@
                             "type": "object"
                           },
                           "type": "array"
-                        },
-                        "meta": {
-                          "description": "Additional metadata",
-                          "properties": {},
-                          "type": "object"
                         }
                       },
                       "required": [
                         "data"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -12447,8 +12611,11 @@
                           "type": "string"
                         },
                         "labels": {
-                          "description": "Comma-separated list of labels",
-                          "type": "string"
+                          "description": "List of labels",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "locked": {
                           "description": "Lock flag",
@@ -12480,6 +12647,17 @@
                         },
                         "status": {
                           "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                          "enum": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8
+                          ],
                           "type": "integer"
                         },
                         "tag": {
@@ -12507,11 +12685,6 @@
                         "map_id",
                         "solar_system_id"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -12870,8 +13043,11 @@
                           "type": "string"
                         },
                         "labels": {
-                          "description": "Comma-separated list of labels",
-                          "type": "string"
+                          "description": "List of labels",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "locked": {
                           "description": "Lock flag",
@@ -12903,6 +13079,17 @@
                         },
                         "status": {
                           "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                          "enum": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8
+                          ],
                           "type": "integer"
                         },
                         "tag": {
@@ -12930,11 +13117,6 @@
                         "map_id",
                         "solar_system_id"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -13293,8 +13475,11 @@
                           "type": "string"
                         },
                         "labels": {
-                          "description": "Comma-separated list of labels",
-                          "type": "string"
+                          "description": "List of labels",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "locked": {
                           "description": "Lock flag",
@@ -13326,6 +13511,17 @@
                         },
                         "status": {
                           "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                          "enum": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8
+                          ],
                           "type": "integer"
                         },
                         "tag": {
@@ -13353,11 +13549,6 @@
                         "map_id",
                         "solar_system_id"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },
@@ -13596,7 +13787,7 @@
     "/api/map/audit": {
       "get": {
         "callbacks": {},
-        "description": "Lists all audit events for a map. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
+        "description": "Lists audit events for a map with pagination. Requires either 'map_id' or 'slug' as a query parameter to identify the map.",
         "operationId": "WandererAppWeb.MapAuditAPIController.index",
         "parameters": [
           {
@@ -13627,6 +13818,26 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Page number (default: 1)",
+            "example": 1,
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page (default: 20, max: 100)",
+            "example": 20,
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
             }
           }
         ],
@@ -13689,10 +13900,33 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "pagination": {
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total_count": {
+                          "type": "integer"
+                        },
+                        "total_pages": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "page_size",
+                        "total_count"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
-                    "data"
+                    "data",
+                    "pagination"
                   ],
                   "type": "object"
                 }
@@ -13856,8 +14090,11 @@
                                 "type": "string"
                               },
                               "labels": {
-                                "description": "Comma-separated list of labels",
-                                "type": "string"
+                                "description": "List of labels",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
                               },
                               "locked": {
                                 "description": "Lock flag",
@@ -13889,6 +14126,17 @@
                               },
                               "status": {
                                 "description": "System status (0: unknown, 1: friendly, 2: warning, 3: targetPrimary, 4: targetSecondary, 5: dangerousPrimary, 6: dangerousSecondary, 7: lookingFor, 8: home)",
+                                "enum": [
+                                  0,
+                                  1,
+                                  2,
+                                  3,
+                                  4,
+                                  5,
+                                  6,
+                                  7,
+                                  8
+                                ],
                                 "type": "integer"
                               },
                               "tag": {
@@ -14204,11 +14452,6 @@
                         "type": "object"
                       },
                       "type": "array"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
-                      "type": "object"
                     }
                   },
                   "required": [
@@ -14305,11 +14548,6 @@
                         "id",
                         "name"
                       ],
-                      "type": "object"
-                    },
-                    "meta": {
-                      "description": "Additional metadata",
-                      "properties": {},
                       "type": "object"
                     }
                   },

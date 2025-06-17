@@ -16,3 +16,4 @@ Application.ensure_all_started(:mox)
 
 # Load support files
 Code.require_file("support/test_cleanup.ex", __DIR__)
+Code.require_file("support/mocks.ex", __DIR__)
