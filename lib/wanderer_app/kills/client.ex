@@ -180,6 +180,20 @@ defmodule WandererApp.Kills.Client do
     {updated_systems, to_subscribe} =
       Manager.subscribe_systems(state.subscribed_systems, system_ids)
 
+    # Log subscription details
+    if length(to_subscribe) > 0 do
+      # Get map information for the systems
+      map_info = get_system_map_info(to_subscribe)
+      
+      Logger.info(
+        "[Client] Subscribing to #{length(to_subscribe)} new systems. " <>
+        "Total subscribed: #{MapSet.size(updated_systems)}. " <>
+        "Map breakdown: #{inspect(map_info)}"
+      )
+      
+      Logger.debug("[Client] Systems to subscribe: #{inspect(to_subscribe)}")
+    end
+
     if length(to_subscribe) > 0 and state.socket_pid do
       Manager.sync_with_server(state.socket_pid, to_subscribe, [])
     end
@@ -190,6 +204,20 @@ defmodule WandererApp.Kills.Client do
   def handle_cast({:unsubscribe_systems, system_ids}, state) do
     {updated_systems, to_unsubscribe} =
       Manager.unsubscribe_systems(state.subscribed_systems, system_ids)
+
+    # Log unsubscription details
+    if length(to_unsubscribe) > 0 do
+      # Get map information for the systems
+      map_info = get_system_map_info(to_unsubscribe)
+      
+      Logger.info(
+        "[Client] Unsubscribing from #{length(to_unsubscribe)} systems. " <>
+        "Total subscribed: #{MapSet.size(updated_systems)}. " <>
+        "Map breakdown: #{inspect(map_info)}"
+      )
+      
+      Logger.debug("[Client] Systems to unsubscribe: #{inspect(to_unsubscribe)}")
+    end
 
     if length(to_unsubscribe) > 0 and state.socket_pid do
       Manager.sync_with_server(state.socket_pid, [], to_unsubscribe)
@@ -255,6 +283,14 @@ defmodule WandererApp.Kills.Client do
     systems =
       case MapIntegration.get_tracked_system_ids() do
         {:ok, system_list} ->
+          # Get map breakdown for logging
+          map_info = get_system_map_info(system_list)
+          
+          Logger.info(
+            "[Client] Initial connection with #{length(system_list)} systems. " <>
+            "Map breakdown: #{map_info}"
+          )
+          
           system_list
 
         {:error, reason} ->
@@ -346,17 +382,23 @@ defmodule WandererApp.Kills.Client do
     def handle_connected(transport, state) do
       Logger.debug("[Client] Connected, joining channel...")
 
-      case GenSocketClient.join(transport, "killmails:lobby", %{
-             systems: state.subscribed_systems,
-             client_identifier: "wanderer_app"
-           }) do
-        {:ok, _response} ->
-          Logger.debug("[Client] Successfully joined killmails:lobby")
+      join_params = %{
+        systems: state.subscribed_systems,
+        client_identifier: "wanderer_app"
+      }
+      
+      Logger.info(
+        "[Handler] Joining killmails:lobby with #{length(state.subscribed_systems)} initial systems"
+      )
+      
+      case GenSocketClient.join(transport, "killmails:lobby", join_params) do
+        {:ok, response} ->
+          Logger.info("[Handler] Successfully joined killmails:lobby, response: #{inspect(response)}")
           send(state.parent, {:connected, self()})
           {:ok, state}
 
         {:error, reason} ->
-          Logger.error("[Client] Failed to join channel: #{inspect(reason)}")
+          Logger.error("[Handler] Failed to join channel: #{inspect(reason)}")
           send(state.parent, {:disconnected, {:join_error, reason}})
           {:ok, state}
       end
@@ -404,13 +446,31 @@ defmodule WandererApp.Kills.Client do
 
     @impl true
     def handle_info({:subscribe_systems, system_ids}, transport, state) do
-      push_to_channel(transport, "subscribe_systems", %{"systems" => system_ids})
+      Logger.info("[Handler] Pushing subscribe_systems event for #{length(system_ids)} systems")
+      Logger.debug("[Handler] Subscribe systems: #{inspect(system_ids)}")
+      
+      case push_to_channel(transport, "subscribe_systems", %{"systems" => system_ids}) do
+        :ok -> 
+          Logger.debug("[Handler] Successfully pushed subscribe_systems event")
+        error -> 
+          Logger.error("[Handler] Failed to push subscribe_systems: #{inspect(error)}")
+      end
+      
       {:ok, state}
     end
 
     @impl true
     def handle_info({:unsubscribe_systems, system_ids}, transport, state) do
-      push_to_channel(transport, "unsubscribe_systems", %{"systems" => system_ids})
+      Logger.info("[Handler] Pushing unsubscribe_systems event for #{length(system_ids)} systems")
+      Logger.debug("[Handler] Unsubscribe systems: #{inspect(system_ids)}")
+      
+      case push_to_channel(transport, "unsubscribe_systems", %{"systems" => system_ids}) do
+        :ok -> 
+          Logger.debug("[Handler] Successfully pushed unsubscribe_systems event")
+        error -> 
+          Logger.error("[Handler] Failed to push unsubscribe_systems: #{inspect(error)}")
+      end
+      
       {:ok, state}
     end
 
@@ -433,14 +493,16 @@ defmodule WandererApp.Kills.Client do
     end
 
     defp push_to_channel(transport, event, payload) do
+      Logger.debug("[Handler] Pushing event '#{event}' with payload: #{inspect(payload)}")
+      
       case GenSocketClient.push(transport, "killmails:lobby", event, payload) do
-        {:ok, _ref} -> :ok
-        error -> error
+        {:ok, ref} -> 
+          Logger.debug("[Handler] Push successful, ref: #{inspect(ref)}")
+          :ok
+        error -> 
+          Logger.error("[Handler] Push failed: #{inspect(error)}")
+          error
       end
-    end
-
-    defp push_to_channel(_socket, _event, _payload) do
-      {:error, :no_socket}
     end
   end
 
@@ -479,4 +541,23 @@ defmodule WandererApp.Kills.Client do
   end
 
   defp validate_system_ids(_), do: {:error, :invalid_system_ids}
+
+  # Helper function to get map information for systems
+  defp get_system_map_info(system_ids) do
+    # Use the SystemMapIndex to get map associations
+    system_ids
+    |> Enum.reduce(%{}, fn system_id, acc ->
+      maps = WandererApp.Kills.Subscription.SystemMapIndex.get_maps_for_system(system_id)
+      
+      Enum.reduce(maps, acc, fn map_id, inner_acc ->
+        Map.update(inner_acc, map_id, 1, &(&1 + 1))
+      end)
+    end)
+    |> Enum.map(fn {map_id, count} -> "#{map_id}: #{count} systems" end)
+    |> Enum.join(", ")
+    |> case do
+      "" -> "no map associations found"
+      info -> info
+    end
+  end
 end
