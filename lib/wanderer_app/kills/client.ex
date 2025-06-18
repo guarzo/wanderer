@@ -15,22 +15,16 @@ defmodule WandererApp.Kills.Client do
   # Simple retry configuration - inline like character module
   @retry_delays [5_000, 10_000, 30_000, 60_000]
   @max_retries 10
-  @health_check_interval :timer.seconds(30)
-  @ping_interval :timer.seconds(15)
-  @ping_timeout :timer.seconds(10)
+  @health_check_interval :timer.minutes(1)
 
   defstruct [
     :socket_pid,
     :retry_timer_ref,
-    :ping_timer_ref,
-    :ping_timeout_ref,
     connected: false,
     connecting: false,
     subscribed_systems: MapSet.new(),
     retry_count: 0,
-    last_error: nil,
-    last_ping_sent: nil,
-    last_pong_received: nil
+    last_error: nil
   ]
 
   # Client API
@@ -88,7 +82,6 @@ defmodule WandererApp.Kills.Client do
 
       send(self(), :connect)
       schedule_health_check()
-      schedule_ping()
 
       {:ok, %__MODULE__{}}
     else
@@ -98,6 +91,16 @@ defmodule WandererApp.Kills.Client do
   end
 
   @impl true
+  def handle_info(:connect, %{connecting: true} = state) do
+    Logger.debug("[Client] Already connecting, ignoring connect request")
+    {:noreply, state}
+  end
+  
+  def handle_info(:connect, %{connected: true} = state) do
+    Logger.debug("[Client] Already connected, ignoring connect request")
+    {:noreply, state}
+  end
+  
   def handle_info(:connect, state) do
     Logger.info("[Client] Initiating connection attempt")
     state = cancel_retry(state)
@@ -105,9 +108,19 @@ defmodule WandererApp.Kills.Client do
     {:noreply, new_state}
   end
 
+  def handle_info(:retry_connection, %{connecting: true} = state) do
+    Logger.debug("[Client] Already connecting, skipping retry")
+    {:noreply, %{state | retry_timer_ref: nil}}
+  end
+  
+  def handle_info(:retry_connection, %{connected: true} = state) do
+    Logger.debug("[Client] Already connected, skipping retry")
+    {:noreply, %{state | retry_timer_ref: nil}}
+  end
+  
   def handle_info(:retry_connection, state) do
     Logger.info("[Client] Retrying connection (attempt #{state.retry_count + 1}/#{@max_retries})")
-    state = %{state | retry_timer_ref: nil}
+    state = %{state | retry_timer_ref: nil, connecting: true}
     new_state = attempt_connection(state)
     {:noreply, new_state}
   end
@@ -151,15 +164,19 @@ defmodule WandererApp.Kills.Client do
           connecting: false,
           socket_pid: socket_pid,
           retry_count: 0,
-          last_error: nil,
-          last_pong_received: System.monotonic_time(:millisecond)
+          last_error: nil
       }
       |> cancel_retry()
-      |> cancel_ping_timeout()
 
     {:noreply, new_state}
   end
 
+  # Guard against duplicate disconnection events
+  def handle_info({:disconnected, reason}, %{connected: false} = state) do
+    Logger.debug("[Client] Ignoring disconnection event - already disconnected")
+    {:noreply, state}
+  end
+  
   def handle_info({:disconnected, reason}, state) do
     Logger.warning("[Client] WebSocket disconnected: #{inspect(reason)}")
 
@@ -168,11 +185,8 @@ defmodule WandererApp.Kills.Client do
         connected: false, 
         connecting: false, 
         socket_pid: nil, 
-        last_error: reason,
-        last_ping_sent: nil,
-        last_pong_received: nil
+        last_error: reason
       }
-      |> cancel_ping_timeout()
 
     if should_retry?(state) do
       {:noreply, schedule_retry(state)}
@@ -194,45 +208,6 @@ defmodule WandererApp.Kills.Client do
 
     schedule_health_check()
     {:noreply, state}
-  end
-  
-  def handle_info(:send_ping, %{connected: true, socket_pid: socket_pid} = state) 
-      when is_pid(socket_pid) do
-    Logger.debug("[Client] Sending ping")
-    
-    # Send ping to socket handler
-    send(socket_pid, :send_ping)
-    
-    # Schedule timeout check
-    timeout_ref = Process.send_after(self(), :ping_timeout, @ping_timeout)
-    
-    schedule_ping()
-    {:noreply, %{state | 
-      last_ping_sent: System.monotonic_time(:millisecond),
-      ping_timeout_ref: timeout_ref
-    }}
-  end
-  
-  def handle_info(:send_ping, state) do
-    # Not connected, just reschedule
-    schedule_ping()
-    {:noreply, state}
-  end
-  
-  def handle_info(:ping_timeout, state) do
-    Logger.error("[Client] Ping timeout - no pong received within #{@ping_timeout}ms")
-    handle_connection_lost(state)
-    {:noreply, state}
-  end
-  
-  def handle_info(:pong_received, state) do
-    Logger.debug("[Client] Pong received")
-    
-    new_state = 
-      %{state | last_pong_received: System.monotonic_time(:millisecond)}
-      |> cancel_ping_timeout()
-      
-    {:noreply, new_state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -369,13 +344,22 @@ defmodule WandererApp.Kills.Client do
     handler_state = %{
       server_url: url,
       parent: self(),
-      subscribed_systems: systems
+      subscribed_systems: systems,
+      disconnected: false
     }
 
+    # Configure transport options with heartbeat settings
+    transport_opts = [
+      heartbeat_interval: 30_000,  # Send heartbeat every 30s
+      heartbeat_timeout: 60_000,    # Disconnect if no response in 60s
+      reconnect_after_msec: [5_000, 10_000, 30_000]  # Reconnect intervals
+    ]
+    
     case GenSocketClient.start_link(
            __MODULE__.Handler,
            Phoenix.Channels.GenSocketClient.Transport.WebSocketClient,
-           handler_state
+           handler_state,
+           transport_opts
          ) do
       {:ok, socket_pid} -> {:ok, socket_pid}
       error -> error
@@ -386,8 +370,11 @@ defmodule WandererApp.Kills.Client do
   defp should_retry?(_), do: true
 
   defp schedule_retry(state) do
+    # Cancel any existing retry timer first
+    state = cancel_retry(state)
+    
     delay = Enum.at(@retry_delays, min(state.retry_count, length(@retry_delays) - 1))
-    Logger.info("[Client] Scheduling retry in #{delay}ms")
+    Logger.info("[Client] Scheduling retry in #{delay}ms (attempt #{state.retry_count + 1})")
 
     timer_ref = Process.send_after(self(), :retry_connection, delay)
     %{state | retry_timer_ref: timer_ref, retry_count: state.retry_count + 1}
@@ -403,19 +390,12 @@ defmodule WandererApp.Kills.Client do
   defp check_health(%{connected: false}), do: :needs_reconnect
   defp check_health(%{socket_pid: nil}), do: :needs_reconnect
 
-  defp check_health(%{socket_pid: pid, last_pong_received: last_pong} = state) do
-    cond do
-      not socket_alive?(pid) -> 
-        Logger.warning("[Client] Socket process is dead")
-        :needs_reconnect
-        
-      # Check if we haven't received a pong in too long
-      last_pong && System.monotonic_time(:millisecond) - last_pong > @health_check_interval * 2 ->
-        Logger.warning("[Client] No pong received for #{System.monotonic_time(:millisecond) - last_pong}ms")
-        :needs_reconnect
-        
-      true -> 
-        :healthy
+  defp check_health(%{socket_pid: pid}) do
+    if socket_alive?(pid) do
+      :healthy
+    else
+      Logger.warning("[Client] Socket process is dead")
+      :needs_reconnect
     end
   end
 
@@ -434,14 +414,8 @@ defmodule WandererApp.Kills.Client do
     Process.send_after(self(), :health_check, @health_check_interval)
   end
   
-  defp schedule_ping do
-    Process.send_after(self(), :send_ping, @ping_interval)
-  end
-  
-  defp cancel_ping_timeout(%{ping_timeout_ref: nil} = state), do: state
-  defp cancel_ping_timeout(%{ping_timeout_ref: ref} = state) do
-    Process.cancel_timer(ref)
-    %{state | ping_timeout_ref: nil}
+  defp handle_connection_lost(%{connected: false} = _state) do
+    Logger.debug("[Client] Connection already lost, skipping cleanup")
   end
   
   defp handle_connection_lost(state) do
@@ -472,7 +446,12 @@ defmodule WandererApp.Kills.Client do
     @impl true
     def init(state) do
       ws_url = "#{state.server_url}/socket/websocket"
-      {:connect, ws_url, [{"vsn", "2.0.0"}], state}
+      # Configure with heartbeat interval (Phoenix default is 30s)
+      params = [
+        {"vsn", "2.0.0"},
+        {"heartbeat", "30000"}  # 30 second heartbeat
+      ]
+      {:connect, ws_url, params, state}
     end
 
     @impl true
@@ -497,31 +476,37 @@ defmodule WandererApp.Kills.Client do
         {:error, reason} ->
           Logger.error("[Handler] Failed to join channel: #{inspect(reason)}")
           send(state.parent, {:disconnected, {:join_error, reason}})
-          {:ok, state}
+          {:ok, %{state | disconnected: true}}
       end
     end
 
     @impl true
     def handle_disconnected(reason, state) do
-      Logger.warning("[Handler] Disconnected from server: #{inspect(reason)}")
-      send(state.parent, {:disconnected, reason})
-      {:ok, state}
+      if not state.disconnected do
+        Logger.warning("[Handler] Disconnected from server: #{inspect(reason)}")
+        send(state.parent, {:disconnected, reason})
+        {:ok, %{state | disconnected: true}}
+      else
+        Logger.debug("[Handler] Ignoring duplicate disconnection event: #{inspect(reason)}")
+        {:ok, state}
+      end
     end
 
     @impl true
     def handle_channel_closed(topic, payload, _transport, state) do
-      Logger.warning("[Handler] Channel #{topic} closed with payload: #{inspect(payload)}")
-      send(state.parent, {:disconnected, {:channel_closed, topic}})
-      {:ok, state}
+      if not state.disconnected do
+        Logger.warning("[Handler] Channel #{topic} closed with payload: #{inspect(payload)}")
+        send(state.parent, {:disconnected, {:channel_closed, topic}})
+        {:ok, %{state | disconnected: true}}
+      else
+        Logger.debug("[Handler] Ignoring channel closed - already disconnected")
+        {:ok, state}
+      end
     end
 
     @impl true
     def handle_message(topic, event, payload, _transport, state) do
       case {topic, event} do
-        {"killmails:lobby", "pong"} ->
-          Logger.debug("[Handler] Received pong from server")
-          send(state.parent, :pong_received)
-          
         {"killmails:lobby", "killmail_update"} ->
           # Use supervised task to handle failures gracefully
           Task.Supervisor.start_child(
@@ -547,13 +532,6 @@ defmodule WandererApp.Kills.Client do
     @impl true
     def handle_reply(_topic, _ref, _payload, _transport, state), do: {:ok, state}
 
-    @impl true
-    def handle_info(:send_ping, transport, state) do
-      Logger.debug("[Handler] Sending ping to server")
-      push_to_channel(transport, "ping", %{})
-      {:ok, state}
-    end
-    
     @impl true
     def handle_info({:subscribe_systems, system_ids}, transport, state) do
       Logger.info("[Handler] Pushing subscribe_systems event for #{length(system_ids)} systems")
@@ -598,8 +576,13 @@ defmodule WandererApp.Kills.Client do
 
     @impl true
     def handle_join_error(topic, payload, _transport, state) do
-      send(state.parent, {:disconnected, {:join_error, {topic, payload}}})
-      {:ok, state}
+      if not state.disconnected do
+        Logger.error("[Handler] Join error on #{topic}: #{inspect(payload)}")
+        send(state.parent, {:disconnected, {:join_error, {topic, payload}}})
+        {:ok, %{state | disconnected: true}}
+      else
+        {:ok, state}
+      end
     end
 
     defp push_to_channel(transport, event, payload) do
