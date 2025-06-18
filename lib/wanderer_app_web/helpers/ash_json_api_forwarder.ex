@@ -84,8 +84,8 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
   end
 
   defp call_ash_action(resource, action, params, conn) do
-    # Use V1 API domain for legacy compatibility
-    api = WandererApp.Api.V1
+    # Use the main API domain
+    api = WandererApp.Api
 
     # Build options with actor from conn
     opts = [

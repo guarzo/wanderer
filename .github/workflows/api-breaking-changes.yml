@@ -52,14 +52,14 @@ jobs:
         run: |
           mix deps.get
           mix compile --force
-          # Load all tasks explicitly before running
-          mix loadpaths
-          # Try the mix task directly first
+          # Explicitly compile Mix tasks
+          mix compile.protocols
+          # Try running the openapi.export task directly
           mix openapi.export --output ../main-spec.json || \
-          # If that fails, compile and run it manually
+          # If that fails, use the fallback approach
           mix run --no-start -e "
-            Mix.Task.load_all()
-            Mix.Task.rerun(\"openapi.export\", [\"--output\", \"../main-spec.json\"])
+            Code.ensure_loaded(Mix.Tasks.Openapi.Export)
+            Mix.Task.run(\"openapi.export\", [\"--output\", \"../main-spec.json\"])
           "
 
       - name: Export PR branch OpenAPI spec
@@ -71,14 +71,14 @@ jobs:
         run: |
           mix deps.get
           mix compile --force
-          # Load all tasks explicitly before running
-          mix loadpaths
-          # Try the mix task directly first
+          # Explicitly compile Mix tasks
+          mix compile.protocols
+          # Try running the openapi.export task directly
           mix openapi.export --output ../pr-spec.json || \
-          # If that fails, compile and run it manually
+          # If that fails, use the fallback approach
           mix run --no-start -e "
-            Mix.Task.load_all()
-            Mix.Task.rerun(\"openapi.export\", [\"--output\", \"../pr-spec.json\"])
+            Code.ensure_loaded(Mix.Tasks.Openapi.Export)
+            Mix.Task.run(\"openapi.export\", [\"--output\", \"../pr-spec.json\"])
           "
 
       - name: Check for breaking changes

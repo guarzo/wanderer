@@ -8,7 +8,7 @@ defmodule WandererAppWeb.Routers.ApiV2Router do
   """
 
   use AshJsonApi.Router,
-    domains: [WandererApp.Api.V2],
+    domains: [WandererApp.Api],
     json_schema: "/json_schema",
     open_api: "/openapi"
 
