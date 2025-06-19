@@ -110,12 +110,15 @@ defmodule WandererApp.Map.ZkbDataFetcher do
           {solar_system_id, MapSet.new(ids)}
         end)
 
-      # Find systems with changed killmail lists
+      # Find systems with changed killmail lists or empty detailed kills
       changed_systems =
         new_ids_map
         |> Enum.filter(fn {system_id, new_ids_set} ->
           old_set = MapSet.new(Map.get(old_ids_map, system_id, []))
-          not MapSet.equal?(new_ids_set, old_set)
+          old_details = Map.get(old_details_map, system_id, [])
+          # Update if IDs changed OR if we have IDs but no detailed kills
+          not MapSet.equal?(new_ids_set, old_set) or 
+            (MapSet.size(new_ids_set) > 0 and old_details == [])
         end)
         |> Enum.map(&elem(&1, 0))
 
