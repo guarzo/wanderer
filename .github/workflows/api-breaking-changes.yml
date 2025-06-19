@@ -49,39 +49,41 @@ jobs:
       - name: Export main branch OpenAPI spec
         working-directory: main
         env:
-          MIX_ENV: test
+          MIX_ENV: dev
           SECRET_KEY_BASE: "test-secret-key-base-for-ci-only"
           GUARDIAN_SECRET_KEY: "test-guardian-secret-key-for-ci-only"
+          PHX_HOST: "localhost"
+          DATABASE_URL: "postgresql://postgres:postgres@localhost/wanderer_test"
         run: |
-          mix deps.get
+          mix deps.get --only dev
+          mix deps.compile
           mix compile --force
-          # Explicitly compile Mix tasks
-          mix compile.protocols
-          # Try running the openapi.export task directly
-          mix openapi.export --output ../main-spec.json || \
-          # If that fails, use the fallback approach
+          mix run --no-start --no-deps-check -e "Mix.Task.run(\"openapi.export\", [\"--output\", \"../main-spec.json\"])" || \
           mix run --no-start -e "
-            Code.ensure_loaded(Mix.Tasks.Openapi.Export)
-            Mix.Task.run(\"openapi.export\", [\"--output\", \"../main-spec.json\"])
+            Application.ensure_all_started(:wanderer_app)
+            spec = WandererAppWeb.ApiSpec.spec()
+            json = spec |> OpenApiSpex.OpenApi.to_map() |> Jason.encode!(pretty: true)
+            File.write!(\"../main-spec.json\", json)
           "
 
       - name: Export PR branch OpenAPI spec
         working-directory: pr
         env:
-          MIX_ENV: test
+          MIX_ENV: dev
           SECRET_KEY_BASE: "test-secret-key-base-for-ci-only"
           GUARDIAN_SECRET_KEY: "test-guardian-secret-key-for-ci-only"
+          PHX_HOST: "localhost"
+          DATABASE_URL: "postgresql://postgres:postgres@localhost/wanderer_test"
         run: |
-          mix deps.get
+          mix deps.get --only dev
+          mix deps.compile
           mix compile --force
-          # Explicitly compile Mix tasks
-          mix compile.protocols
-          # Try running the openapi.export task directly
-          mix openapi.export --output ../pr-spec.json || \
-          # If that fails, use the fallback approach
+          mix run --no-start --no-deps-check -e "Mix.Task.run(\"openapi.export\", [\"--output\", \"../pr-spec.json\"])" || \
           mix run --no-start -e "
-            Code.ensure_loaded(Mix.Tasks.Openapi.Export)
-            Mix.Task.run(\"openapi.export\", [\"--output\", \"../pr-spec.json\"])
+            Application.ensure_all_started(:wanderer_app)
+            spec = WandererAppWeb.ApiSpec.spec()
+            json = spec |> OpenApiSpex.OpenApi.to_map() |> Jason.encode!(pretty: true)
+            File.write!(\"../pr-spec.json\", json)
           "
 
       - name: Check for breaking changes

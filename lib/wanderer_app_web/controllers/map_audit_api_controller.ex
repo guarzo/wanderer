@@ -1,12 +1,11 @@
 defmodule WandererAppWeb.MapAuditAPIController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
+  use WandererAppWeb.Controllers.Behaviours.Paginated
 
   require Logger
 
-  alias WandererApp.Api
-
-  alias WandererAppWeb.Helpers.{APIUtils, PaginationHelpers}
+  alias WandererAppWeb.Helpers.APIUtils
 
   action_fallback WandererAppWeb.FallbackController
 
@@ -120,38 +119,23 @@ defmodule WandererAppWeb.MapAuditAPIController do
     ]
   )
 
-  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, params) do
-    with {:ok, map_id} <- APIUtils.fetch_map_id(params),
-         {:ok, period} <- APIUtils.require_param(params, "period"),
-         query <- WandererApp.Map.Audit.get_activity_query(map_id, period, "all"),
-         {:ok, {data, pagination_meta}} <- PaginationHelpers.paginate_query(query, params, Api) do
-      # Transform audit data
-      audit_data = Enum.map(data, &map_audit_event_to_json/1)
+    case {APIUtils.fetch_map_id(params), APIUtils.require_param(params, "period")} do
+      {{:ok, map_id}, {:ok, period}} ->
+        paginated_response conn, params do
+          query = WandererApp.Map.Audit.get_activity_query(map_id, period, "all")
+          {query, &map_audit_event_to_json/1}
+        end
 
-      # Format paginated response
-      response = PaginationHelpers.format_paginated_response(audit_data, pagination_meta)
-
-      # Add pagination headers and send response
-      conn
-      |> PaginationHelpers.add_pagination_headers(pagination_meta, conn.request_path)
-      |> put_status(:ok)
-      |> json(response)
-    else
-      {:error, %Ecto.Changeset{} = changeset} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(WandererAppWeb.Validations.ApiValidations.format_errors(changeset))
-
-      {:error, msg} when is_binary(msg) ->
+      {{:error, reason}, _} ->
         conn
         |> put_status(:bad_request)
-        |> json(%{error: msg})
+        |> json(%{error: reason})
 
-      {:error, reason} ->
+      {_, {:error, reason}} ->
         conn
-        |> put_status(:not_found)
-        |> json(%{error: "Request failed: #{inspect(reason)}"})
+        |> put_status(:bad_request)
+        |> json(%{error: reason})
     end
   end
 

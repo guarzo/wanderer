@@ -45,8 +45,11 @@ defmodule Mix.Tasks.Openapi.Export do
         other -> Mix.raise("Unknown format: #{other}. Supported formats: json, yaml")
       end
 
-    Mix.Task.run("compile")
-    Mix.Task.run("app.start")
+    # Ensure we compile everything needed
+    Mix.Task.run("compile", ["--force"])
+    
+    # Start the application if not already started
+    Application.ensure_all_started(:wanderer_app)
 
     # Get the OpenAPI spec
     spec = WandererAppWeb.ApiSpec.spec()
