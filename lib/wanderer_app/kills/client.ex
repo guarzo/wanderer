@@ -15,7 +15,7 @@ defmodule WandererApp.Kills.Client do
   # Simple retry configuration - inline like character module
   @retry_delays [5_000, 10_000, 30_000, 60_000]
   @max_retries 10
-  @health_check_interval :timer.minutes(1)
+  @health_check_interval :timer.seconds(30)  # Check every 30 seconds
 
   defstruct [
     :socket_pid,
@@ -72,6 +72,12 @@ defmodule WandererApp.Kills.Client do
   catch
     :exit, _ -> {:error, :not_running}
   end
+  
+  @spec force_health_check() :: :ok
+  def force_health_check do
+    send(__MODULE__, :health_check)
+    :ok
+  end
 
   # Server callbacks
 
@@ -80,8 +86,11 @@ defmodule WandererApp.Kills.Client do
     if Config.enabled?() do
       Logger.info("[Client] Starting kills WebSocket client")
 
+      # Start connection attempt immediately
       send(self(), :connect)
-      schedule_health_check()
+      
+      # Schedule first health check sooner
+      Process.send_after(self(), :health_check, 5_000)
 
       {:ok, %__MODULE__{}}
     else
@@ -119,7 +128,7 @@ defmodule WandererApp.Kills.Client do
   end
   
   def handle_info(:retry_connection, state) do
-    Logger.info("[Client] Retrying connection (attempt #{state.retry_count + 1}/#{@max_retries})")
+    Logger.info("[Client] Retrying connection (attempt #{state.retry_count}/#{@max_retries})")
     state = %{state | retry_timer_ref: nil, connecting: true}
     new_state = attempt_connection(state)
     {:noreply, new_state}
@@ -155,7 +164,10 @@ defmodule WandererApp.Kills.Client do
   end
 
   def handle_info({:connected, socket_pid}, state) do
-    Logger.info("[Client] WebSocket connected")
+    Logger.info("[Client] WebSocket connected, socket_pid: #{inspect(socket_pid)}")
+    
+    # Monitor the socket process so we know if it dies
+    Process.monitor(socket_pid)
 
     new_state =
       %{
@@ -197,9 +209,12 @@ defmodule WandererApp.Kills.Client do
   end
 
   def handle_info(:health_check, state) do
-    case check_health(state) do
+    health_status = check_health(state)
+    Logger.debug("[Client] Health check result: #{health_status}, connected: #{state.connected}, socket_pid: #{inspect(state.socket_pid)}")
+    
+    case health_status do
       :healthy ->
-        Logger.debug("[Client] Connection healthy")
+        :ok
 
       :needs_reconnect ->
         Logger.warning("[Client] Connection unhealthy, triggering reconnect")
@@ -207,6 +222,18 @@ defmodule WandererApp.Kills.Client do
     end
 
     schedule_health_check()
+    {:noreply, state}
+  end
+  
+  # Handle process DOWN messages for socket monitoring
+  def handle_info({:DOWN, _ref, :process, pid, reason}, %{socket_pid: pid} = state) do
+    Logger.error("[Client] Socket process died: #{inspect(reason)}")
+    send(self(), {:disconnected, {:socket_died, reason}})
+    {:noreply, state}
+  end
+  
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    # Ignore DOWN messages for other processes
     {:noreply, state}
   end
 
@@ -284,7 +311,11 @@ defmodule WandererApp.Kills.Client do
     Logger.info("[Client] Manual reconnection requested")
 
     state = cancel_retry(state)
-    disconnect_socket(state.socket_pid)
+    
+    if state.socket_pid do
+      Logger.info("[Client] Disconnecting existing socket: #{inspect(state.socket_pid)}")
+      disconnect_socket(state.socket_pid)
+    end
 
     new_state = %{
       state
@@ -348,21 +379,20 @@ defmodule WandererApp.Kills.Client do
       disconnected: false
     }
 
-    # Configure transport options with heartbeat settings
-    transport_opts = [
-      heartbeat_interval: 30_000,  # Send heartbeat every 30s
-      heartbeat_timeout: 60_000,    # Disconnect if no response in 60s
-      reconnect_after_msec: [5_000, 10_000, 30_000]  # Reconnect intervals
-    ]
-    
+    # Start the WebSocket client without extra transport options
+    # The heartbeat is configured in the Handler.init function
     case GenSocketClient.start_link(
            __MODULE__.Handler,
            Phoenix.Channels.GenSocketClient.Transport.WebSocketClient,
-           handler_state,
-           transport_opts
+           handler_state
          ) do
-      {:ok, socket_pid} -> {:ok, socket_pid}
-      error -> error
+      {:ok, socket_pid} -> 
+        Logger.info("[Client] Started WebSocket client process: #{inspect(socket_pid)}")
+        {:ok, socket_pid}
+        
+      error -> 
+        Logger.error("[Client] Failed to start WebSocket client: #{inspect(error)}")
+        error
     end
   end
 
@@ -387,14 +417,21 @@ defmodule WandererApp.Kills.Client do
     %{state | retry_timer_ref: nil}
   end
 
-  defp check_health(%{connected: false}), do: :needs_reconnect
-  defp check_health(%{socket_pid: nil}), do: :needs_reconnect
+  defp check_health(%{connected: false} = state) do
+    Logger.debug("[Client] Health check: not connected")
+    :needs_reconnect
+  end
+  
+  defp check_health(%{socket_pid: nil} = state) do
+    Logger.debug("[Client] Health check: no socket pid")
+    :needs_reconnect
+  end
 
-  defp check_health(%{socket_pid: pid}) do
+  defp check_health(%{socket_pid: pid} = state) do
     if socket_alive?(pid) do
       :healthy
     else
-      Logger.warning("[Client] Socket process is dead")
+      Logger.warning("[Client] Health check: Socket process #{inspect(pid)} is dead")
       :needs_reconnect
     end
   end
@@ -471,7 +508,8 @@ defmodule WandererApp.Kills.Client do
         {:ok, response} ->
           Logger.info("[Handler] Successfully joined killmails:lobby, response: #{inspect(response)}")
           send(state.parent, {:connected, self()})
-          {:ok, state}
+          # Reset disconnected flag on successful connection
+          {:ok, %{state | disconnected: false}}
 
         {:error, reason} ->
           Logger.error("[Handler] Failed to join channel: #{inspect(reason)}")
