@@ -192,13 +192,13 @@ defmodule WandererApp.Map.ZkbDataFetcher do
     end
   end
 
-  defp maybe_initialize_empty_details_map(%{} = empty_map, systems, cache_key_details) when empty_map == %{} do
+  defp maybe_initialize_empty_details_map(%{}, systems, cache_key_details) do
     # First time initialization - create empty structure
     initial_map = Enum.into(systems, %{}, fn {system_id, _} -> {system_id, []} end)
     WandererApp.Cache.insert(cache_key_details, initial_map, ttl: :timer.hours(@killmail_ttl_hours))
   end
 
-  defp maybe_initialize_empty_details_map(_, _, _), do: :ok
+  defp maybe_initialize_empty_details_map(_old_details_map, _systems, _cache_key_details), do: :ok
 
   defp build_updated_details_map(changed_systems, old_details_map, new_ids_map) do
     Enum.reduce(changed_systems, old_details_map, fn system_id, acc ->

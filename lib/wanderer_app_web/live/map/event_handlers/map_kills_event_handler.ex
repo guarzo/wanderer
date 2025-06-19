@@ -154,9 +154,7 @@ defmodule WandererAppWeb.MapKillsEventHandler do
           cached_map when is_map(cached_map) ->
             # Validate cache structure and extract system kills
             case Map.get(cached_map, system_id) do
-              kills when is_list(kills) ->
-                # Filter kills by time if since_hours is provided
-                filter_kills_by_time(kills, since_hours)
+              kills when is_list(kills) -> kills
               _ -> []
             end
 
@@ -176,7 +174,7 @@ defmodule WandererAppWeb.MapKillsEventHandler do
       reply_payload = %{"system_id" => system_id, "kills" => kills_data}
 
       Logger.debug(fn ->
-        "[#{__MODULE__}] get_system_kills => system_id=#{system_id}, cached_kills=#{length(kills_data)}, since_hours=#{since_hours}"
+        "[#{__MODULE__}] get_system_kills => system_id=#{system_id}, cached_kills=#{length(kills_data)}"
       end)
 
       {:reply, reply_payload, socket}
@@ -194,7 +192,7 @@ defmodule WandererAppWeb.MapKillsEventHandler do
       cache_key = "map:#{socket.assigns.map_id}:zkb:detailed_kills"
 
       # Get from WandererApp.Cache (not Cachex)
-      filtered_data = get_filtered_kills_for_systems(cache_key, parsed_ids, since_hours)
+      filtered_data = get_kills_for_systems(cache_key, parsed_ids)
 
       # filtered_data is already the final result, not wrapped in a tuple
       systems_data = filtered_data
@@ -264,10 +262,10 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     end
   end
 
-  defp get_filtered_kills_for_systems(cache_key, system_ids, since_hours) do
+  defp get_kills_for_systems(cache_key, system_ids) do
     case WandererApp.Cache.get(cache_key) do
       cached_map when is_map(cached_map) ->
-        filter_cached_kills(cached_map, system_ids, since_hours)
+        extract_cached_kills(cached_map, system_ids)
 
       nil ->
         %{}
@@ -282,41 +280,15 @@ defmodule WandererAppWeb.MapKillsEventHandler do
     end
   end
 
-  defp filter_cached_kills(cached_map, system_ids, since_hours) do
+  defp extract_cached_kills(cached_map, system_ids) do
     Enum.reduce(system_ids, %{}, fn system_id, acc ->
       case Map.get(cached_map, system_id) do
         kills when is_list(kills) ->
-          filtered_kills = filter_kills_by_time(kills, since_hours)
-          Map.put(acc, system_id, filtered_kills)
+          Map.put(acc, system_id, kills)
         _ ->
           acc
       end
     end)
   end
 
-  defp filter_kills_by_time(kills, since_hours) when is_list(kills) and is_integer(since_hours) do
-    # Calculate cutoff time in milliseconds
-    cutoff_time = System.system_time(:millisecond) - (since_hours * 60 * 60 * 1000)
-
-    Enum.filter(kills, &kill_within_time_window?(&1, cutoff_time))
-  end
-
-  defp filter_kills_by_time(kills, _), do: kills
-
-  defp kill_within_time_window?(kill, cutoff_time) do
-    case Map.get(kill, "kill_time") do
-      nil -> false
-      kill_time_str -> parse_and_check_kill_time(kill_time_str, cutoff_time)
-    end
-  end
-
-  defp parse_and_check_kill_time(kill_time_str, cutoff_time) do
-    case DateTime.from_iso8601(kill_time_str) do
-      {:ok, datetime, _offset} ->
-        kill_time_ms = DateTime.to_unix(datetime, :millisecond)
-        kill_time_ms >= cutoff_time
-      _ ->
-        false
-    end
-  end
 end

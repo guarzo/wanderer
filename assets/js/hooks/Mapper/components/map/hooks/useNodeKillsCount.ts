@@ -28,6 +28,7 @@ export function useNodeKillsCount(systemId: number | string, initialKillsCount: 
     const recentKills = systemKills.filter(kill => {
       if (!kill.kill_time) return false;
       const killTime = new Date(kill.kill_time).getTime();
+      if (isNaN(killTime)) return false;
       return killTime >= oneHourAgo;
     });
 
