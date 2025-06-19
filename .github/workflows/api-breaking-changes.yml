@@ -34,6 +34,9 @@ jobs:
           elixir-version: '1.17.3'
           otp-version: '26.0'
 
+      - name: Install inotify-tools
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
+
       - name: Cache dependencies
         uses: actions/cache@v4
         with:
