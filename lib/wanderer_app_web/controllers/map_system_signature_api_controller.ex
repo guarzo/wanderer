@@ -5,7 +5,7 @@ defmodule WandererAppWeb.MapSystemSignatureAPIController do
   use OpenApiSpex.ControllerSpecs
 
   alias WandererApp.Api.MapSystemSignature
-  alias WandererApp.Map.Operations, as: MapOperations
+  alias WandererApp.Contexts.MapSignatures
 
   action_fallback WandererAppWeb.FallbackController
 
@@ -92,7 +92,7 @@ defmodule WandererAppWeb.MapSystemSignatureAPIController do
 
   def index(conn, _params) do
     map_id = conn.assigns.map_id
-    signatures = MapOperations.list_signatures(map_id)
+    signatures = MapSignatures.list_signatures(map_id)
     json(conn, %{data: signatures})
   end
 
@@ -165,7 +165,7 @@ defmodule WandererAppWeb.MapSystemSignatureAPIController do
   )
 
   def create(conn, params) do
-    case MapOperations.create_signature(conn, params) do
+    case MapSignatures.create_signature(conn, params) do
       {:ok, sig} -> conn |> put_status(:created) |> json(%{data: sig})
       {:error, error} -> conn |> put_status(:unprocessable_entity) |> json(%{error: error})
     end
@@ -198,7 +198,7 @@ defmodule WandererAppWeb.MapSystemSignatureAPIController do
   )
 
   def update(conn, %{"id" => id} = params) do
-    case MapOperations.update_signature(conn, id, params) do
+    case MapSignatures.update_signature(conn, id, params) do
       {:ok, sig} -> json(conn, %{data: sig})
       {:error, error} -> conn |> put_status(:unprocessable_entity) |> json(%{error: error})
     end
@@ -229,7 +229,7 @@ defmodule WandererAppWeb.MapSystemSignatureAPIController do
   )
 
   def delete(conn, %{"id" => id}) do
-    case MapOperations.delete_signature(conn, id) do
+    case MapSignatures.delete_signature(conn, id) do
       :ok -> send_resp(conn, :no_content, "")
       {:error, error} -> conn |> put_status(:unprocessable_entity) |> json(%{error: error})
     end

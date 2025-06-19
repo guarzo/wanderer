@@ -94,18 +94,17 @@ defmodule WandererAppWeb.MapLive do
        |> push_navigate(to: ~p"/tracking/#{map_slug}")}
 
   @impl true
-  def handle_info(info, %{assigns: %{map_slug: map_slug}} = socket) do
+  def handle_info(info, %{assigns: %{map_slug: map_slug}} = socket) when not is_nil(map_slug) do
     {:noreply,
      socket
      |> WandererAppWeb.MapEventHandler.handle_event(info)}
   end
 
   @impl true
-  def handle_info(info, socket),
-    do:
-      {:noreply,
-       socket
-       |> WandererAppWeb.MapEventHandler.handle_event(info)}
+  def handle_info(_info, socket) do
+    # Fallback for when map_slug is nil or missing
+    {:noreply, socket}
+  end
 
   @impl true
   def handle_event(event, body, socket) do

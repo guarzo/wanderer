@@ -6,7 +6,10 @@ on:
       - 'lib/wanderer_app_web/controllers/**'
       - 'lib/wanderer_app_web/schemas/**'
       - 'lib/wanderer_app_web/api_spec.ex'
+      - 'lib/wanderer_app_web/router.ex'
+      - 'lib/wanderer_app_web/routers/**'
       - 'lib/wanderer_app/api/**'
+      - 'lib/mix/tasks/openapi.export.ex'
 
 jobs:
   check-breaking-changes:

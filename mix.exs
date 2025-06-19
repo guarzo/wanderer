@@ -47,7 +47,8 @@ defmodule WandererApp.MixProject do
         "test.ash": :test,
         "test.api": :test,
         "test.e2e": :test,
-        "test.property": :test
+        "test.property": :test,
+        "openapi.export": :test
       ]
     ]
   end

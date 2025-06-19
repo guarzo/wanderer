@@ -20,7 +20,7 @@ defmodule WandererAppWeb.JsonAction do
   defmacro __using__(_opts) do
     quote do
       import WandererAppWeb.JsonAction
-      action_fallback WandererAppWeb.FallbackController
+      action_fallback WandererAppWeb.JsonFallbackController
     end
   end
 
@@ -141,7 +141,7 @@ defmodule WandererAppWeb.JsonAction do
     quote do
       case unquote(block) do
         :ok ->
-          send_resp(unquote(conn), 204, "")
+          unquote(conn) |> put_status(204) |> send_resp(204, "")
 
         {:ok, result} ->
           APIUtils.respond_data(unquote(conn), result)

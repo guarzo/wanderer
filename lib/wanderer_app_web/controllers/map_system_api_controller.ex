@@ -13,7 +13,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
   use OpenApiSpex.ControllerSpecs
 
   alias OpenApiSpex.Schema
-  alias WandererApp.Map.Operations
+  alias WandererApp.Contexts.{MapSystems, MapConnections}
   alias WandererAppWeb.Helpers.{APIUtils, MapSerializer}
   alias WandererAppWeb.Schemas.{ApiSchemas, MapSchemas, ResponseSchemas}
 
@@ -216,6 +216,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
     ]
   )
 
+  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(%{assigns: %{map_id: map_id, map: map}} = conn, params) do
     # Extract filter parameters
     filter_opts =
@@ -225,9 +226,9 @@ defmodule WandererAppWeb.MapSystemAPIController do
       |> maybe_add_filter(params, "tag", :tag)
 
     systems =
-      Operations.list_systems(map_id, filter_opts) |> Enum.map(&APIUtils.map_system_to_json/1)
+      MapSystems.list_systems(map_id, filter_opts) |> Enum.map(&APIUtils.map_system_to_json/1)
 
-    connections = Operations.list_connections(map_id) |> Enum.map(&APIUtils.connection_to_json/1)
+    connections = MapConnections.list_connections(map_id) |> Enum.map(&APIUtils.connection_to_json/1)
 
     # Include map reference in response
     response_data = %{
@@ -284,9 +285,10 @@ defmodule WandererAppWeb.MapSystemAPIController do
     responses: ResponseSchemas.standard_responses(@detail_response_schema)
   )
 
+  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
     with {:ok, system_id} <- APIUtils.parse_int(id),
-         {:ok, system} <- Operations.get_system(map_id, system_id) do
+         {:ok, system} <- MapSystems.get_system(map_id, system_id) do
       APIUtils.respond_data(conn, APIUtils.map_system_to_json(system))
     end
   end
@@ -307,11 +309,12 @@ defmodule WandererAppWeb.MapSystemAPIController do
       ResponseSchemas.standard_responses(ResponseSchemas.systems_connections_batch_response())
   )
 
+  @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
     systems = Map.get(params, "systems", [])
     connections = Map.get(params, "connections", [])
 
-    case Operations.upsert_systems_and_connections(conn, systems, connections) do
+    case MapSystems.upsert_systems_and_connections(conn, systems, connections) do
       {:ok, result} ->
         APIUtils.respond_data(conn, result)
 
@@ -345,7 +348,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
     with {:ok, sid} <- APIUtils.parse_int(id),
          {:ok, attrs} <- APIUtils.extract_update_params(params),
          update_attrs = Map.put(attrs, "solar_system_id", sid),
-         {:ok, system} <- Operations.update_system(conn, sid, update_attrs) do
+         {:ok, system} <- MapSystems.update_system(conn, sid, update_attrs) do
       APIUtils.respond_data(conn, APIUtils.map_system_to_json(system))
     end
   end
@@ -381,18 +384,18 @@ defmodule WandererAppWeb.MapSystemAPIController do
 
   defp delete_system_id(conn, id) do
     case APIUtils.parse_int(id) do
-      {:ok, sid} -> Operations.delete_system(conn, sid)
+      {:ok, sid} -> MapSystems.delete_system(conn, sid)
       _ -> {:error, :invalid_id}
     end
   end
 
   defp delete_connection_id(conn, id) do
-    case Operations.get_connection(conn, id) do
+    case MapConnections.get_connection(conn.assigns.map_id, id) do
       {:ok, conn_struct} ->
         source_id = conn_struct.solar_system_source
         target_id = conn_struct.solar_system_target
 
-        case Operations.delete_connection(conn, source_id, target_id) do
+        case MapConnections.delete_connection(conn, source_id, target_id) do
           :ok -> {:ok, conn_struct}
           error -> error
         end
@@ -432,7 +435,7 @@ defmodule WandererAppWeb.MapSystemAPIController do
 
   def delete_single(conn, %{"id" => id}) do
     with {:ok, sid} <- APIUtils.parse_int(id),
-         {:ok, _} <- Operations.delete_system(conn, sid) do
+         {:ok, _} <- MapSystems.delete_system(conn, sid) do
       APIUtils.respond_data(conn, %{deleted: true})
     else
       {:error, :not_found} ->

@@ -120,6 +120,7 @@ defmodule WandererAppWeb.MapAuditAPIController do
     ]
   )
 
+  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, params) do
     with {:ok, map_id} <- APIUtils.fetch_map_id(params),
          {:ok, period} <- APIUtils.require_param(params, "period"),

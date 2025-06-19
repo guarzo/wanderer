@@ -298,8 +298,10 @@ defmodule WandererAppWeb.MapAPIController do
     ]
   )
 
+  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, params), do: list_tracked_characters(conn, params)
 
+  @spec list_tracked_characters(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def list_tracked_characters(conn, params) do
     case APIUtils.fetch_map_id(params) do
       {:ok, map_id} ->
@@ -346,6 +348,7 @@ defmodule WandererAppWeb.MapAPIController do
     ]
   )
 
+  @spec show_tracked_characters(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show_tracked_characters(%{assigns: %{map_id: map_id}} = conn, _params) do
     # Find tracked characters for this map
     case find_tracked_characters_by_map(map_id) do

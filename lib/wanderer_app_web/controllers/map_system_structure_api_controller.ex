@@ -4,7 +4,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIController do
 
   alias WandererApp.Api.MapSystemStructure
   alias OpenApiSpex.Schema
-  alias WandererApp.Map.Operations, as: MapOperations
+  alias WandererApp.Contexts.MapStructures
 
   action_fallback WandererAppWeb.FallbackController
 
@@ -99,7 +99,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIController do
 
   def index(conn, _params) do
     map_id = conn.assigns.map_id
-    structures = MapOperations.list_structures(map_id)
+    structures = MapStructures.list_structures(map_id)
     json(conn, %{data: structures})
   end
 
@@ -172,7 +172,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIController do
   )
 
   def create(conn, params) do
-    case MapOperations.create_structure(conn, params) do
+    case MapStructures.create_structure(conn, params) do
       {:ok, struct} -> conn |> put_status(:created) |> json(%{data: struct})
       {:error, error} -> conn |> put_status(:unprocessable_entity) |> json(%{error: error})
     end
@@ -205,7 +205,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIController do
   )
 
   def update(conn, %{"id" => id} = params) do
-    case MapOperations.update_structure(conn, id, params) do
+    case MapStructures.update_structure(conn, id, params) do
       {:ok, struct} -> json(conn, %{data: struct})
       {:error, error} -> conn |> put_status(:unprocessable_entity) |> json(%{error: error})
     end
@@ -236,7 +236,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIController do
   )
 
   def delete(conn, %{"id" => id}) do
-    case MapOperations.delete_structure(conn, id) do
+    case MapStructures.delete_structure(conn, id) do
       :ok -> send_resp(conn, :no_content, "")
       {:error, error} -> conn |> put_status(:unprocessable_entity) |> json(%{error: error})
     end
@@ -275,7 +275,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIController do
 
   def structure_timers(conn, _params) do
     map_id = conn.assigns.map_id
-    structures = MapOperations.list_structures(map_id)
+    structures = MapStructures.list_structures(map_id)
     json(conn, %{data: structures})
   end
 end

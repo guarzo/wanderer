@@ -84,33 +84,43 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
   end
 
   defp call_ash_action(resource, action, params, conn) do
-    # Use the main API domain
-    api = WandererApp.Api
-
-    # Build options with actor from conn
+    # Build options with actor from conn  
     opts = [
       actor: conn.assigns[:current_user],
-      tenant: conn.assigns[:tenant]
+      tenant: conn.assigns[:tenant],
+      domain: WandererApp.Api
     ]
 
     # Call the appropriate Ash function with correct signatures
     case action do
       :read ->
         query = resource |> Ash.Query.new() |> Ash.Query.set_context(params)
-        api.read(query, opts)
+        Ash.read(query, opts)
 
       :create ->
-        api.create(resource, params, opts)
+        attrs = extract_attributes(params)
+        changeset = Ash.Changeset.for_create(resource, :create, attrs)
+        Ash.create(changeset, opts)
 
       :update ->
-        changeset = resource |> Ash.Changeset.for_update(action, params)
-        api.update(changeset, opts)
+        with id when is_binary(id) <- params["id"],
+             {:ok, record} <- Ash.get(resource, id, opts),
+             attrs <- extract_attributes(params),
+             changeset <- Ash.Changeset.for_update(record, :update, attrs) do
+          Ash.update(changeset, opts)
+        end
 
       :destroy ->
-        api.destroy(resource, opts)
+        with id when is_binary(id) <- params["id"],
+             {:ok, record} <- Ash.get(resource, id, opts),
+             changeset <- Ash.Changeset.for_destroy(record, :destroy) do
+          Ash.destroy(changeset, opts)
+        end
 
       custom ->
-        api.run_action(resource, custom, params, opts)
+        # For custom actions, build appropriate input and run through domain
+        input = Ash.ActionInput.for_action(resource, custom, params)
+        Ash.run_action(input, opts)
     end
   end
 
@@ -131,9 +141,7 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
         _ -> 200
       end
 
-    conn
-    |> put_resp_content_type("application/json")
-    |> send_resp(status, Jason.encode!(response))
+    maybe_send_json_response(conn, status, response)
   end
 
   defp handle_ash_result(conn, {:error, error}, _opts) do
@@ -152,15 +160,24 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
     %{"data" => resource_to_legacy(result)}
   end
 
-  defp resource_to_legacy(resource) do
-    # Convert Ash resource to legacy format using Ash introspection
-    attributes =
-      resource.__struct__
-      |> Ash.Resource.Info.attributes()
-      |> Enum.map(& &1.name)
+  defp resource_to_legacy(resource) when is_struct(resource) do
+    # Convert Ash resource to legacy format using proper struct introspection
+    resource_module = resource.__struct__
 
-    Map.take(resource, attributes)
+    if function_exported?(resource_module, :__ash_resource__, 0) do
+      attributes =
+        resource_module
+        |> Ash.Resource.Info.attributes()
+        |> Enum.map(& &1.name)
+
+      Map.take(resource, attributes)
+    else
+      # Fallback for non-Ash structs
+      Map.from_struct(resource)
+    end
   end
+
+  defp resource_to_legacy(resource), do: resource
 
   defp format_error(error) when is_binary(error) do
     %{status: 400, body: %{"error" => error}}
@@ -183,5 +200,20 @@ defmodule WandererAppWeb.Helpers.AshJsonApiForwarder do
 
   defp format_error(_error) do
     %{status: 500, body: %{"error" => "Internal server error"}}
+  end
+
+  # Helper to extract attributes from JSON:API or direct params
+  defp extract_attributes(%{"data" => %{"attributes" => attrs}}), do: attrs
+  defp extract_attributes(params), do: Map.drop(params, ["id", "type"])
+
+  # Helper to handle HTTP 204 responses correctly
+  defp maybe_send_json_response(conn, 204, _response) do
+    send_resp(conn, 204, "")
+  end
+
+  defp maybe_send_json_response(conn, status, response) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(status, Jason.encode!(response))
   end
 end

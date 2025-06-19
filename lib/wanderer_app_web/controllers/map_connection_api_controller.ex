@@ -14,7 +14,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
   alias OpenApiSpex.Schema
   alias WandererApp.Map, as: MapData
-  alias WandererApp.Map.Operations
+  alias WandererApp.Contexts.MapConnections
   alias WandererAppWeb.Helpers.APIUtils
   alias WandererAppWeb.Schemas.ResponseSchemas
 
@@ -180,6 +180,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
     ]
   )
 
+  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(%{assigns: %{map_id: map_id}} = conn, params) do
     alias WandererAppWeb.Validations.ApiValidations
 
@@ -220,7 +221,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   )
 
   def show(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
-    case Operations.get_connection(map_id, id) do
+    case MapConnections.get_connection(map_id, id) do
       {:ok, conn_struct} -> APIUtils.respond_data(conn, APIUtils.connection_to_json(conn_struct))
       err -> err
     end
@@ -232,7 +233,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
       }) do
     with {:ok, source} <- APIUtils.parse_int(src),
          {:ok, target} <- APIUtils.parse_int(tgt),
-         {:ok, conn_struct} <- Operations.get_connection_by_systems(map_id, source, target) do
+         {:ok, conn_struct} <- MapConnections.get_connection_by_systems(map_id, source, target) do
       APIUtils.respond_data(conn, APIUtils.connection_to_json(conn_struct))
     else
       err -> err
@@ -255,7 +256,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   )
 
   def create(conn, params) do
-    case Operations.create_connection(conn, params) do
+    case MapConnections.create_connection(conn, params) do
       {:ok, conn_struct} when is_map(conn_struct) ->
         conn
         |> APIUtils.respond_data(APIUtils.connection_to_json(conn_struct), :created)
@@ -320,12 +321,12 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   defp delete_connection_id(conn, id) do
     map_id = conn.assigns.map_id
 
-    case Operations.get_connection(map_id, id) do
+    case MapConnections.get_connection(map_id, id) do
       {:ok, conn_struct} ->
         source_id = conn_struct.solar_system_source
         target_id = conn_struct.solar_system_target
 
-        case Operations.delete_connection(conn, source_id, target_id) do
+        case MapConnections.delete_connection(conn, source_id, target_id) do
           :ok -> send_resp(conn, :no_content, "")
           error -> error
         end
@@ -360,7 +361,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   defp do_delete_by_systems(conn, source, target, src, tgt) do
     map_id = conn.assigns.map_id
 
-    case Operations.get_connection_by_systems(map_id, source, target) do
+    case MapConnections.get_connection_by_systems(map_id, source, target) do
       {:ok, nil} ->
         Logger.error(
           "[delete_connection] No connection found for source=#{inspect(source)}, target=#{inspect(target)}"
@@ -369,7 +370,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         try_reverse_delete(conn, source, target, src, tgt)
 
       {:ok, conn_struct} ->
-        case Operations.delete_connection(
+        case MapConnections.delete_connection(
                conn,
                conn_struct.solar_system_source,
                conn_struct.solar_system_target
@@ -386,7 +387,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   defp try_reverse_delete(conn, source, target, src, tgt) do
     map_id = conn.assigns.map_id
 
-    case Operations.get_connection_by_systems(map_id, target, source) do
+    case MapConnections.get_connection_by_systems(map_id, target, source) do
       {:ok, nil} ->
         Logger.error(
           "[delete_connection] No connection found for source=#{inspect(target)}, target=#{inspect(source)}"
@@ -395,7 +396,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         {:error, :not_found}
 
       {:ok, conn_struct} ->
-        case Operations.delete_connection(
+        case MapConnections.delete_connection(
                conn,
                conn_struct.solar_system_source,
                conn_struct.solar_system_target
@@ -475,7 +476,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   # Private helpers for update/2
 
   defp update_by_id(conn, _map_id, id, attrs) do
-    case Operations.update_connection(conn, id, attrs) do
+    case MapConnections.update_connection(conn, id, attrs) do
       {:ok, updated_conn} ->
         APIUtils.respond_data(conn, APIUtils.connection_to_json(updated_conn))
 
@@ -511,7 +512,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   defp do_update_by_systems(conn, source, target, src, tgt, attrs) do
     map_id = conn.assigns.map_id
 
-    case Operations.get_connection_by_systems(map_id, source, target) do
+    case MapConnections.get_connection_by_systems(map_id, source, target) do
       {:ok, nil} ->
         Logger.error(
           "[update_connection] No connection found for source=#{inspect(source)}, target=#{inspect(target)}"
@@ -530,7 +531,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   defp try_reverse_update(conn, source, target, src, tgt, attrs) do
     map_id = conn.assigns.map_id
 
-    case Operations.get_connection_by_systems(map_id, target, source) do
+    case MapConnections.get_connection_by_systems(map_id, target, source) do
       {:ok, nil} ->
         Logger.error(
           "[update_connection] No connection found for source=#{inspect(target)}, target=#{inspect(source)}"
@@ -551,7 +552,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   end
 
   defp do_update_connection(conn, id, attrs) do
-    case Operations.update_connection(conn, id, attrs) do
+    case MapConnections.update_connection(conn, id, attrs) do
       {:ok, updated_conn} ->
         APIUtils.respond_data(conn, APIUtils.connection_to_json(updated_conn))
 
@@ -619,7 +620,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   )
 
   def list_all_connections(%{assigns: %{map_id: map_id}} = conn, _params) do
-    connections = Operations.list_connections(map_id)
+    connections = MapConnections.list_connections(map_id)
     data = Enum.map(connections, &APIUtils.connection_to_json/1)
     APIUtils.respond_data(conn, data)
   end

@@ -67,8 +67,8 @@ defmodule Test.MapServerMock do
         attrs = %{
           map_id: map_id,
           solar_system_id: system_id,
-          position_x: coords[:x] || 0,
-          position_y: coords[:y] || 0,
+          position_x: coords[:x] || coords["x"] || params["x"] || params[:x] || 0,
+          position_y: coords[:y] || coords["y"] || params["y"] || params[:y] || 0,
           name: "Test System #{system_id}",
           temporary_name: params["temporary_name"] || params[:temporary_name],
           status: 0
@@ -90,6 +90,21 @@ defmodule Test.MapServerMock do
           {:ok, _system} -> :ok
           {:error, error} -> {:error, error}
         end
+    end
+  end
+
+  def delete_system(map_id, %{solar_system_id: solar_system_id}, _user_id, _character_id) do
+    # Delete a single system record from the database
+    case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
+      {:ok, system} ->
+        case Ash.destroy(system) do
+          :ok -> :ok
+          {:ok, _} -> :ok
+          error -> error
+        end
+
+      _ ->
+        {:error, :not_found}
     end
   end
 
@@ -182,6 +197,23 @@ defmodule Test.MapServerMock do
 
       _ ->
         :ok
+    end
+  end
+
+  def update_system(map_id, update_info, _user_id, _character_id) do
+    # Generic update system method that handles all types of updates
+    system_id = update_info[:solar_system_id] || update_info["solar_system_id"]
+    update_attrs = update_info[:update_attrs] || update_info["update_attrs"] || %{}
+    
+    case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, system_id) do
+      {:ok, system} ->
+        case Ash.update(system, update_attrs) do
+          {:ok, _updated} -> :ok
+          error -> error
+        end
+        
+      _ ->
+        {:error, :not_found}
     end
   end
 
