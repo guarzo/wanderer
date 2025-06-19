@@ -100,7 +100,12 @@ defmodule WandererAppWeb.Controllers.Behaviours.Paginated do
     quote do
       case ApiValidations.validate_pagination(unquote(params)) do
         {:ok, pagination_params} ->
-          merged_params = Map.merge(unquote(params), pagination_params)
+          # Convert atom keys to string keys to match incoming params
+          pagination_params_string = 
+            for {key, value} <- pagination_params, into: %{} do
+              {to_string(key), value}
+            end
+          merged_params = Map.merge(unquote(params), pagination_params_string)
 
           result = unquote(block)
 
@@ -158,7 +163,12 @@ defmodule WandererAppWeb.Controllers.Behaviours.Paginated do
     quote do
       case ApiValidations.validate_pagination(unquote(params)) do
         {:ok, pagination_params} ->
-          merged_params = Map.merge(unquote(params), pagination_params)
+          # Convert atom keys to string keys to match incoming params
+          pagination_params_string = 
+            for {key, value} <- pagination_params, into: %{} do
+              {to_string(key), value}
+            end
+          merged_params = Map.merge(unquote(params), pagination_params_string)
 
           data_list = unquote(block)
 

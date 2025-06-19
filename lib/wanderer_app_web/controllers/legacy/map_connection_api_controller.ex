@@ -1,5 +1,5 @@
 # lib/wanderer_app_web/controllers/map_connection_api_controller.ex
-defmodule WandererAppWeb.MapConnectionAPIController do
+defmodule WandererAppWeb.Legacy.MapConnectionAPIController do
   @moduledoc """
   API controller for managing map connections.
   Provides operations to list, show, create, delete, and batch-delete connections, with legacy routing support.

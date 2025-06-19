@@ -163,11 +163,11 @@ defmodule WandererAppWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json", "json-api"]
+    plug WandererAppWeb.Plugs.FeatureFlag, flag: :public_api_disabled, message: "Public API is disabled"
 
     plug WandererAppWeb.Auth.AuthPipeline,
       strategies: [],
-      required: false,
-      feature_flag: :public_api_disabled
+      required: false
   end
 
   pipeline :api_map do
@@ -182,18 +182,13 @@ defmodule WandererAppWeb.Router do
     plug WandererAppWeb.Plugs.AssignMapOwner
   end
 
-  pipeline :api_kills do
-    plug WandererAppWeb.Auth.AuthPipeline,
-      strategies: [],
-      required: false,
-      feature_flag: :public_api_disabled
-  end
-
   pipeline :api_character do
+    plug :accepts, ["json", "json-api"]
+    plug WandererAppWeb.Plugs.FeatureFlag, flag: :character_api_disabled, message: "Character API is disabled"
+    
     plug WandererAppWeb.Auth.AuthPipeline,
       strategies: [],
-      required: false,
-      feature_flag: :character_api_disabled
+      required: false
   end
 
   pipeline :api_acl do
@@ -242,11 +237,11 @@ defmodule WandererAppWeb.Router do
       get "/users/characters", MapAPIController, :show_user_characters
 
       # Systems resource (map-specific operations beyond CRUD)
-      resources "/systems", MapSystemAPIController,
+      resources "/systems", Legacy.MapSystemAPIController,
         only: [:index, :show, :create, :update, :delete]
 
       # bulk delete
-      delete "/systems", MapSystemAPIController, :delete
+      delete "/systems", Legacy.MapSystemAPIController, :delete
     end
 
     # Global systems resource (lookup operations)
@@ -260,7 +255,7 @@ defmodule WandererAppWeb.Router do
 
     # V1 OpenAPI spec
     scope "/" do
-      pipe_through [:browser, :api, :api_spec]
+      pipe_through [:api, :api_spec]
       get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
     end
 
@@ -279,7 +274,7 @@ defmodule WandererAppWeb.Router do
 
     # V2 OpenAPI spec (when resources are added)
     scope "/" do
-      pipe_through [:browser, :api, :api_spec]
+      pipe_through [:api, :api_spec]
       get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
     end
 
@@ -292,7 +287,7 @@ defmodule WandererAppWeb.Router do
   # Legacy API Routes - Backwards compatibility (deprecated)
   #
   scope "/api/map/systems-kills", WandererAppWeb do
-    pipe_through [:api, :api_map, :api_kills, :deprecated_api]
+    pipe_through [:api, :api_map, :deprecated_api]
 
     get "/", MapAPIController, :list_systems_kills
   end
@@ -301,16 +296,16 @@ defmodule WandererAppWeb.Router do
     pipe_through [:api, :api_map, :deprecated_api]
     get "/audit", MapAuditAPIController, :index
     # Deprecated routes - use /api/v1/maps/:map_identifier/systems instead
-    get "/systems", MapSystemAPIController, :list_systems
-    get "/system", MapSystemAPIController, :show_system
-    get "/connections", MapConnectionAPIController, :list_all_connections
+    get "/systems", Legacy.MapSystemAPIController, :list_systems
+    get "/system", Legacy.MapSystemAPIController, :show_system
+    get "/connections", Legacy.MapConnectionAPIController, :list_all_connections
     get "/characters", MapAPIController, :list_tracked_characters
     get "/structure-timers", MapAPIController, :show_structure_timers
     get "/character-activity", MapAPIController, :character_activity
     get "/user_characters", MapAPIController, :user_characters
 
-    get "/acls", MapAccessListAPIController, :index
-    post "/acls", MapAccessListAPIController, :create
+    get "/acls", Legacy.MapAccessListAPIController, :index
+    post "/acls", Legacy.MapAccessListAPIController, :create
   end
 
   #
@@ -319,19 +314,19 @@ defmodule WandererAppWeb.Router do
   scope "/api/maps/:map_identifier", WandererAppWeb do
     pipe_through [:api, :api_map, :deprecated_api]
 
-    patch "/connections", MapConnectionAPIController, :update
-    delete "/connections", MapConnectionAPIController, :delete
-    delete "/systems", MapSystemAPIController, :delete
-    delete "/systems/:id", MapSystemAPIController, :delete_single
-    resources "/systems", MapSystemAPIController, only: [:index, :show, :create, :update]
+    patch "/connections", Legacy.MapConnectionAPIController, :update
+    delete "/connections", Legacy.MapConnectionAPIController, :delete
+    delete "/systems", Legacy.MapSystemAPIController, :delete
+    delete "/systems/:id", Legacy.MapSystemAPIController, :delete_single
+    resources "/systems", Legacy.MapSystemAPIController, only: [:index, :show, :create, :update]
 
-    resources "/connections", MapConnectionAPIController,
+    resources "/connections", Legacy.MapConnectionAPIController,
       only: [:index, :show, :create, :update, :delete],
       param: "id"
 
-    resources "/structures", MapSystemStructureAPIController, except: [:new, :edit]
-    get "/structure-timers", MapSystemStructureAPIController, :structure_timers
-    resources "/signatures", MapSystemSignatureAPIController, except: [:new, :edit]
+    resources "/structures", Legacy.MapSystemStructureAPIController, except: [:new, :edit]
+    get "/structure-timers", Legacy.MapSystemStructureAPIController, :structure_timers
+    resources "/signatures", Legacy.MapSystemSignatureAPIController, except: [:new, :edit]
     get "/user-characters", MapAPIController, :show_user_characters
     get "/tracked-characters", MapAPIController, :show_tracked_characters
   end
@@ -347,15 +342,15 @@ defmodule WandererAppWeb.Router do
   scope "/api/acls", WandererAppWeb do
     pipe_through [:api, :api_acl, :deprecated_api]
 
-    get "/", MapAccessListAPIController, :list
-    post "/", MapAccessListAPIController, :create_simple
-    get "/:id", MapAccessListAPIController, :show
-    put "/:id", MapAccessListAPIController, :update
-    delete "/:id", MapAccessListAPIController, :delete
-    get "/:acl_id/members", AccessListMemberAPIController, :index
-    post "/:acl_id/members", AccessListMemberAPIController, :create
-    put "/:acl_id/members/:member_id", AccessListMemberAPIController, :update_role
-    delete "/:acl_id/members/:member_id", AccessListMemberAPIController, :delete
+    get "/", Legacy.MapAccessListAPIController, :list
+    post "/", Legacy.MapAccessListAPIController, :create_simple
+    get "/:id", Legacy.MapAccessListAPIController, :show
+    put "/:id", Legacy.MapAccessListAPIController, :update
+    delete "/:id", Legacy.MapAccessListAPIController, :delete
+    get "/:acl_id/members", Legacy.AccessListMemberAPIController, :index
+    post "/:acl_id/members", Legacy.AccessListMemberAPIController, :create
+    put "/:acl_id/members/:member_id", Legacy.AccessListMemberAPIController, :update_role
+    delete "/:acl_id/members/:member_id", Legacy.AccessListMemberAPIController, :delete
   end
 
   scope "/api/common", WandererAppWeb do
@@ -364,7 +359,7 @@ defmodule WandererAppWeb.Router do
   end
 
   scope "/api" do
-    pipe_through [:browser, :api, :api_spec, :deprecated_api]
+    pipe_through [:api, :api_spec, :deprecated_api]
     get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
   end
 
@@ -413,7 +408,7 @@ defmodule WandererAppWeb.Router do
   end
 
   scope "/swaggerui" do
-    pipe_through [:browser, :api, :api_spec]
+    pipe_through [:browser, :api_spec]
 
     get "/", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/openapi",

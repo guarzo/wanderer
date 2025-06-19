@@ -1,4 +1,4 @@
-defmodule WandererAppWeb.MapAccessListAPIController do
+defmodule WandererAppWeb.Legacy.MapAccessListAPIController do
   @moduledoc """
   API endpoints for managing Access Lists.
 

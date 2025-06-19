@@ -21,6 +21,7 @@ config :wanderer_app,
   esi_client: WandererApp.Esi.Mock,
   map_server: Test.MapServerMock,
   character_api_disabled: false,
+  public_api_disabled: false,
   env: :test
 
 # We don't run a server during test. If one is required,

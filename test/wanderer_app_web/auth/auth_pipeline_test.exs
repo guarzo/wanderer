@@ -93,7 +93,7 @@ defmodule WandererAppWeb.Auth.AuthPipelineTest do
     test "respects feature flags", %{conn: conn} do
       # Temporarily set feature flag
       original = Application.get_env(:wanderer_app, :public_api_disabled)
-      Application.put_env(:wanderer_app, :public_api_disabled, "true")
+      Application.put_env(:wanderer_app, :public_api_disabled, true)
 
       conn =
         conn

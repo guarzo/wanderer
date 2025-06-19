@@ -1,4 +1,4 @@
-defmodule WandererAppWeb.MapSystemSignatureAPIController do
+defmodule WandererAppWeb.Legacy.MapSystemSignatureAPIController do
   @deprecated "Use /api/v1/signatures JSON:API endpoints instead. This controller will be removed after 2025-12-31."
 
   use WandererAppWeb, :controller

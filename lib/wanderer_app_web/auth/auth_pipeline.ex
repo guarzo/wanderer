@@ -13,10 +13,9 @@ defmodule WandererAppWeb.Auth.AuthPipeline do
         required: true,
         assign_as: :current_user
         
-      # With feature flags
+      # Optional authentication
       plug WandererAppWeb.Auth.AuthPipeline,
         strategies: [:map_api_key],
-        feature_flag: :public_api_disabled,
         required: false
   """
 
@@ -29,9 +28,9 @@ defmodule WandererAppWeb.Auth.AuthPipeline do
     strategies: [],
     required: true,
     assign_as: nil,
-    feature_flag: nil,
     error_status: 401,
-    error_message: "Authentication required"
+    error_message: "Authentication required",
+    feature_flag: nil
   ]
 
   @impl Plug
@@ -50,12 +49,16 @@ defmodule WandererAppWeb.Auth.AuthPipeline do
 
   @impl Plug
   def call(conn, opts) do
-    # Check feature flag if configured
-    if check_feature_flag(opts[:feature_flag]) do
-      conn
-      |> put_resp_content_type("application/json")
-      |> send_resp(403, Jason.encode!(%{error: "This feature is disabled"}))
-      |> halt()
+    # Check feature flag first if specified
+    if feature_flag = opts[:feature_flag] do
+      if feature_disabled?(feature_flag) do
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(403, Jason.encode!(%{error: "This feature is disabled"}))
+        |> halt()
+      else
+        authenticate_with_strategies(conn, opts)
+      end
     else
       authenticate_with_strategies(conn, opts)
     end
@@ -116,21 +119,28 @@ defmodule WandererAppWeb.Auth.AuthPipeline do
     end
   end
 
-  defp check_feature_flag(nil), do: false
-
-  defp check_feature_flag(flag) do
-    case flag do
-      :public_api_disabled ->
-        Application.get_env(:wanderer_app, :public_api_disabled) == "true"
-
-      :character_api_disabled ->
-        Application.get_env(:wanderer_app, :character_api_disabled) == "true"
-
-      :zkill_preload_disabled ->
-        Application.get_env(:wanderer_app, :zkill_preload_disabled) == "true"
-
-      _ ->
+  # Check if a feature flag is enabled (meaning the feature is disabled)
+  defp feature_disabled?(flag) do
+    function_name = get_function_name(flag)
+    
+    try do
+      apply(WandererApp.Env, function_name, [])
+    rescue
+      UndefinedFunctionError ->
+        Logger.error("AuthPipeline: WandererApp.Env.#{function_name}/0 function not found")
         false
     end
   end
+
+  # Convert flag name to function name by appending '?' if not already present
+  defp get_function_name(flag) when is_atom(flag) do
+    flag_str = Atom.to_string(flag)
+    
+    if String.ends_with?(flag_str, "?") do
+      flag
+    else
+      String.to_atom(flag_str <> "?")
+    end
+  end
+
 end

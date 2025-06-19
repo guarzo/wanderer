@@ -57,9 +57,12 @@ defmodule WandererAppWeb.Plugs.FeatureFlag do
       raise ArgumentError, "FeatureFlag plug requires :flag to be an atom, got: #{inspect(flag)}"
     end
 
+    # Convert flag name to function name (add question mark if not present)
+    function_name = get_function_name(flag)
+    
     # Validate that the flag function exists
-    unless function_exported?(WandererApp.Env, flag, 0) do
-      Logger.warning("FeatureFlag plug: WandererApp.Env.#{flag}/0 function not found")
+    unless function_exported?(WandererApp.Env, function_name, 0) do
+      Logger.warning("FeatureFlag plug: WandererApp.Env.#{function_name}/0 function not found")
     end
 
     Keyword.put_new(opts, :status, 403)
@@ -82,12 +85,25 @@ defmodule WandererAppWeb.Plugs.FeatureFlag do
 
   # Check if the feature flag is enabled (meaning the feature is disabled)
   defp feature_disabled?(flag) do
+    function_name = get_function_name(flag)
+    
     try do
-      apply(WandererApp.Env, flag, [])
+      apply(WandererApp.Env, function_name, [])
     rescue
       UndefinedFunctionError ->
-        Logger.error("FeatureFlag plug: WandererApp.Env.#{flag}/0 function not found")
+        Logger.error("FeatureFlag plug: WandererApp.Env.#{function_name}/0 function not found")
         false
+    end
+  end
+
+  # Convert flag name to function name by appending '?' if not already present
+  defp get_function_name(flag) when is_atom(flag) do
+    flag_str = Atom.to_string(flag)
+    
+    if String.ends_with?(flag_str, "?") do
+      flag
+    else
+      String.to_atom(flag_str <> "?")
     end
   end
 

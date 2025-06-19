@@ -1,5 +1,5 @@
 # lib/wanderer_app_web/controllers/map_system_api_controller.ex
-defmodule WandererAppWeb.MapSystemAPIController do
+defmodule WandererAppWeb.Legacy.MapSystemAPIController do
   @deprecated "Use /api/v1/systems JSON:API endpoints instead. This controller will be removed after 2025-12-31."
 
   @moduledoc """

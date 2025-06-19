@@ -1,4 +1,4 @@
-defmodule WandererAppWeb.MapSystemStructureAPIController do
+defmodule WandererAppWeb.Legacy.MapSystemStructureAPIController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 

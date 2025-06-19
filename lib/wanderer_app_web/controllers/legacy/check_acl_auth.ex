@@ -1,4 +1,4 @@
-defmodule WandererAppWeb.Plugs.CheckAclAuth do
+defmodule WandererAppWeb.Legacy.CheckAclAuth do
   @moduledoc """
   A flexible authentication plug for ACL endpoints that supports both:
   1. Character JWT authentication (for listing/creating ACLs)

@@ -1,4 +1,4 @@
-defmodule WandererAppWeb.AccessListMemberAPIController do
+defmodule WandererAppWeb.Legacy.AccessListMemberAPIController do
   @moduledoc """
   Handles creation, role updates, and deletion of individual ACL members.
   """
