@@ -156,9 +156,13 @@ defmodule OpenApiDiff do
     # Check for new required parameters
     changes = changes ++ Enum.flat_map(new_param_map, fn {{name, location}, new_param} ->
       case Map.get(old_param_map, {name, location}) do
-        nil when new_param["required"] == true ->
-          [%{type: :required_parameter_added, path: path,
-             description: "Required parameter '#{name}' in #{location} added"}]
+        nil ->
+          if Map.get(new_param, "required") == true do
+            [%{type: :required_parameter_added, path: path,
+               description: "Required parameter '#{name}' in #{location} added"}]
+          else
+            []
+          end
         _ ->
           []
       end
