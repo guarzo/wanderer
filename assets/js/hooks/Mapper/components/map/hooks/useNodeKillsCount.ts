@@ -9,7 +9,7 @@ interface Kill {
 
 interface MapEvent {
   name: Commands;
-  data?: any;
+  data?: unknown;
   payload?: Kill[];
 }
 
