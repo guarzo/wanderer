@@ -8,6 +8,8 @@ defmodule WandererAppWeb.Helpers.MapSerializer do
   - Consistent structure across all map-related responses
   """
 
+  alias WandererAppWeb.Helpers.ApiVersion
+
   @doc """
   Serializes a map for API response.
 
@@ -30,10 +32,10 @@ defmodule WandererAppWeb.Helpers.MapSerializer do
       updated_at: map.updated_at,
       # Include URL hint to encourage slug usage
       _links: %{
-        self: "/api/v1/maps/#{map.slug}",
-        systems: "/api/v1/maps/#{map.slug}/systems",
-        connections: "/api/v1/maps/#{map.slug}/connections",
-        characters: "/api/v1/maps/#{map.slug}/characters"
+        self: ApiVersion.resource_path({:map, map.slug}),
+        systems: ApiVersion.resource_path({:map_systems, map.slug}),
+        connections: ApiVersion.resource_path({:map_connections, map.slug}),
+        characters: ApiVersion.resource_path({:map_characters, map.slug})
       }
     }
   end

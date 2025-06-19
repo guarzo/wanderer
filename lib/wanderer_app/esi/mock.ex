@@ -52,7 +52,7 @@ defmodule WandererApp.Esi.Mock do
   end
 
   @impl WandererApp.Esi.CharacterBehavior
-  def get_character_location(character_id, _opts \\ []) do
+  def get_character_location(_character_id, _opts \\ []) do
     {:ok,
      %{
        # Jita
@@ -64,7 +64,7 @@ defmodule WandererApp.Esi.Mock do
   end
 
   @impl WandererApp.Esi.CharacterBehavior
-  def get_character_online(character_id, _opts \\ []) do
+  def get_character_online(_character_id, _opts \\ []) do
     {:ok,
      %{
        "online" => true,
@@ -75,7 +75,7 @@ defmodule WandererApp.Esi.Mock do
   end
 
   @impl WandererApp.Esi.CharacterBehavior
-  def get_character_ship(character_id, _opts \\ []) do
+  def get_character_ship(_character_id, _opts \\ []) do
     {:ok,
      %{
        # Rifter
@@ -86,7 +86,7 @@ defmodule WandererApp.Esi.Mock do
   end
 
   @impl WandererApp.Esi.CharacterBehavior
-  def get_character_wallet(character_id, _opts \\ []) do
+  def get_character_wallet(_character_id, _opts \\ []) do
     {:ok, 1_234_567.89}
   end
 
@@ -156,7 +156,7 @@ defmodule WandererApp.Esi.Mock do
   end
 
   @impl WandererApp.Esi.CorporationBehavior
-  def get_corporation_wallets(corporation_id, _opts \\ []) do
+  def get_corporation_wallets(_corporation_id, _opts \\ []) do
     {:ok,
      [
        %{"balance" => 10_000_000_000.0, "division" => 1},
@@ -170,7 +170,7 @@ defmodule WandererApp.Esi.Mock do
   end
 
   @impl WandererApp.Esi.CorporationBehavior
-  def get_corporation_wallet_journal(corporation_id, division, _opts \\ []) do
+  def get_corporation_wallet_journal(_corporation_id, _division, _opts \\ []) do
     {:ok,
      [
        %{
@@ -185,7 +185,7 @@ defmodule WandererApp.Esi.Mock do
   end
 
   @impl WandererApp.Esi.CorporationBehavior
-  def get_corporation_wallet_transactions(corporation_id, division, _opts \\ []) do
+  def get_corporation_wallet_transactions(_corporation_id, _division, _opts \\ []) do
     {:ok,
      [
        %{
@@ -243,7 +243,7 @@ defmodule WandererApp.Esi.Mock do
      }}
   end
 
-  def get_killmail(killmail_id, killmail_hash, _opts \\ []) do
+  def get_killmail(killmail_id, _killmail_hash, _opts \\ []) do
     {:ok,
      %{
        "killmail_id" => killmail_id,
@@ -259,7 +259,7 @@ defmodule WandererApp.Esi.Mock do
      }}
   end
 
-  def find_routes(map_id, origin, hubs, routes_settings, _opts \\ []) do
+  def find_routes(_map_id, origin, hubs, _routes_settings, _opts \\ []) do
     # Return a simple mock route
     {:ok,
      [
@@ -271,8 +271,8 @@ defmodule WandererApp.Esi.Mock do
      ]}
   end
 
-  def search(character_eve_id, opts \\ []) do
-    search_string = Keyword.get(opts, :search, "")
+  def search(_character_eve_id, opts \\ []) do
+    _search_string = Keyword.get(opts, :search, "")
     categories = Keyword.get(opts, :categories, ["character"])
 
     # Return mock search results
@@ -302,7 +302,7 @@ defmodule WandererApp.Esi.Mock do
     {:ok, results}
   end
 
-  def set_autopilot_waypoint(add_to_beginning, clear_other_waypoints, destination_id, _opts \\ []) do
+  def set_autopilot_waypoint(_add_to_beginning, _clear_other_waypoints, _destination_id, _opts \\ []) do
     :ok
   end
 end

@@ -9,7 +9,6 @@ defmodule WandererAppWeb.Auth.Strategies.MapApiKeyStrategy do
   @behaviour WandererAppWeb.Auth.AuthStrategy
 
   import Plug.Conn
-  alias WandererApp.Api.Map
 
   @impl true
   def name, do: :map_api_key
@@ -20,7 +19,8 @@ defmodule WandererAppWeb.Auth.Strategies.MapApiKeyStrategy do
   @impl true
   def authenticate(conn, _opts) do
     with {:map, %{id: map_id} = map} <- {:map, conn.assigns[:map]},
-         {:header, ["Bearer " <> token]} <- {:header, get_req_header(conn, "authorization")},
+         {:header, [auth_header]} <- {:header, get_req_header(conn, "authorization")},
+         {:token, token} when not is_nil(token) <- {:token, extract_bearer_token(auth_header)},
          {:key, api_key} when not is_nil(api_key) <- {:key, map.public_api_key},
          {:valid, true} <- {:valid, Plug.Crypto.secure_compare(token, api_key)} do
       # Authentication successful
@@ -45,11 +45,29 @@ defmodule WandererAppWeb.Auth.Strategies.MapApiKeyStrategy do
         # No Bearer token, skip this strategy
         :skip
 
+      {:token, nil} ->
+        # Invalid bearer format, skip this strategy
+        :skip
+
       {:key, nil} ->
         {:error, :api_key_not_configured}
 
       {:valid, false} ->
         {:error, :invalid_api_key}
+    end
+  end
+
+  # Extract token from Authorization header (case-insensitive)
+  defp extract_bearer_token(auth_header) do
+    case String.split(auth_header, " ", parts: 2) do
+      [scheme, token] ->
+        if String.downcase(scheme) == "bearer" do
+          token
+        else
+          nil
+        end
+      _ ->
+        nil
     end
   end
 end

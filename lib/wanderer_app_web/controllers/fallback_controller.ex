@@ -54,9 +54,12 @@ defmodule WandererAppWeb.FallbackController do
 
   # Handles Ecto changeset errors for standardized validation
   def call(conn, {:error, %Ecto.Changeset{} = changeset}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> Phoenix.Controller.json(WandererAppWeb.Validations.ApiValidations.format_errors(changeset))
+    APIUtils.error_response(
+      conn,
+      :unprocessable_entity,
+      "Validation error",
+      WandererAppWeb.Validations.ApiValidations.format_errors(changeset)
+    )
   end
 
   # Handles any other unmatched errors

@@ -290,7 +290,7 @@ defmodule WandererAppWeb.MapAPIController do
       {:ok, map_id} ->
         paginated_response conn, params do
           query = WandererApp.Api.MapCharacterSettings
-                  |> Ash.Query.filter(map_id == ^map_id and tracked == true)
+                  |> filter(map_id == ^map_id and tracked == true)
                   |> Ash.Query.load(:character)
           {query, &transform_tracked_character/1}
         end
@@ -687,7 +687,7 @@ defmodule WandererAppWeb.MapAPIController do
     # Create a query to get all MapCharacterSettings for this map and preload characters
     settings_query =
       WandererApp.Api.MapCharacterSettings
-      |> Ash.Query.filter(map_id == ^map_id)
+      |> filter(map_id == ^map_id)
       |> Ash.Query.load(:character)
 
     case WandererApp.Api.read(settings_query) do
@@ -706,7 +706,7 @@ defmodule WandererAppWeb.MapAPIController do
           user_settings_query =
             WandererApp.Api.MapUserSettings
             |> Ash.Query.new()
-            |> Ash.Query.filter(map_id == ^map_id)
+            |> filter(map_id == ^map_id)
 
           main_characters_by_user =
             case WandererApp.Api.read(user_settings_query) do
@@ -751,7 +751,7 @@ defmodule WandererAppWeb.MapAPIController do
     # Create a query to get all MapCharacterSettings for this map and preload characters
     settings_query =
       WandererApp.Api.MapCharacterSettings
-      |> Ash.Query.filter(map_id == ^map_id)
+      |> filter(map_id == ^map_id)
       |> Ash.Query.load(:character)
 
     case WandererApp.Api.read(settings_query) do
@@ -770,7 +770,7 @@ defmodule WandererAppWeb.MapAPIController do
           user_settings_query =
             WandererApp.Api.MapUserSettings
             |> Ash.Query.new()
-            |> Ash.Query.filter(map_id == ^map_id)
+            |> filter(map_id == ^map_id)
 
           main_characters_by_user =
             case WandererApp.Api.read(user_settings_query) do

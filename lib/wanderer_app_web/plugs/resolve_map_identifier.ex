@@ -10,7 +10,6 @@ defmodule WandererAppWeb.Plugs.ResolveMapIdentifier do
   """
 
   import Plug.Conn
-  import Phoenix.Controller, only: [json: 2]
 
   alias WandererApp.Api.Map, as: MapApi
   alias WandererAppWeb.Helpers.APIUtils

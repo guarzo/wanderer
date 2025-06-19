@@ -85,19 +85,28 @@ defmodule WandererApp.Contexts.MapSignatures do
       ) do
     with {:ok, sig} <- MapSystemSignature.by_id(sig_id),
          {:ok, system} <- MapSystem.by_id(sig.system_id) do
+      # Only include user-updatable fields in base map to prevent field exposure
       base = %{
-        "eve_id" => sig.eve_id,
         "name" => sig.name,
+        "description" => sig.description,
+        "custom_info" => sig.custom_info,
+        "character_eve_id" => char_id
+      }
+      
+      # System-managed fields that should be preserved but not user-updatable
+      system_fields = %{
+        "eve_id" => sig.eve_id,
         "kind" => sig.kind,
         "group" => sig.group,
         "type" => sig.type,
-        "custom_info" => sig.custom_info,
-        "character_eve_id" => char_id,
-        "description" => sig.description,
         "linked_system_id" => sig.linked_system_id
       }
 
-      attrs = Map.merge(base, params)
+      # Merge user input with user-updatable fields only
+      user_updates = Map.merge(base, params)
+      
+      # Combine with system-managed fields (user input cannot override these)
+      attrs = Map.merge(user_updates, system_fields)
 
       :ok =
         Server.update_signatures(map_id, %{

@@ -59,8 +59,20 @@ defmodule WandererAppWeb.HtmlFallbackController do
   # Helper to get the appropriate redirect path
   defp get_fallback_path(conn) do
     case get_req_header(conn, "referer") do
-      [referer] -> URI.parse(referer).path || "/"
-      _ -> "/"
+      [referer] -> 
+        case URI.parse(referer) do
+          %URI{path: path} when is_binary(path) ->
+            # Ensure path starts with "/" and doesn't contain ".." to prevent open redirects
+            if String.starts_with?(path, "/") and not String.contains?(path, "..") do
+              path
+            else
+              "/"
+            end
+          _ -> 
+            "/"
+        end
+      _ -> 
+        "/"
     end
   end
 

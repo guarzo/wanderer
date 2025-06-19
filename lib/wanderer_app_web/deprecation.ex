@@ -32,6 +32,9 @@ defmodule WandererAppWeb.Deprecation do
 
       def __deprecation_info__, do: @deprecation_info
 
+      # Register the after_compile callback
+      @after_compile {__MODULE__, :__after_compile__}
+
       # Log deprecation warning on first use
       def __after_compile__(env, _bytecode) do
         if Application.get_env(:wanderer_app, :log_deprecations, true) do

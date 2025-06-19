@@ -164,7 +164,7 @@ defmodule WandererApp.Contexts.MapConnections do
           updated: integer(),
           skipped: integer()
         }
-  def upsert_batch(%{assigns: %{map_id: map_id, owner_character_id: char_id}} = conn, conns) do
+  def upsert_batch(%{assigns: %{map_id: _map_id, owner_character_id: _char_id}} = conn, conns) do
     Enum.reduce(conns, %{created: 0, updated: 0, skipped: 0}, fn conn_attrs, acc ->
       case upsert_single(conn, conn_attrs) do
         {:ok, :created} -> %{acc | created: acc.created + 1}

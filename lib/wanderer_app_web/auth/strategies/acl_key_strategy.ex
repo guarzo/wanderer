@@ -24,7 +24,8 @@ defmodule WandererAppWeb.Auth.Strategies.AclKeyStrategy do
     acl_id = opts[:acl_id] || conn.params["id"] || conn.params["acl_id"] || conn.assigns[:acl_id]
 
     with {:acl_id, acl_id} when not is_nil(acl_id) <- {:acl_id, acl_id},
-         {:header, ["Bearer " <> token]} <- {:header, get_req_header(conn, "authorization")},
+         {:header, [auth_header]} <- {:header, get_req_header(conn, "authorization")},
+         {:token, token} when not is_nil(token) <- {:token, extract_bearer_token(auth_header)},
          {:acl, {:ok, acl}} <- {:acl, AccessList.by_id(acl_id)},
          {:key, api_key} when not is_nil(api_key) <- {:key, acl.api_key},
          {:valid, true} <- {:valid, Plug.Crypto.secure_compare(token, api_key)} do
@@ -58,6 +59,20 @@ defmodule WandererAppWeb.Auth.Strategies.AclKeyStrategy do
 
       {:valid, false} ->
         {:error, :invalid_api_key}
+    end
+  end
+
+  # Extract token from Authorization header (case-insensitive)
+  defp extract_bearer_token(auth_header) do
+    case String.split(auth_header, " ", parts: 2) do
+      [scheme, token] ->
+        if String.downcase(scheme) == "bearer" do
+          token
+        else
+          nil
+        end
+      _ ->
+        nil
     end
   end
 end

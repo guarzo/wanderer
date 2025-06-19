@@ -19,7 +19,8 @@ defmodule WandererAppWeb.Auth.Strategies.JwtStrategy do
 
   @impl true
   def authenticate(conn, _opts) do
-    with {:header, ["Bearer " <> token]} <- {:header, get_req_header(conn, "authorization")},
+    with {:header, [auth_header]} <- {:header, get_req_header(conn, "authorization")},
+         {:token, token} <- {:token, extract_bearer_token(auth_header)},
          {:decode, {:ok, claims}} <- {:decode, Guardian.decode_and_verify(token)},
          {:user, {:ok, user}} <- {:user, load_user(claims)} do
       # Authentication successful
@@ -61,4 +62,18 @@ defmodule WandererAppWeb.Auth.Strategies.JwtStrategy do
   end
 
   defp load_user(_), do: {:error, :invalid_claims}
+
+  # Extract token from Authorization header (case-insensitive)
+  defp extract_bearer_token(auth_header) do
+    case String.split(auth_header, " ", parts: 2) do
+      [scheme, token] ->
+        if String.downcase(scheme) == "bearer" do
+          token
+        else
+          nil
+        end
+      _ ->
+        nil
+    end
+  end
 end

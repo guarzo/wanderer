@@ -21,7 +21,8 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
 
   @impl true
   def authenticate(conn, opts) do
-    with {:header, ["Bearer " <> token]} <- {:header, get_req_header(conn, "authorization")},
+    with {:header, [auth_header]} <- {:header, get_req_header(conn, "authorization")},
+         {:token, token} when not is_nil(token) <- {:token, extract_bearer_token(auth_header)},
          {:decode, {:ok, claims}} <- {:decode, Guardian.decode_and_verify(token)},
          {:character_id, {:ok, character_id}} <-
            {:character_id, extract_character_id(claims, conn, opts)},
@@ -42,6 +43,10 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
     else
       {:header, _} ->
         # No Bearer token, skip this strategy
+        :skip
+
+      {:token, nil} ->
+        # Invalid bearer format, skip this strategy
         :skip
 
       {:decode, {:error, reason}} ->
@@ -90,6 +95,20 @@ defmodule WandererAppWeb.Auth.Strategies.CharacterJwtStrategy do
     case Character.by_id(character_id) do
       {:ok, character} -> {:ok, character}
       _ -> {:error, :not_found}
+    end
+  end
+
+  # Extract token from Authorization header (case-insensitive)
+  defp extract_bearer_token(auth_header) do
+    case String.split(auth_header, " ", parts: 2) do
+      [scheme, token] ->
+        if String.downcase(scheme) == "bearer" do
+          token
+        else
+          nil
+        end
+      _ ->
+        nil
     end
   end
 end

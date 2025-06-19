@@ -98,59 +98,76 @@ defmodule WandererAppWeb.Controllers.Behaviours.Paginated do
   """
   defmacro paginated_response(conn, params, do: block) do
     quote do
-      case ApiValidations.validate_pagination(unquote(params)) do
-        {:ok, pagination_params} ->
-          # Convert atom keys to string keys to match incoming params
-          pagination_params_string = 
-            for {key, value} <- pagination_params, into: %{} do
-              {to_string(key), value}
-            end
-          merged_params = Map.merge(unquote(params), pagination_params_string)
-
-          result = unquote(block)
-
-          {query, transform_fn} =
-            case result do
-              {query, transform_fn} when is_function(transform_fn, 1) ->
-                {query, transform_fn}
-
-              {query} ->
-                {query, &__MODULE__.transform_item/1}
-
-              query ->
-                {query, &__MODULE__.transform_item/1}
-            end
-
-          case PaginationHelpers.paginate_query(query, merged_params, WandererApp.Api) do
-            {:ok, {data, pagination_meta}} ->
-              # Transform data using the provided function
-              transformed_data = Enum.map(data, transform_fn)
-
-              # Format paginated response
-              response =
-                PaginationHelpers.format_paginated_response(transformed_data, pagination_meta)
-
-              # Add pagination headers and send response
-              unquote(conn)
-              |> PaginationHelpers.add_pagination_headers(
-                pagination_meta,
-                unquote(conn).request_path
-              )
-              |> put_status(200)
-              |> json(response)
-
-            {:error, changeset} ->
-              unquote(conn)
-              |> put_status(422)
-              |> json(ApiValidations.format_errors(changeset))
-          end
-
-        {:error, changeset} ->
-          unquote(conn)
-          |> put_status(400)
-          |> json(ApiValidations.format_errors(changeset))
-      end
+      WandererAppWeb.Controllers.Behaviours.Paginated.execute_paginated_response(
+        unquote(conn),
+        unquote(params),
+        fn -> unquote(block) end,
+        __MODULE__
+      )
     end
+  end
+
+  @doc false
+  def execute_paginated_response(conn, params, block_fn, calling_module) do
+    case ApiValidations.validate_pagination(params) do
+      {:ok, pagination_params} ->
+        merged_params = merge_pagination_params(params, pagination_params)
+        {query, transform_fn} = extract_query_and_transform(block_fn.(), calling_module)
+        
+        handle_paginated_query(conn, query, transform_fn, merged_params)
+
+      {:error, changeset} ->
+        conn
+        |> put_status(400)
+        |> json(ApiValidations.format_errors(changeset))
+    end
+  end
+
+  # Helper to merge pagination params with string keys
+  defp merge_pagination_params(params, pagination_params) do
+    pagination_params_string = 
+      for {key, value} <- pagination_params, into: %{} do
+        {to_string(key), value}
+      end
+    Map.merge(params, pagination_params_string)
+  end
+
+  # Extract query and transform function from block result
+  defp extract_query_and_transform(result, calling_module) do
+    case result do
+      {query, transform_fn} when is_function(transform_fn, 1) ->
+        {query, transform_fn}
+
+      {query} ->
+        {query, &calling_module.transform_item/1}
+
+      query ->
+        {query, &calling_module.transform_item/1}
+    end
+  end
+
+  # Handle the paginated query execution
+  defp handle_paginated_query(conn, query, transform_fn, params) do
+    case PaginationHelpers.paginate_query(query, params, WandererApp.Api) do
+      {:ok, {data, pagination_meta}} ->
+        send_paginated_response(conn, data, transform_fn, pagination_meta)
+
+      {:error, changeset} ->
+        conn
+        |> put_status(422)
+        |> json(ApiValidations.format_errors(changeset))
+    end
+  end
+
+  # Transform data and send paginated response
+  defp send_paginated_response(conn, data, transform_fn, pagination_meta) do
+    transformed_data = Enum.map(data, transform_fn)
+    response = PaginationHelpers.format_paginated_response(transformed_data, pagination_meta)
+
+    conn
+    |> PaginationHelpers.add_pagination_headers(pagination_meta, conn.request_path)
+    |> put_status(200)
+    |> json(response)
   end
 
   @doc """
@@ -161,46 +178,42 @@ defmodule WandererAppWeb.Controllers.Behaviours.Paginated do
   """
   defmacro paginated_list_response(conn, params, do: block) do
     quote do
-      case ApiValidations.validate_pagination(unquote(params)) do
-        {:ok, pagination_params} ->
-          # Convert atom keys to string keys to match incoming params
-          pagination_params_string = 
-            for {key, value} <- pagination_params, into: %{} do
-              {to_string(key), value}
-            end
-          merged_params = Map.merge(unquote(params), pagination_params_string)
+      WandererAppWeb.Controllers.Behaviours.Paginated.execute_paginated_list_response(
+        unquote(conn),
+        unquote(params),
+        fn -> unquote(block) end,
+        __MODULE__
+      )
+    end
+  end
 
-          data_list = unquote(block)
+  @doc false
+  def execute_paginated_list_response(conn, params, block_fn, calling_module) do
+    case ApiValidations.validate_pagination(params) do
+      {:ok, pagination_params} ->
+        merged_params = merge_pagination_params(params, pagination_params)
+        data_list = block_fn.()
+        
+        handle_paginated_list(conn, data_list, merged_params, calling_module)
 
-          case PaginationHelpers.paginate_list(data_list, merged_params) do
-            {:ok, {data, pagination_meta}} ->
-              # Transform data using the transform_item function
-              transformed_data = Enum.map(data, &__MODULE__.transform_item/1)
+      {:error, changeset} ->
+        conn
+        |> put_status(400)
+        |> json(ApiValidations.format_errors(changeset))
+    end
+  end
 
-              # Format paginated response
-              response =
-                PaginationHelpers.format_paginated_response(transformed_data, pagination_meta)
+  # Handle paginated list execution
+  defp handle_paginated_list(conn, data_list, params, calling_module) do
+    case PaginationHelpers.paginate_list(data_list, params) do
+      {:ok, {data, pagination_meta}} ->
+        transform_fn = &calling_module.transform_item/1
+        send_paginated_response(conn, data, transform_fn, pagination_meta)
 
-              # Add pagination headers and send response
-              unquote(conn)
-              |> PaginationHelpers.add_pagination_headers(
-                pagination_meta,
-                unquote(conn).request_path
-              )
-              |> put_status(200)
-              |> json(response)
-
-            {:error, reason} ->
-              unquote(conn)
-              |> put_status(400)
-              |> json(%{error: reason})
-          end
-
-        {:error, changeset} ->
-          unquote(conn)
-          |> put_status(400)
-          |> json(ApiValidations.format_errors(changeset))
-      end
+      {:error, reason} ->
+        conn
+        |> put_status(400)
+        |> json(%{error: reason})
     end
   end
 

@@ -39,7 +39,6 @@ defmodule WandererApp.Character.Tracker do
   @ship_error_timeout :timer.minutes(2)
   @location_error_timeout :timer.minutes(2)
   @online_forbidden_ttl :timer.seconds(7)
-  @online_limit_ttl :timer.seconds(7)
   @forbidden_ttl :timer.seconds(5)
   @limit_ttl :timer.seconds(5)
   @location_limit_ttl :timer.seconds(1)

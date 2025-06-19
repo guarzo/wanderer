@@ -34,14 +34,23 @@ defmodule WandererAppWeb.Plugs.LicenseAuth do
 
       true ->
         case auth_header do
-          ["Bearer " <> token] when is_binary(token) ->
-            if Plug.Crypto.secure_compare(token, lm_auth_key) do
-              conn
-            else
-              conn
-              |> put_status(:unauthorized)
-              |> json(%{error: "Invalid authentication token"})
-              |> halt()
+          [header] when is_binary(header) ->
+            case extract_bearer_token(header) do
+              nil ->
+                conn
+                |> put_status(:unauthorized)
+                |> json(%{error: "Invalid authentication format"})
+                |> halt()
+
+              token ->
+                if Plug.Crypto.secure_compare(token, lm_auth_key) do
+                  conn
+                else
+                  conn
+                  |> put_status(:unauthorized)
+                  |> json(%{error: "Invalid authentication token"})
+                  |> halt()
+                end
             end
 
           _ ->
@@ -62,29 +71,38 @@ defmodule WandererAppWeb.Plugs.LicenseAuth do
     auth_header = get_req_header(conn, "authorization")
 
     case auth_header do
-      ["Bearer " <> license_key] ->
-        case LicenseManager.validate_license(license_key) do
-          {:ok, license} ->
-            conn
-            |> assign(:license, license)
-
-          {:error, :license_invalidated} ->
+      [header] when is_binary(header) ->
+        case extract_bearer_token(header) do
+          nil ->
             conn
             |> put_status(:unauthorized)
-            |> json(%{error: "License has been invalidated"})
+            |> json(%{error: "Invalid authentication format"})
             |> halt()
 
-          {:error, :license_expired} ->
-            conn
-            |> put_status(:unauthorized)
-            |> json(%{error: "License has expired"})
-            |> halt()
+          license_key ->
+            case LicenseManager.validate_license(license_key) do
+              {:ok, license} ->
+                conn
+                |> assign(:license, license)
 
-          {:error, _} ->
-            conn
-            |> put_status(:unauthorized)
-            |> json(%{error: "Invalid license key"})
-            |> halt()
+              {:error, :license_invalidated} ->
+                conn
+                |> put_status(:unauthorized)
+                |> json(%{error: "License has been invalidated"})
+                |> halt()
+
+              {:error, :license_expired} ->
+                conn
+                |> put_status(:unauthorized)
+                |> json(%{error: "License has expired"})
+                |> halt()
+
+              {:error, _} ->
+                conn
+                |> put_status(:unauthorized)
+                |> json(%{error: "Invalid license key"})
+                |> halt()
+            end
         end
 
       _ ->
@@ -92,6 +110,20 @@ defmodule WandererAppWeb.Plugs.LicenseAuth do
         |> put_status(:unauthorized)
         |> json(%{error: "Missing license key"})
         |> halt()
+    end
+  end
+
+  # Extract token from Authorization header (case-insensitive)
+  defp extract_bearer_token(auth_header) do
+    case String.split(auth_header, " ", parts: 2) do
+      [scheme, token] ->
+        if String.downcase(scheme) == "bearer" do
+          token
+        else
+          nil
+        end
+      _ ->
+        nil
     end
   end
 end

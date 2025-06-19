@@ -428,10 +428,7 @@ defmodule WandererAppWeb.Legacy.MapAccessListAPIController do
   defp create_acl_with_params(conn, acl_params) do
     character_id = conn.assigns.current_character.id
 
-    api_key =
-      :crypto.strong_rand_bytes(16)
-      |> Base.url_encode64(padding: false)
-      |> then(&"acl-api-key-#{&1}")
+    api_key = generate_secure_api_key("acl")
 
     new_params =
       acl_params
@@ -841,5 +838,18 @@ defmodule WandererAppWeb.Legacy.MapAccessListAPIController do
         Logger.error("Error loading map ACLs: #{inspect(error)}")
         {:error, error}
     end
+  end
+
+  # Generate a cryptographically secure API key with the given prefix
+  defp generate_secure_api_key(prefix) do
+    # Use 24 bytes for higher entropy (32 chars base64)
+    random_part = 
+      :crypto.strong_rand_bytes(24)
+      |> Base.url_encode64(padding: false)
+    
+    # Add timestamp component to ensure uniqueness even with same random bytes
+    timestamp = System.system_time(:microsecond) |> Integer.to_string(36)
+    
+    "#{prefix}_#{timestamp}_#{random_part}"
   end
 end

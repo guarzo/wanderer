@@ -12,7 +12,8 @@ defmodule WandererAppWeb.Plugs.CheckMapApiKey do
 
   @impl true
   def call(conn, _opts) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
+    with [auth_header] <- get_req_header(conn, "authorization"),
+         token when is_binary(token) <- extract_bearer_token(auth_header),
          {:ok, map_id} <- fetch_map_id(conn),
          {:ok, map} <- ApiMap.by_id(map_id),
          true <-
@@ -121,5 +122,19 @@ defmodule WandererAppWeb.Plugs.CheckMapApiKey do
     conn
     |> put_resp_content_type(content_type)
     |> send_resp(status, Jason.encode!(%{error: msg}))
+  end
+
+  # Extract token from Authorization header (case-insensitive)
+  defp extract_bearer_token(auth_header) do
+    case String.split(auth_header, " ", parts: 2) do
+      [scheme, token] ->
+        if String.downcase(scheme) == "bearer" do
+          token
+        else
+          nil
+        end
+      _ ->
+        nil
+    end
   end
 end
