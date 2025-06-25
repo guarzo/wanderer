@@ -58,8 +58,7 @@ export const FleetReadinessContent = () => {
 
   // Filter to only show ready characters
   const readyCharacters = useMemo(() => {
-    const filtered = trackingCharacters.filter(char => char.ready);
-    return filtered;
+    return trackingCharacters.filter(char => char.ready);
   }, [trackingCharacters]);
 
   if (loading) {

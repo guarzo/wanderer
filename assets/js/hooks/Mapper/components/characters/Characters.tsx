@@ -8,6 +8,7 @@ import clsx from 'clsx';
 import { PrimeIcons } from 'primereact/api';
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import classes from './Characters.module.scss';
+import { useMapEventListener } from '@/hooks/Mapper/events';
 
 interface CharactersProps {
   data: CharacterTypeRaw[];
@@ -35,7 +36,7 @@ export const Characters: React.FC<CharactersProps> = ({ data }) => {
     data: { mainCharacterEveId, followingCharacterEveId },
   } = useMapRootState();
 
-  // Load ready characters on mount
+  // Load ready characters on mount and when data changes
   useEffect(() => {
     const loadReady = async () => {
       try {
@@ -50,7 +51,29 @@ export const Characters: React.FC<CharactersProps> = ({ data }) => {
       }
     };
     loadReady();
-  }, [outCommand]);
+  }, [outCommand, data]);
+
+  // Listen for tracking updates that might affect ready status
+  useMapEventListener(event => {
+    if (event.name === Commands.updateTracking || event.name === Commands.charactersUpdated) {
+      // Reload ready characters when tracking data is updated
+      const loadReady = async () => {
+        try {
+          const res = await outCommand({
+            type: OutCommand.getCharactersTrackingInfo,
+            data: {},
+          });
+          const responseData = res as { data?: { ready_characters?: string[] } };
+          setReadyCharacters(responseData.data?.ready_characters || []);
+        } catch (err) {
+          console.error('Failed to reload ready characters:', err);
+        }
+      };
+      loadReady();
+      return true;
+    }
+    return false;
+  });
 
   const handleSelect = useCallback(
     async (character: CharacterTypeRaw) => {
