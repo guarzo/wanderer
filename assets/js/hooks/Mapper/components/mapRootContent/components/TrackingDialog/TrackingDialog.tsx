@@ -3,6 +3,7 @@ import { Dialog } from 'primereact/dialog';
 import { TabPanel, TabView } from 'primereact/tabview';
 import { TrackingSettings } from './TrackingSettings.tsx';
 import { TrackingCharactersList } from './TrackingCharactersList.tsx';
+import { ReadyCharactersList } from './ReadyCharactersList.tsx';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { TrackingProvider, useTracking } from './TrackingProvider.tsx';
 
@@ -14,7 +15,7 @@ interface TrackingDialogProps {
 const TrackingDialogComp = ({ visible, onHide }: TrackingDialogProps) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const { outCommand } = useMapRootState();
-  const { loadTracking } = useTracking();
+  const { loadTracking, trackingCharacters, ready, updateReady } = useTracking();
 
   const refVars = useRef({ outCommand });
   refVars.current = { outCommand };
@@ -26,6 +27,15 @@ const TrackingDialogComp = ({ visible, onHide }: TrackingDialogProps) => {
 
     loadTracking();
   }, [loadTracking, visible]);
+
+  const handleReadyChange = (characterId: string, isReady: boolean) => {
+    try {
+      const newReadyCharacters = isReady ? [...ready, characterId] : ready.filter(id => id !== characterId);
+      updateReady(newReadyCharacters);
+    } catch (error) {
+      console.error('Failed to update ready status:', error);
+    }
+  };
 
   return (
     <Dialog
@@ -51,6 +61,13 @@ const TrackingDialogComp = ({ visible, onHide }: TrackingDialogProps) => {
         </TabPanel>
         <TabPanel header="Follow & Settings">
           <TrackingSettings />
+        </TabPanel>
+        <TabPanel header="Ready" contentClassName="h-full">
+          <ReadyCharactersList
+            trackingCharacters={trackingCharacters}
+            ready={ready}
+            onReadyChange={handleReadyChange}
+          />
         </TabPanel>
       </TabView>
     </Dialog>
