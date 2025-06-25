@@ -62,8 +62,8 @@ defmodule WandererApp.Character.TrackingUtils do
          {:ok, %{characters: characters_with_access}} <-
            WandererApp.Maps.load_characters(map, character_settings, current_user_id) do
       # Map characters to tracking data
-      {:ok, characters_data} =
-        build_character_tracking_data(characters_with_access, character_settings)
+      characters_data =
+        build_characters_list(characters_with_access, character_settings, user_settings)
 
       {:ok, main_character} =
         get_main_character(user_settings, characters_with_access, characters_with_access)
@@ -80,11 +80,20 @@ defmodule WandererApp.Character.TrackingUtils do
           %{eve_id: eve_id} -> eve_id
         end
 
+      ready_character_eve_ids =
+        case user_settings do
+          nil -> []
+          %{ready_characters: ready_characters} -> ready_characters
+          _ -> []
+        end
+        |> MapSet.new()
+
       {:ok,
        %{
          characters: characters_data,
          main: main_character_eve_id,
-         following: following_character_eve_id
+         following: following_character_eve_id,
+         ready_characters: ready_character_eve_ids |> MapSet.to_list()
        }}
     else
       nil ->
@@ -97,17 +106,98 @@ defmodule WandererApp.Character.TrackingUtils do
     end
   end
 
-  # Helper to build tracking data for each character
-  defp build_character_tracking_data(characters, character_settings) do
-    {:ok,
-     Enum.map(characters, fn char ->
-       setting = Enum.find(character_settings, &(&1.character_id == char.id))
+  defp map_character_with_status(char, character_settings, ready_character_eve_ids) do
+    setting = Enum.find(character_settings, &(&1.character_id == char.id))
+    is_tracked = setting && setting.tracked
+    is_ready = MapSet.member?(ready_character_eve_ids, char.eve_id) && is_tracked
 
-       %{
-         character: char |> WandererAppWeb.MapEventHandler.map_ui_character_stat(),
-         tracked: (setting && setting.tracked) || false
-       }
-     end)}
+    actual_online =
+      case WandererApp.Character.get_character_state(char.id, false) do
+        {:ok, %{is_online: is_online}} when not is_nil(is_online) -> is_online
+        _ -> Map.get(char, :online, false)
+      end
+
+    character_data =
+      char
+      |> Map.put(:online, actual_online)
+      |> WandererAppWeb.MapEventHandler.map_ui_character_stat()
+
+    %{
+      character: character_data,
+      tracked: is_tracked,
+      ready: is_ready
+    }
+  end
+
+  # Helper to build just the characters list for build_tracking_data
+  def build_characters_list(characters, character_settings, user_settings) do
+    ready_character_eve_ids =
+      case user_settings do
+        nil -> []
+        %{ready_characters: ready_characters} -> ready_characters
+        _ -> []
+      end
+      |> MapSet.new()
+
+    Enum.map(characters, fn char ->
+      map_character_with_status(char, character_settings, ready_character_eve_ids)
+    end)
+  end
+
+  # Helper to build tracking data for each character with ready status
+  def build_character_tracking_data(characters, character_settings, user_settings) do
+    # Reuse existing function to reduce duplication
+    data = build_characters_list(characters, character_settings, user_settings)
+
+    ready_character_eve_ids =
+      case user_settings do
+        nil -> []
+        %{ready_characters: ready_characters} -> ready_characters
+        _ -> []
+      end
+      |> MapSet.new()
+
+    main_character_eve_id = get_main_character_eve_id(user_settings, data)
+
+    following_character_eve_id =
+      case user_settings do
+        nil -> main_character_eve_id
+        %{following_character_eve_id: nil} -> main_character_eve_id
+        %{following_character_eve_id: following_eve_id} -> following_eve_id
+        _ -> main_character_eve_id
+      end
+
+    ready_characters = ready_character_eve_ids |> MapSet.to_list()
+
+    %{
+      main: main_character_eve_id,
+      characters: data,
+      ready_characters: ready_characters,
+      following: following_character_eve_id
+    }
+  end
+
+  # Helper function to determine main character eve_id
+  def get_main_character_eve_id(user_settings, character_data) do
+    # Handle nil user_settings
+    case user_settings do
+      nil ->
+        # If no user settings, use the first character
+        case character_data do
+          [] -> nil
+          [first_char | _] -> first_char.character.eve_id
+        end
+
+      %{main_character_eve_id: nil} ->
+        # If no main character is set, use the first character or following character
+        case character_data do
+          [] -> nil
+          [first_char | _] -> first_char.character.eve_id
+        end
+
+      %{main_character_eve_id: main_eve_id} ->
+        main_eve_id
+    end
   end
 
   # Private implementation of update character tracking
@@ -288,4 +378,62 @@ defmodule WandererApp.Character.TrackingUtils do
         {:ok,
          current_user_characters
          |> Enum.find(fn c -> c.eve_id === main_character_eve_id end)}
+
+  @doc """
+  Clears ready status for a character across all maps when they go offline.
+  This ensures characters don't remain marked as ready when they're not online.
+  """
+  def clear_ready_status_on_offline(character_eve_id) do
+    with {:ok, _character} <- WandererApp.Character.get_by_eve_id(character_eve_id) do
+      # Get all map user settings that have this character marked as ready
+      case WandererApp.MapUserSettingsRepo.get_settings_with_ready_character(character_eve_id) do
+        {:ok, settings_list} ->
+          # Remove character from ready list in each setting
+          Enum.each(settings_list, fn user_settings ->
+            updated_ready_characters =
+              user_settings.ready_characters
+              |> List.delete(character_eve_id)
+
+            case WandererApp.Api.MapUserSettings.update_ready_characters(user_settings, %{
+                   ready_characters: updated_ready_characters
+                 }) do
+              {:ok, _updated_settings} ->
+                # Broadcast the change to other users in the map
+                broadcast_ready_status_cleared(
+                  user_settings.map_id,
+                  user_settings.user_id,
+                  character_eve_id
+                )
+
+              {:error, reason} ->
+                Logger.error(
+                  "Failed to clear ready status for character #{character_eve_id}: #{inspect(reason)}"
+                )
+            end
+          end)
+
+        {:error, reason} ->
+          Logger.error(
+            "Failed to get settings for character #{character_eve_id}: #{inspect(reason)}"
+          )
+      end
+    else
+      {:error, reason} ->
+        Logger.error("Failed to get character #{character_eve_id}: #{inspect(reason)}")
+    end
+
+    :ok
+  end
+
+  defp broadcast_ready_status_cleared(map_id, user_id, character_eve_id) do
+    WandererAppWeb.Endpoint.broadcast!(
+      "map:#{map_id}",
+      "character_ready_status_cleared",
+      %{
+        user_id: user_id,
+        character_eve_id: character_eve_id,
+        reason: "character_offline"
+      }
+    )
+  end
 end

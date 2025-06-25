@@ -22,10 +22,17 @@ export type LocationRaw = {
 
 export type CharacterTypeRaw = {
   eve_id: string;
-  location: LocationRaw | null;
   name: string;
   online: boolean;
-  ship: ShipTypeRaw | null;
+
+  solar_system_id: number;
+  structure_id?: number | null;
+  station_id?: number | null;
+
+  ship_name: string;
+  ship_info?: {
+    ship_type_info?: ShipTypeInfoRaw;
+  };
 
   alliance_id: number | null;
   alliance_name: string | null;
@@ -39,6 +46,7 @@ export type CharacterTypeRaw = {
 export interface TrackingCharacter {
   character: CharacterTypeRaw;
   tracked: boolean;
+  ready: boolean;
 }
 
 export type WithIsOwnCharacter = {

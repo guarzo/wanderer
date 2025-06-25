@@ -8,6 +8,8 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
 
   alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
 
+  @refresh_delay 100
+
   def handle_server_event(%{event: :character_added, payload: character}, socket) do
     socket
     |> MapEventHandler.push_map_event(
@@ -279,6 +281,69 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
   end
 
   def handle_ui_event(
+        "updateReadyCharacters",
+        %{"ready_character_eve_ids" => ready_character_eve_ids},
+        %{assigns: %{map_id: map_id, current_user: %{id: current_user_id}}} = socket
+      ) do
+    # Validate ready characters exist, are owned by user, and are tracked
+    {:ok, valid_ready_characters} =
+      validate_ready_characters(map_id, current_user_id, ready_character_eve_ids)
+
+    # Get or create user settings and update ready characters
+    {:ok, map_user_settings} = WandererApp.MapUserSettingsRepo.get(map_id, current_user_id)
+
+    result =
+      case map_user_settings do
+        nil ->
+          # Create new settings if none exist
+          case WandererApp.Api.MapUserSettings.create(%{
+                 map_id: map_id,
+                 user_id: current_user_id,
+                 ready_characters: valid_ready_characters,
+                 settings: "{}"
+               }) do
+            {:ok, _settings} ->
+              :ok
+
+            {:error, reason} ->
+              Logger.error("Failed to create user settings: #{inspect(reason)}")
+              {:error, "Failed to save ready characters"}
+          end
+
+        existing_settings ->
+          # Update existing settings
+          case WandererApp.Api.MapUserSettings.update_ready_characters(existing_settings, %{
+                 ready_characters: valid_ready_characters
+               }) do
+            {:ok, _updated_settings} ->
+              :ok
+
+            {:error, reason} ->
+              Logger.error("Failed to update ready characters: #{inspect(reason)}")
+              {:error, "Failed to save ready characters"}
+          end
+      end
+
+    case result do
+      :ok ->
+        # Broadcast ready status changes to other users in the map
+        broadcast_ready_status_change(map_id, current_user_id, valid_ready_characters)
+
+        # Build and return updated tracking data immediately
+        {:ok, tracking_data} =
+          WandererApp.Character.TrackingUtils.build_tracking_data(map_id, current_user_id)
+
+        # Also schedule a refresh for other updates
+        Process.send_after(self(), %{event: :refresh_user_characters}, @refresh_delay)
+
+        {:reply, %{data: tracking_data}, socket}
+
+      {:error, reason} ->
+        {:noreply, socket |> put_flash(:error, reason)}
+    end
+  end
+
+  def handle_ui_event(
         "startTracking",
         %{"character_eve_id" => character_eve_id},
         %{
@@ -316,6 +381,7 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       |> Map.put_new(:ship, WandererApp.Character.get_ship(character))
       |> Map.put_new(:location, get_location(character))
       |> Map.put_new(:tracking_paused, character |> Map.get(:tracking_paused, false))
+      |> Map.put_new(:ready, character |> Map.get(:ready, false))
 
   defp get_location(character),
     do: %{
@@ -323,6 +389,23 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       structure_id: character.structure_id,
       station_id: character.station_id
     }
+
+  @doc """
+  Determines if a character is ready based on online status, tracking status, and ready settings.
+  A character is ready if they are online, tracked, and marked as ready.
+  """
+  defp is_character_ready?(character, user_settings) do
+    ready_character_eve_ids =
+      case user_settings do
+        nil -> []
+        %{ready_characters: ready_characters} -> ready_characters
+        _ -> []
+      end
+      |> MapSet.new()
+
+    character.online &&
+      MapSet.member?(ready_character_eve_ids, character.eve_id)
+  end
 
   defp get_map_with_acls(map_id) do
     with {:ok, map} <- WandererApp.Api.Map.by_id(map_id) do
@@ -404,5 +487,66 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       is_tracked = setting && setting.tracked
       !is_tracked
     end)
+  end
+
+  @doc """
+  Validates that the provided character EVE IDs are valid.
+  Returns {:ok, valid_character_eve_ids} or {:error, reason}.
+  """
+  defp validate_ready_characters(map_id, current_user_id, ready_character_eve_ids) do
+    with {:ok, user_characters_list} <-
+           WandererApp.Api.Character.active_by_user(%{user_id: current_user_id}),
+         user_character_ids = Enum.map(user_characters_list, & &1.id),
+         {:ok, character_settings} <-
+           WandererApp.MapCharacterSettingsRepo.get_by_map_filtered(map_id, user_character_ids) do
+      # Get valid user character EVE IDs
+      user_character_eve_ids = user_characters_list |> Enum.map(& &1.eve_id) |> MapSet.new()
+
+      # Get tracked character IDs
+      tracked_character_ids =
+        character_settings
+        |> Enum.filter(& &1.tracked)
+        |> Enum.map(& &1.character_id)
+        |> MapSet.new()
+
+      # Find tracked characters that match user characters
+      tracked_user_characters =
+        user_characters_list
+        |> Enum.filter(&MapSet.member?(tracked_character_ids, &1.id))
+        |> Enum.map(& &1.eve_id)
+        |> MapSet.new()
+
+      # Filter ready characters to only include owned, tracked characters
+      valid_ready_characters =
+        ready_character_eve_ids
+        |> Enum.filter(fn eve_id ->
+          MapSet.member?(user_character_eve_ids, eve_id) &&
+            MapSet.member?(tracked_user_characters, eve_id)
+        end)
+
+      {:ok, valid_ready_characters}
+    else
+      error ->
+        {:error, "Failed to validate characters: #{inspect(error)}"}
+    end
+  end
+
+  @doc """
+  Broadcasts ready status changes to other users in the map.
+  """
+  defp broadcast_ready_status_change(map_id, current_user_id, ready_character_eve_ids) do
+    # Get current user info for the broadcast
+    {:ok, current_user} = WandererApp.Api.User.by_id(current_user_id)
+
+    # Broadcast to all users in the map
+    WandererAppWeb.Endpoint.broadcast!(
+      "map:#{map_id}",
+      "ready_characters_updated",
+      %{
+        user_id: current_user_id,
+        user_name: current_user.name,
+        ready_character_eve_ids: ready_character_eve_ids
+      }
+    )
   end
 end
