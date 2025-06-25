@@ -6,12 +6,19 @@ import { CommandInCharactersTrackingInfo } from '@/hooks/Mapper/types/commandsIn
 
 type DiffTrackingInfo = { characterId: string; tracked: boolean };
 
+interface UpdateReadyResponse {
+  data?: unknown;
+  error?: string;
+  message?: string;
+  remaining_cooldown?: number;
+}
+
 type TrackingContextType = {
   loadTracking: () => void;
   updateTracking: (selected: string[]) => void;
   updateFollowing: (characterId: string | null) => void;
   updateMain: (characterId: string) => void;
-  updateReady: (readyCharacterIds: string[]) => void;
+  updateReady: (readyCharacterIds: string[]) => Promise<unknown>;
   trackingCharacters: TrackingCharacter[];
   following: string | null;
   main: string | null;
@@ -130,14 +137,32 @@ export const TrackingProvider = ({ children }: WithChildren) => {
   const updateReady = useCallback(
     async (readyCharacterIds: string[]) => {
       try {
-        await outCommand({
+        const response = await outCommand({
           type: OutCommand.updateReadyCharacters,
           data: { ready_character_eve_ids: readyCharacterIds },
         });
 
+        // Check if the response indicates a rate limit error
+        const responseObj = response as UpdateReadyResponse;
+        if (responseObj?.error) {
+          throw responseObj;
+        }
+
+        // Update local state immediately
         setReady(readyCharacterIds);
+
+        // Also update trackingCharacters to reflect ready status
+        setTrackingCharacters(prev =>
+          prev.map(char => ({
+            ...char,
+            ready: readyCharacterIds.includes(char.character.eve_id),
+          })),
+        );
+
+        return response;
       } catch (error) {
         console.error('Error updating ready characters:', error);
+        throw error;
       }
     },
     [outCommand],

@@ -76,32 +76,38 @@ export const FleetReadinessContent = () => {
       <div className="p-8 text-center text-text-color-secondary italic">
         No characters are currently marked as ready for combat. Characters must be online, tracked, and marked as ready
         to appear here.
+        <div className="mt-4 text-xs text-stone-500">
+          Tip: Right-click character portraits in the top bar to mark them as ready.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-full overflow-auto custom-scrollbar">
-      <DataTable
-        value={readyCharacters}
-        scrollable
-        className="w-full"
-        tableClassName="w-full border-0"
-        emptyMessage="No ready characters found"
-        size="small"
-        rowClassName={getRowClassName}
-        rowHover
-      >
-        <Column field="character.name" header="Character" body={renderCharacterName} sortable className="!py-[6px]" />
-        <Column
-          field="character.location"
-          header="Location"
-          body={renderSystemLocation}
-          sortable
-          className="!py-[6px]"
-        />
-        <Column field="character.ship" header="Ship" body={renderShipType} sortable className="!py-[6px]" />
-      </DataTable>
+    <div className="w-full h-full flex flex-col overflow-hidden">
+      {/* Data Table */}
+      <div className="flex-1 overflow-auto custom-scrollbar">
+        <DataTable
+          value={readyCharacters}
+          scrollable
+          className="w-full"
+          tableClassName="w-full border-0"
+          emptyMessage="No ready characters found"
+          size="small"
+          rowClassName={getRowClassName}
+          rowHover
+        >
+          <Column field="character.name" header="Character" body={renderCharacterName} sortable className="!py-[6px]" />
+          <Column
+            field="character.location"
+            header="Location"
+            body={renderSystemLocation}
+            sortable
+            className="!py-[6px]"
+          />
+          <Column field="character.ship" header="Ship" body={renderShipType} sortable className="!py-[6px]" />
+        </DataTable>
+      </div>
     </div>
   );
 };

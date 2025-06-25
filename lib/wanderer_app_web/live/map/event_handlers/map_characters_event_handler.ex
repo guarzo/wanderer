@@ -9,6 +9,8 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
   alias WandererAppWeb.{MapEventHandler, MapCoreEventHandler}
 
   @refresh_delay 100
+  # Rate limiting: 5 minutes in milliseconds
+  @clear_all_cooldown 5 * 60 * 1000
 
   def handle_server_event(%{event: :character_added, payload: character}, socket) do
     socket
@@ -285,6 +287,75 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
         %{"ready_character_eve_ids" => ready_character_eve_ids},
         %{assigns: %{map_id: map_id, current_user: %{id: current_user_id}}} = socket
       ) do
+    # Check if this is a clear all operation (empty list) and enforce rate limiting
+    is_clear_all = Enum.empty?(ready_character_eve_ids)
+
+    if is_clear_all do
+      case check_clear_all_rate_limit(map_id) do
+        {:ok, remaining_cooldown} when remaining_cooldown > 0 ->
+          {:reply,
+           %{
+             error: "rate_limited",
+             message: "Clear all function is on cooldown",
+             remaining_cooldown: remaining_cooldown
+           }, socket}
+
+        {:ok, _} ->
+          # Rate limit passed, continue with the operation
+          perform_update_ready_characters(
+            ready_character_eve_ids,
+            map_id,
+            current_user_id,
+            socket,
+            true
+          )
+
+        {:error, reason} ->
+          Logger.error("Rate limit check failed: #{inspect(reason)}")
+          {:reply, %{error: "internal_error", message: "Failed to check rate limit"}, socket}
+      end
+    else
+      # Not a clear all operation, proceed normally
+      perform_update_ready_characters(
+        ready_character_eve_ids,
+        map_id,
+        current_user_id,
+        socket,
+        false
+      )
+    end
+  end
+
+  def handle_ui_event(
+        "startTracking",
+        %{"character_eve_id" => character_eve_id},
+        %{
+          assigns: %{
+            map_id: map_id,
+            current_user: %{id: current_user_id}
+          }
+        } = socket
+      )
+      when not is_nil(character_eve_id) do
+    {:ok, character} = WandererApp.Character.get_by_eve_id("#{character_eve_id}")
+
+    WandererApp.Cache.delete("character:#{character.id}:tracking_paused")
+
+    {:noreply, socket}
+  end
+
+  def handle_ui_event(event, body, socket),
+    do: MapCoreEventHandler.handle_ui_event(event, body, socket)
+
+  # Private functions
+
+  defp perform_update_ready_characters(
+         ready_character_eve_ids,
+         map_id,
+         current_user_id,
+         socket,
+         is_clear_all
+       ) do
     # Validate ready characters exist, are owned by user, and are tracked
     {:ok, valid_ready_characters} =
       validate_ready_characters(map_id, current_user_id, ready_character_eve_ids)
@@ -326,6 +397,11 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
 
     case result do
       :ok ->
+        # If this was a clear all operation, update the rate limit cache
+        if is_clear_all do
+          set_clear_all_rate_limit(map_id)
+        end
+
         # Broadcast ready status changes to other users in the map
         broadcast_ready_status_change(map_id, current_user_id, valid_ready_characters)
 
@@ -343,26 +419,50 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
     end
   end
 
-  def handle_ui_event(
-        "startTracking",
-        %{"character_eve_id" => character_eve_id},
-        %{
-          assigns: %{
-            map_id: map_id,
-            current_user: %{id: current_user_id}
-          }
-        } = socket
-      )
-      when not is_nil(character_eve_id) do
-    {:ok, character} = WandererApp.Character.get_by_eve_id("#{character_eve_id}")
+  defp check_clear_all_rate_limit(map_id) do
+    cache_key = "map:#{map_id}:clear_all_ready_last_used"
 
-    WandererApp.Cache.delete("character:#{character.id}:tracking_paused")
+    case WandererApp.Cache.get(cache_key) do
+      nil ->
+        # No previous clear all operation recorded
+        {:ok, 0}
 
-    {:noreply, socket}
+      last_clear_time when is_integer(last_clear_time) ->
+        current_time = System.system_time(:millisecond)
+        time_since_last_clear = current_time - last_clear_time
+        remaining_cooldown = max(0, @clear_all_cooldown - time_since_last_clear)
+        {:ok, remaining_cooldown}
+
+      _ ->
+        # Invalid cache value, treat as no rate limit
+        {:ok, 0}
+    end
+  rescue
+    error ->
+      Logger.error("Error checking clear all rate limit: #{inspect(error)}")
+      {:error, :cache_error}
   end
 
-  def handle_ui_event(event, body, socket),
-    do: MapCoreEventHandler.handle_ui_event(event, body, socket)
+  defp set_clear_all_rate_limit(map_id) do
+    cache_key = "map:#{map_id}:clear_all_ready_last_used"
+    current_time = System.system_time(:millisecond)
+
+    # Set with TTL slightly longer than the cooldown to ensure cleanup
+    ttl_seconds = div(@clear_all_cooldown, 1000) + 60
+
+    case WandererApp.Cache.put(cache_key, current_time, ttl: ttl_seconds) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to set clear all rate limit: #{inspect(reason)}")
+        {:error, reason}
+    end
+  rescue
+    error ->
+      Logger.error("Error setting clear all rate limit: #{inspect(error)}")
+      {:error, :cache_error}
+  end
 
   def map_ui_character(character),
     do:
