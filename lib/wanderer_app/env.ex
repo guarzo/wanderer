@@ -74,5 +74,4 @@ defmodule WandererApp.Env do
   def to_client_env do
     %{detailedKillsDisabled: not wanderer_kills_service_enabled?()}
   end
-
 end

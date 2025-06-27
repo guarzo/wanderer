@@ -1,0 +1,418 @@
+defmodule Mix.Tasks.Test.Optimize do
+  @moduledoc """
+  Analyzes and optimizes test suite execution.
+  
+  ## Usage
+  
+      mix test.optimize
+      mix test.optimize --apply
+      mix test.optimize --report optimization_report.json
+      mix test.optimize --profile
+  
+  ## Options
+  
+    * `--apply` - Apply recommended optimizations
+    * `--report` - Generate detailed report file
+    * `--profile` - Profile current test execution
+    * `--dry-run` - Show what would be changed without applying
+  """
+  
+  use Mix.Task
+  require Logger
+  
+  alias WandererApp.TestOptimization
+  
+  @shortdoc "Optimize test suite execution"
+  
+  def run(args) do
+    {opts, _, _} = OptionParser.parse(args,
+      switches: [
+        apply: :boolean,
+        report: :string,
+        profile: :boolean,
+        dry_run: :boolean
+      ],
+      aliases: [
+        a: :apply,
+        r: :report,
+        p: :profile,
+        d: :dry_run
+      ]
+    )
+    
+    Mix.shell().info("🔍 Analyzing test suite for optimization opportunities...")
+    
+    # Profile current execution if requested
+    if opts[:profile] do
+      profile_current_execution()
+    end
+    
+    # Analyze test suite
+    analysis = TestOptimization.analyze_suite()
+    
+    # Generate optimization config
+    config = TestOptimization.generate_config(analysis)
+    
+    # Display analysis results
+    display_analysis(analysis)
+    display_recommendations(analysis.recommendations)
+    
+    # Apply optimizations if requested
+    if opts[:apply] && !opts[:dry_run] do
+      apply_optimizations(analysis, config)
+    elsif opts[:dry_run] do
+      show_planned_changes(analysis, config)
+    end
+    
+    # Generate report if requested
+    if report_file = opts[:report] do
+      generate_report(analysis, config, report_file)
+    end
+  end
+  
+  defp profile_current_execution do
+    Mix.shell().info("\n📊 Profiling current test execution...")
+    
+    start_time = System.monotonic_time(:millisecond)
+    
+    # Run tests and capture timing
+    {output, exit_code} = System.cmd("mix", ["test", "--trace"],
+      stderr_to_stdout: true,
+      env: [{"MIX_ENV", "test"}]
+    )
+    
+    total_time = System.monotonic_time(:millisecond) - start_time
+    
+    # Parse test timings from trace output
+    test_timings = parse_test_timings(output)
+    
+    Mix.shell().info("Total execution time: #{format_duration(total_time)}")
+    Mix.shell().info("Number of tests: #{length(test_timings)}")
+    
+    if length(test_timings) > 0 do
+      avg_time = Enum.sum(Enum.map(test_timings, & &1.duration)) / length(test_timings)
+      Mix.shell().info("Average test time: #{format_duration(avg_time)}")
+      
+      # Show slowest tests
+      slow_tests = test_timings
+      |> Enum.sort_by(& &1.duration, :desc)
+      |> Enum.take(10)
+      
+      if length(slow_tests) > 0 do
+        Mix.shell().info("\n🐌 Slowest tests:")
+        for test <- slow_tests do
+          Mix.shell().info("  #{format_duration(test.duration)} - #{test.name}")
+        end
+      end
+    end
+    
+    if exit_code != 0 do
+      Mix.shell().error("\n⚠️  Tests failed during profiling")
+    end
+    
+    Mix.shell().info("")
+  end
+  
+  defp parse_test_timings(output) do
+    output
+    |> String.split("\n")
+    |> Enum.filter(&String.contains?(&1, "ms)"))
+    |> Enum.map(fn line ->
+      case Regex.run(~r/(.+?)\s+\((\d+\.\d+)ms\)/, line) do
+        [_, name, duration] ->
+          %{name: String.trim(name), duration: String.to_float(duration)}
+        _ ->
+          nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+  
+  defp display_analysis(analysis) do
+    Mix.shell().info("\n📋 Test Suite Analysis")
+    Mix.shell().info("=" |> String.duplicate(50))
+    Mix.shell().info("Total test files: #{analysis.total_files}")
+    Mix.shell().info("Estimated total time: #{format_duration(analysis.estimated_time)}")
+    
+    # Async analysis
+    async_safe = Enum.count(analysis.async_safe, & &1.async_safe)
+    async_enabled = Enum.count(analysis.async_safe, & &1.async)
+    
+    Mix.shell().info("\nAsync Status:")
+    Mix.shell().info("  Async-safe files: #{async_safe}/#{analysis.total_files}")
+    Mix.shell().info("  Async-enabled files: #{async_enabled}/#{analysis.total_files}")
+    
+    if async_safe > async_enabled do
+      potential = async_safe - async_enabled
+      Mix.shell().info("  🎯 Potential: Enable async for #{potential} more files")
+    end
+    
+    # Resource usage
+    Mix.shell().info("\nResource Usage:")
+    resource_counts = analysis.async_safe
+    |> Enum.flat_map(& &1.shared_resources)
+    |> Enum.frequencies()
+    
+    for {resource, count} <- resource_counts do
+      Mix.shell().info("  #{String.capitalize(resource)}: #{count} files")
+    end
+    
+    # Complexity distribution
+    if analysis.resource_usage do
+      Mix.shell().info("\nComplexity Distribution:")
+      for {complexity, files} <- analysis.resource_usage do
+        Mix.shell().info("  #{String.capitalize(to_string(complexity))}: #{length(files)} files")
+      end
+    end
+  end
+  
+  defp display_recommendations(recommendations) do
+    if length(recommendations) > 0 do
+      Mix.shell().info("\n💡 Optimization Recommendations")
+      Mix.shell().info("=" |> String.duplicate(50))
+      
+      for {i, rec} <- Enum.with_index(recommendations, 1) do
+        impact_icon = case rec.impact do
+          :high -> "🔴"
+          :medium -> "🟡"
+          :low -> "🟢"
+        end
+        
+        Mix.shell().info("\n#{i}. #{impact_icon} #{rec.description}")
+        
+        case rec.type do
+          :enable_async ->
+            if length(rec.files) <= 5 do
+              Mix.shell().info("   Files to update:")
+              for file <- rec.files do
+                Mix.shell().info("     - #{file}")
+              end
+            else
+              Mix.shell().info("   Files to update: #{length(rec.files)} files")
+              Mix.shell().info("   Run with --apply to update automatically")
+            end
+            
+          :parallel_execution ->
+            Mix.shell().info("   Suggested workers: #{rec.config.suggested_workers}")
+            Mix.shell().info("   Estimated speedup: #{Float.round(rec.config.estimated_speedup, 2)}x")
+            
+          :group_tests ->
+            Mix.shell().info("   Found #{map_size(rec.groups)} resource groups")
+            for {resources, files} <- Enum.take(rec.groups, 3) do
+              Mix.shell().info("     #{Enum.join(resources, ", ")}: #{length(files)} files")
+            end
+            
+          _ ->
+            # Handle other recommendation types
+            :ok
+        end
+      end
+    else
+      Mix.shell().info("\n✅ No optimization recommendations - test suite is well optimized!")
+    end
+  end
+  
+  defp apply_optimizations(analysis, config) do
+    Mix.shell().info("\n🔧 Applying optimizations...")
+    
+    applied = []
+    
+    # Enable async for safe files
+    async_rec = Enum.find(analysis.recommendations, &(&1.type == :enable_async))
+    if async_rec do
+      count = enable_async_for_files(async_rec.files)
+      applied = [{:async_enabled, count} | applied]
+      Mix.shell().info("✅ Enabled async for #{count} test files")
+    end
+    
+    # Create optimized test helper
+    if create_optimized_test_helper(config) do
+      applied = [{:test_helper_optimized, true} | applied]
+      Mix.shell().info("✅ Created optimized test helper configuration")
+    end
+    
+    # Update test configuration
+    if update_test_config(config) do
+      applied = [{:config_updated, true} | applied]
+      Mix.shell().info("✅ Updated test configuration for optimal execution")
+    end
+    
+    if length(applied) > 0 do
+      Mix.shell().info("\n🎉 Successfully applied #{length(applied)} optimizations!")
+      Mix.shell().info("Run 'mix test' to see the improvements")
+    else
+      Mix.shell().info("\n📌 No optimizations were applied")
+    end
+  end
+  
+  defp enable_async_for_files(files) do
+    Enum.reduce(files, 0, fn file, count ->
+      content = File.read!(file)
+      
+      # Update async: false to async: true
+      new_content = String.replace(content, "async: false", "async: true")
+      
+      # Add async: true if not present
+      if !String.contains?(content, "async:") do
+        new_content = String.replace(new_content, 
+          ~r/use\s+[\w\.]+Case/,
+          "\\0, async: true"
+        )
+      end
+      
+      if new_content != content do
+        File.write!(file, new_content)
+        count + 1
+      else
+        count
+      end
+    end)
+  end
+  
+  defp create_optimized_test_helper(config) do
+    helper_content = """
+    # Optimized Test Helper Configuration
+    # Generated by mix test.optimize
+    
+    defmodule WandererApp.OptimizedTestHelper do
+      @moduledoc \"\"\"
+      Optimized test execution configuration.
+      \"\"\"
+      
+      def setup_optimized_execution do
+        # Configure ExUnit for optimal performance
+        ExUnit.configure(
+          max_cases: #{config.parallel_config.max_workers},
+          timeout: 60_000,
+          capture_log: false,
+          stacktrace_depth: 10
+        )
+        
+        # Set up resource pools
+        #{generate_pool_setup(config.parallel_config.resource_pools)}
+        
+        # Configure test ordering
+        #{generate_ordering_setup(config.execution_order)}
+      end
+      
+      #{generate_helper_functions(config)}
+    end
+    """
+    
+    File.write!("test/support/optimized_test_helper.ex", helper_content)
+    true
+  rescue
+    _ -> false
+  end
+  
+  defp generate_pool_setup(pools) do
+    pools
+    |> Enum.map(fn {name, pool_config} ->
+      """
+      # #{String.capitalize(to_string(name))} pool
+      # Size: #{pool_config.size}, Overflow: #{pool_config.overflow}
+      """
+    end)
+    |> Enum.join("\n")
+  end
+  
+  defp generate_ordering_setup(order) do
+    if is_list(order) && length(order) > 0 do
+      "# Optimized test execution order configured"
+    else
+      "# Default test execution order"
+    end
+  end
+  
+  defp generate_helper_functions(config) do
+    """
+    def async_threshold, do: #{config.parallel_config.async_threshold}
+    
+    def timeout_for(test_type) do
+      case test_type do
+        :integration -> #{config.timeouts.integration}
+        :slow -> #{config.timeouts.slow}
+        _ -> #{config.timeouts.default}
+      end
+    end
+    """
+  end
+  
+  defp update_test_config(config) do
+    config_file = "config/test.exs"
+    
+    if File.exists?(config_file) do
+      content = File.read!(config_file)
+      
+      # Add optimization config if not present
+      if !String.contains?(content, "# Test optimization config") do
+        optimization_config = """
+        
+        # Test optimization config
+        config :ex_unit,
+          max_cases: #{config.parallel_config.max_workers}
+        
+        # Database pool size for tests
+        config :wanderer_app, WandererApp.Repo,
+          pool_size: #{config.parallel_config.max_workers * 2}
+        """
+        
+        File.write!(config_file, content <> optimization_config)
+        true
+      else
+        false
+      end
+    else
+      false
+    end
+  end
+  
+  defp show_planned_changes(analysis, config) do
+    Mix.shell().info("\n📝 Planned Changes (dry run)")
+    Mix.shell().info("=" |> String.duplicate(50))
+    
+    async_rec = Enum.find(analysis.recommendations, &(&1.type == :enable_async))
+    if async_rec && length(async_rec.files) > 0 do
+      Mix.shell().info("\nWould enable async for #{length(async_rec.files)} files:")
+      for file <- Enum.take(async_rec.files, 5) do
+        Mix.shell().info("  - #{file}")
+      end
+      if length(async_rec.files) > 5 do
+        Mix.shell().info("  ... and #{length(async_rec.files) - 5} more")
+      end
+    end
+    
+    Mix.shell().info("\nWould create test/support/optimized_test_helper.ex")
+    Mix.shell().info("Would update config/test.exs with optimization settings")
+    
+    Mix.shell().info("\nConfiguration changes:")
+    Mix.shell().info("  Max parallel cases: #{config.parallel_config.max_workers}")
+    Mix.shell().info("  Database pool size: #{config.parallel_config.max_workers * 2}")
+    Mix.shell().info("  Async threshold: #{config.parallel_config.async_threshold}ms")
+  end
+  
+  defp generate_report(analysis, config, report_file) do
+    report = %{
+      timestamp: DateTime.utc_now(),
+      summary: %{
+        total_files: analysis.total_files,
+        estimated_time: analysis.estimated_time,
+        async_safe: Enum.count(analysis.async_safe, & &1.async_safe),
+        async_enabled: Enum.count(analysis.async_safe, & &1.async),
+        recommendations: length(analysis.recommendations)
+      },
+      analysis: analysis,
+      config: config,
+      recommendations: analysis.recommendations
+    }
+    
+    json = Jason.encode!(report, pretty: true)
+    File.write!(report_file, json)
+    
+    Mix.shell().info("\n📄 Report written to: #{report_file}")
+  end
+  
+  defp format_duration(ms) when ms < 1000, do: "#{round(ms)}ms"
+  defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
+  defp format_duration(ms), do: "#{Float.round(ms / 60_000, 1)}m"
+end

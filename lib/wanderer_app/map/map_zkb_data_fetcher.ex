@@ -7,7 +7,6 @@ defmodule WandererApp.Map.ZkbDataFetcher do
 
   require Logger
 
-
   @interval :timer.seconds(15)
   @store_map_kills_timeout :timer.hours(1)
   @killmail_ttl_hours 24
@@ -38,6 +37,7 @@ defmodule WandererApp.Map.ZkbDataFetcher do
 
               # Update detailed kills for maps with active subscriptions
               {:ok, is_subscription_active} = map_id |> WandererApp.Map.is_subscription_active?()
+
               if is_subscription_active do
                 update_detailed_map_kills(map_id)
               end
@@ -88,18 +88,25 @@ defmodule WandererApp.Map.ZkbDataFetcher do
       cache_key_ids = "map:#{map_id}:zkb:ids"
       cache_key_details = "map:#{map_id}:zkb:detailed_kills"
 
-      old_ids_map = case WandererApp.Cache.get(cache_key_ids) do
-        map when is_map(map) -> map
-        _ -> %{}
-      end
+      old_ids_map =
+        case WandererApp.Cache.get(cache_key_ids) do
+          map when is_map(map) -> map
+          _ -> %{}
+        end
 
-      old_details_map = case WandererApp.Cache.get(cache_key_details) do
-        map when is_map(map) -> map
-        _ ->
-          # Initialize with empty map and store it
-          WandererApp.Cache.insert(cache_key_details, %{}, ttl: :timer.hours(@killmail_ttl_hours))
-          %{}
-      end
+      old_details_map =
+        case WandererApp.Cache.get(cache_key_details) do
+          map when is_map(map) ->
+            map
+
+          _ ->
+            # Initialize with empty map and store it
+            WandererApp.Cache.insert(cache_key_details, %{},
+              ttl: :timer.hours(@killmail_ttl_hours)
+            )
+
+            %{}
+        end
 
       # Build current killmail ID map from cache
       new_ids_map =
@@ -127,10 +134,13 @@ defmodule WandererApp.Map.ZkbDataFetcher do
         # Only initialize if cache doesn't exist
         if old_details_map == %{} do
           # First time initialization - create empty structure
-          empty_map = systems
-                      |> Enum.into(%{}, fn {system_id, _} -> {system_id, []} end)
+          empty_map =
+            systems
+            |> Enum.into(%{}, fn {system_id, _} -> {system_id, []} end)
 
-          WandererApp.Cache.insert(cache_key_details, empty_map, ttl: :timer.hours(@killmail_ttl_hours))
+          WandererApp.Cache.insert(cache_key_details, empty_map,
+            ttl: :timer.hours(@killmail_ttl_hours)
+          )
         end
 
         :ok
