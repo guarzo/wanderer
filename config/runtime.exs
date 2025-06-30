@@ -75,6 +75,10 @@ map_subscriptions_enabled =
 websocket_events_enabled =
   config_dir
   |> get_var_from_path_or_env("WANDERER_WEBSOCKET_EVENTS_ENABLED", "false")
+  
+fleet_readiness_enabled =
+  config_dir
+  |> get_var_from_path_or_env("WANDERER_FLEET_READINESS_ENABLED", "false")
   |> String.to_existing_atom()
 
 map_subscription_characters_limit =
@@ -154,6 +158,7 @@ config :wanderer_app,
   map_connection_eol_expire_timeout_mins: map_connection_eol_expire_timeout_mins,
   wallet_tracking_enabled: wallet_tracking_enabled,
   restrict_maps_creation: restrict_maps_creation,
+  fleet_readiness_enabled: fleet_readiness_enabled,
   subscription_settings: %{
     plans: [
       %{
@@ -396,3 +401,11 @@ end
 config :wanderer_app, :license_manager,
   api_url: System.get_env("LM_API_URL", "http://localhost:4000"),
   auth_key: System.get_env("LM_AUTH_KEY")
+
+# SSE Configuration
+config :wanderer_app, :sse,
+  max_connections_per_map: String.to_integer(System.get_env("SSE_MAX_CONNECTIONS_PER_MAP", "50")),
+  max_connections_per_api_key:
+    String.to_integer(System.get_env("SSE_MAX_CONNECTIONS_PER_API_KEY", "10")),
+  keepalive_interval: String.to_integer(System.get_env("SSE_KEEPALIVE_INTERVAL", "30000")),
+  connection_timeout: String.to_integer(System.get_env("SSE_CONNECTION_TIMEOUT", "300000"))
