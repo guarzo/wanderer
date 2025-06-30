@@ -97,6 +97,7 @@ defmodule WandererApp.MixProject do
       {:nebulex, "~> 2.6"},
       {:decorator, "~> 1.4"},
       {:slugify, "~> 1.3"},
+      {:ulid, "~> 0.2.0"},
       {:debounce_and_throttle, "~> 0.9.0"},
       {:ex2ms, "~> 1.0"},
       {:merkle_map, "~> 0.2.1"},
