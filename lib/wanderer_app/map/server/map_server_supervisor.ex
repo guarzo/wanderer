@@ -3,11 +3,13 @@ defmodule WandererApp.Map.ServerSupervisor do
   use Supervisor, restart: :transient
 
   alias WandererApp.Map.Server
+  alias WandererApp.ExternalEvents.SseStreamManager
 
   def start_link(args), do: Supervisor.start_link(__MODULE__, args)
 
   @impl true
   def init(args) do
+    # Check if external events are enabled
     children = [
       {Server, args},
       {DDRT.DynamicRtree,
@@ -16,6 +18,14 @@ defmodule WandererApp.Map.ServerSupervisor do
          name: Module.concat([args[:map_id], DDRT.DynamicRtree])
        ]}
     ]
+
+    # Add SSE stream manager if external events are enabled
+    children =
+      if Application.get_env(:wanderer_app, :websocket_events_enabled, false) do
+        children ++ [{SseStreamManager, args[:map_id]}]
+      else
+        children
+      end
 
     Supervisor.init(children, strategy: :one_for_one, auto_shutdown: :any_significant)
   end
