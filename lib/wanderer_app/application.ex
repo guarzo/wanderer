@@ -104,4 +104,16 @@ defmodule WandererApp.Application do
       []
     end
   end
+
+  defp maybe_start_websocket_services(true) do
+    Logger.info("Starting WebSocket/Webhook services...")
+
+    [
+      WandererApp.ExternalEvents.MapEventRelay,
+      WandererApp.ExternalEvents.WebhookDispatcher,
+      WandererApp.ExternalEvents.SseConnectionTracker
+    ]
+  end
+
+  defp maybe_start_websocket_services(_), do: []
 end
