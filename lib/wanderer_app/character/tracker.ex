@@ -197,7 +197,20 @@ defmodule WandererApp.Character.Tracker do
                 WandererApp.Cache.delete("character:#{character_id}:ship_forbidden")
                 WandererApp.Cache.delete("character:#{character_id}:location_forbidden")
                 WandererApp.Cache.delete("character:#{character_id}:wallet_forbidden")
+                # Get previous online status before update
+                {:ok, %{online: previous_online}} =
+                  WandererApp.Character.get_character(character_id)
+
                 WandererApp.Character.update_character(character_id, online)
+
+                # Broadcast online status change if it changed
+                if previous_online != online.online do
+                  WandererApp.Character.EventBroadcaster.broadcast_online_status_change(
+                    character_id,
+                    previous_online,
+                    online.online
+                  )
+                end
 
                 # Clear ready status if character went offline
                 if not online.online do
@@ -758,6 +771,17 @@ defmodule WandererApp.Character.Tracker do
     ship_updated = old_ship_type_id != ship_type_id || old_ship_name != ship_name
 
     if ship_updated do
+      # Prepare previous and current ship data for event
+      previous_ship = %{
+        ship_type_id: old_ship_type_id,
+        ship_name: old_ship_name
+      }
+
+      current_ship = %{
+        ship_type_id: ship_type_id,
+        ship_name: ship_name
+      }
+
       character_update = %{
         ship: ship_type_id,
         ship_name: ship_name
@@ -767,6 +791,13 @@ defmodule WandererApp.Character.Tracker do
         WandererApp.Api.Character.update_ship(character, character_update)
 
       WandererApp.Character.update_character(character_id, character_update)
+
+      # Broadcast ship change event
+      WandererApp.Character.EventBroadcaster.broadcast_ship_change(
+        character_id,
+        previous_ship,
+        current_ship
+      )
     end
 
     state
@@ -795,8 +826,22 @@ defmodule WandererApp.Character.Tracker do
     is_location_updated?(location, solar_system_id, structure_id, station_id)
     |> case do
       true ->
+        # Prepare previous location data for event
+        previous_location = %{
+          solar_system_id: solar_system_id,
+          structure_id: structure_id,
+          station_id: station_id
+        }
+
         {:ok, _character} = WandererApp.Api.Character.update_location(character, location)
         WandererApp.Character.update_character(character_id, location)
+
+        # Broadcast location change event
+        WandererApp.Character.EventBroadcaster.broadcast_location_change(
+          character_id,
+          previous_location,
+          location
+        )
 
         :ok
 
