@@ -2,6 +2,7 @@ defmodule WandererAppWeb.AccessListsLive do
   alias Pathex.Builder.Viewer
   use WandererAppWeb, :live_view
 
+  alias WandererApp.Api.MapAccessList
   require Logger
 
   @impl true
@@ -549,6 +550,9 @@ defmodule WandererAppWeb.AccessListsLive do
            eve_corporation_id: nil
          }) do
       {:ok, member} ->
+        # Broadcast ACL member added event
+        broadcast_acl_member_event(access_list_id, member, :acl_member_added)
+        
         {:ok, _} =
           WandererApp.User.ActivityTracker.track_acl_event(:map_acl_member_added, %{
             user_id: socket.assigns.current_user.id,
@@ -580,6 +584,9 @@ defmodule WandererAppWeb.AccessListsLive do
            eve_corporation_id: eve_id
          }) do
       {:ok, member} ->
+        # Broadcast ACL member added event
+        broadcast_acl_member_event(access_list_id, member, :acl_member_added)
+        
         {:ok, _} =
           WandererApp.User.ActivityTracker.track_acl_event(:map_acl_member_added, %{
             user_id: socket.assigns.current_user.id,
@@ -612,6 +619,9 @@ defmodule WandererAppWeb.AccessListsLive do
            role: :viewer
          }) do
       {:ok, member} ->
+        # Broadcast ACL member added event
+        broadcast_acl_member_event(access_list_id, member, :acl_member_added)
+        
         {:ok, _} =
           WandererApp.User.ActivityTracker.track_acl_event(:map_acl_member_added, %{
             user_id: socket.assigns.current_user.id,
@@ -700,5 +710,48 @@ defmodule WandererAppWeb.AccessListsLive do
 
   defp map_ui_acl(acl, selected_id) do
     acl |> Map.put(:selected, acl.id == selected_id)
+  end
+
+  defp broadcast_acl_member_event(acl_id, member, event_type) do
+    Logger.info("Broadcasting ACL member event: #{event_type} for member #{member.name} (#{member.id}) in ACL #{acl_id}")
+    
+    # Find all maps that use this ACL
+    case WandererApp.Api.read(WandererApp.Api.MapAccessList |> Ash.Query.for_read(:read_by_acl, %{acl_id: acl_id})) do
+      {:ok, map_acls} ->
+        Logger.info("Found #{length(map_acls)} maps using ACL #{acl_id}: #{inspect(Enum.map(map_acls, & &1.map_id))}")
+        
+        # Get the member type
+        member_type = cond do
+          member.eve_character_id -> "character"
+          member.eve_corporation_id -> "corporation"
+          member.eve_alliance_id -> "alliance"
+        end
+        
+        # Get the EVE ID
+        eve_id = member.eve_character_id || member.eve_corporation_id || member.eve_alliance_id
+        
+        # Build the event payload
+        payload = %{
+          acl_id: acl_id,
+          member_id: member.id,
+          member_name: member.name,
+          member_type: member_type,
+          eve_id: eve_id,
+          role: member.role
+        }
+        
+        Logger.info("Broadcasting #{event_type} event with payload: #{inspect(payload)}")
+        
+        # Broadcast to each map
+        Enum.each(map_acls, fn map_acl ->
+          Logger.info("Broadcasting #{event_type} to map #{map_acl.map_id}")
+          WandererApp.ExternalEvents.broadcast(map_acl.map_id, event_type, payload)
+        end)
+        
+        Logger.info("Successfully broadcast #{event_type} event to #{length(map_acls)} maps")
+        
+      {:error, error} ->
+        Logger.error("Failed to find maps for ACL #{acl_id}: #{inspect(error)}")
+    end
   end
 end
