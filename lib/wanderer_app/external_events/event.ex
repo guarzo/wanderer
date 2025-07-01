@@ -20,7 +20,10 @@ defmodule WandererApp.ExternalEvents.Event do
     :character_added | 
     :character_removed | 
     :character_updated |
-    :map_kill
+    :map_kill |
+    :acl_member_added |
+    :acl_member_removed |
+    :acl_member_updated
     
   @type t :: %__MODULE__{
     id: String.t(),         # ULID for ordering
@@ -154,7 +157,10 @@ defmodule WandererApp.ExternalEvents.Event do
       :character_added,
       :character_removed,
       :character_updated,
-      :map_kill
+      :map_kill,
+      :acl_member_added,
+      :acl_member_removed,
+      :acl_member_updated
     ]
   end
   
