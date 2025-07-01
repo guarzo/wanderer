@@ -1,13 +1,13 @@
 defmodule WandererApp.ExternalEvents.MapEventRelay do
   @moduledoc """
-  GenServer that handles delivery of external events to WebSocket and webhook clients.
+  GenServer that handles delivery of external events to SSE and webhook clients.
   
   This system is completely separate from internal Phoenix PubSub and does NOT
   modify any existing event flows. It only handles external client delivery.
   
   Responsibilities:
   - Store events in ETS ring buffer for backfill
-  - Broadcast to external WebSocket clients (via separate topic)
+  - Broadcast to SSE clients
   - Dispatch to webhook endpoints
   - Provide event history for reconnecting clients
   
@@ -35,6 +35,15 @@ defmodule WandererApp.ExternalEvents.MapEventRelay do
   @spec get_events_since(String.t(), DateTime.t(), pos_integer()) :: [map()]
   def get_events_since(map_id, since_datetime, limit \\ 100) do
     GenServer.call(__MODULE__, {:get_events_since, map_id, since_datetime, limit})
+  end
+
+  @doc """
+  Retrieves events since a given ULID for SSE backfill.
+  """
+  @spec get_events_since_ulid(String.t(), String.t(), pos_integer()) ::
+          {:ok, [map()]} | {:error, term()}
+  def get_events_since_ulid(map_id, since_ulid, limit \\ 1_000) do
+    GenServer.call(__MODULE__, {:get_events_since_ulid, map_id, since_ulid, limit})
   end
   
   @impl true
@@ -68,7 +77,12 @@ defmodule WandererApp.ExternalEvents.MapEventRelay do
   
   @impl true
   def handle_call({:deliver_event, %Event{} = event}, _from, state) do
-    Logger.debug(fn -> "MapEventRelay received :deliver_event (call) for map #{event.map_id}, type: #{event.type}" end)
+    # Log ACL events at info level for debugging
+    if event.type in [:acl_member_added, :acl_member_removed, :acl_member_updated] do
+      Logger.info("MapEventRelay received :deliver_event (call) for map #{event.map_id}, type: #{event.type}")
+    else
+      Logger.debug(fn -> "MapEventRelay received :deliver_event (call) for map #{event.map_id}, type: #{event.type}" end)
+    end
     new_state = deliver_single_event(event, state)
     {:reply, :ok, new_state}
   end
@@ -77,6 +91,38 @@ defmodule WandererApp.ExternalEvents.MapEventRelay do
   def handle_call({:get_events_since, map_id, since_datetime, limit}, _from, state) do
     events = get_events_from_ets(map_id, since_datetime, limit, state.ets_table)
     {:reply, events, state}
+  end
+
+  @impl true
+  def handle_call({:get_events_since_ulid, map_id, since_ulid}, from, state) do
+    handle_call({:get_events_since_ulid, map_id, since_ulid, 1_000}, from, state)
+  end
+
+  @impl true
+  def handle_call({:get_events_since_ulid, map_id, since_ulid, limit}, _from, state) do
+    # Get all events for this map and filter by ULID
+    case validate_ulid(since_ulid) do
+      :ok ->
+        try do
+          # Events are stored as {event_id, map_id, json_data}
+          # Filter by map_id and event_id (ULID) > since_ulid
+          events =
+            :ets.select(state.ets_table, [
+              {{:"$1", :"$2", :"$3"}, 
+               [{:andalso, {:>, :"$1", since_ulid}, {:==, :"$2", map_id}}], 
+               [:"$3"]}
+            ])
+            |> Enum.take(limit)
+
+          {:reply, {:ok, events}, state}
+        rescue
+          error in [ArgumentError] ->
+            {:reply, {:error, {:ets_error, error}}, state}
+        end
+        
+      {:error, :invalid_ulid} ->
+        {:reply, {:error, :invalid_ulid}, state}
+    end
   end
   
   @impl true
@@ -93,7 +139,7 @@ defmodule WandererApp.ExternalEvents.MapEventRelay do
   end
   
   defp deliver_single_event(%Event{} = event, state) do
-    Logger.debug(fn -> "MapEventRelay.deliver_single_event processing event for map #{event.map_id}" end)
+    Logger.info("MapEventRelay.deliver_single_event processing event for map #{event.map_id}, type: #{event.type}")
     
     # Emit telemetry
     :telemetry.execute(
@@ -105,32 +151,16 @@ defmodule WandererApp.ExternalEvents.MapEventRelay do
     # 1. Store in ETS for backfill
     store_event(event, state.ets_table)
     
-    # 2. Broadcast to external WebSocket clients
-    # Use separate topic to avoid conflicts with internal PubSub
+    # 2. Convert event to JSON for delivery methods
     event_json = Event.to_json(event)
-    topic = "external_events:map:#{event.map_id}"
-    Logger.debug(fn -> "Broadcasting to PubSub topic: #{topic}" end)
-    
-    case Phoenix.PubSub.broadcast(
-      WandererApp.PubSub,
-      topic,
-      {:external_event, event_json}
-    ) do
-      :ok -> 
-        Logger.debug(fn -> "Successfully broadcast event to topic: #{topic}" end)
-      
-      {:error, reason} ->
-        Logger.error("Failed to broadcast event to topic #{topic}: #{inspect(reason)}")
-        # Emit error telemetry
-        :telemetry.execute(
-          [:wanderer_app, :external_events, :relay, :broadcast_error],
-          %{count: 1},
-          %{map_id: event.map_id, event_type: event.type, reason: reason}
-        )
-    end
+    Logger.info("MapEventRelay converted event to JSON: #{inspect(String.slice(inspect(event_json), 0, 200))}...")
     
     # 3. Send to webhook subscriptions via WebhookDispatcher
     WebhookDispatcher.dispatch_event(event.map_id, event)
+    
+    # 4. Broadcast to SSE clients
+    Logger.info("MapEventRelay broadcasting to SSE clients for map #{event.map_id}")
+    WandererApp.ExternalEvents.SseStreamManager.broadcast_event(event.map_id, event_json)
     
     # Emit delivered telemetry
     :telemetry.execute(
@@ -172,6 +202,21 @@ defmodule WandererApp.ExternalEvents.MapEventRelay do
     end
   end
   
+  defp validate_ulid(ulid) when is_binary(ulid) do
+    # ULID format validation: 26 characters, [0-9A-Z] excluding I, L, O, U
+    case byte_size(ulid) do
+      26 ->
+        if ulid =~ ~r/^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/ do
+          :ok
+        else
+          {:error, :invalid_ulid}
+        end
+      _ ->
+        {:error, :invalid_ulid}
+    end
+  end
+  defp validate_ulid(_), do: {:error, :invalid_ulid}
+
   defp cleanup_old_events(ets_table) do
     cutoff_time = DateTime.add(DateTime.utc_now(), -@event_retention_minutes, :minute)
     cutoff_ulid = datetime_to_ulid(cutoff_time)
