@@ -1,12 +1,12 @@
 defmodule WandererApp.ExternalEvents do
   @moduledoc """
-  External event system for webhook and WebSocket delivery.
-
-  This system is completely separate from the internal Phoenix PubSub
+  External event system for SSE and webhook delivery.
+  
+  This system is completely separate from the internal Phoenix PubSub 
   event system and does NOT modify any existing event flows.
 
   External events are delivered to:
-  - WebSocket clients via MapEventsChannel
+  - SSE clients via Server-Sent Events
   - HTTP webhooks via WebhookDispatcher
 
   ## Usage
@@ -29,7 +29,7 @@ defmodule WandererApp.ExternalEvents do
 
   This does NOT affect internal PubSub or LiveView handlers.
   It only delivers events to:
-  - WebSocket clients connected to MapEventsChannel
+  - SSE clients via Server-Sent Events
   - Configured webhook endpoints
 
   ## Parameters
@@ -54,7 +54,12 @@ defmodule WandererApp.ExternalEvents do
   """
   @spec broadcast(String.t(), Event.event_type(), map()) :: :ok
   def broadcast(map_id, event_type, payload) when is_binary(map_id) and is_map(payload) do
-    Logger.debug(fn -> "ExternalEvents.broadcast called - map: #{map_id}, type: #{event_type}" end)
+    # Log ACL events at info level for debugging
+    if event_type in [:acl_member_added, :acl_member_removed, :acl_member_updated] do
+      Logger.info("ExternalEvents.broadcast called - map: #{map_id}, type: #{event_type}")
+    else
+      Logger.debug(fn -> "ExternalEvents.broadcast called - map: #{map_id}, type: #{event_type}" end)
+    end
 
     # Validate event type
     if Event.valid_event_type?(event_type) do
