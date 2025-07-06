@@ -111,6 +111,9 @@ defmodule WandererApp.Character.TrackerPool do
   @impl true
   def handle_continue(:start, state) do
     Logger.info("#{@name} started")
+    
+    # Start message queue monitoring
+    Process.send_after(self(), :monitor_message_queue, :timer.seconds(30))
 
     Phoenix.PubSub.subscribe(
       WandererApp.PubSub,
@@ -130,6 +133,16 @@ defmodule WandererApp.Character.TrackerPool do
       Process.send_after(self(), :update_wallet, 1000)
     end
 
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_info(:monitor_message_queue, state) do
+    monitor_message_queue(state)
+    
+    # Schedule next monitoring check
+    Process.send_after(self(), :monitor_message_queue, :timer.seconds(30))
+    
     {:noreply, state}
   end
 
@@ -536,6 +549,34 @@ defmodule WandererApp.Character.TrackerPool do
     Process.send_after(self(), :update_wallet, @update_wallet_interval)
 
     {:noreply, state}
+  end
+
+  defp monitor_message_queue(state) do
+    try do
+      {_, message_queue_len} = Process.info(self(), :message_queue_len)
+      {_, memory} = Process.info(self(), :memory)
+      
+      if message_queue_len > 50 do  # Alert on high message queue
+        Logger.warning("GENSERVER_QUEUE_HIGH: Character tracker pool message queue buildup",
+          pool_id: state.id,
+          message_queue_length: message_queue_len,
+          memory_bytes: memory,
+          tracked_characters: length(state.tracked_ids)
+        )
+        
+        # Emit telemetry
+        :telemetry.execute([:wanderer_app, :character, :tracker_pool, :queue_buildup], %{
+          message_queue_length: message_queue_len,
+          memory_bytes: memory
+        }, %{
+          pool_id: state.id,
+          tracked_characters: length(state.tracked_ids)
+        })
+      end
+    rescue
+      error ->
+        Logger.debug("Failed to monitor message queue: #{inspect(error)}")
+    end
   end
 
   defp via_tuple(uuid) do

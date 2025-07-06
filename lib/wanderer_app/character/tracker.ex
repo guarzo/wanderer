@@ -112,6 +112,16 @@ defmodule WandererApp.Character.Tracker do
   defp pause_tracking(character_id) do
     if WandererApp.Character.can_pause_tracking?(character_id) &&
          not WandererApp.Cache.has_key?("character:#{character_id}:tracking_paused") do
+      
+      # Log character tracking statistics before pausing
+      {:ok, character_state} = WandererApp.Character.get_character_state(character_id)
+      
+      Logger.warning("CHARACTER_TRACKING_PAUSED: Character tracking paused due to sustained errors",
+        character_id: character_id,
+        active_maps: length(character_state.active_maps),
+        is_online: character_state.is_online,
+        tracking_duration_minutes: get_tracking_duration_minutes(character_id)
+      )
       WandererApp.Cache.delete("character:#{character_id}:online_forbidden")
       WandererApp.Cache.delete("character:#{character_id}:online_error_time")
       WandererApp.Cache.delete("character:#{character_id}:ship_error_time")
@@ -122,6 +132,7 @@ defmodule WandererApp.Character.Tracker do
         is_online: false
       })
 
+      # Original log kept for backward compatibility
       Logger.warning("[CharacterTracker] paused for #{character_id}")
 
       WandererApp.Cache.put(
@@ -175,11 +186,16 @@ defmodule WandererApp.Character.Tracker do
             {:error, :skipped}
 
           _ ->
+            # Monitor cache for potential evictions before ESI call
+            log_cache_stats("character_online_check", character_id, "online_forbidden")
             case WandererApp.Esi.get_character_online(eve_id,
                    access_token: access_token,
                    character_id: character_id
                  ) do
               {:ok, online} ->
+                # Monitor database pool before character updates
+                log_db_pool_stats("character_online_update", character_id)
+                
                 online = get_online(online)
 
                 if online.online == true do
@@ -197,7 +213,18 @@ defmodule WandererApp.Character.Tracker do
                 WandererApp.Cache.delete("character:#{character_id}:ship_forbidden")
                 WandererApp.Cache.delete("character:#{character_id}:location_forbidden")
                 WandererApp.Cache.delete("character:#{character_id}:wallet_forbidden")
-                WandererApp.Character.update_character(character_id, online)
+                try do
+                  WandererApp.Character.update_character(character_id, online)
+                rescue
+                  error ->
+                    Logger.error("DB_ERROR: Failed to update character in database",
+                      character_id: character_id,
+                      error: inspect(error),
+                      operation: "update_character_online"
+                    )
+                    # Re-raise to maintain existing error handling
+                    reraise error, __STACKTRACE__
+                end
 
                 update = %{
                   character_state
@@ -206,12 +233,36 @@ defmodule WandererApp.Character.Tracker do
                     track_location: online.online
                 }
 
-                WandererApp.Character.update_character_state(character_id, update)
+                try do
+                  WandererApp.Character.update_character_state(character_id, update)
+                rescue
+                  error ->
+                    Logger.error("DB_ERROR: Failed to update character state in database",
+                      character_id: character_id,
+                      error: inspect(error),
+                      operation: "update_character_state"
+                    )
+                    # Re-raise to maintain existing error handling
+                    reraise error, __STACKTRACE__
+                end
 
                 :ok
 
               {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-                Logger.warning("#{__MODULE__} failed to update_online: #{inspect(error)}")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_online",
+                  error_type: error,
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.warning("ESI_ERROR: Character online tracking failed",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: error,
+                  endpoint: "character_online"
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:online_forbidden",
@@ -232,8 +283,26 @@ defmodule WandererApp.Character.Tracker do
 
               {:error, :error_limited, headers} ->
                 reset_timeout = get_reset_timeout(headers)
+                reset_seconds = Map.get(headers, "x-esi-error-limit-reset", ["unknown"]) |> List.first()
+                remaining = Map.get(headers, "x-esi-error-limit-remain", ["unknown"]) |> List.first()
 
-                Logger.warning("#{inspect(tracking_pool)} ..")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :rate_limited], %{
+                  reset_duration: reset_timeout,
+                  count: 1
+                }, %{
+                  endpoint: "character_online",
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.warning("ESI_RATE_LIMITED: Character online tracking rate limited",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  endpoint: "character_online",
+                  reset_seconds: reset_seconds,
+                  remaining_requests: remaining
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:online_forbidden",
@@ -244,7 +313,20 @@ defmodule WandererApp.Character.Tracker do
                 {:error, :skipped}
 
               {:error, error} ->
-                Logger.error("#{__MODULE__} failed to update_online: #{inspect(error)}")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_online",
+                  error_type: error,
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.error("ESI_ERROR: Character online tracking failed",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: error,
+                  endpoint: "character_online"
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:online_forbidden",
@@ -307,7 +389,20 @@ defmodule WandererApp.Character.Tracker do
             :ok
 
           {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-            Logger.warning("#{__MODULE__} failed to get_character_info: #{inspect(error)}")
+            # Emit telemetry for tracking
+            :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+              endpoint: "character_info",
+              error_type: error,
+              tracking_pool: tracking_pool,
+              character_id: character_id
+            })
+
+            Logger.warning("ESI_ERROR: Character info tracking failed",
+              character_id: character_id,
+              tracking_pool: tracking_pool,
+              error_type: error,
+              endpoint: "character_info"
+            )
 
             WandererApp.Cache.put(
               "character:#{character_id}:info_forbidden",
@@ -319,8 +414,26 @@ defmodule WandererApp.Character.Tracker do
 
           {:error, :error_limited, headers} ->
             reset_timeout = get_reset_timeout(headers)
+            reset_seconds = Map.get(headers, "x-esi-error-limit-reset", ["unknown"]) |> List.first()
+            remaining = Map.get(headers, "x-esi-error-limit-remain", ["unknown"]) |> List.first()
 
-            Logger.warning("#{inspect(tracking_pool)} ..")
+            # Emit telemetry for tracking
+            :telemetry.execute([:wanderer_app, :esi, :rate_limited], %{
+              reset_duration: reset_timeout,
+              count: 1
+            }, %{
+              endpoint: "character_info",
+              tracking_pool: tracking_pool,
+              character_id: character_id
+            })
+
+            Logger.warning("ESI_RATE_LIMITED: Character info tracking rate limited",
+              character_id: character_id,
+              tracking_pool: tracking_pool,
+              endpoint: "character_info",
+              reset_seconds: reset_seconds,
+              remaining_requests: remaining
+            )
 
             WandererApp.Cache.put(
               "character:#{character_id}:info_forbidden",
@@ -331,13 +444,26 @@ defmodule WandererApp.Character.Tracker do
             {:error, :error_limited}
 
           {:error, error} ->
+            # Emit telemetry for tracking
+            :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+              endpoint: "character_info",
+              error_type: error,
+              tracking_pool: tracking_pool,
+              character_id: character_id
+            })
+
             WandererApp.Cache.put(
               "character:#{character_id}:info_forbidden",
               true,
               ttl: @forbidden_ttl
             )
 
-            Logger.error("#{__MODULE__} failed to get_character_info: #{inspect(error)}")
+            Logger.error("ESI_ERROR: Character info tracking failed",
+              character_id: character_id,
+              tracking_pool: tracking_pool,
+              error_type: error,
+              endpoint: "character_info"
+            )
             {:error, error}
 
           _ ->
@@ -378,7 +504,20 @@ defmodule WandererApp.Character.Tracker do
                 :ok
 
               {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-                Logger.warning("#{__MODULE__} failed to update_ship: #{inspect(error)}")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_ship",
+                  error_type: error,
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.warning("ESI_ERROR: Character ship tracking failed",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: error,
+                  endpoint: "character_ship"
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:ship_forbidden",
@@ -397,8 +536,26 @@ defmodule WandererApp.Character.Tracker do
 
               {:error, :error_limited, headers} ->
                 reset_timeout = get_reset_timeout(headers)
+                reset_seconds = Map.get(headers, "x-esi-error-limit-reset", ["unknown"]) |> List.first()
+                remaining = Map.get(headers, "x-esi-error-limit-remain", ["unknown"]) |> List.first()
 
-                Logger.warning("#{inspect(tracking_pool)} ..")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :rate_limited], %{
+                  reset_duration: reset_timeout,
+                  count: 1
+                }, %{
+                  endpoint: "character_ship",
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.warning("ESI_RATE_LIMITED: Character ship tracking rate limited",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  endpoint: "character_ship",
+                  reset_seconds: reset_seconds,
+                  remaining_requests: remaining
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:ship_forbidden",
@@ -409,7 +566,20 @@ defmodule WandererApp.Character.Tracker do
                 {:error, :error_limited}
 
               {:error, error} ->
-                Logger.error("#{__MODULE__} failed to update_ship: #{inspect(error)}")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_ship",
+                  error_type: error,
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.error("ESI_ERROR: Character ship tracking failed",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: error,
+                  endpoint: "character_ship"
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:ship_forbidden",
@@ -427,7 +597,20 @@ defmodule WandererApp.Character.Tracker do
                 {:error, error}
 
               _ ->
-                Logger.error("#{__MODULE__} failed to update_ship: wrong response")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_ship",
+                  error_type: "wrong_response",
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.error("ESI_ERROR: Character ship tracking failed - wrong response",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: "wrong_response",
+                  endpoint: "character_ship"
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:ship_forbidden",
@@ -471,6 +654,8 @@ defmodule WandererApp.Character.Tracker do
             {:error, :skipped}
 
           _ ->
+            # Monitor cache for potential evictions before ESI call
+            log_cache_stats("character_location_check", character_id, "location_forbidden")
             case WandererApp.Esi.get_character_location(eve_id,
                    access_token: access_token,
                    character_id: character_id
@@ -482,7 +667,20 @@ defmodule WandererApp.Character.Tracker do
                 :ok
 
               {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-                Logger.warning("#{__MODULE__} failed to update_location: #{inspect(error)}")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_location",
+                  error_type: error,
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.warning("ESI_ERROR: Character location tracking failed",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: error,
+                  endpoint: "character_location"
+                )
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:location_error_time")
@@ -496,9 +694,27 @@ defmodule WandererApp.Character.Tracker do
                 {:error, :skipped}
 
               {:error, :error_limited, headers} ->
-                Logger.warning("#{inspect(tracking_pool)} ..")
-
                 reset_timeout = get_reset_timeout(headers, @location_limit_ttl)
+                reset_seconds = Map.get(headers, "x-esi-error-limit-reset", ["unknown"]) |> List.first()
+                remaining = Map.get(headers, "x-esi-error-limit-remain", ["unknown"]) |> List.first()
+
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :rate_limited], %{
+                  reset_duration: reset_timeout,
+                  count: 1
+                }, %{
+                  endpoint: "character_location",
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.warning("ESI_RATE_LIMITED: Character location tracking rate limited",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  endpoint: "character_location",
+                  reset_seconds: reset_seconds,
+                  remaining_requests: remaining
+                )
 
                 WandererApp.Cache.put(
                   "character:#{character_id}:location_forbidden",
@@ -509,7 +725,20 @@ defmodule WandererApp.Character.Tracker do
                 {:error, :error_limited}
 
               {:error, error} ->
-                Logger.error("#{__MODULE__} failed to update_location: #{inspect(error)}")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_location",
+                  error_type: error,
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.error("ESI_ERROR: Character location tracking failed",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: error,
+                  endpoint: "character_location"
+                )
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:location_error_time")
@@ -523,7 +752,20 @@ defmodule WandererApp.Character.Tracker do
                 {:error, :skipped}
 
               _ ->
-                Logger.error("#{__MODULE__} failed to update_location: wrong response")
+                # Emit telemetry for tracking
+                :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                  endpoint: "character_location",
+                  error_type: "wrong_response",
+                  tracking_pool: tracking_pool,
+                  character_id: character_id
+                })
+
+                Logger.error("ESI_ERROR: Character location tracking failed - wrong response",
+                  character_id: character_id,
+                  tracking_pool: tracking_pool,
+                  error_type: "wrong_response",
+                  endpoint: "character_location"
+                )
 
                 if is_nil(
                      WandererApp.Cache.lookup!("character:#{character_id}:location_error_time")
@@ -579,7 +821,20 @@ defmodule WandererApp.Character.Tracker do
                     :ok
 
                   {:error, error} when error in [:forbidden, :not_found, :timeout] ->
-                    Logger.warning("#{__MODULE__} failed to update_wallet: #{inspect(error)}")
+                    # Emit telemetry for tracking
+                    :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                      endpoint: "character_wallet",
+                      error_type: error,
+                      tracking_pool: tracking_pool,
+                      character_id: character_id
+                    })
+
+                    Logger.warning("ESI_ERROR: Character wallet tracking failed",
+                      character_id: character_id,
+                      tracking_pool: tracking_pool,
+                      error_type: error,
+                      endpoint: "character_wallet"
+                    )
 
                     WandererApp.Cache.put(
                       "character:#{character_id}:wallet_forbidden",
@@ -591,8 +846,26 @@ defmodule WandererApp.Character.Tracker do
 
                   {:error, :error_limited, headers} ->
                     reset_timeout = get_reset_timeout(headers)
+                    reset_seconds = Map.get(headers, "x-esi-error-limit-reset", ["unknown"]) |> List.first()
+                    remaining = Map.get(headers, "x-esi-error-limit-remain", ["unknown"]) |> List.first()
 
-                    Logger.warning("#{inspect(tracking_pool)} ..")
+                    # Emit telemetry for tracking
+                    :telemetry.execute([:wanderer_app, :esi, :rate_limited], %{
+                      reset_duration: reset_timeout,
+                      count: 1
+                    }, %{
+                      endpoint: "character_wallet",
+                      tracking_pool: tracking_pool,
+                      character_id: character_id
+                    })
+
+                    Logger.warning("ESI_RATE_LIMITED: Character wallet tracking rate limited",
+                      character_id: character_id,
+                      tracking_pool: tracking_pool,
+                      endpoint: "character_wallet",
+                      reset_seconds: reset_seconds,
+                      remaining_requests: remaining
+                    )
 
                     WandererApp.Cache.put(
                       "character:#{character_id}:wallet_forbidden",
@@ -603,7 +876,20 @@ defmodule WandererApp.Character.Tracker do
                     {:error, :skipped}
 
                   {:error, error} ->
-                    Logger.error("#{__MODULE__} failed to _update_wallet: #{inspect(error)}")
+                    # Emit telemetry for tracking
+                    :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                      endpoint: "character_wallet",
+                      error_type: error,
+                      tracking_pool: tracking_pool,
+                      character_id: character_id
+                    })
+
+                    Logger.error("ESI_ERROR: Character wallet tracking failed",
+                      character_id: character_id,
+                      tracking_pool: tracking_pool,
+                      error_type: error,
+                      endpoint: "character_wallet"
+                    )
 
                     WandererApp.Cache.put(
                       "character:#{character_id}:wallet_forbidden",
@@ -614,7 +900,20 @@ defmodule WandererApp.Character.Tracker do
                     {:error, :skipped}
 
                   error ->
-                    Logger.error("#{__MODULE__} failed to _update_wallet: #{inspect(error)}")
+                    # Emit telemetry for tracking
+                    :telemetry.execute([:wanderer_app, :esi, :error], %{count: 1}, %{
+                      endpoint: "character_wallet",
+                      error_type: error,
+                      tracking_pool: tracking_pool,
+                      character_id: character_id
+                    })
+
+                    Logger.error("ESI_ERROR: Character wallet tracking failed",
+                      character_id: character_id,
+                      tracking_pool: tracking_pool,
+                      error_type: error,
+                      endpoint: "character_wallet"
+                    )
 
                     WandererApp.Cache.put(
                       "character:#{character_id}:wallet_forbidden",
@@ -1027,4 +1326,73 @@ defmodule WandererApp.Character.Tracker do
   defp get_online(%{"online" => online}), do: %{online: online}
 
   defp get_online(_), do: %{online: false}
+  
+  defp get_tracking_duration_minutes(character_id) do
+    case WandererApp.Cache.lookup!("character:#{character_id}:map:*:tracking_start_time") do
+      nil -> 0
+      start_time when is_struct(start_time, DateTime) ->
+        DateTime.diff(DateTime.utc_now(), start_time, :minute)
+      _ -> 0
+    end
+  end
+  
+  # Add cache monitoring for eviction detection
+  defp log_cache_stats(operation, character_id, cache_key) do
+    try do
+      # Check if critical cache entries are missing (could indicate eviction)
+      critical_keys = [
+        "character:#{character_id}:last_online_time",
+        "character:#{character_id}:online_forbidden",
+        "character:#{character_id}:location_forbidden",
+        "character:#{character_id}:ship_forbidden"
+      ]
+      
+      missing_keys = Enum.filter(critical_keys, fn key ->
+        not WandererApp.Cache.has_key?(key)
+      end)
+      
+      if length(missing_keys) > 2 do  # Alert if multiple cache keys are missing
+        Logger.warning("CACHE_EVICTION_SUSPECTED: Multiple critical cache keys missing",
+          operation: operation,
+          character_id: character_id,
+          cache_key: cache_key,
+          missing_keys: missing_keys,
+          missing_count: length(missing_keys)
+        )
+        
+        # Emit telemetry
+        :telemetry.execute([:wanderer_app, :cache, :eviction_suspected], %{
+          missing_count: length(missing_keys)
+        }, %{
+          operation: operation,
+          character_id: character_id
+        })
+      end
+    rescue
+      _ -> :ok  # Don't fail character tracking if cache monitoring fails
+    end
+  end
+  
+  # Add database connection pool monitoring
+  defp log_db_pool_stats(operation, character_id) do
+    try do
+      pool_stats = :sys.get_state(WandererApp.Repo)
+      
+      if is_map(pool_stats) do
+        available = Map.get(pool_stats, :available, 0)
+        busy = Map.get(pool_stats, :busy, 0)
+        
+        if available <= 2 do  # Log when pool is nearly exhausted
+          Logger.warning("DB_POOL_LOW: Database connection pool running low",
+            operation: operation,
+            character_id: character_id,
+            available_connections: available,
+            busy_connections: busy
+          )
+        end
+      end
+    rescue
+      _ -> :ok  # Don't fail character tracking if pool monitoring fails
+    end
+  end
 end
