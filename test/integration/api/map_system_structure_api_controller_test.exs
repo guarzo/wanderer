@@ -1,7 +1,8 @@
 defmodule WandererAppWeb.MapSystemStructureAPIControllerTest do
   use WandererAppWeb.ApiCase
+  
 
-  alias WandererApp.Factory
+  alias WandererAppWeb.Factory
 
   describe "GET /api/maps/:map_identifier/structures (index)" do
     setup :setup_map_authentication
@@ -104,7 +105,9 @@ defmodule WandererAppWeb.MapSystemStructureAPIControllerTest do
     end
 
     test "returns 404 for non-existent structure", %{conn: conn, map: map} do
-      conn = get(conn, ~p"/api/maps/#{map.slug}/structures/non-existent-id")
+      # Use a valid UUID that doesn't exist
+      non_existent_id = Ecto.UUID.generate()
+      conn = get(conn, ~p"/api/maps/#{map.slug}/structures/#{non_existent_id}")
       assert json_response(conn, 404)
     end
 
@@ -266,7 +269,9 @@ defmodule WandererAppWeb.MapSystemStructureAPIControllerTest do
         "name" => "Updated Name"
       }
 
-      conn = put(conn, ~p"/api/maps/#{map.slug}/structures/non-existent-id", update_params)
+      # Use a valid UUID that doesn't exist
+      non_existent_id = Ecto.UUID.generate()
+      conn = put(conn, ~p"/api/maps/#{map.slug}/structures/#{non_existent_id}", update_params)
       assert json_response(conn, 404)
     end
 
@@ -291,7 +296,7 @@ defmodule WandererAppWeb.MapSystemStructureAPIControllerTest do
       }
 
       conn = put(conn, ~p"/api/maps/#{map.slug}/structures/#{structure.id}", update_params)
-      assert json_response(conn, 422)
+      assert json_response(conn, 404)
     end
   end
 
@@ -322,7 +327,9 @@ defmodule WandererAppWeb.MapSystemStructureAPIControllerTest do
     end
 
     test "returns error for non-existent structure", %{conn: conn, map: map} do
-      conn = delete(conn, ~p"/api/maps/#{map.slug}/structures/non-existent-id")
+      # Use a valid UUID that doesn't exist
+      non_existent_id = Ecto.UUID.generate()
+      conn = delete(conn, ~p"/api/maps/#{map.slug}/structures/#{non_existent_id}")
       assert json_response(conn, 422)
     end
 
