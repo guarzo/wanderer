@@ -234,6 +234,9 @@ defmodule WandererAppWeb.Router do
     # SSE endpoint for real-time events
     get "/events/stream", Api.EventsController, :stream
 
+    # Map duplication endpoint
+    post "/duplicate", MapAPIController, :duplicate_map
+
     patch "/connections", MapConnectionAPIController, :update
     delete "/connections", MapConnectionAPIController, :delete
     delete "/systems", MapSystemAPIController, :delete

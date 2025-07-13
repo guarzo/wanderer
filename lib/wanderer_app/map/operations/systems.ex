@@ -47,16 +47,17 @@ defmodule WandererApp.Map.Operations.Systems do
              %{solar_system_id: system_id, coordinates: coords},
              user_id,
              char_id
-           ),
-         {:ok, system} <- MapSystemRepo.get_by_map_and_solar_system_id(map_id, system_id) do
-      {:ok, system}
+           ) do
+      # System creation is async, but if add_system returns :ok, 
+      # it means the operation was queued successfully
+      {:ok, %{solar_system_id: system_id}}
     else
       {:error, reason} when is_binary(reason) ->
         Logger.warning("[do_create_system] Expected error: #{inspect(reason)}")
         {:error, :expected_error}
 
-      _ ->
-        Logger.error("[do_create_system] Unexpected error")
+      error ->
+        Logger.error("[do_create_system] Unexpected error: #{inspect(error)}")
         {:error, :unexpected_error}
     end
   end
@@ -118,6 +119,9 @@ defmodule WandererApp.Map.Operations.Systems do
 
     {created_s, updated_s, _skipped_s} =
       upsert_each(systems, fn sys -> create_system_batch(assigns, sys) end, 0, 0, 0)
+
+    # Give a small delay to allow async system creation to complete before processing connections
+    if length(systems) > 0, do: Process.sleep(100)
 
     conn_results =
       connections
@@ -262,11 +266,16 @@ defmodule WandererApp.Map.Operations.Systems do
   defp upsert_each([], _fun, c, u, d), do: {c, u, d}
 
   defp upsert_each([item | rest], fun, c, u, d) do
-    case fun.(item) do
+    result = fun.(item)
+    Logger.debug("[upsert_each] Processing item: #{inspect(item)}, result: #{inspect(result)}")
+    
+    case result do
       {:ok, _} -> upsert_each(rest, fun, c + 1, u, d)
       :ok -> upsert_each(rest, fun, c + 1, u, d)
       {:skip, _} -> upsert_each(rest, fun, c, u + 1, d)
-      _ -> upsert_each(rest, fun, c, u, d + 1)
+      error -> 
+        Logger.warning("[upsert_each] Failed to process item: #{inspect(item)}, error: #{inspect(error)}")
+        upsert_each(rest, fun, c, u, d + 1)
     end
   end
 end

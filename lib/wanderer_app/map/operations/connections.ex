@@ -8,7 +8,7 @@ defmodule WandererApp.Map.Operations.Connections do
   alias WandererApp.Map.Server
   alias Ash.Error.Invalid
   alias WandererApp.MapConnectionRepo
-  alias WandererApp.CachedInfo
+  @cached_info Application.compile_env(:wanderer_app, :cached_info, WandererApp.CachedInfo)
 
   # Connection type constants
   @connection_type_wormhole 0
@@ -35,8 +35,8 @@ defmodule WandererApp.Map.Operations.Connections do
   defp do_create(attrs, map_id, char_id) do
     with {:ok, source} <- parse_int(attrs["solar_system_source"], "solar_system_source"),
          {:ok, target} <- parse_int(attrs["solar_system_target"], "solar_system_target"),
-         {:ok, src_info} <- CachedInfo.get_system_static_info(source),
-         {:ok, tgt_info} <- CachedInfo.get_system_static_info(target) do
+         {:ok, src_info} <- @cached_info.get_system_static_info(source),
+         {:ok, tgt_info} <- @cached_info.get_system_static_info(target) do
       build_and_add_connection(attrs, map_id, char_id, src_info, tgt_info)
     else
       {:error, reason} -> handle_precondition_error(reason, attrs)
@@ -190,12 +190,13 @@ defmodule WandererApp.Map.Operations.Connections do
               _allowed_keys = [
                 :mass_status,
                 :ship_size_type,
+                :time_status,
                 :type
               ]
 
               _update_map =
                 attrs
-                |> Enum.filter(fn {k, _v} -> k in ["mass_status", "ship_size_type", "type"] end)
+                |> Enum.filter(fn {k, _v} -> k in ["mass_status", "ship_size_type", "time_status", "type"] end)
                 |> Enum.map(fn {k, v} -> {String.to_atom(k), v} end)
                 |> Enum.into(%{})
 
@@ -206,8 +207,16 @@ defmodule WandererApp.Map.Operations.Connections do
                 Logger.error("[update_connection] Exception: #{inspect(error)}")
                 {:error, :exception}
             end),
-         :ok <- result,
-         {:ok, updated_conn} <- MapConnectionRepo.get_by_id(map_id, conn_id) do
+         :ok <- result do
+      # Since GenServer updates are asynchronous, manually apply updates to the current struct
+      # to return the correct data immediately instead of refetching from potentially stale cache
+      updated_attrs = 
+        attrs
+        |> Enum.filter(fn {k, _v} -> k in ["mass_status", "ship_size_type", "time_status", "type"] end)
+        |> Enum.map(fn {k, v} -> {String.to_existing_atom(k), v} end)
+        |> Enum.into(%{})
+      
+      updated_conn = struct(conn_struct, updated_attrs)
       {:ok, updated_conn}
     else
       {:error, err} -> {:error, err}
@@ -313,6 +322,7 @@ defmodule WandererApp.Map.Operations.Connections do
         case key do
           "mass_status" -> maybe_update_mass_status(map_id, conn, val)
           "ship_size_type" -> maybe_update_ship_size_type(map_id, conn, val)
+          "time_status" -> maybe_update_time_status(map_id, conn, val)
           "type" -> maybe_update_type(map_id, conn, val)
           _ -> :ok
         end
@@ -346,6 +356,16 @@ defmodule WandererApp.Map.Operations.Connections do
       solar_system_source_id: conn.solar_system_source,
       solar_system_target_id: conn.solar_system_target,
       ship_size_type: value
+    })
+  end
+
+  defp maybe_update_time_status(_map_id, _conn, nil), do: :ok
+
+  defp maybe_update_time_status(map_id, conn, value) do
+    Server.update_connection_time_status(map_id, %{
+      solar_system_source_id: conn.solar_system_source,
+      solar_system_target_id: conn.solar_system_target,
+      time_status: value
     })
   end
 

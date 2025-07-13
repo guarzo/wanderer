@@ -20,6 +20,7 @@ config :wanderer_app,
   ddrt: Test.DDRTMock,
   logger: Test.LoggerMock,
   pubsub_client: Test.PubSubMock,
+  cached_info: WandererApp.CachedInfo.Mock,
   character_api_disabled: false
 
 # We don't run a server during test. If one is required,

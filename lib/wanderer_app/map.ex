@@ -550,12 +550,11 @@ defmodule WandererApp.Map do
 
   @doc """
   Returns the raw activity data that can be processed by WandererApp.Character.Activity.
-  Only includes characters that are on the map's ACL.
+  Includes all characters that have activity on the map.
   If days parameter is provided, filters activity to that time period.
   """
   def get_character_activity(map_id, days \\ nil) do
-    with {:ok, map} <- WandererApp.Api.Map.by_id(map_id) do
-      _map_with_acls = Ash.load!(map, :acls)
+    with {:ok, _map} <- WandererApp.Api.Map.by_id(map_id) do
 
       # Calculate cutoff date if days is provided
       cutoff_date =

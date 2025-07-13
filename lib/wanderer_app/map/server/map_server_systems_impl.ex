@@ -6,6 +6,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   alias WandererApp.Map.Server.Impl
 
   @ddrt Application.compile_env(:wanderer_app, :ddrt)
+  @cached_info Application.compile_env(:wanderer_app, :cached_info, WandererApp.CachedInfo)
   @system_auto_expire_minutes 15
   @system_inactive_timeout :timer.minutes(15)
 
@@ -453,7 +454,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
           _ ->
             {:ok, solar_system_info} =
-              WandererApp.CachedInfo.get_system_static_info(location.solar_system_id)
+              @cached_info.get_system_static_info(location.solar_system_id)
 
             WandererApp.MapSystemRepo.create(%{
               map_id: map_id,
@@ -563,7 +564,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
         _ ->
           {:ok, solar_system_info} =
-            WandererApp.CachedInfo.get_system_static_info(solar_system_id)
+            @cached_info.get_system_static_info(solar_system_id)
 
           @ddrt.insert(
             {solar_system_id,

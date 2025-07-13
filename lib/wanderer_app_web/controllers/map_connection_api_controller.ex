@@ -326,7 +326,10 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   )
 
   def delete(%{assigns: %{map_id: _map_id}} = conn, %{"id" => id}) do
-    delete_connection_id(conn, id)
+    case delete_connection_id(conn, id) do
+      {:ok, _conn_struct} -> send_resp(conn, :no_content, "")
+      error -> error
+    end
   end
 
   def delete(%{assigns: %{map_id: _map_id}} = conn, %{
@@ -339,7 +342,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   # Private helpers for delete/2
 
   defp delete_connection_id(conn, id) do
-    case Operations.get_connection(conn, id) do
+    case Operations.get_connection(conn.assigns.map_id, id) do
       {:ok, conn_struct} ->
         source_id = conn_struct.solar_system_source
         target_id = conn_struct.solar_system_target
@@ -349,6 +352,8 @@ defmodule WandererAppWeb.MapConnectionAPIController do
           error -> error
         end
 
+      {:error, "Connection not found"} ->
+        {:error, :not_found}
       _ ->
         {:error, :invalid_id}
     end
@@ -451,7 +456,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   )
 
   def update(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
-    allowed_fields = ["mass_status", "ship_size_type", "locked", "custom_info", "type"]
+    allowed_fields = ["mass_status", "ship_size_type", "time_status", "locked", "custom_info", "type"]
 
     attrs =
       conn.body_params
@@ -466,7 +471,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         "solar_system_source" => src,
         "solar_system_target" => tgt
       }) do
-    allowed_fields = ["mass_status", "ship_size_type", "locked", "custom_info", "type"]
+    allowed_fields = ["mass_status", "ship_size_type", "time_status", "locked", "custom_info", "type"]
 
     attrs =
       conn.body_params
