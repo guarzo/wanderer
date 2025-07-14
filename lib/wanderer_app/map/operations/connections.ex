@@ -196,7 +196,9 @@ defmodule WandererApp.Map.Operations.Connections do
 
               _update_map =
                 attrs
-                |> Enum.filter(fn {k, _v} -> k in ["mass_status", "ship_size_type", "time_status", "type"] end)
+                |> Enum.filter(fn {k, _v} ->
+                  k in ["mass_status", "ship_size_type", "time_status", "type"]
+                end)
                 |> Enum.map(fn {k, v} -> {String.to_atom(k), v} end)
                 |> Enum.into(%{})
 
@@ -210,12 +212,14 @@ defmodule WandererApp.Map.Operations.Connections do
          :ok <- result do
       # Since GenServer updates are asynchronous, manually apply updates to the current struct
       # to return the correct data immediately instead of refetching from potentially stale cache
-      updated_attrs = 
+      updated_attrs =
         attrs
-        |> Enum.filter(fn {k, _v} -> k in ["mass_status", "ship_size_type", "time_status", "type"] end)
+        |> Enum.filter(fn {k, _v} ->
+          k in ["mass_status", "ship_size_type", "time_status", "type"]
+        end)
         |> Enum.map(fn {k, v} -> {String.to_existing_atom(k), v} end)
         |> Enum.into(%{})
-      
+
       updated_conn = struct(conn_struct, updated_attrs)
       {:ok, updated_conn}
     else

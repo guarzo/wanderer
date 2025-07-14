@@ -8,7 +8,7 @@ defmodule WandererApp.MapDuplicationTest do
   describe "map duplication" do
     test "rally point events are supported in external events system" do
       supported_types = Event.supported_event_types()
-      
+
       assert :rally_point_added in supported_types
       assert :rally_point_removed in supported_types
     end
@@ -19,5 +19,4 @@ defmodule WandererApp.MapDuplicationTest do
       refute Event.valid_event_type?(:invalid_rally_event)
     end
   end
-
 end

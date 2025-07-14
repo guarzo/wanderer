@@ -555,7 +555,6 @@ defmodule WandererApp.Map do
   """
   def get_character_activity(map_id, days \\ nil) do
     with {:ok, _map} <- WandererApp.Api.Map.by_id(map_id) do
-
       # Calculate cutoff date if days is provided
       cutoff_date =
         if days, do: DateTime.utc_now() |> DateTime.add(-days * 24 * 3600, :second), else: nil

@@ -11,27 +11,30 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       user = insert(:user)
       character = insert(:character, %{user_id: user.id})
       map = insert(:map, %{owner_id: character.id})
-      
+
       # Start the map server for this test map
-      {:ok, _pid} = DynamicSupervisor.start_child(
-        {:via, PartitionSupervisor, {WandererApp.Map.DynamicSupervisors, self()}},
-        {WandererApp.Map.ServerSupervisor, map_id: map.id}
-      )
-      
+      {:ok, _pid} =
+        DynamicSupervisor.start_child(
+          {:via, PartitionSupervisor, {WandererApp.Map.DynamicSupervisors, self()}},
+          {WandererApp.Map.ServerSupervisor, map_id: map.id}
+        )
+
       # Create systems that connections can reference
-      system1 = insert(:map_system, %{
-        map_id: map.id,
-        solar_system_id: 30000142,
-        name: "Jita"
-      })
-      
-      system2 = insert(:map_system, %{
-        map_id: map.id, 
-        solar_system_id: 30000144,
-        name: "Amarr"
-      })
-      
-      conn = 
+      system1 =
+        insert(:map_system, %{
+          map_id: map.id,
+          solar_system_id: 30_000_142,
+          name: "Jita"
+        })
+
+      system2 =
+        insert(:map_system, %{
+          map_id: map.id,
+          solar_system_id: 30_000_144,
+          name: "Amarr"
+        })
+
+      conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{map.public_api_key || "test-api-key"}")
         |> put_req_header("content-type", "application/json")
@@ -41,35 +44,47 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
         |> assign(:map, map)
         |> assign(:owner_character_id, character.eve_id)
         |> assign(:owner_user_id, user.id)
-      
-      %{conn: conn, user: user, character: character, map: map, system1: system1, system2: system2}
+
+      %{
+        conn: conn,
+        user: user,
+        character: character,
+        map: map,
+        system1: system1,
+        system2: system2
+      }
     end
 
-
-
-    test "READ: successfully retrieves all connections for a map", %{conn: conn, map: map, system1: system1, system2: system2} do
+    test "READ: successfully retrieves all connections for a map", %{
+      conn: conn,
+      map: map,
+      system1: system1,
+      system2: system2
+    } do
       # Create some connections for the map
-      connection1 = insert(:map_connection, %{
-        map_id: map.id,
-        solar_system_source: system1.solar_system_id,
-        solar_system_target: system2.solar_system_id,
-        type: 0,
-        ship_size_type: 2
-      })
+      connection1 =
+        insert(:map_connection, %{
+          map_id: map.id,
+          solar_system_source: system1.solar_system_id,
+          solar_system_target: system2.solar_system_id,
+          type: 0,
+          ship_size_type: 2
+        })
 
-      connection2 = insert(:map_connection, %{
-        map_id: map.id,
-        solar_system_source: system2.solar_system_id,
-        solar_system_target: system1.solar_system_id,
-        type: 1,
-        ship_size_type: 1
-      })
+      connection2 =
+        insert(:map_connection, %{
+          map_id: map.id,
+          solar_system_source: system2.solar_system_id,
+          solar_system_target: system1.solar_system_id,
+          type: 1,
+          ship_size_type: 1
+        })
 
       conn = get(conn, ~p"/api/maps/#{map.slug}/connections")
 
       assert %{
-        "data" => returned_connections
-      } = json_response(conn, 200)
+               "data" => returned_connections
+             } = json_response(conn, 200)
 
       # At least one connection should be returned
       assert length(returned_connections) >= 1
@@ -84,15 +99,20 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       assert first_conn["time_status"] == 0
     end
 
-
-    test "UPDATE: successfully updates connection properties", %{conn: conn, map: map, system1: system1, system2: system2} do
-      connection = insert(:map_connection, %{
-        map_id: map.id,
-        solar_system_source: system1.solar_system_id,
-        solar_system_target: system2.solar_system_id,
-        type: 0,
-        ship_size_type: 0
-      })
+    test "UPDATE: successfully updates connection properties", %{
+      conn: conn,
+      map: map,
+      system1: system1,
+      system2: system2
+    } do
+      connection =
+        insert(:map_connection, %{
+          map_id: map.id,
+          solar_system_source: system1.solar_system_id,
+          solar_system_target: system2.solar_system_id,
+          type: 0,
+          ship_size_type: 0
+        })
 
       update_params = %{
         "mass_status" => 2
@@ -103,8 +123,8 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       response = json_response(conn, 200)
 
       assert %{
-        "data" => updated_connection
-      } = response
+               "data" => updated_connection
+             } = response
 
       assert updated_connection["mass_status"] == 2
       # Verify other fields remain unchanged
@@ -112,14 +132,20 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       assert updated_connection["time_status"] == 0
     end
 
-    test "DELETE: successfully deletes a connection", %{conn: conn, map: map, system1: system1, system2: system2} do
-      connection = insert(:map_connection, %{
-        map_id: map.id,
-        solar_system_source: system1.solar_system_id,
-        solar_system_target: system2.solar_system_id,
-        type: 0,
-        ship_size_type: 2
-      })
+    test "DELETE: successfully deletes a connection", %{
+      conn: conn,
+      map: map,
+      system1: system1,
+      system2: system2
+    } do
+      connection =
+        insert(:map_connection, %{
+          map_id: map.id,
+          solar_system_source: system1.solar_system_id,
+          solar_system_target: system2.solar_system_id,
+          type: 0,
+          ship_size_type: 2
+        })
 
       conn = delete(conn, ~p"/api/maps/#{map.slug}/connections/#{connection.id}")
 
@@ -127,8 +153,10 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       case conn.status do
         204 ->
           assert response(conn, 204)
+
         200 ->
           assert %{"data" => _} = json_response(conn, 200)
+
         _ ->
           # Accept other valid status codes
           assert conn.status in [200, 204]
@@ -141,14 +169,15 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       user = insert(:user)
       character = insert(:character, %{user_id: user.id})
       map = insert(:map, %{owner_id: character.id})
-      
+
       # Start the map server for this test map
-      {:ok, _pid} = DynamicSupervisor.start_child(
-        {:via, PartitionSupervisor, {WandererApp.Map.DynamicSupervisors, self()}},
-        {WandererApp.Map.ServerSupervisor, map_id: map.id}
-      )
-      
-      conn = 
+      {:ok, _pid} =
+        DynamicSupervisor.start_child(
+          {:via, PartitionSupervisor, {WandererApp.Map.DynamicSupervisors, self()}},
+          {WandererApp.Map.ServerSupervisor, map_id: map.id}
+        )
+
+      conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{map.public_api_key || "test-api-key"}")
         |> put_req_header("content-type", "application/json")
@@ -158,10 +187,9 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
         |> assign(:map, map)
         |> assign(:owner_character_id, character.eve_id)
         |> assign(:owner_user_id, user.id)
-      
+
       %{conn: conn, user: user, character: character, map: map}
     end
-
 
     test "CREATE: fails with missing required parameters", %{conn: conn, map: map} do
       invalid_params = %{
@@ -217,8 +245,10 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
             %{} -> :ok
             _ -> flunk("Expected empty or null data for non-existent systems")
           end
+
         404 ->
           :ok
+
         _ ->
           assert conn.status in [200, 404]
       end

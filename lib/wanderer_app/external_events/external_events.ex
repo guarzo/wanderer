@@ -1,7 +1,7 @@
 defmodule WandererApp.ExternalEvents do
   @moduledoc """
   External event system for SSE and webhook delivery.
-  
+
   This system is completely separate from the internal Phoenix PubSub 
   event system and does NOT modify any existing event flows.
 

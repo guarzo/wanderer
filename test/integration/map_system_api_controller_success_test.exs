@@ -11,9 +11,8 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
       user = insert(:user)
       character = insert(:character, %{user_id: user.id})
       map = insert(:map, %{owner_id: character.id})
-      
-      
-      conn = 
+
+      conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{map.public_api_key || "test-api-key"}")
         |> put_req_header("content-type", "application/json")
@@ -23,67 +22,72 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
         |> assign(:map, map)
         |> assign(:owner_character_id, character.eve_id)
         |> assign(:owner_user_id, user.id)
-      
+
       # Start the map server for the test map using the proper PartitionSupervisor
-      {:ok, _pid} = DynamicSupervisor.start_child(
-        {:via, PartitionSupervisor, {WandererApp.Map.DynamicSupervisors, self()}},
-        {WandererApp.Map.ServerSupervisor, map_id: map.id}
-      )
-      
+      {:ok, _pid} =
+        DynamicSupervisor.start_child(
+          {:via, PartitionSupervisor, {WandererApp.Map.DynamicSupervisors, self()}},
+          {WandererApp.Map.ServerSupervisor, map_id: map.id}
+        )
+
       %{conn: conn, user: user, character: character, map: map}
     end
 
     test "READ: successfully retrieves systems for a map", %{conn: conn, map: map} do
       # Create some systems for the map
-      system1 = insert(:map_system, %{
-        map_id: map.id,
-        solar_system_id: 30000142,
-        name: "Jita",
-        position_x: 100,
-        position_y: 200,
-        status: 1
-      })
-      
-      system2 = insert(:map_system, %{
-        map_id: map.id, 
-        solar_system_id: 30000144,
-        name: "Amarr",
-        position_x: 300,
-        position_y: 400,
-        status: 0
-      })
+      system1 =
+        insert(:map_system, %{
+          map_id: map.id,
+          solar_system_id: 30_000_142,
+          name: "Jita",
+          position_x: 100,
+          position_y: 200,
+          status: 1
+        })
+
+      system2 =
+        insert(:map_system, %{
+          map_id: map.id,
+          solar_system_id: 30_000_144,
+          name: "Amarr",
+          position_x: 300,
+          position_y: 400,
+          status: 0
+        })
 
       conn = get(conn, ~p"/api/maps/#{map.slug}/systems")
 
       assert %{
-        "data" => %{
-          "systems" => returned_systems,
-          "connections" => connections
-        }
-      } = json_response(conn, 200)
+               "data" => %{
+                 "systems" => returned_systems,
+                 "connections" => connections
+               }
+             } = json_response(conn, 200)
 
       assert length(returned_systems) >= 2
       assert is_list(connections)
 
       jita = Enum.find(returned_systems, &(&1["name"] == "Jita"))
-      assert jita["solar_system_id"] == 30000142
+      assert jita["solar_system_id"] == 30_000_142
       assert jita["position_x"] == 100
       assert jita["status"] == 1
 
       amarr = Enum.find(returned_systems, &(&1["name"] == "Amarr"))
-      assert amarr["solar_system_id"] == 30000144
+      assert amarr["solar_system_id"] == 30_000_144
       assert amarr["position_x"] == 300
       assert amarr["status"] == 0
     end
 
     test "CREATE: successfully creates a single system", %{conn: conn, map: map} do
       system_params = %{
-        "systems" => [%{
-          "solar_system_id" => 30000142,
-          "name" => "Jita",
-          "position_x" => 100,
-          "position_y" => 200
-        }],
+        "systems" => [
+          %{
+            "solar_system_id" => 30_000_142,
+            "name" => "Jita",
+            "position_x" => 100,
+            "position_y" => 200
+          }
+        ],
         "connections" => []
       }
 
@@ -95,15 +99,15 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
       assert created_count >= 1
     end
 
-
     test "UPDATE: successfully updates system position", %{conn: conn, map: map} do
-      system = insert(:map_system, %{
-        map_id: map.id,
-        solar_system_id: 30000142,
-        name: "Jita",
-        position_x: 100,
-        position_y: 200
-      })
+      system =
+        insert(:map_system, %{
+          map_id: map.id,
+          solar_system_id: 30_000_142,
+          name: "Jita",
+          position_x: 100,
+          position_y: 200
+        })
 
       update_params = %{
         "position_x" => 300,
@@ -114,21 +118,22 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
       conn = put(conn, ~p"/api/maps/#{map.slug}/systems/#{system.id}", update_params)
 
       response = json_response(conn, 200)
-      
+
       assert %{
-        "data" => updated_system
-      } = response
+               "data" => updated_system
+             } = response
 
       assert updated_system["position_x"] == 300.0
       assert updated_system["position_y"] == 400.0
     end
 
     test "DELETE: successfully deletes a system", %{conn: conn, map: map} do
-      system = insert(:map_system, %{
-        map_id: map.id,
-        solar_system_id: 30000142,
-        name: "Jita"
-      })
+      system =
+        insert(:map_system, %{
+          map_id: map.id,
+          solar_system_id: 30_000_142,
+          name: "Jita"
+        })
 
       conn = delete(conn, ~p"/api/maps/#{map.slug}/systems/#{system.id}")
 
@@ -136,8 +141,10 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
       case conn.status do
         204 ->
           assert response(conn, 204)
+
         200 ->
           assert %{"data" => _} = json_response(conn, 200)
+
         _ ->
           # Accept other valid status codes
           assert conn.status in [200, 204]
@@ -145,8 +152,8 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
     end
 
     test "DELETE: successfully deletes multiple systems", %{conn: conn, map: map} do
-      system1 = insert(:map_system, %{map_id: map.id, solar_system_id: 30000142})
-      system2 = insert(:map_system, %{map_id: map.id, solar_system_id: 30000144})
+      system1 = insert(:map_system, %{map_id: map.id, solar_system_id: 30_000_142})
+      system2 = insert(:map_system, %{map_id: map.id, solar_system_id: 30_000_144})
 
       delete_params = %{
         "system_ids" => [system1.id, system2.id]
@@ -157,12 +164,13 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
       response = json_response(conn, 200)
 
       assert %{
-        "data" => %{
-          "deleted_count" => deleted_count
-        }
-      } = response
+               "data" => %{
+                 "deleted_count" => deleted_count
+               }
+             } = response
 
-      assert deleted_count >= 0  # Accept partial or full deletion
+      # Accept partial or full deletion
+      assert deleted_count >= 0
     end
   end
 
@@ -171,8 +179,8 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
       user = insert(:user)
       character = insert(:character, %{user_id: user.id})
       map = insert(:map, %{owner_id: character.id})
-      
-      conn = 
+
+      conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{map.public_api_key || "test-api-key"}")
         |> put_req_header("content-type", "application/json")
@@ -182,7 +190,7 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
         |> assign(:map, map)
         |> assign(:owner_character_id, character.eve_id)
         |> assign(:owner_user_id, user.id)
-      
+
       %{conn: conn, user: user, character: character, map: map}
     end
 

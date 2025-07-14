@@ -934,7 +934,7 @@ defmodule WandererAppWeb.MapAPIController do
   @doc """
   Toggle webhooks for a map.
   """
-  operation :toggle_webhooks,
+  operation(:toggle_webhooks,
     summary: "Toggle webhooks for a map",
     parameters: [
       map_id: [
@@ -970,13 +970,15 @@ defmodule WandererAppWeb.MapAPIController do
       404 => ResponseSchemas.not_found(),
       503 => ResponseSchemas.internal_server_error("Service unavailable")
     }
+  )
 
   def toggle_webhooks(conn, %{"map_id" => map_identifier, "enabled" => enabled}) do
     with {:ok, enabled_boolean} <- validate_boolean_param(enabled, "enabled"),
          :ok <- check_global_webhooks_enabled(),
          {:ok, map} <- resolve_map_identifier(map_identifier),
          :ok <- check_map_owner(conn, map),
-         {:ok, updated_map} <- WandererApp.Api.Map.toggle_webhooks(map, %{webhooks_enabled: enabled_boolean}) do
+         {:ok, updated_map} <-
+           WandererApp.Api.Map.toggle_webhooks(map, %{webhooks_enabled: enabled_boolean}) do
       json(conn, %{webhooks_enabled: updated_map.webhooks_enabled})
     else
       {:error, :invalid_boolean} ->
@@ -1023,7 +1025,9 @@ defmodule WandererAppWeb.MapAPIController do
 
   defp resolve_map_identifier(identifier) do
     case WandererApp.Api.Map.by_id(identifier) do
-      {:ok, map} -> {:ok, map}
+      {:ok, map} ->
+        {:ok, map}
+
       {:error, _} ->
         case WandererApp.Api.Map.get_map_by_slug(identifier) do
           {:ok, map} -> {:ok, map}
@@ -1034,6 +1038,7 @@ defmodule WandererAppWeb.MapAPIController do
 
   defp check_map_owner(conn, map) do
     current_user = conn.assigns[:current_character]
+
     if current_user && current_user.id == map.owner_id do
       :ok
     else
@@ -1043,12 +1048,13 @@ defmodule WandererAppWeb.MapAPIController do
 
   @doc """
   POST /api/maps/{map_identifier}/duplicate
-  
+
   Duplicates a map with all its systems, connections, and optionally ACLs/characters.
   """
   operation(:duplicate_map,
-    summary: "Duplicate Map", 
-    description: "Creates a copy of an existing map including systems, connections, and optionally ACLs, user settings, and signatures",
+    summary: "Duplicate Map",
+    description:
+      "Creates a copy of an existing map including systems, connections, and optionally ACLs, user settings, and signatures",
     parameters: [
       map_identifier: [
         in: :path,
@@ -1064,11 +1070,31 @@ defmodule WandererAppWeb.MapAPIController do
       %OpenApiSpex.Schema{
         type: :object,
         properties: %{
-          name: %OpenApiSpex.Schema{type: :string, minLength: 3, maxLength: 20, description: "Name for the duplicated map"},
-          description: %OpenApiSpex.Schema{type: :string, description: "Description for the duplicated map (optional)"},
-          copy_acls: %OpenApiSpex.Schema{type: :boolean, default: true, description: "Whether to copy access control lists"},
-          copy_user_settings: %OpenApiSpex.Schema{type: :boolean, default: true, description: "Whether to copy user/character settings"},
-          copy_signatures: %OpenApiSpex.Schema{type: :boolean, default: true, description: "Whether to copy system signatures"}
+          name: %OpenApiSpex.Schema{
+            type: :string,
+            minLength: 3,
+            maxLength: 20,
+            description: "Name for the duplicated map"
+          },
+          description: %OpenApiSpex.Schema{
+            type: :string,
+            description: "Description for the duplicated map (optional)"
+          },
+          copy_acls: %OpenApiSpex.Schema{
+            type: :boolean,
+            default: true,
+            description: "Whether to copy access control lists"
+          },
+          copy_user_settings: %OpenApiSpex.Schema{
+            type: :boolean,
+            default: true,
+            description: "Whether to copy user/character settings"
+          },
+          copy_signatures: %OpenApiSpex.Schema{
+            type: :boolean,
+            default: true,
+            description: "Whether to copy system signatures"
+          }
         },
         required: [:name]
       }
@@ -1084,9 +1110,18 @@ defmodule WandererAppWeb.MapAPIController do
               type: :object,
               properties: %{
                 id: %OpenApiSpex.Schema{type: :string, description: "ID of the duplicated map"},
-                name: %OpenApiSpex.Schema{type: :string, description: "Name of the duplicated map"},
-                slug: %OpenApiSpex.Schema{type: :string, description: "Slug of the duplicated map"},
-                description: %OpenApiSpex.Schema{type: :string, description: "Description of the duplicated map"}
+                name: %OpenApiSpex.Schema{
+                  type: :string,
+                  description: "Name of the duplicated map"
+                },
+                slug: %OpenApiSpex.Schema{
+                  type: :string,
+                  description: "Slug of the duplicated map"
+                },
+                description: %OpenApiSpex.Schema{
+                  type: :string,
+                  description: "Description of the duplicated map"
+                }
               }
             }
           }
@@ -1099,13 +1134,13 @@ defmodule WandererAppWeb.MapAPIController do
       internal_server_error: ResponseSchemas.internal_server_error("Duplication failed")
     ]
   )
+
   def duplicate_map(conn, %{"map_identifier" => map_identifier} = params) do
     with {:ok, source_map} <- resolve_map_identifier(map_identifier),
          :ok <- check_map_owner(conn, source_map),
          {:ok, duplicate_params} <- validate_duplicate_params(params),
          current_user <- conn.assigns[:current_character],
          {:ok, duplicated_map} <- perform_duplication(source_map, duplicate_params, current_user) do
-      
       conn
       |> put_status(:created)
       |> json(%{
@@ -1134,21 +1169,24 @@ defmodule WandererAppWeb.MapAPIController do
 
       {:error, %Ash.Error.Invalid{} = error} ->
         Logger.debug("Ash validation error: #{inspect(error)}")
+
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{
           error: "Validation failed",
-          errors: Enum.map(error.errors, fn err -> 
-            %{
-              field: err.field,
-              message: err.message,
-              value: err.value
-            }
-          end)
+          errors:
+            Enum.map(error.errors, fn err ->
+              %{
+                field: err.field,
+                message: err.message,
+                value: err.value
+              }
+            end)
         })
 
       {:error, reason} ->
         Logger.error("Map duplication failed: #{inspect(reason)}")
+
         conn
         |> put_status(:internal_server_error)
         |> json(%{error: "Failed to duplicate map: #{APIUtils.format_error(reason)}"})
@@ -1167,21 +1205,22 @@ defmodule WandererAppWeb.MapAPIController do
     cond do
       is_nil(name) or name == "" ->
         {:error, {:validation_error, "Name is required"}}
-      
+
       String.length(name) < 3 ->
         {:error, {:validation_error, "Name must be at least 3 characters long"}}
-      
+
       String.length(name) > 20 ->
         {:error, {:validation_error, "Name must be no more than 20 characters long"}}
-      
+
       true ->
-        {:ok, %{
-          name: name,
-          description: description,
-          copy_acls: copy_acls,
-          copy_user_settings: copy_user_settings,
-          copy_signatures: copy_signatures
-        }}
+        {:ok,
+         %{
+           name: name,
+           description: description,
+           copy_acls: copy_acls,
+           copy_user_settings: copy_user_settings,
+           copy_signatures: copy_signatures
+         }}
     end
   end
 

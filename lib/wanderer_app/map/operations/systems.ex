@@ -268,13 +268,22 @@ defmodule WandererApp.Map.Operations.Systems do
   defp upsert_each([item | rest], fun, c, u, d) do
     result = fun.(item)
     Logger.debug("[upsert_each] Processing item: #{inspect(item)}, result: #{inspect(result)}")
-    
+
     case result do
-      {:ok, _} -> upsert_each(rest, fun, c + 1, u, d)
-      :ok -> upsert_each(rest, fun, c + 1, u, d)
-      {:skip, _} -> upsert_each(rest, fun, c, u + 1, d)
-      error -> 
-        Logger.warning("[upsert_each] Failed to process item: #{inspect(item)}, error: #{inspect(error)}")
+      {:ok, _} ->
+        upsert_each(rest, fun, c + 1, u, d)
+
+      :ok ->
+        upsert_each(rest, fun, c + 1, u, d)
+
+      {:skip, _} ->
+        upsert_each(rest, fun, c, u + 1, d)
+
+      error ->
+        Logger.warning(
+          "[upsert_each] Failed to process item: #{inspect(item)}, error: #{inspect(error)}"
+        )
+
         upsert_each(rest, fun, c, u, d + 1)
     end
   end

@@ -11,77 +11,83 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
     # Ensure we're in global mode and re-setup mocks
     Mox.set_mox_global()
     WandererApp.Test.Mocks.setup_additional_expectations()
-    
+
     # Set up CachedInfo mock stubs for the systems used in the tests
     WandererApp.CachedInfo.Mock
-    |> stub(:get_system_static_info, fn 
+    |> stub(:get_system_static_info, fn
       30_000_142 ->
-        {:ok, %{
-          solar_system_id: 30_000_142,
-          region_id: 10000002,
-          constellation_id: 20000020,
-          solar_system_name: "Jita",
-          solar_system_name_lc: "jita",
-          constellation_name: "Kimotoro",
-          region_name: "The Forge",
-          system_class: 0,
-          security: "0.9",
-          type_description: "High Security",
-          class_title: "High Sec",
-          is_shattered: false,
-          effect_name: nil,
-          effect_power: nil,
-          statics: [],
-          wandering: [],
-          triglavian_invasion_status: nil,
-          sun_type_id: 45041
-        }}
+        {:ok,
+         %{
+           solar_system_id: 30_000_142,
+           region_id: 10_000_002,
+           constellation_id: 20_000_020,
+           solar_system_name: "Jita",
+           solar_system_name_lc: "jita",
+           constellation_name: "Kimotoro",
+           region_name: "The Forge",
+           system_class: 0,
+           security: "0.9",
+           type_description: "High Security",
+           class_title: "High Sec",
+           is_shattered: false,
+           effect_name: nil,
+           effect_power: nil,
+           statics: [],
+           wandering: [],
+           triglavian_invasion_status: nil,
+           sun_type_id: 45041
+         }}
+
       30_000_143 ->
-        {:ok, %{
-          solar_system_id: 30_000_143,
-          region_id: 10000043,
-          constellation_id: 20000304,
-          solar_system_name: "Amarr",
-          solar_system_name_lc: "amarr",
-          constellation_name: "Throne Worlds",
-          region_name: "Domain",
-          system_class: 0,
-          security: "0.9",
-          type_description: "High Security",
-          class_title: "High Sec",
-          is_shattered: false,
-          effect_name: nil,
-          effect_power: nil,
-          statics: [],
-          wandering: [],
-          triglavian_invasion_status: nil,
-          sun_type_id: 45041
-        }}
+        {:ok,
+         %{
+           solar_system_id: 30_000_143,
+           region_id: 10_000_043,
+           constellation_id: 20_000_304,
+           solar_system_name: "Amarr",
+           solar_system_name_lc: "amarr",
+           constellation_name: "Throne Worlds",
+           region_name: "Domain",
+           system_class: 0,
+           security: "0.9",
+           type_description: "High Security",
+           class_title: "High Sec",
+           is_shattered: false,
+           effect_name: nil,
+           effect_power: nil,
+           statics: [],
+           wandering: [],
+           triglavian_invasion_status: nil,
+           sun_type_id: 45041
+         }}
+
       30_000_144 ->
-        {:ok, %{
-          solar_system_id: 30_000_144,
-          region_id: 10000043,
-          constellation_id: 20000304,
-          solar_system_name: "Amarr",
-          solar_system_name_lc: "amarr",
-          constellation_name: "Throne Worlds",
-          region_name: "Domain",
-          system_class: 0,
-          security: "0.9",
-          type_description: "High Security",
-          class_title: "High Sec",
-          is_shattered: false,
-          effect_name: nil,
-          effect_power: nil,
-          statics: [],
-          wandering: [],
-          triglavian_invasion_status: nil,
-          sun_type_id: 45041
-        }}
+        {:ok,
+         %{
+           solar_system_id: 30_000_144,
+           region_id: 10_000_043,
+           constellation_id: 20_000_304,
+           solar_system_name: "Amarr",
+           solar_system_name_lc: "amarr",
+           constellation_name: "Throne Worlds",
+           region_name: "Domain",
+           system_class: 0,
+           security: "0.9",
+           type_description: "High Security",
+           class_title: "High Sec",
+           is_shattered: false,
+           effect_name: nil,
+           effect_power: nil,
+           statics: [],
+           wandering: [],
+           triglavian_invasion_status: nil,
+           sun_type_id: 45041
+         }}
+
       _ ->
         {:error, :not_found}
     end)
-    
+
     :ok
   end
 
@@ -213,13 +219,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       }
 
       # This should not crash on parameter parsing
-      result = 
+      result =
         try do
           Connections.create(attrs_valid, map_id, char_id)
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
         end
+
       # Result depends on underlying services, but function should handle the call
       assert is_tuple(result)
 
@@ -244,13 +251,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         "type" => 0
       }
 
-      result = 
+      result =
         try do
           Connections.create_connection(map_id, attrs, char_id)
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
         end
+
       # Function should handle the call
       assert is_tuple(result)
     end
@@ -266,13 +274,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         "solar_system_target" => 30_000_143
       }
 
-      result = 
+      result =
         try do
           Connections.create_connection(conn, attrs)
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
         end
+
       # Function should handle the call
       assert is_tuple(result)
     end
@@ -330,13 +339,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         }
       ]
 
-      result = 
+      result =
         try do
           Connections.upsert_batch(conn, connections)
         catch
           "Map server not started" ->
             %{created: 0, updated: 0, skipped: 0, error: "Map server not started"}
         end
+
       # Function should process the data and return a result
       assert is_map(result)
       assert Map.has_key?(result, :created)
@@ -356,13 +366,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
         "type" => 0
       }
 
-      result = 
+      result =
         try do
           Connections.upsert_single(conn, conn_data)
         catch
           "Map server not started" ->
             {:error, :map_server_not_started}
         end
+
       # Function should process the data
       assert is_tuple(result)
     end
@@ -404,13 +415,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       ]
 
       Enum.each(params_various_formats, fn params ->
-        result = 
+        result =
           try do
             Connections.create(params, map_id, char_id)
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}
           end
+
         # Each call should handle the parameter format
         assert is_tuple(result)
       end)
@@ -467,13 +479,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
           "ship_size_type" => ship_size
         }
 
-        result = 
+        result =
           try do
             Connections.create(attrs, map_id, char_id)
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}
           end
+
         # Should handle each ship size type
         assert is_tuple(result)
       end)
@@ -493,13 +506,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
           "type" => conn_type
         }
 
-        result = 
+        result =
           try do
             Connections.create(attrs, map_id, char_id)
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}
           end
+
         # Should handle each connection type
         assert is_tuple(result)
       end)
@@ -553,13 +567,14 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
       ]
 
       Enum.each(conn_data_formats, fn conn_data ->
-        result = 
+        result =
           try do
             Connections.upsert_single(conn, conn_data)
           catch
             "Map server not started" ->
               {:error, :map_server_not_started}
           end
+
         # Should handle both key formats
         assert is_tuple(result)
       end)

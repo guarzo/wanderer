@@ -263,7 +263,7 @@ defmodule WandererAppWeb.Router do
     resources "/webhooks", MapWebhooksAPIController, except: [:new, :edit] do
       post "/rotate-secret", MapWebhooksAPIController, :rotate_secret
     end
-    
+
     # Webhook control endpoint
     put "/webhooks/toggle", MapAPIController, :toggle_webhooks
   end

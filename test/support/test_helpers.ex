@@ -206,33 +206,38 @@ defmodule WandererApp.TestHelpers do
       {:ok, pid} ->
         # Allow database access for the supervisor and its children
         WandererApp.DataCase.allow_database_access(pid)
-        
+
         # Allow Mox access for the supervisor process if in test mode
         if Code.ensure_loaded?(Mox) do
           try do
             Mox.allow(Test.PubSubMock, self(), pid)
             Mox.allow(Test.DDRTMock, self(), pid)
           rescue
-            _ -> :ok  # Ignore errors in case Mox is in global mode
+            # Ignore errors in case Mox is in global mode
+            _ -> :ok
           end
         end
-        
+
         # Also get the actual map server pid and allow access
         case WandererApp.Map.Server.map_pid(map_id) do
           server_pid when is_pid(server_pid) ->
             WandererApp.DataCase.allow_database_access(server_pid)
-            
+
             # Allow Mox access for the map server process if in test mode
             if Code.ensure_loaded?(Mox) do
               try do
                 Mox.allow(Test.PubSubMock, self(), server_pid)
                 Mox.allow(Test.DDRTMock, self(), server_pid)
               rescue
-                _ -> :ok  # Ignore errors in case Mox is in global mode
+                # Ignore errors in case Mox is in global mode
+                _ -> :ok
               end
             end
-          _ -> :ok
+
+          _ ->
+            :ok
         end
+
         {:ok, pid}
 
       {:error, {:already_started, pid}} ->

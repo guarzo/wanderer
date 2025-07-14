@@ -35,13 +35,13 @@ defmodule WandererApp.DataCase do
 
   setup tags do
     WandererApp.DataCase.setup_sandbox(tags)
-    
+
     # Ensure Mox is in global mode for each test
     # This prevents tests that set private mode from affecting other tests
     if Code.ensure_loaded?(Mox) do
       Mox.set_mox_global()
     end
-    
+
     :ok
   end
 
@@ -56,10 +56,10 @@ defmodule WandererApp.DataCase do
 
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(WandererApp.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
-    
+
     # Store the sandbox owner pid for allowing background processes
     Process.put(:sandbox_owner_pid, pid)
-    
+
     # Allow critical system processes to access the database
     allow_system_processes_database_access()
   end
@@ -70,6 +70,7 @@ defmodule WandererApp.DataCase do
   """
   def allow_database_access(pid) when is_pid(pid) do
     owner_pid = Process.get(:sandbox_owner_pid)
+
     if owner_pid do
       Ecto.Adapters.SQL.Sandbox.allow(WandererApp.Repo, owner_pid, pid)
     end
@@ -92,6 +93,7 @@ defmodule WandererApp.DataCase do
       case GenServer.whereis(process_name) do
         pid when is_pid(pid) ->
           allow_database_access(pid)
+
         _ ->
           :ok
       end

@@ -354,6 +354,7 @@ defmodule WandererAppWeb.MapConnectionAPIController do
 
       {:error, "Connection not found"} ->
         {:error, :not_found}
+
       _ ->
         {:error, :invalid_id}
     end
@@ -456,7 +457,14 @@ defmodule WandererAppWeb.MapConnectionAPIController do
   )
 
   def update(%{assigns: %{map_id: map_id}} = conn, %{"id" => id}) do
-    allowed_fields = ["mass_status", "ship_size_type", "time_status", "locked", "custom_info", "type"]
+    allowed_fields = [
+      "mass_status",
+      "ship_size_type",
+      "time_status",
+      "locked",
+      "custom_info",
+      "type"
+    ]
 
     attrs =
       conn.body_params
@@ -471,7 +479,14 @@ defmodule WandererAppWeb.MapConnectionAPIController do
         "solar_system_source" => src,
         "solar_system_target" => tgt
       }) do
-    allowed_fields = ["mass_status", "ship_size_type", "time_status", "locked", "custom_info", "type"]
+    allowed_fields = [
+      "mass_status",
+      "ship_size_type",
+      "time_status",
+      "locked",
+      "custom_info",
+      "type"
+    ]
 
     attrs =
       conn.body_params

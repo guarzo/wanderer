@@ -11,58 +11,77 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
     setup do
       user = insert(:user)
       character = insert(:character, %{user_id: user.id})
-      source_map = insert(:map, %{
-        owner_id: character.id,
-        name: "Original Test Map",
-        description: "A detailed exploration map with systems and connections"
-      })
-      
-      # Create some systems and connections for the source map
-      system1 = insert(:map_system, %{
-        map_id: source_map.id,
-        solar_system_id: 30000142,
-        name: "Jita",
-        position_x: 100,
-        position_y: 200,
-        status: 1
-      })
-      
-      system2 = insert(:map_system, %{
-        map_id: source_map.id, 
-        solar_system_id: 30000144,
-        name: "Amarr",
-        position_x: 300,
-        position_y: 400,
-        status: 0
-      })
 
-      _connection = insert(:map_connection, %{
-        map_id: source_map.id,
-        solar_system_source: system1.solar_system_id,
-        solar_system_target: system2.solar_system_id,
-        type: 1
-      })
+      source_map =
+        insert(:map, %{
+          owner_id: character.id,
+          name: "Original Test Map",
+          description: "A detailed exploration map with systems and connections"
+        })
+
+      # Create some systems and connections for the source map
+      system1 =
+        insert(:map_system, %{
+          map_id: source_map.id,
+          solar_system_id: 30_000_142,
+          name: "Jita",
+          position_x: 100,
+          position_y: 200,
+          status: 1
+        })
+
+      system2 =
+        insert(:map_system, %{
+          map_id: source_map.id,
+          solar_system_id: 30_000_144,
+          name: "Amarr",
+          position_x: 300,
+          position_y: 400,
+          status: 0
+        })
+
+      _connection =
+        insert(:map_connection, %{
+          map_id: source_map.id,
+          solar_system_source: system1.solar_system_id,
+          solar_system_target: system2.solar_system_id,
+          type: 1
+        })
 
       # Create some signatures
-      _signature = insert(:map_system_signature, %{
-        system_id: system1.id,
-        eve_id: "ABC-123",
-        name: "Test Wormhole",
-        type: "wormhole"
-      })
-      
-      conn = 
+      _signature =
+        insert(:map_system_signature, %{
+          system_id: system1.id,
+          eve_id: "ABC-123",
+          name: "Test Wormhole",
+          type: "wormhole"
+        })
+
+      conn =
         build_conn()
-        |> put_req_header("authorization", "Bearer #{source_map.public_api_key || "test-api-key"}")
+        |> put_req_header(
+          "authorization",
+          "Bearer #{source_map.public_api_key || "test-api-key"}"
+        )
         |> put_req_header("content-type", "application/json")
         |> assign(:current_character, character)
         |> assign(:current_user, user)
         |> assign(:map, source_map)
-      
-      %{conn: conn, user: user, character: character, source_map: source_map, system1: system1, system2: system2}
+
+      %{
+        conn: conn,
+        user: user,
+        character: character,
+        source_map: source_map,
+        system1: system1,
+        system2: system2
+      }
     end
 
-    test "successfully duplicates a map with all systems and connections", %{conn: conn, source_map: source_map} do
+    test "successfully duplicates a map with all systems and connections", %{
+      conn: conn,
+      source_map: source_map
+    } do
       duplication_params = %{
         "name" => "Duplicated Map",
         "description" => "A perfect copy of the original exploration map",
@@ -74,12 +93,12 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       conn = post(conn, ~p"/api/maps/#{source_map.slug}/duplicate", duplication_params)
 
       assert %{
-        "data" => %{
-          "id" => new_id,
-          "name" => "Duplicated Map",
-          "description" => "A perfect copy of the original exploration map"
-        }
-      } = json_response(conn, 201)
+               "data" => %{
+                 "id" => new_id,
+                 "name" => "Duplicated Map",
+                 "description" => "A perfect copy of the original exploration map"
+               }
+             } = json_response(conn, 201)
 
       assert new_id != source_map.id
 
@@ -88,7 +107,10 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       assert duplicated_map.name == "Duplicated Map"
     end
 
-    test "successfully duplicates with minimal parameters using defaults", %{conn: conn, source_map: source_map} do
+    test "successfully duplicates with minimal parameters using defaults", %{
+      conn: conn,
+      source_map: source_map
+    } do
       minimal_params = %{
         "name" => "Simple Copy"
       }
@@ -96,11 +118,11 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       conn = post(conn, ~p"/api/maps/#{source_map.id}/duplicate", minimal_params)
 
       assert %{
-        "data" => %{
-          "id" => new_id,
-          "name" => "Simple Copy"
-        }
-      } = json_response(conn, 201)
+               "data" => %{
+                 "id" => new_id,
+                 "name" => "Simple Copy"
+               }
+             } = json_response(conn, 201)
 
       assert new_id != source_map.id
 
@@ -109,7 +131,10 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       assert duplicated_map.name == "Simple Copy"
     end
 
-    test "successfully duplicates using map slug instead of ID", %{conn: conn, source_map: source_map} do
+    test "successfully duplicates using map slug instead of ID", %{
+      conn: conn,
+      source_map: source_map
+    } do
       params = %{
         "name" => "Slug-based Copy",
         "description" => "Duplicated using slug identifier"
@@ -118,17 +143,20 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       conn = post(conn, ~p"/api/maps/#{source_map.slug}/duplicate", params)
 
       assert %{
-        "data" => %{
-          "id" => new_id,
-          "name" => "Slug-based Copy",
-          "description" => "Duplicated using slug identifier"
-        }
-      } = json_response(conn, 201)
+               "data" => %{
+                 "id" => new_id,
+                 "name" => "Slug-based Copy",
+                 "description" => "Duplicated using slug identifier"
+               }
+             } = json_response(conn, 201)
 
       assert new_id != source_map.id
     end
 
-    test "successfully duplicates with selective copying options", %{conn: conn, source_map: source_map} do
+    test "successfully duplicates with selective copying options", %{
+      conn: conn,
+      source_map: source_map
+    } do
       duplication_params = %{
         "name" => "Selective Copy",
         "copy_acls" => false,
@@ -139,11 +167,11 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       conn = post(conn, ~p"/api/maps/#{source_map.slug}/duplicate", duplication_params)
 
       assert %{
-        "data" => %{
-          "id" => new_id,
-          "name" => "Selective Copy"
-        }
-      } = json_response(conn, 201)
+               "data" => %{
+                 "id" => new_id,
+                 "name" => "Selective Copy"
+               }
+             } = json_response(conn, 201)
 
       assert new_id != source_map.id
     end
@@ -157,29 +185,30 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       conn = post(conn, ~p"/api/maps/#{source_map.slug}/duplicate", duplication_params)
 
       assert %{
-        "data" => %{
-          "id" => new_map_id
-        }
-      } = json_response(conn, 201)
+               "data" => %{
+                 "id" => new_map_id
+               }
+             } = json_response(conn, 201)
 
       # Check that the new map has systems
-      {:ok, new_systems} = WandererApp.Api.MapSystem
-                          |> Ash.Query.filter(map_id == ^new_map_id)
-                          |> Ash.read()
+      {:ok, new_systems} =
+        WandererApp.Api.MapSystem
+        |> Ash.Query.filter(map_id == ^new_map_id)
+        |> Ash.read()
 
       assert length(new_systems) >= 2
 
       # Find the copied Jita system
       jita_system = Enum.find(new_systems, &(&1.name == "Jita"))
       assert jita_system != nil
-      assert jita_system.solar_system_id == 30000142
+      assert jita_system.solar_system_id == 30_000_142
       assert jita_system.position_x == 100
       assert jita_system.status == 1
 
       # Find the copied Amarr system
       amarr_system = Enum.find(new_systems, &(&1.name == "Amarr"))
       assert amarr_system != nil
-      assert amarr_system.solar_system_id == 30000144
+      assert amarr_system.solar_system_id == 30_000_144
       assert amarr_system.position_x == 300.0
       assert amarr_system.status == 0
     end
@@ -192,23 +221,24 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       conn = post(conn, ~p"/api/maps/#{source_map.slug}/duplicate", duplication_params)
 
       assert %{
-        "data" => %{
-          "id" => new_map_id
-        }
-      } = json_response(conn, 201)
+               "data" => %{
+                 "id" => new_map_id
+               }
+             } = json_response(conn, 201)
 
       # Check that the new map has connections
-      {:ok, new_connections} = WandererApp.Api.MapConnection
-                              |> Ash.Query.filter(map_id == ^new_map_id)
-                              |> Ash.read()
+      {:ok, new_connections} =
+        WandererApp.Api.MapConnection
+        |> Ash.Query.filter(map_id == ^new_map_id)
+        |> Ash.read()
 
       assert length(new_connections) >= 1
 
       # Find the copied stargate connection
       stargate_connection = Enum.find(new_connections, &(&1.type == 1))
       assert stargate_connection != nil
-      assert stargate_connection.solar_system_source == 30000142
-      assert stargate_connection.solar_system_target == 30000144
+      assert stargate_connection.solar_system_source == 30_000_142
+      assert stargate_connection.solar_system_target == 30_000_144
     end
   end
 
@@ -217,25 +247,29 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       user = insert(:user)
       character = insert(:character, %{user_id: user.id})
       map = insert(:map, %{owner_id: character.id, public_api_key: "test-api-key"})
-      
-      conn = 
+
+      conn =
         build_conn()
         |> put_req_header("authorization", "Bearer test-api-key")
         |> put_req_header("content-type", "application/json")
         |> assign(:current_character, character)
         |> assign(:current_user, user)
-      
+
       %{conn: conn, user: user, character: character, map: map}
     end
 
-    test "fails with missing required name parameter", %{conn: conn, user: user, character: character} do
+    test "fails with missing required name parameter", %{
+      conn: conn,
+      user: user,
+      character: character
+    } do
       source_map = insert(:map, %{owner_id: character.id, public_api_key: "test-api-key"})
 
       invalid_params = %{
         "description" => "Missing name field"
       }
 
-      authenticated_conn = 
+      authenticated_conn =
         conn
         |> put_req_header("authorization", "Bearer #{source_map.public_api_key}")
         |> assign(:map, source_map)
@@ -243,8 +277,8 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
       conn = post(authenticated_conn, ~p"/api/maps/#{source_map.id}/duplicate", invalid_params)
 
       assert %{
-        "error" => error_message
-      } = json_response(conn, 400)
+               "error" => error_message
+             } = json_response(conn, 400)
 
       assert String.contains?(error_message, "Name is required")
     end
@@ -283,7 +317,7 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
         "copy_signatures" => "wrong"
       }
 
-      authenticated_conn = 
+      authenticated_conn =
         conn
         |> put_req_header("authorization", "Bearer #{source_map.public_api_key}")
         |> assign(:map, source_map)
@@ -297,12 +331,14 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
     test "handles very long map names", %{conn: conn, user: user, character: character} do
       source_map = insert(:map, %{owner_id: character.id, public_api_key: "test-api-key"})
 
-      long_name = String.duplicate("a", 300)  # Very long name
+      # Very long name
+      long_name = String.duplicate("a", 300)
+
       params = %{
         "name" => long_name
       }
 
-      authenticated_conn = 
+      authenticated_conn =
         conn
         |> put_req_header("authorization", "Bearer #{source_map.public_api_key}")
         |> assign(:map, source_map)
@@ -338,7 +374,7 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
         "name" => "Authorized Copy"
       }
 
-      conn = 
+      conn =
         build_conn()
         |> put_req_header("authorization", "Bearer #{source_map.public_api_key}")
         |> put_req_header("content-type", "application/json")
@@ -348,10 +384,10 @@ defmodule WandererAppWeb.MapDuplicationAPIControllerSuccessTest do
         |> post(~p"/api/maps/#{source_map.slug}/duplicate", params)
 
       assert %{
-        "data" => %{
-          "name" => "Authorized Copy"
-        }
-      } = json_response(conn, 201)
+               "data" => %{
+                 "name" => "Authorized Copy"
+               }
+             } = json_response(conn, 201)
     end
   end
 end

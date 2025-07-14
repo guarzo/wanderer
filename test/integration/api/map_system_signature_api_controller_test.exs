@@ -130,7 +130,6 @@ defmodule WandererAppWeb.MapSystemSignatureAPIControllerTest do
       end
     end
 
-
     test "handles signature creation with minimal required fields", %{conn: conn, map: map} do
       minimal_params = %{
         "system_id" => Ecto.UUID.generate(),

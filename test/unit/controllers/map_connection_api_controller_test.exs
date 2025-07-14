@@ -12,7 +12,7 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
     # Ensure we're in global mode and re-setup mocks
     Mox.set_mox_global()
     WandererApp.Test.Mocks.setup_additional_expectations()
-    
+
     :ok
   end
 
@@ -115,49 +115,53 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
     test "create connection with valid parameters" do
       # Set up CachedInfo mock stubs for the systems used in the test
       WandererApp.CachedInfo.Mock
-      |> stub(:get_system_static_info, fn 
+      |> stub(:get_system_static_info, fn
         30_000_142 ->
-          {:ok, %{
-            solar_system_id: 30_000_142,
-            region_id: 10000002,
-            constellation_id: 20000020,
-            solar_system_name: "Jita",
-            solar_system_name_lc: "jita",
-            constellation_name: "Kimotoro",
-            region_name: "The Forge",
-            system_class: 0,
-            security: "0.9",
-            type_description: "High Security",
-            class_title: "High Sec",
-            is_shattered: false,
-            effect_name: nil,
-            effect_power: nil,
-            statics: [],
-            wandering: [],
-            triglavian_invasion_status: nil,
-            sun_type_id: 45041
-          }}
+          {:ok,
+           %{
+             solar_system_id: 30_000_142,
+             region_id: 10_000_002,
+             constellation_id: 20_000_020,
+             solar_system_name: "Jita",
+             solar_system_name_lc: "jita",
+             constellation_name: "Kimotoro",
+             region_name: "The Forge",
+             system_class: 0,
+             security: "0.9",
+             type_description: "High Security",
+             class_title: "High Sec",
+             is_shattered: false,
+             effect_name: nil,
+             effect_power: nil,
+             statics: [],
+             wandering: [],
+             triglavian_invasion_status: nil,
+             sun_type_id: 45041
+           }}
+
         30_000_143 ->
-          {:ok, %{
-            solar_system_id: 30_000_143,
-            region_id: 10000043,
-            constellation_id: 20000304,
-            solar_system_name: "Amarr",
-            solar_system_name_lc: "amarr",
-            constellation_name: "Throne Worlds",
-            region_name: "Domain",
-            system_class: 0,
-            security: "0.9",
-            type_description: "High Security",
-            class_title: "High Sec",
-            is_shattered: false,
-            effect_name: nil,
-            effect_power: nil,
-            statics: [],
-            wandering: [],
-            triglavian_invasion_status: nil,
-            sun_type_id: 45041
-          }}
+          {:ok,
+           %{
+             solar_system_id: 30_000_143,
+             region_id: 10_000_043,
+             constellation_id: 20_000_304,
+             solar_system_name: "Amarr",
+             solar_system_name_lc: "amarr",
+             constellation_name: "Throne Worlds",
+             region_name: "Domain",
+             system_class: 0,
+             security: "0.9",
+             type_description: "High Security",
+             class_title: "High Sec",
+             is_shattered: false,
+             effect_name: nil,
+             effect_power: nil,
+             statics: [],
+             wandering: [],
+             triglavian_invasion_status: nil,
+             sun_type_id: 45041
+           }}
+
         _ ->
           {:error, :not_found}
       end)
@@ -172,15 +176,18 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
         "type" => 0
       }
 
-      result = 
+      result =
         try do
           MapConnectionAPIController.create(conn, params)
         catch
           "Map server not started" ->
             # In unit tests, map servers aren't started, so this is expected
-            build_conn() |> put_status(500) |> put_resp_content_type("application/json") |> resp(500, Jason.encode!(%{error: "Map server not started"}))
+            build_conn()
+            |> put_status(500)
+            |> put_resp_content_type("application/json")
+            |> resp(500, Jason.encode!(%{error: "Map server not started"}))
         end
-      
+
       assert %Plug.Conn{} = result
       # Response depends on underlying data or infrastructure setup
       assert result.status in [200, 201, 400, 500]
@@ -189,49 +196,53 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
     test "create connection handles various response types" do
       # Set up CachedInfo mock stubs for the systems used in the test
       WandererApp.CachedInfo.Mock
-      |> stub(:get_system_static_info, fn 
+      |> stub(:get_system_static_info, fn
         30_000_142 ->
-          {:ok, %{
-            solar_system_id: 30_000_142,
-            region_id: 10000002,
-            constellation_id: 20000020,
-            solar_system_name: "Jita",
-            solar_system_name_lc: "jita",
-            constellation_name: "Kimotoro",
-            region_name: "The Forge",
-            system_class: 0,
-            security: "0.9",
-            type_description: "High Security",
-            class_title: "High Sec",
-            is_shattered: false,
-            effect_name: nil,
-            effect_power: nil,
-            statics: [],
-            wandering: [],
-            triglavian_invasion_status: nil,
-            sun_type_id: 45041
-          }}
+          {:ok,
+           %{
+             solar_system_id: 30_000_142,
+             region_id: 10_000_002,
+             constellation_id: 20_000_020,
+             solar_system_name: "Jita",
+             solar_system_name_lc: "jita",
+             constellation_name: "Kimotoro",
+             region_name: "The Forge",
+             system_class: 0,
+             security: "0.9",
+             type_description: "High Security",
+             class_title: "High Sec",
+             is_shattered: false,
+             effect_name: nil,
+             effect_power: nil,
+             statics: [],
+             wandering: [],
+             triglavian_invasion_status: nil,
+             sun_type_id: 45041
+           }}
+
         30_000_143 ->
-          {:ok, %{
-            solar_system_id: 30_000_143,
-            region_id: 10000043,
-            constellation_id: 20000304,
-            solar_system_name: "Amarr",
-            solar_system_name_lc: "amarr",
-            constellation_name: "Throne Worlds",
-            region_name: "Domain",
-            system_class: 0,
-            security: "0.9",
-            type_description: "High Security",
-            class_title: "High Sec",
-            is_shattered: false,
-            effect_name: nil,
-            effect_power: nil,
-            statics: [],
-            wandering: [],
-            triglavian_invasion_status: nil,
-            sun_type_id: 45041
-          }}
+          {:ok,
+           %{
+             solar_system_id: 30_000_143,
+             region_id: 10_000_043,
+             constellation_id: 20_000_304,
+             solar_system_name: "Amarr",
+             solar_system_name_lc: "amarr",
+             constellation_name: "Throne Worlds",
+             region_name: "Domain",
+             system_class: 0,
+             security: "0.9",
+             type_description: "High Security",
+             class_title: "High Sec",
+             is_shattered: false,
+             effect_name: nil,
+             effect_power: nil,
+             statics: [],
+             wandering: [],
+             triglavian_invasion_status: nil,
+             sun_type_id: 45041
+           }}
+
         _ ->
           {:error, :not_found}
       end)
@@ -245,15 +256,18 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
         "solar_system_target" => 30_000_143
       }
 
-      result = 
+      result =
         try do
           MapConnectionAPIController.create(conn, params)
         catch
           "Map server not started" ->
             # In unit tests, map servers aren't started, so this is expected
-            build_conn() |> put_status(500) |> put_resp_content_type("application/json") |> resp(500, Jason.encode!(%{error: "Map server not started"}))
+            build_conn()
+            |> put_status(500)
+            |> put_resp_content_type("application/json")
+            |> resp(500, Jason.encode!(%{error: "Map server not started"}))
         end
-      
+
       assert %Plug.Conn{} = result
     end
 
@@ -656,49 +670,53 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
     test "create returns proper response formats" do
       # Set up CachedInfo mock stubs for the systems used in the test
       WandererApp.CachedInfo.Mock
-      |> stub(:get_system_static_info, fn 
+      |> stub(:get_system_static_info, fn
         30_000_142 ->
-          {:ok, %{
-            solar_system_id: 30_000_142,
-            region_id: 10000002,
-            constellation_id: 20000020,
-            solar_system_name: "Jita",
-            solar_system_name_lc: "jita",
-            constellation_name: "Kimotoro",
-            region_name: "The Forge",
-            system_class: 0,
-            security: "0.9",
-            type_description: "High Security",
-            class_title: "High Sec",
-            is_shattered: false,
-            effect_name: nil,
-            effect_power: nil,
-            statics: [],
-            wandering: [],
-            triglavian_invasion_status: nil,
-            sun_type_id: 45041
-          }}
+          {:ok,
+           %{
+             solar_system_id: 30_000_142,
+             region_id: 10_000_002,
+             constellation_id: 20_000_020,
+             solar_system_name: "Jita",
+             solar_system_name_lc: "jita",
+             constellation_name: "Kimotoro",
+             region_name: "The Forge",
+             system_class: 0,
+             security: "0.9",
+             type_description: "High Security",
+             class_title: "High Sec",
+             is_shattered: false,
+             effect_name: nil,
+             effect_power: nil,
+             statics: [],
+             wandering: [],
+             triglavian_invasion_status: nil,
+             sun_type_id: 45041
+           }}
+
         30_000_143 ->
-          {:ok, %{
-            solar_system_id: 30_000_143,
-            region_id: 10000043,
-            constellation_id: 20000304,
-            solar_system_name: "Amarr",
-            solar_system_name_lc: "amarr",
-            constellation_name: "Throne Worlds",
-            region_name: "Domain",
-            system_class: 0,
-            security: "0.9",
-            type_description: "High Security",
-            class_title: "High Sec",
-            is_shattered: false,
-            effect_name: nil,
-            effect_power: nil,
-            statics: [],
-            wandering: [],
-            triglavian_invasion_status: nil,
-            sun_type_id: 45041
-          }}
+          {:ok,
+           %{
+             solar_system_id: 30_000_143,
+             region_id: 10_000_043,
+             constellation_id: 20_000_304,
+             solar_system_name: "Amarr",
+             solar_system_name_lc: "amarr",
+             constellation_name: "Throne Worlds",
+             region_name: "Domain",
+             system_class: 0,
+             security: "0.9",
+             type_description: "High Security",
+             class_title: "High Sec",
+             is_shattered: false,
+             effect_name: nil,
+             effect_power: nil,
+             statics: [],
+             wandering: [],
+             triglavian_invasion_status: nil,
+             sun_type_id: 45041
+           }}
+
         _ ->
           {:error, :not_found}
       end)
@@ -712,13 +730,16 @@ defmodule WandererAppWeb.MapConnectionAPIControllerTest do
         "solar_system_target" => 30_000_143
       }
 
-      result = 
+      result =
         try do
           MapConnectionAPIController.create(conn, params)
         catch
           "Map server not started" ->
             # In unit tests, map servers aren't started, so this is expected
-            build_conn() |> put_status(500) |> put_resp_content_type("application/json") |> resp(500, Jason.encode!(%{error: "Map server not started"}))
+            build_conn()
+            |> put_status(500)
+            |> put_resp_content_type("application/json")
+            |> resp(500, Jason.encode!(%{error: "Map server not started"}))
         end
 
       case result do
