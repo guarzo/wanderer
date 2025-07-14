@@ -6,6 +6,7 @@ defmodule WandererAppWeb.MapWebhooksAPIController do
   alias WandererAppWeb.Schemas.{ApiSchemas, ResponseSchemas}
 
   require Logger
+  import Ash.Query
 
   # -----------------------------------------------------------------
   # Schema Definitions
@@ -301,7 +302,11 @@ defmodule WandererAppWeb.MapWebhooksAPIController do
 
   def index(conn, %{"map_identifier" => map_identifier}) do
     with {:ok, map} <- get_map(conn, map_identifier) do
-      webhooks = MapWebhookSubscription.by_map!(map.id)
+      webhooks =
+        MapWebhookSubscription
+        |> for_read(:by_map)
+        |> set_arguments(%{map_id: map.id})
+        |> Ash.read!()
 
       json_webhooks = Enum.map(webhooks, &webhook_to_json/1)
       json(conn, %{data: json_webhooks})
@@ -365,7 +370,13 @@ defmodule WandererAppWeb.MapWebhooksAPIController do
           |> json(%{data: webhook_to_json(webhook)})
 
         {:error, %Ash.Error.Invalid{errors: errors}} ->
-          error_messages = Enum.map(errors, & &1.message)
+          error_messages =
+            Enum.map(errors, fn error ->
+              case error do
+                %{message: message} when is_binary(message) -> message
+                _ -> inspect(error)
+              end
+            end)
 
           conn
           |> put_status(:bad_request)
@@ -407,7 +418,13 @@ defmodule WandererAppWeb.MapWebhooksAPIController do
           json(conn, %{data: webhook_to_json(updated_webhook)})
 
         {:error, %Ash.Error.Invalid{errors: errors}} ->
-          error_messages = Enum.map(errors, & &1.message)
+          error_messages =
+            Enum.map(errors, fn error ->
+              case error do
+                %{message: message} when is_binary(message) -> message
+                _ -> inspect(error)
+              end
+            end)
 
           conn
           |> put_status(:bad_request)
@@ -532,7 +549,17 @@ defmodule WandererAppWeb.MapWebhooksAPIController do
         nil ->
           {:error, :webhook_not_found}
 
-        webhook ->
+        {:ok, webhook} ->
+          if webhook.map_id == map_id do
+            {:ok, webhook}
+          else
+            {:error, :webhook_not_found}
+          end
+
+        {:error, _reason} ->
+          {:error, :webhook_not_found}
+
+        webhook when is_struct(webhook) ->
           if webhook.map_id == map_id do
             {:ok, webhook}
           else
