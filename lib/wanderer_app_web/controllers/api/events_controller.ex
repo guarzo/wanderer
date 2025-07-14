@@ -7,8 +7,11 @@ defmodule WandererAppWeb.Api.EventsController do
 
   use WandererAppWeb, :controller
 
+  import Ash.Query, only: [filter: 2, load: 2]
+
   alias WandererApp.ExternalEvents.{SseStreamManager, EventFilter, MapEventRelay}
   alias WandererApp.Api.Map, as: ApiMap
+  alias WandererApp.{MapSystemRepo, MapConnectionRepo}
   alias Plug.Crypto
 
   require Logger
@@ -84,6 +87,10 @@ defmodule WandererAppWeb.Api.EventsController do
             nil ->
               conn
 
+            "0" ->
+              # Special case: send current state snapshot instead of backfill
+              send_current_state_snapshot(conn, map_id, event_filter)
+
             last_event_id ->
               send_backfill_events(conn, map_id, last_event_id, event_filter)
           end
@@ -116,6 +123,127 @@ defmodule WandererAppWeb.Api.EventsController do
         conn
         |> put_status(:internal_server_error)
         |> send_resp(500, "Internal server error")
+    end
+  end
+
+  defp send_current_state_snapshot(conn, map_id, event_filter) do
+    Logger.debug(fn -> "Sending current state snapshot for map #{map_id}" end)
+
+    conn
+    |> maybe_send_current_systems(map_id, event_filter)
+    |> maybe_send_current_characters(map_id, event_filter)
+    |> maybe_send_current_connections(map_id, event_filter)
+  end
+
+  defp maybe_send_current_systems(conn, map_id, event_filter) do
+    if EventFilter.matches?("add_system", event_filter) do
+      case WandererApp.MapSystemRepo.get_visible_by_map(map_id) do
+        {:ok, systems} ->
+          Enum.reduce(systems, conn, fn system, acc_conn ->
+            event = %{
+              "id" => Ulid.generate(),
+              "type" => "add_system",
+              "map_id" => map_id,
+              "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+              "payload" => %{
+                "id" => system.id,
+                "solar_system_id" => system.solar_system_id,
+                "name" => system.name,
+                "position_x" => system.position_x,
+                "position_y" => system.position_y,
+                "visible" => system.visible,
+                "locked" => system.locked
+              }
+            }
+
+            send_event(acc_conn, event)
+          end)
+
+        {:error, reason} ->
+          Logger.error("Failed to get systems for current state: #{inspect(reason)}")
+          conn
+      end
+    else
+      conn
+    end
+  end
+
+  defp maybe_send_current_characters(conn, map_id, event_filter) do
+    if EventFilter.matches?("character_added", event_filter) do
+      # Get tracked characters for this map
+      query =
+        WandererApp.Api.MapCharacterSettings
+        |> Ash.Query.filter(map_id == ^map_id and tracked == true)
+        |> Ash.Query.load(:character)
+
+      case WandererApp.Api.read(query) do
+        {:ok, settings} ->
+          Enum.reduce(settings, conn, fn setting, acc_conn ->
+            if Ash.Resource.loaded?(setting, :character) and not is_nil(setting.character) do
+              character = setting.character
+
+              event = %{
+                "id" => Ulid.generate(),
+                "type" => "character_added",
+                "map_id" => map_id,
+                "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+                "payload" => %{
+                  "id" => character.id,
+                  "character_id" => character.character_id,
+                  "character_eve_id" => character.character_eve_id,
+                  "name" => character.name,
+                  "corporation_id" => character.corporation_id,
+                  "alliance_id" => character.alliance_id,
+                  "ship_type_id" => character.ship_type_id,
+                  "online" => character.online
+                }
+              }
+
+              send_event(acc_conn, event)
+            else
+              acc_conn
+            end
+          end)
+
+        {:error, reason} ->
+          Logger.error("Failed to get characters for current state: #{inspect(reason)}")
+          conn
+      end
+    else
+      conn
+    end
+  end
+
+  defp maybe_send_current_connections(conn, map_id, event_filter) do
+    if EventFilter.matches?("connection_added", event_filter) do
+      case WandererApp.MapConnectionRepo.get_by_map(map_id) do
+        {:ok, connections} ->
+          Enum.reduce(connections, conn, fn connection, acc_conn ->
+            event = %{
+              "id" => Ulid.generate(),
+              "type" => "connection_added",
+              "map_id" => map_id,
+              "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+              "payload" => %{
+                "id" => connection.id,
+                "source_id" => connection.solar_system_source,
+                "target_id" => connection.solar_system_target,
+                "connection_type" => connection.connection_type,
+                "time_status" => connection.time_status,
+                "mass_status" => connection.mass_status,
+                "ship_size" => connection.ship_size_type
+              }
+            }
+
+            send_event(acc_conn, event)
+          end)
+
+        {:error, reason} ->
+          Logger.error("Failed to get connections for current state: #{inspect(reason)}")
+          conn
+      end
+    else
+      conn
     end
   end
 
