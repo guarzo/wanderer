@@ -193,7 +193,14 @@ defmodule WandererAppWeb.MapEventsAPIController do
   end
 
   defp parse_since_param(%{"since" => since_str}) when is_binary(since_str) do
-    case DateTime.from_iso8601(since_str) do
+    # Handle URL decoding issues where + might be converted to space
+    normalized_since =
+      since_str
+      |> String.trim()
+      # Convert spaces back to + for timezone offset
+      |> String.replace(" ", "+")
+
+    case DateTime.from_iso8601(normalized_since) do
       {:ok, datetime, _offset} -> {:ok, datetime}
       {:error, _} -> {:error, :invalid_since}
     end

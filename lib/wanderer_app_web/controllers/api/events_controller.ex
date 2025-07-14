@@ -1,28 +1,31 @@
 defmodule WandererAppWeb.Api.EventsController do
   @moduledoc """
   Controller for Server-Sent Events (SSE) streaming.
-  
+
   Provides real-time event streaming for map updates to external clients.
   """
-  
+
   use WandererAppWeb, :controller
-  
+
+  import Ash.Query, only: [filter: 2, load: 2]
+
   alias WandererApp.ExternalEvents.{SseStreamManager, EventFilter, MapEventRelay}
   alias WandererApp.Api.Map, as: ApiMap
+  alias WandererApp.{MapSystemRepo, MapConnectionRepo}
   alias Plug.Crypto
-  
+
   require Logger
-  
+
   @doc """
   Establishes an SSE connection for streaming map events.
-  
+
   Query parameters:
   - events: Comma-separated list of event types to filter (optional)
   - last_event_id: ULID of last received event for backfill (optional)
   """
   def stream(conn, %{"map_identifier" => map_identifier} = params) do
     Logger.info("SSE stream requested for map #{map_identifier}")
-    
+
     # Check if SSE is enabled
     unless WandererApp.Env.sse_enabled?() do
       conn
@@ -30,12 +33,12 @@ defmodule WandererAppWeb.Api.EventsController do
       |> put_resp_content_type("text/plain")
       |> send_resp(503, "Server-Sent Events are disabled on this server")
     else
-    
+
     # Validate API key and get map
     case validate_api_key(conn, map_identifier) do
       {:ok, map, api_key} ->
         establish_sse_connection(conn, map.id, api_key, params)
-        
+
       {:error, status, message} ->
         conn
         |> put_status(status)
@@ -43,21 +46,21 @@ defmodule WandererAppWeb.Api.EventsController do
     end
     end
   end
-  
+
   defp establish_sse_connection(conn, map_id, api_key, params) do
     # Parse event filter if provided
-    event_filter = 
+    event_filter =
       case Map.get(params, "events") do
         nil -> :all
         events -> EventFilter.parse(events)
       end
-    
+
     # Log full SSE subscription details
     Logger.info("SSE client subscription - map: #{map_id}, api_key: #{String.slice(api_key, 0..7)}..., events_param: #{inspect(Map.get(params, "events"))}, parsed_filter: #{inspect(event_filter)}, all_params: #{inspect(params)}")
-    
+
     # Send SSE headers
     conn = send_headers(conn)
-    
+
     # Track the connection
     Logger.info("SSE registering client with SseStreamManager: pid=#{inspect(self())}, map_id=#{map_id}")
     case SseStreamManager.add_client(map_id, api_key, self(), event_filter) do
@@ -72,23 +75,27 @@ defmodule WandererAppWeb.Api.EventsController do
             server_time: DateTime.utc_now() |> DateTime.to_iso8601()
           }
         })
-        
+
         # Handle backfill if last_event_id is provided
-        conn = 
+        conn =
           case Map.get(params, "last_event_id") do
-            nil -> 
+            nil ->
               conn
-              
+
+            "0" ->
+              # Special case: send current state snapshot instead of backfill
+              send_current_state_snapshot(conn, map_id, event_filter)
+
             last_event_id ->
               send_backfill_events(conn, map_id, last_event_id, event_filter)
           end
-        
+
         # Subscribe to map events
         Phoenix.PubSub.subscribe(WandererApp.PubSub, "external_events:map:#{map_id}")
-        
+
         # Start streaming loop
         stream_events(conn, map_id, api_key, event_filter)
-        
+
       {:error, :map_limit_exceeded} ->
         conn
         |> put_status(:too_many_requests)
@@ -96,7 +103,7 @@ defmodule WandererAppWeb.Api.EventsController do
           error: "Too many connections to this map",
           code: "MAP_CONNECTION_LIMIT"
         })
-        
+
       {:error, :api_key_limit_exceeded} ->
         conn
         |> put_status(:too_many_requests)
@@ -104,7 +111,7 @@ defmodule WandererAppWeb.Api.EventsController do
           error: "Too many connections for this API key",
           code: "API_KEY_CONNECTION_LIMIT"
         })
-        
+
       {:error, reason} ->
         Logger.error("Failed to add SSE client: #{inspect(reason)}")
         conn
@@ -112,7 +119,128 @@ defmodule WandererAppWeb.Api.EventsController do
         |> send_resp(500, "Internal server error")
     end
   end
-  
+
+  defp send_current_state_snapshot(conn, map_id, event_filter) do
+    Logger.debug(fn -> "Sending current state snapshot for map #{map_id}" end)
+
+    conn
+    |> maybe_send_current_systems(map_id, event_filter)
+    |> maybe_send_current_characters(map_id, event_filter)
+    |> maybe_send_current_connections(map_id, event_filter)
+  end
+
+  defp maybe_send_current_systems(conn, map_id, event_filter) do
+    if EventFilter.matches?("add_system", event_filter) do
+      case WandererApp.MapSystemRepo.get_visible_by_map(map_id) do
+        {:ok, systems} ->
+          Enum.reduce(systems, conn, fn system, acc_conn ->
+            event = %{
+              "id" => Ulid.generate(),
+              "type" => "add_system",
+              "map_id" => map_id,
+              "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+              "payload" => %{
+                "id" => system.id,
+                "solar_system_id" => system.solar_system_id,
+                "name" => system.name,
+                "position_x" => system.position_x,
+                "position_y" => system.position_y,
+                "visible" => system.visible,
+                "locked" => system.locked
+              }
+            }
+
+            send_event(acc_conn, event)
+          end)
+
+        {:error, reason} ->
+          Logger.error("Failed to get systems for current state: #{inspect(reason)}")
+          conn
+      end
+    else
+      conn
+    end
+  end
+
+  defp maybe_send_current_characters(conn, map_id, event_filter) do
+    if EventFilter.matches?("character_added", event_filter) do
+      # Get tracked characters for this map
+      query =
+        WandererApp.Api.MapCharacterSettings
+        |> Ash.Query.filter(map_id == ^map_id and tracked == true)
+        |> Ash.Query.load(:character)
+
+      case WandererApp.Api.read(query) do
+        {:ok, settings} ->
+          Enum.reduce(settings, conn, fn setting, acc_conn ->
+            if Ash.Resource.loaded?(setting, :character) and not is_nil(setting.character) do
+              character = setting.character
+
+              event = %{
+                "id" => Ulid.generate(),
+                "type" => "character_added",
+                "map_id" => map_id,
+                "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+                "payload" => %{
+                  "id" => character.id,
+                  "character_id" => character.character_id,
+                  "character_eve_id" => character.character_eve_id,
+                  "name" => character.name,
+                  "corporation_id" => character.corporation_id,
+                  "alliance_id" => character.alliance_id,
+                  "ship_type_id" => character.ship_type_id,
+                  "online" => character.online
+                }
+              }
+
+              send_event(acc_conn, event)
+            else
+              acc_conn
+            end
+          end)
+
+        {:error, reason} ->
+          Logger.error("Failed to get characters for current state: #{inspect(reason)}")
+          conn
+      end
+    else
+      conn
+    end
+  end
+
+  defp maybe_send_current_connections(conn, map_id, event_filter) do
+    if EventFilter.matches?("connection_added", event_filter) do
+      case WandererApp.MapConnectionRepo.get_by_map(map_id) do
+        {:ok, connections} ->
+          Enum.reduce(connections, conn, fn connection, acc_conn ->
+            event = %{
+              "id" => Ulid.generate(),
+              "type" => "connection_added",
+              "map_id" => map_id,
+              "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+              "payload" => %{
+                "id" => connection.id,
+                "source_id" => connection.solar_system_source,
+                "target_id" => connection.solar_system_target,
+                "connection_type" => connection.connection_type,
+                "time_status" => connection.time_status,
+                "mass_status" => connection.mass_status,
+                "ship_size" => connection.ship_size_type
+              }
+            }
+
+            send_event(acc_conn, event)
+          end)
+
+        {:error, reason} ->
+          Logger.error("Failed to get connections for current state: #{inspect(reason)}")
+          conn
+      end
+    else
+      conn
+    end
+  end
+
   defp send_backfill_events(conn, map_id, last_event_id, event_filter) do
     case MapEventRelay.get_events_since_ulid(map_id, last_event_id) do
       {:ok, events} ->
@@ -130,25 +258,25 @@ defmodule WandererAppWeb.Api.EventsController do
             map when is_map(map) -> map
             _ -> nil
           end
-          
+
           if event && EventFilter.matches?(event["type"], event_filter) do
             send_event(acc_conn, event)
           else
             acc_conn
           end
         end)
-        
+
       {:error, reason} ->
         Logger.error("Failed to backfill events: #{inspect(reason)}")
         conn
     end
   end
-  
+
   defp stream_events(conn, map_id, api_key, event_filter) do
     receive do
       {:sse_event, event_json} ->
         Logger.info("SSE received sse_event message: #{inspect(String.slice(inspect(event_json), 0, 200))}...")
-        
+
         # Parse and check if event matches filter
         # Handle both JSON strings and already decoded events
         event = case event_json do
@@ -162,12 +290,12 @@ defmodule WandererAppWeb.Api.EventsController do
           map when is_map(map) -> map
           _ -> nil
         end
-        
-        conn = 
+
+        conn =
           if event do
             event_type = event["type"]
             Logger.info("SSE decoded event: type=#{event_type}, checking filter...")
-            
+
             if EventFilter.matches?(event_type, event_filter) do
               Logger.info("SSE event matches filter, sending to client: #{event_type}")
               send_event(conn, event)
@@ -179,23 +307,23 @@ defmodule WandererAppWeb.Api.EventsController do
             Logger.error("SSE could not parse event: #{inspect(event_json)}")
             conn
           end
-        
+
         # Continue streaming
         stream_events(conn, map_id, api_key, event_filter)
-        
+
       :keepalive ->
         Logger.info("SSE received keepalive message")
         # Send keepalive
         conn = send_keepalive(conn)
-        
+
         # Continue streaming
         stream_events(conn, map_id, api_key, event_filter)
-        
+
       other ->
         Logger.info("SSE received unknown message: #{inspect(other)}")
         # Unknown message, continue
         stream_events(conn, map_id, api_key, event_filter)
-        
+
     after
       30_000 ->
         Logger.info("SSE timeout after 30s, sending keepalive")
@@ -209,18 +337,18 @@ defmodule WandererAppWeb.Api.EventsController do
       Logger.info("SSE connection closed for map #{map_id}")
       SseStreamManager.remove_client(map_id, api_key, self())
       conn
-    
+
     error ->
       # Log unexpected errors before cleanup
       Logger.error("Unexpected error in SSE stream: #{inspect(error)}")
       SseStreamManager.remove_client(map_id, api_key, self())
       reraise error, __STACKTRACE__
   end
-  
+
   defp validate_api_key(conn, map_identifier) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          {:ok, map} <- resolve_map(map_identifier),
-         true <- is_binary(map.public_api_key) && 
+         true <- is_binary(map.public_api_key) &&
                  Crypto.secure_compare(map.public_api_key, token)
     do
       {:ok, map, token}
@@ -242,25 +370,25 @@ defmodule WandererAppWeb.Api.EventsController do
         {:error, :internal_server_error, "Unexpected error"}
     end
   end
-  
+
   defp resolve_map(identifier) do
     case ApiMap.by_id(identifier) do
       {:ok, map} ->
         {:ok, map}
-        
+
       _ ->
         case ApiMap.get_map_by_slug(identifier) do
           {:ok, map} ->
             {:ok, map}
-            
+
           _ ->
             {:error, :not_found}
         end
     end
   end
-  
+
   # SSE helper functions
-  
+
   defp send_headers(conn) do
     conn
     |> put_resp_content_type("text/event-stream")
@@ -270,24 +398,24 @@ defmodule WandererAppWeb.Api.EventsController do
     |> put_resp_header("access-control-allow-headers", "Cache-Control")
     |> send_chunked(200)
   end
-  
+
   defp send_event(conn, event) when is_map(event) do
     event_type = Map.get(event, "type", Map.get(event, :type, "unknown"))
     event_id = Map.get(event, "id", Map.get(event, :id, "unknown"))
     Logger.info("SSE sending event: type=#{event_type}, id=#{event_id}")
     sse_data = format_sse_event(event)
     Logger.info("SSE formatted data: #{inspect(String.slice(sse_data, 0, 200))}...")
-    
+
     case chunk(conn, sse_data) do
       {:ok, conn} ->
         Logger.info("SSE event sent successfully: type=#{event_type}")
         conn
-        
+
       {:error, :enotconn} ->
         Logger.info("SSE client disconnected while sending event")
         # Client disconnected, raise error to exit the stream loop
         raise Plug.Conn.WrapperError, conn: conn, kind: :error, reason: :enotconn, stack: []
-        
+
       {:error, reason} ->
         Logger.error("Failed to send SSE event: #{inspect(reason)}")
         # Return the connection as-is since we can't recover from chunk errors
@@ -295,16 +423,16 @@ defmodule WandererAppWeb.Api.EventsController do
         conn
     end
   end
-  
+
   defp send_keepalive(conn) do
     case chunk(conn, ": keepalive\n\n") do
       {:ok, conn} ->
         conn
-        
+
       {:error, :enotconn} ->
         # Client disconnected, raise error to exit the stream loop
         raise Plug.Conn.WrapperError, conn: conn, kind: :error, reason: :enotconn, stack: []
-        
+
       {:error, reason} ->
         Logger.error("Failed to send SSE keepalive: #{inspect(reason)}")
         # Return the connection as-is since we can't recover from chunk errors
@@ -312,38 +440,38 @@ defmodule WandererAppWeb.Api.EventsController do
         conn
     end
   end
-  
+
   defp format_sse_event(event) do
     data = []
-    
+
     # Add event type if present (check both string and atom keys)
-    data = 
+    data =
       case Map.get(event, "type") || Map.get(event, :event) do
         nil -> data
         event_type -> ["event: #{event_type}\n" | data]
       end
-    
+
     # Add ID if present (check both string and atom keys)
-    data = 
+    data =
       case Map.get(event, "id") || Map.get(event, :id) do
         nil -> data
         id -> ["id: #{id}\n" | data]
       end
-    
+
     # Add data (required) - use the entire event as data if no specific :data key
-    data = 
+    data =
       case Map.get(event, :data) do
-        nil -> 
+        nil ->
           # Use the entire event as JSON data
           json_data = Jason.encode!(event)
           ["data: #{json_data}\n" | data]
-        event_data when is_binary(event_data) -> 
+        event_data when is_binary(event_data) ->
           ["data: #{event_data}\n" | data]
-        event_data -> 
+        event_data ->
           json_data = Jason.encode!(event_data)
           ["data: #{json_data}\n" | data]
       end
-    
+
     # Reverse to get correct order and add final newline
     data
     |> Enum.reverse()
