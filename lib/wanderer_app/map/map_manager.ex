@@ -56,13 +56,16 @@ defmodule WandererApp.Map.Manager do
     {:ok, pings_cleanup_timer} =
       :timer.send_interval(@pings_cleanup_interval, :cleanup_pings)
 
-    try do
-      Task.async(fn ->
-        start_last_active_maps()
-      end)
-    rescue
-      e ->
-        Logger.error(Exception.message(e))
+    # Skip starting last active maps in test environment to avoid DB ownership issues
+    unless Application.get_env(:wanderer_app, :environment) == :test do
+      try do
+        Task.async(fn ->
+          start_last_active_maps()
+        end)
+      rescue
+        e ->
+          Logger.error(Exception.message(e))
+      end
     end
 
     {:ok,
@@ -85,9 +88,12 @@ defmodule WandererApp.Map.Manager do
     try do
       case not WandererApp.Queue.empty?(@maps_queue) do
         true ->
-          Task.async(fn ->
-            start_maps()
-          end)
+          # Skip starting maps in test environment to avoid DB ownership issues
+          unless Application.get_env(:wanderer_app, :environment) == :test do
+            Task.async(fn ->
+              start_maps()
+            end)
+          end
 
         _ ->
           :ok

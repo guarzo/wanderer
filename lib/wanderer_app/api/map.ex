@@ -151,7 +151,11 @@ defmodule WandererApp.Api.Map do
         
         case WandererApp.Api.Map.by_id(source_map_id) do
           {:ok, source_map} ->
+            # Use provided description or fall back to source map description
+            description = Ash.Changeset.get_attribute(changeset, :description) || source_map.description
+            
             changeset
+            |> Ash.Changeset.change_attribute(:description, description)
             |> Ash.Changeset.change_attribute(:scope, source_map.scope)
             |> Ash.Changeset.change_attribute(:only_tracked_characters, source_map.only_tracked_characters)
             |> Ash.Changeset.change_attribute(:owner_id, context.actor.id)

@@ -292,7 +292,7 @@ defmodule WandererAppWeb.Router do
   end
 
   scope "/api" do
-    pipe_through [:browser, :api, :api_spec]
+    pipe_through [:api_spec]
     get "/openapi", OpenApiSpex.Plug.RenderSpec, :show
   end
 
@@ -341,7 +341,7 @@ defmodule WandererAppWeb.Router do
   end
 
   scope "/swaggerui" do
-    pipe_through [:browser, :api, :api_spec]
+    pipe_through [:browser, :api_spec]
 
     get "/", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/openapi",

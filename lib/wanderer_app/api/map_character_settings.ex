@@ -45,7 +45,14 @@ defmodule WandererApp.Api.MapCharacterSettings do
     default_accept [
       :map_id,
       :character_id,
-      :tracked
+      :tracked,
+      :followed,
+      :solar_system_id,
+      :structure_id,
+      :station_id,
+      :ship,
+      :ship_name,
+      :ship_item_id
     ]
 
     defaults [:read, :destroy]

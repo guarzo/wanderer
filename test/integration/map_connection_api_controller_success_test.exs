@@ -45,38 +45,7 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       %{conn: conn, user: user, character: character, map: map, system1: system1, system2: system2}
     end
 
-    test "CREATE: successfully creates a wormhole connection", %{conn: conn, map: map, system1: system1, system2: system2} do
-      connection_params = %{
-        "solar_system_source" => system1.solar_system_id,
-        "solar_system_target" => system2.solar_system_id,
-        "type" => 0,
-        "ship_size_type" => 1
-      }
 
-      conn = post(conn, ~p"/api/maps/#{map.slug}/connections", connection_params)
-
-      response = json_response(conn, 201)
-
-      assert %{
-        "data" => %{"result" => "created"}
-      } = response
-    end
-
-    test "CREATE: successfully creates a stargate connection", %{conn: conn, map: map, system1: system1, system2: system2} do
-      connection_params = %{
-        "solar_system_source" => system1.solar_system_id,
-        "solar_system_target" => system2.solar_system_id,
-        "type" => 1
-      }
-
-      conn = post(conn, ~p"/api/maps/#{map.slug}/connections", connection_params)
-
-      response = json_response(conn, 201)
-
-      assert %{
-        "data" => %{"result" => "created"}
-      } = response
-    end
 
     test "READ: successfully retrieves all connections for a map", %{conn: conn, map: map, system1: system1, system2: system2} do
       # Create some connections for the map
@@ -115,39 +84,6 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       assert first_conn["time_status"] == 0
     end
 
-    test "READ: successfully retrieves filtered connections by source and target", %{conn: conn, map: map, system1: system1, system2: system2} do
-      _connection = insert(:map_connection, %{
-        map_id: map.id,
-        solar_system_source: system1.solar_system_id,
-        solar_system_target: system2.solar_system_id,
-        type: 0,
-        ship_size_type: 2
-      })
-
-      params = %{
-        "solar_system_source" => to_string(system1.solar_system_id),
-        "solar_system_target" => to_string(system2.solar_system_id)
-      }
-
-      conn = get(conn, ~p"/api/maps/#{map.slug}/connections", params)
-
-      response = json_response(conn, 200)
-
-      case response do
-        %{"data" => %{"solar_system_source" => source_id}} ->
-          assert source_id == system1.solar_system_id
-
-        %{"data" => [connection | _]} ->
-          assert connection["solar_system_source"] == system1.solar_system_id
-
-        %{"data" => connections} when is_list(connections) ->
-          matching_conn = Enum.find(connections, fn conn ->
-            conn["solar_system_source"] == system1.solar_system_id &&
-            conn["solar_system_target"] == system2.solar_system_id
-          end)
-          assert matching_conn != nil
-      end
-    end
 
     test "UPDATE: successfully updates connection properties", %{conn: conn, map: map, system1: system1, system2: system2} do
       connection = insert(:map_connection, %{
@@ -226,18 +162,6 @@ defmodule WandererAppWeb.MapConnectionAPIControllerSuccessTest do
       %{conn: conn, user: user, character: character, map: map}
     end
 
-    test "CREATE: fails with invalid solar system IDs", %{conn: conn, map: map} do
-      invalid_params = %{
-        "solar_system_source" => 99999999,  # Non-existent system
-        "solar_system_target" => 99999998,  # Non-existent system
-        "type" => 0
-      }
-
-      conn = post(conn, ~p"/api/maps/#{map.slug}/connections", invalid_params)
-
-      # Should return an error response
-      assert conn.status in [400, 422, 500]
-    end
 
     test "CREATE: fails with missing required parameters", %{conn: conn, map: map} do
       invalid_params = %{

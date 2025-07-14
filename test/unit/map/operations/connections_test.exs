@@ -8,8 +8,9 @@ defmodule WandererApp.Map.Operations.ConnectionsTest do
   setup :verify_on_exit!
 
   setup do
-    # Set Mox mode to allow this process to set expectations
-    Mox.set_mox_private()
+    # Ensure we're in global mode and re-setup mocks
+    Mox.set_mox_global()
+    WandererApp.Test.Mocks.setup_additional_expectations()
     
     # Set up CachedInfo mock stubs for the systems used in the tests
     WandererApp.CachedInfo.Mock

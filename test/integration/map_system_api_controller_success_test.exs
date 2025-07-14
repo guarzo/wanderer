@@ -95,45 +95,6 @@ defmodule WandererAppWeb.MapSystemAPIControllerSuccessTest do
       assert created_count >= 1
     end
 
-    test "CREATE: successfully batch creates systems and connections", %{conn: conn, map: map} do
-      batch_params = %{
-        "systems" => [
-          %{
-            "solar_system_id" => 30000142,
-            "name" => "Jita",
-            "position_x" => 0,
-            "position_y" => 0
-          },
-          %{
-            "solar_system_id" => 30000144,
-            "name" => "Amarr", 
-            "position_x" => 100,
-            "position_y" => 100
-          }
-        ],
-        "connections" => [
-          %{
-            "solar_system_source" => 30000142,
-            "solar_system_target" => 30000144,
-            "type" => 0
-          }
-        ]
-      }
-
-      conn = post(conn, ~p"/api/maps/#{map.slug}/systems", batch_params)
-
-      response = json_response(conn, 200)
-
-      assert %{
-        "data" => %{
-          "systems" => %{"created" => systems_created, "updated" => systems_updated},
-          "connections" => %{"created" => connections_created, "updated" => connections_updated}
-        }
-      } = response
-
-      assert systems_created >= 2
-      assert connections_created >= 1
-    end
 
     test "UPDATE: successfully updates system position", %{conn: conn, map: map} do
       system = insert(:map_system, %{

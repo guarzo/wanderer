@@ -1041,20 +1041,27 @@ defmodule WandererAppWeb.MapAPIController do
     end
   end
 
-  # Map duplication endpoint
   @doc """
+  POST /api/maps/{map_identifier}/duplicate
+  
   Duplicates a map with all its systems, connections, and optionally ACLs/characters.
   """
-  @operation_id "duplicate_map"
-  @operation_summary "Duplicate Map"
-  @operation_description "Creates a copy of an existing map including systems, connections, and optionally ACLs, user settings, and signatures"
-  @operation_tags ["Maps"]
-  @operation_parameters [
-    OpenApiSpex.Operation.parameter(:map_identifier, :path, :string, "Map ID or slug", required: true)
-  ]
-  @operation_request_body %{
-    "application/json" => %OpenApiSpex.MediaType{
-      schema: %OpenApiSpex.Schema{
+  operation(:duplicate_map,
+    summary: "Duplicate Map", 
+    description: "Creates a copy of an existing map including systems, connections, and optionally ACLs, user settings, and signatures",
+    parameters: [
+      map_identifier: [
+        in: :path,
+        description: "Map identifier (UUID or slug). Provide either a UUID or a slug.",
+        type: :string,
+        required: true,
+        example: "my-map-slug"
+      ]
+    ],
+    request_body: {
+      "Map duplication parameters",
+      "application/json",
+      %OpenApiSpex.Schema{
         type: :object,
         properties: %{
           name: %OpenApiSpex.Schema{type: :string, minLength: 3, maxLength: 20, description: "Name for the duplicated map"},
@@ -1065,23 +1072,33 @@ defmodule WandererAppWeb.MapAPIController do
         },
         required: [:name]
       }
-    }
-  }
-  @operation_responses %{
-    200 => OpenApiSpex.Operation.response("Map duplicated successfully", "application/json", %OpenApiSpex.Schema{
-      type: :object,
-      properties: %{
-        id: %OpenApiSpex.Schema{type: :string, description: "ID of the duplicated map"},
-        name: %OpenApiSpex.Schema{type: :string, description: "Name of the duplicated map"},
-        slug: %OpenApiSpex.Schema{type: :string, description: "Slug of the duplicated map"},
-        description: %OpenApiSpex.Schema{type: :string, description: "Description of the duplicated map"}
-      }
-    }),
-    400 => ResponseSchemas.bad_request(),
-    403 => ResponseSchemas.forbidden(),
-    404 => ResponseSchemas.not_found(),
-    500 => ResponseSchemas.internal_server_error("Duplication failed")
-  }
+    },
+    responses: [
+      created: {
+        "Map duplicated successfully",
+        "application/json",
+        %OpenApiSpex.Schema{
+          type: :object,
+          properties: %{
+            data: %OpenApiSpex.Schema{
+              type: :object,
+              properties: %{
+                id: %OpenApiSpex.Schema{type: :string, description: "ID of the duplicated map"},
+                name: %OpenApiSpex.Schema{type: :string, description: "Name of the duplicated map"},
+                slug: %OpenApiSpex.Schema{type: :string, description: "Slug of the duplicated map"},
+                description: %OpenApiSpex.Schema{type: :string, description: "Description of the duplicated map"}
+              }
+            }
+          }
+        }
+      },
+      bad_request: ResponseSchemas.bad_request(),
+      forbidden: ResponseSchemas.forbidden(),
+      not_found: ResponseSchemas.not_found(),
+      unprocessable_entity: ResponseSchemas.bad_request("Validation failed"),
+      internal_server_error: ResponseSchemas.internal_server_error("Duplication failed")
+    ]
+  )
   def duplicate_map(conn, %{"map_identifier" => map_identifier} = params) do
     with {:ok, source_map} <- resolve_map_identifier(map_identifier),
          :ok <- check_map_owner(conn, source_map),

@@ -81,6 +81,11 @@ defmodule WandererApp.Map.Server.Impl do
     end
   end
 
+  def start_map(%__MODULE__{map: nil} = state) do
+    Logger.error("Cannot start map server: map not loaded")
+    state
+  end
+
   def start_map(%__MODULE__{map: map, map_id: map_id} = state) do
     with :ok <- AclsImpl.track_acls(map.acls |> Enum.map(& &1.id)) do
       @pubsub_client.subscribe(
@@ -128,7 +133,6 @@ defmodule WandererApp.Map.Server.Impl do
 
   def get_map(%{map: map} = _state), do: {:ok, map}
 
-  defdelegate get_characters(state), to: CharactersImpl
 
   defdelegate add_character(state, character, track_character), to: CharactersImpl
 
