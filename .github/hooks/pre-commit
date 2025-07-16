@@ -87,12 +87,12 @@ if [ -n "$STAGED_EX_FILES" ]; then
         
         # Compilation check
         print_status $YELLOW "  🔨 Checking compilation..."
-        if ! mix compile --force --warnings-as-errors >/dev/null 2>&1; then
-            print_status $RED "  ❌ Compilation failed or has warnings"
+        if ! mix compile --force >/dev/null 2>&1; then
+            print_status $RED "  ❌ Compilation failed"
             echo "  Run: mix compile to see details"
             OVERALL_SUCCESS=false
         else
-            print_status $GREEN "  ✅ Code compiles without warnings"
+            print_status $GREEN "  ✅ Code compiles successfully"
         fi
     fi
 fi

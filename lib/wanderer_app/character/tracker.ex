@@ -516,7 +516,7 @@ defmodule WandererApp.Character.Tracker do
                    access_token: access_token,
                    character_id: character_id
                  ) do
-              {:ok, ship} when is_non_struct_map(ship) ->
+              {:ok, ship} when is_map(ship) and not is_struct(ship) ->
                 character_state |> maybe_update_ship(ship)
 
                 :ok
@@ -687,7 +687,7 @@ defmodule WandererApp.Character.Tracker do
                    access_token: access_token,
                    character_id: character_id
                  ) do
-              {:ok, location} when is_non_struct_map(location) ->
+              {:ok, location} when is_map(location) and not is_struct(location) ->
                 character_state
                 |> maybe_update_location(location)
 
@@ -1081,7 +1081,7 @@ defmodule WandererApp.Character.Tracker do
            state,
          ship
        )
-       when is_non_struct_map(ship) do
+       when is_map(ship) and not is_struct(ship) do
     ship_type_id = Map.get(ship, "ship_type_id")
     ship_name = Map.get(ship, "ship_name")
 
