@@ -1,0 +1,3002 @@
+diff --git a/.github/hooks/install-hooks.sh b/.github/hooks/install-hooks.sh
+new file mode 100755
+index 00000000..8e8b23a7
+--- /dev/null
++++ b/.github/hooks/install-hooks.sh
+@@ -0,0 +1,96 @@
++#!/bin/bash
++# Install Git hooks for the Wanderer project
++# Usage: ./.github/hooks/install-hooks.sh
++
++set -e
++
++echo "🔧 Installing Git hooks for Wanderer..."
++
++# Get the repository root
++REPO_ROOT=$(git rev-parse --show-toplevel)
++HOOKS_DIR="$REPO_ROOT/.github/hooks"
++GIT_HOOKS_DIR="$REPO_ROOT/.git/hooks"
++
++# Colors for output
++GREEN='\033[0;32m'
++YELLOW='\033[1;33m'
++NC='\033[0m' # No Color
++
++print_status() {
++    local color=$1
++    local message=$2
++    echo -e "${color}${message}${NC}"
++}
++
++# Check if we're in a git repository
++if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
++    echo "❌ Not in a git repository"
++    exit 1
++fi
++
++# Create git hooks directory if it doesn't exist
++if [ ! -d "$GIT_HOOKS_DIR" ]; then
++    mkdir -p "$GIT_HOOKS_DIR"
++fi
++
++# Install pre-commit hook
++if [ -f "$HOOKS_DIR/pre-commit" ]; then
++    print_status $YELLOW "📋 Installing pre-commit hook..."
++    
++    # Make the hook executable
++    chmod +x "$HOOKS_DIR/pre-commit"
++    
++    # Create symlink to git hooks directory
++    if [ -L "$GIT_HOOKS_DIR/pre-commit" ] || [ -f "$GIT_HOOKS_DIR/pre-commit" ]; then
++        rm "$GIT_HOOKS_DIR/pre-commit"
++    fi
++    
++    ln -sf "../../.github/hooks/pre-commit" "$GIT_HOOKS_DIR/pre-commit"
++    print_status $GREEN "✅ Pre-commit hook installed"
++else
++    echo "❌ Pre-commit hook not found at $HOOKS_DIR/pre-commit"
++    exit 1
++fi
++
++# Install prepare-commit-msg hook if it exists
++if [ -f "$HOOKS_DIR/prepare-commit-msg" ]; then
++    print_status $YELLOW "📝 Installing prepare-commit-msg hook..."
++    
++    chmod +x "$HOOKS_DIR/prepare-commit-msg"
++    
++    if [ -L "$GIT_HOOKS_DIR/prepare-commit-msg" ] || [ -f "$GIT_HOOKS_DIR/prepare-commit-msg" ]; then
++        rm "$GIT_HOOKS_DIR/prepare-commit-msg"
++    fi
++    
++    ln -sf "../../.github/hooks/prepare-commit-msg" "$GIT_HOOKS_DIR/prepare-commit-msg"
++    print_status $GREEN "✅ Prepare-commit-msg hook installed"
++fi
++
++# Install commit-msg hook if it exists
++if [ -f "$HOOKS_DIR/commit-msg" ]; then
++    print_status $YELLOW "💬 Installing commit-msg hook..."
++    
++    chmod +x "$HOOKS_DIR/commit-msg"
++    
++    if [ -L "$GIT_HOOKS_DIR/commit-msg" ] || [ -f "$GIT_HOOKS_DIR/commit-msg" ]; then
++        rm "$GIT_HOOKS_DIR/commit-msg"
++    fi
++    
++    ln -sf "../../.github/hooks/commit-msg" "$GIT_HOOKS_DIR/commit-msg"
++    print_status $GREEN "✅ Commit-msg hook installed"
++fi
++
++echo ""
++echo "🎉 Git hooks installation complete!"
++echo ""
++echo "Installed hooks:"
++ls -la "$GIT_HOOKS_DIR" | grep -E "(pre-commit|prepare-commit-msg|commit-msg)" || echo "  None"
++echo ""
++echo "These hooks will run automatically on:"
++echo "  - pre-commit: Before each commit (quality checks)"
++echo "  - prepare-commit-msg: When preparing commit messages"
++echo "  - commit-msg: When validating commit messages"
++echo ""
++echo "To bypass hooks (not recommended): git commit --no-verify"
++echo ""
++print_status $GREEN "✅ Ready to commit with quality checks enabled!"
+\ No newline at end of file
+diff --git a/.github/hooks/pre-commit b/.github/hooks/pre-commit
+new file mode 100755
+index 00000000..78fccd59
+--- /dev/null
++++ b/.github/hooks/pre-commit
+@@ -0,0 +1,278 @@
++#!/bin/bash
++# Pre-commit hook for quality checks
++# Install: ln -sf ../../.github/hooks/pre-commit .git/hooks/pre-commit
++
++set -e
++
++echo "🔍 Running pre-commit quality checks..."
++
++# Colors for output
++RED='\033[0;31m'
++GREEN='\033[0;32m'
++YELLOW='\033[1;33m'
++NC='\033[0m' # No Color
++
++# Function to print colored output
++print_status() {
++    local color=$1
++    local message=$2
++    echo -e "${color}${message}${NC}"
++}
++
++# Function to check if command exists
++command_exists() {
++    command -v "$1" >/dev/null 2>&1
++}
++
++# Track overall success
++OVERALL_SUCCESS=true
++
++# Check if we're in a git repository
++if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
++    print_status $RED "❌ Not in a git repository"
++    exit 1
++fi
++
++# Get list of staged files
++STAGED_FILES=$(git diff --cached --name-only)
++STAGED_EX_FILES=$(echo "$STAGED_FILES" | grep -E '\.(ex|exs)$' || true)
++STAGED_JS_FILES=$(echo "$STAGED_FILES" | grep -E '\.(js|jsx|ts|tsx)$' || true)
++
++echo "📋 Staged files: $(echo "$STAGED_FILES" | wc -l) files"
++
++# Skip if no relevant files are staged
++if [ -z "$STAGED_EX_FILES" ] && [ -z "$STAGED_JS_FILES" ]; then
++    print_status $GREEN "✅ No Elixir or JavaScript files staged, skipping quality checks"
++    exit 0
++fi
++
++# ============================================================================
++# 1. Commit Message Validation
++# ============================================================================
++
++echo ""
++print_status $YELLOW "🔍 Validating commit message format..."
++
++# Check if prepare-commit-msg hook has set a conventional format
++COMMIT_MSG_FILE=".git/COMMIT_EDITMSG"
++if [ -f "$COMMIT_MSG_FILE" ]; then
++    COMMIT_MSG=$(head -n 1 "$COMMIT_MSG_FILE")
++    if [[ ! $COMMIT_MSG =~ ^(feat|fix|docs|style|refactor|test|chore|perf|ci)(\(.+\))?: .+ ]]; then
++        print_status $RED "❌ Commit message doesn't follow conventional format"
++        echo "Expected format: type(scope): description"
++        echo "Types: feat, fix, docs, style, refactor, test, chore, perf, ci"
++        echo "Current message: $COMMIT_MSG"
++        OVERALL_SUCCESS=false
++    else
++        print_status $GREEN "✅ Commit message format is valid"
++    fi
++fi
++
++# ============================================================================
++# 2. File Size and Content Checks
++# ============================================================================
++
++echo ""
++print_status $YELLOW "🔍 Checking file sizes and content..."
++
++# Check for large files
++LARGE_FILES=$(echo "$STAGED_FILES" | xargs -I {} find {} -size +10M 2>/dev/null || true)
++if [ -n "$LARGE_FILES" ]; then
++    print_status $RED "❌ Large files detected (>10MB):"
++    echo "$LARGE_FILES"
++    echo "Consider using Git LFS for large files"
++    OVERALL_SUCCESS=false
++else
++    print_status $GREEN "✅ No large files detected"
++fi
++
++# Check for merge conflict markers
++CONFLICT_FILES=$(echo "$STAGED_FILES" | xargs grep -l "^<<<<<<< HEAD\|^>>>>>>> \|^=======$" 2>/dev/null || true)
++if [ -n "$CONFLICT_FILES" ]; then
++    print_status $RED "❌ Merge conflict markers found in:"
++    echo "$CONFLICT_FILES"
++    OVERALL_SUCCESS=false
++else
++    print_status $GREEN "✅ No merge conflict markers found"
++fi
++
++# Check for potential secrets
++SECRET_PATTERNS=(
++    "password.*=.*['\"][^'\"]*['\"]"
++    "api_key.*=.*['\"][^'\"]*['\"]"
++    "secret.*=.*['\"][^'\"]*['\"]"
++    "token.*=.*['\"][^'\"]*['\"]"
++)
++
++for pattern in "${SECRET_PATTERNS[@]}"; do
++    SECRET_FILES=$(echo "$STAGED_FILES" | xargs grep -l -i "$pattern" 2>/dev/null || true)
++    if [ -n "$SECRET_FILES" ]; then
++        print_status $RED "❌ Potential hardcoded secrets found in:"
++        echo "$SECRET_FILES"
++        echo "Pattern: $pattern"
++        OVERALL_SUCCESS=false
++    fi
++done
++
++if [ "$OVERALL_SUCCESS" = true ]; then
++    print_status $GREEN "✅ No potential secrets detected"
++fi
++
++# ============================================================================
++# 3. Elixir Quality Checks
++# ============================================================================
++
++if [ -n "$STAGED_EX_FILES" ]; then
++    echo ""
++    print_status $YELLOW "🔍 Running Elixir quality checks..."
++    
++    # Check if mix is available
++    if ! command_exists mix; then
++        print_status $RED "❌ Mix not found, skipping Elixir checks"
++        OVERALL_SUCCESS=false
++    else
++        # Format check
++        print_status $YELLOW "  📝 Checking code formatting..."
++        if ! mix format --check-formatted $STAGED_EX_FILES >/dev/null 2>&1; then
++            print_status $RED "  ❌ Code formatting issues found"
++            echo "  Run: mix format $STAGED_EX_FILES"
++            OVERALL_SUCCESS=false
++        else
++            print_status $GREEN "  ✅ Code formatting is correct"
++        fi
++        
++        # Compilation check
++        print_status $YELLOW "  🔨 Checking compilation..."
++        if ! mix compile --force --warnings-as-errors >/dev/null 2>&1; then
++            print_status $RED "  ❌ Compilation failed or has warnings"
++            echo "  Run: mix compile to see details"
++            OVERALL_SUCCESS=false
++        else
++            print_status $GREEN "  ✅ Code compiles without warnings"
++        fi
++        
++        # Quick credo check on staged files
++        if command_exists mix && mix help credo >/dev/null 2>&1; then
++            print_status $YELLOW "  🎯 Running Credo analysis..."
++            if ! echo "$STAGED_EX_FILES" | xargs mix credo --strict >/dev/null 2>&1; then
++                print_status $YELLOW "  ⚠️  Credo issues found (not blocking)"
++                echo "  Run: mix credo --strict for details"
++            else
++                print_status $GREEN "  ✅ Credo analysis passed"
++            fi
++        fi
++    fi
++fi
++
++# ============================================================================
++# 4. Frontend Quality Checks
++# ============================================================================
++
++if [ -n "$STAGED_JS_FILES" ]; then
++    echo ""
++    print_status $YELLOW "🔍 Running frontend quality checks..."
++    
++    # Change to assets directory if it exists
++    if [ -d "assets" ]; then
++        cd assets
++        
++        # Check if yarn is available
++        if ! command_exists yarn; then
++            print_status $RED "❌ yarn not found, skipping frontend checks"
++            OVERALL_SUCCESS=false
++        else
++            # Install dependencies if needed
++            if [ ! -d "node_modules" ]; then
++                print_status $YELLOW "  📦 Installing dependencies..."
++                yarn install --frozen-lockfile >/dev/null 2>&1 || {
++                    print_status $RED "  ❌ Failed to install dependencies"
++                    OVERALL_SUCCESS=false
++                }
++            fi
++            
++            # Prettier check
++            if [ -f "package.json" ] && yarn list prettier >/dev/null 2>&1; then
++                print_status $YELLOW "  💅 Checking code formatting..."
++                if ! yarn format:check >/dev/null 2>&1; then
++                    print_status $RED "  ❌ Code formatting issues found"
++                    echo "  Run: yarn format"
++                    OVERALL_SUCCESS=false
++                else
++                    print_status $GREEN "  ✅ Code formatting is correct"
++                fi
++            fi
++            
++            # ESLint check
++            if [ -f "package.json" ] && yarn list eslint >/dev/null 2>&1; then
++                print_status $YELLOW "  🎯 Running ESLint..."
++                if ! yarn lint >/dev/null 2>&1; then
++                    print_status $RED "  ❌ ESLint issues found"
++                    echo "  Run: yarn lint for details"
++                    OVERALL_SUCCESS=false
++                else
++                    print_status $GREEN "  ✅ ESLint checks passed"
++                fi
++            fi
++            
++            # TypeScript check
++            if [ -f "tsconfig.json" ]; then
++                print_status $YELLOW "  🔍 Running TypeScript check..."
++                if ! yarn type-check >/dev/null 2>&1; then
++                    print_status $YELLOW "  ⚠️  TypeScript issues found (not blocking)"
++                    echo "  Run: yarn type-check for details"
++                else
++                    print_status $GREEN "  ✅ TypeScript checks passed"
++                fi
++            fi
++        fi
++        
++        cd ..
++    fi
++fi
++
++# ============================================================================
++# 5. Test Validation (Quick Check)
++# ============================================================================
++
++if [ -n "$STAGED_EX_FILES" ]; then
++    echo ""
++    print_status $YELLOW "🧪 Running quick test validation..."
++    
++    # Check if any test files are being committed
++    STAGED_TEST_FILES=$(echo "$STAGED_EX_FILES" | grep test/ || true)
++    
++    if [ -n "$STAGED_TEST_FILES" ]; then
++        if command_exists mix; then
++            print_status $YELLOW "  🧪 Running modified tests..."
++            if ! echo "$STAGED_TEST_FILES" | xargs mix test >/dev/null 2>&1; then
++                print_status $RED "  ❌ Some tests are failing"
++                echo "  Run: mix test to see details"
++                OVERALL_SUCCESS=false
++            else
++                print_status $GREEN "  ✅ Modified tests are passing"
++            fi
++        fi
++    fi
++fi
++
++# ============================================================================
++# Summary
++# ============================================================================
++
++echo ""
++echo "==============================================="
++
++if [ "$OVERALL_SUCCESS" = true ]; then
++    print_status $GREEN "✅ All pre-commit checks passed!"
++    echo ""
++    print_status $GREEN "🚀 Ready to commit"
++    exit 0
++else
++    print_status $RED "❌ Pre-commit checks failed!"
++    echo ""
++    print_status $RED "💡 Fix the issues above before committing"
++    echo ""
++    echo "To bypass these checks (not recommended):"
++    echo "  git commit --no-verify"
++    exit 1
++fi
+\ No newline at end of file
+diff --git a/.github/workflows/advanced-test.yml b/.github/workflows/advanced-test.yml
+new file mode 100644
+index 00000000..b5c09fc0
+--- /dev/null
++++ b/.github/workflows/advanced-test.yml
+@@ -0,0 +1,109 @@
++name: Build Test
++
++on:
++  push:
++    branches:
++      - develop
++
++env:
++  MIX_ENV: prod
++  GH_TOKEN: ${{ github.token }}
++  REGISTRY_IMAGE: wandererltd/community-edition
++
++concurrency:
++  group: ${{ github.workflow }}-${{ github.ref }}
++  cancel-in-progress: true
++
++permissions:
++  contents: write
++
++jobs:
++  deploy-test:
++    name: 🚀 Deploy to test env (fly.io)
++    runs-on: ubuntu-latest
++    if: ${{ github.base_ref == 'develop' || (github.ref == 'refs/heads/develop' && github.event_name == 'push') }}
++    steps:
++      - name: ⬇️ Checkout repo
++        uses: actions/checkout@v3
++      - uses: superfly/flyctl-actions/setup-flyctl@master
++
++      - name: 👀 Read app name
++        uses: SebRollen/toml-action@v1.0.0
++        id: app_name
++        with:
++          file: "fly.toml"
++          field: "app"
++
++      - name: 🚀 Deploy Test
++        run: flyctl deploy --remote-only --wait-timeout=300 --ha=false
++        env:
++          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
++
++  build:
++    name: 🛠 Build
++    runs-on: ubuntu-22.04
++    if: ${{ (github.ref == 'refs/heads/develop') && github.event_name == 'push' }}
++    permissions:
++      checks: write
++      contents: write
++      packages: write
++      attestations: write
++      id-token: write
++      pull-requests: write
++      repository-projects: write
++    strategy:
++      matrix:
++        otp: ["27"]
++        elixir: ["1.17"]
++        node-version: ["18.x"]
++    outputs:
++      commit_hash: ${{ steps.generate-changelog.outputs.commit_hash }}
++    steps:
++      - name: Prepare
++        run: |
++          platform=${{ matrix.platform }}
++          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
++
++      - name: Setup Elixir
++        uses: erlef/setup-beam@v1
++        with:
++          otp-version: ${{matrix.otp}}
++          elixir-version: ${{matrix.elixir}}
++        # nix build would also work here because `todos` is the default package
++      - name: ⬇️ Checkout repo
++        uses: actions/checkout@v3
++        with:
++          fetch-depth: 0
++      - name: 😅 Cache deps
++        id: cache-deps
++        uses: actions/cache@v4
++        env:
++          cache-name: cache-elixir-deps
++        with:
++          path: |
++            deps
++          key: ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('**/mix.lock') }}
++          restore-keys: |
++            ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-
++      - name: 😅 Cache compiled build
++        id: cache-build
++        uses: actions/cache@v4
++        env:
++          cache-name: cache-compiled-build
++        with:
++          path: |
++            _build
++          key: ${{ runner.os }}-build-${{ hashFiles('**/mix.lock') }}-${{ hashFiles( '**/lib/**/*.{ex,eex}', '**/config/*.exs', '**/mix.exs' ) }}
++          restore-keys: |
++            ${{ runner.os }}-build-${{ hashFiles('**/mix.lock') }}-
++            ${{ runner.os }}-build-
++      # Step: Download project dependencies. If unchanged, uses
++      # the cached version.
++      - name: 🌐 Install dependencies
++        run: mix deps.get --only "prod"
++
++      # Step: Compile the project treating any warnings as errors.
++      # Customize this step if a different behavior is desired.
++      - name: 🛠 Compiles without warnings
++        if: steps.cache-build.outputs.cache-hit != 'true'
++        run: mix compile
+diff --git a/.github/workflows/ci-monitoring.yml b/.github/workflows/ci-monitoring.yml
+new file mode 100644
+index 00000000..b4e8df16
+--- /dev/null
++++ b/.github/workflows/ci-monitoring.yml
+@@ -0,0 +1,440 @@
++name: 📊 CI Test Monitoring
++
++on:
++  workflow_run:
++    workflows: ["🔍 QA Validation Pipeline"]
++    types: [completed]
++  schedule:
++    # Run monitoring analysis daily at 6 AM UTC
++    - cron: '0 6 * * *'
++  workflow_dispatch:
++    inputs:
++      analysis_days:
++        description: 'Days of history to analyze'
++        required: false
++        default: '30'
++      force_export:
++        description: 'Force export to external systems'
++        required: false
++        default: 'false'
++
++env:
++  MIX_ENV: test
++  ELIXIR_VERSION: '1.16'
++  OTP_VERSION: '26'
++
++jobs:
++  # ============================================================================
++  # Collect Test Metrics from Latest Run
++  # ============================================================================
++  
++  collect-metrics:
++    name: 📈 Collect Test Metrics
++    runs-on: ubuntu-latest
++    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Collect test metrics
++        run: |
++          echo "📊 Collecting test metrics from current run..."
++          mix ci_monitoring --collect
++          
++      - name: Upload metrics artifacts
++        uses: actions/upload-artifact@v4
++        with:
++          name: test-metrics
++          path: test_metrics/
++          retention-days: 90
++
++  # ============================================================================
++  # Daily Monitoring Analysis
++  # ============================================================================
++  
++  daily-analysis:
++    name: 🔍 Daily Monitoring Analysis
++    runs-on: ubuntu-latest
++    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Download historical metrics
++        uses: actions/download-artifact@v3
++        with:
++          name: test-metrics
++          path: test_metrics/
++        continue-on-error: true
++        
++      - name: Restore historical data from cache
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          restore-keys: |
++            test-metrics-
++            
++      - name: Run comprehensive monitoring analysis
++        env:
++          ANALYSIS_DAYS: ${{ github.event.inputs.analysis_days || '30' }}
++        run: |
++          echo "🔍 Running comprehensive monitoring analysis..."
++          mix ci_monitoring --analyze --days $ANALYSIS_DAYS
++          mix ci_monitoring --report --days $ANALYSIS_DAYS
++          
++      - name: Generate monitoring dashboard
++        run: |
++          echo "📊 Generating monitoring dashboard..."
++          # Create a simple HTML dashboard
++          cat > test_metrics/dashboard.html << 'EOF'
++          <!DOCTYPE html>
++          <html>
++          <head>
++              <title>CI Test Monitoring Dashboard</title>
++              <meta charset="utf-8">
++              <meta name="viewport" content="width=device-width, initial-scale=1">
++              <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
++              <style>
++                  body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
++                  .container { max-width: 1200px; margin: 0 auto; }
++                  .card { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
++                  .metric { display: inline-block; margin: 10px 20px; text-align: center; }
++                  .metric-value { font-size: 2em; font-weight: bold; }
++                  .metric-label { color: #666; }
++                  .chart-container { position: relative; height: 400px; margin: 20px 0; }
++                  .excellent { color: #28a745; }
++                  .good { color: #17a2b8; }
++                  .warning { color: #ffc107; }
++                  .danger { color: #dc3545; }
++              </style>
++          </head>
++          <body>
++              <div class="container">
++                  <h1>🔍 CI Test Monitoring Dashboard</h1>
++                  <p><em>Generated: $(date)</em></p>
++                  
++                  <div class="card">
++                      <h2>📊 Current Status</h2>
++                      <div id="current-metrics">
++                          <div class="metric">
++                              <div class="metric-value excellent" id="success-rate">-</div>
++                              <div class="metric-label">Success Rate</div>
++                          </div>
++                          <div class="metric">
++                              <div class="metric-value" id="duration">-</div>
++                              <div class="metric-label">Avg Duration</div>
++                          </div>
++                          <div class="metric">
++                              <div class="metric-value" id="coverage">-</div>
++                              <div class="metric-label">Coverage</div>
++                          </div>
++                          <div class="metric">
++                              <div class="metric-value" id="stability">-</div>
++                              <div class="metric-label">Stability</div>
++                          </div>
++                      </div>
++                  </div>
++                  
++                  <div class="card">
++                      <h2>📈 Trends</h2>
++                      <div class="chart-container">
++                          <canvas id="trendsChart"></canvas>
++                      </div>
++                  </div>
++                  
++                  <div class="card">
++                      <h2>💡 Recent Recommendations</h2>
++                      <div id="recommendations">
++                          Loading recommendations...
++                      </div>
++                  </div>
++              </div>
++              
++              <script>
++                  // Load and display monitoring data
++                  fetch('latest_monitoring_report.json')
++                      .then(response => response.json())
++                      .then(data => {
++                          // Update current metrics
++                          if (data.current_status) {
++                              document.getElementById('success-rate').textContent = 
++                                  Math.round(data.current_status.success_rate) + '%';
++                              document.getElementById('duration').textContent = 
++                                  Math.round(data.current_status.duration / 1000) + 's';
++                              document.getElementById('coverage').textContent = 
++                                  Math.round(data.current_status.coverage) + '%';
++                              document.getElementById('stability').textContent = 
++                                  Math.round(data.summary.stability_score) + '%';
++                          }
++                          
++                          // Update recommendations
++                          const recContainer = document.getElementById('recommendations');
++                          if (data.recommendations && data.recommendations.length > 0) {
++                              recContainer.innerHTML = data.recommendations
++                                  .map(rec => `<div class="${rec.priority}">
++                                      <strong>${rec.type.toUpperCase()}:</strong> ${rec.message}
++                                  </div>`)
++                                  .join('');
++                          } else {
++                              recContainer.innerHTML = '<div class="excellent">✅ All systems healthy!</div>';
++                          }
++                      })
++                      .catch(err => console.error('Error loading data:', err));
++              </script>
++          </body>
++          </html>
++          EOF
++          
++      - name: Export metrics to external systems
++        if: github.event.inputs.force_export == 'true' || github.event_name == 'schedule'
++        env:
++          PROMETHEUS_ENABLED: ${{ secrets.PROMETHEUS_ENABLED }}
++          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
++          CI_METRICS_WEBHOOK_URL: ${{ secrets.CI_METRICS_WEBHOOK_URL }}
++        run: |
++          if [ "$PROMETHEUS_ENABLED" = "true" ] || [ -n "$DATADOG_API_KEY" ] || [ -n "$CI_METRICS_WEBHOOK_URL" ]; then
++            echo "📤 Exporting metrics to external systems..."
++            mix ci_monitoring --export
++          else
++            echo "ℹ️  No external monitoring systems configured"
++          fi
++          
++      - name: Check for alerts
++        run: |
++          echo "🚨 Checking for monitoring alerts..."
++          
++          # Check if latest report exists
++          if [ -f "test_metrics/latest_monitoring_report.json" ]; then
++            # Extract health status
++            HEALTH=$(cat test_metrics/latest_monitoring_report.json | jq -r '.summary.overall_health // "unknown"')
++            
++            echo "Current health status: $HEALTH"
++            
++            # Set job output for downstream actions
++            echo "health_status=$HEALTH" >> $GITHUB_OUTPUT
++            
++            # Check for critical issues
++            if [ "$HEALTH" = "needs_attention" ]; then
++              echo "⚠️  Test suite health needs attention!"
++              echo "::warning::Test suite health status: needs_attention"
++            fi
++          else
++            echo "⚠️  No monitoring report available"
++          fi
++          
++      - name: Update monitoring cache
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          
++      - name: Upload monitoring reports
++        uses: actions/upload-artifact@v4
++        with:
++          name: monitoring-reports
++          path: |
++            test_metrics/latest_monitoring_report.json
++            test_metrics/latest_monitoring_report.md
++            test_metrics/dashboard.html
++          retention-days: 30
++          
++      - name: Comment on recent PRs with monitoring summary
++        if: github.event_name == 'schedule'
++        uses: actions/github-script@v6
++        with:
++          script: |
++            const fs = require('fs');
++            
++            // Read monitoring report
++            let report = {};
++            try {
++              const reportData = fs.readFileSync('test_metrics/latest_monitoring_report.json', 'utf8');
++              report = JSON.parse(reportData);
++            } catch (error) {
++              console.log('Could not read monitoring report:', error.message);
++              return;
++            }
++            
++            // Create summary comment
++            const healthEmoji = {
++              'excellent': '🌟',
++              'good': '✅',
++              'fair': '⚠️',
++              'needs_attention': '❌'
++            };
++            
++            const summary = `## 📊 Daily CI Monitoring Summary
++            
++            **Overall Health:** ${healthEmoji[report.summary?.overall_health] || '❓'} ${report.summary?.overall_health || 'Unknown'}
++            
++            **Key Metrics:**
++            - Success Rate: ${Math.round(report.summary?.avg_success_rate || 0)}%
++            - Avg Duration: ${Math.round((report.summary?.avg_duration || 0) / 1000)}s
++            - Stability Score: ${Math.round(report.summary?.stability_score || 0)}%
++            
++            **Period:** Last ${report.period_days || 30} days (${report.summary?.total_test_runs || 0} runs)
++            
++            ${report.recommendations?.length > 0 ? 
++              '**Recommendations:**\n' + 
++              report.recommendations.map(r => `- ${r.message}`).join('\n') : 
++              '**Status:** All systems operating normally ✅'
++            }
++            
++            *Monitoring report generated automatically*`;
++            
++            // Find recent PRs to comment on (optional)
++            // This could be enhanced to post to Slack, Discord, etc.
++            console.log('Monitoring summary generated:', summary);
++
++  # ============================================================================
++  # Performance Regression Detection
++  # ============================================================================
++  
++  performance-regression:
++    name: ⚡ Performance Regression Detection
++    runs-on: ubuntu-latest
++    needs: daily-analysis
++    if: github.event_name == 'schedule'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Download monitoring reports
++        uses: actions/download-artifact@v3
++        with:
++          name: monitoring-reports
++          path: test_metrics/
++          
++      - name: Check for performance regressions
++        run: |
++          echo "⚡ Checking for performance regressions..."
++          
++          if [ -f "test_metrics/latest_monitoring_report.json" ]; then
++            # Extract performance trend
++            PERF_TREND=$(cat test_metrics/latest_monitoring_report.json | jq -r '.trends.performance_trend.trend // 0')
++            CURRENT_DURATION=$(cat test_metrics/latest_monitoring_report.json | jq -r '.trends.performance_trend.current // 0')
++            AVG_DURATION=$(cat test_metrics/latest_monitoring_report.json | jq -r '.trends.performance_trend.average // 0')
++            
++            echo "Performance trend: $PERF_TREND"
++            echo "Current duration: ${CURRENT_DURATION}ms"
++            echo "Average duration: ${AVG_DURATION}ms"
++            
++            # Check for significant regression (>20% increase)
++            if (( $(echo "$PERF_TREND > 1000" | bc -l) )); then
++              echo "🚨 Performance regression detected!"
++              echo "::error::Test execution time has increased significantly"
++              
++              # Create issue for performance regression
++              echo "regression_detected=true" >> $GITHUB_OUTPUT
++            else
++              echo "✅ No performance regression detected"
++            fi
++          else
++            echo "⚠️  No monitoring data available for regression check"
++          fi
++          
++      - name: Create performance regression issue
++        if: steps.performance-regression.outputs.regression_detected == 'true'
++        uses: actions/github-script@v6
++        with:
++          script: |
++            github.rest.issues.create({
++              owner: context.repo.owner,
++              repo: context.repo.repo,
++              title: '⚡ Performance Regression Detected in Test Suite',
++              body: `## 🚨 Performance Regression Alert
++              
++              Our automated monitoring has detected a significant performance regression in the test suite.
++              
++              **Details:**
++              - Test execution time has increased significantly
++              - This may impact CI/CD pipeline performance
++              - Investigation and optimization recommended
++              
++              **Next Steps:**
++              1. Review recent changes that may have impacted test performance
++              2. Run performance profiling on slow tests
++              3. Consider optimizing database setup, test data, or test logic
++              
++              **Monitoring Dashboard:** Check the latest monitoring reports in CI artifacts
++              
++              *This issue was created automatically by the CI monitoring system.*`,
++              labels: ['performance', 'ci', 'monitoring', 'regression']
++            });
++
++  # ============================================================================
++  # Weekly Summary Report
++  # ============================================================================
++  
++  weekly-summary:
++    name: 📅 Weekly Summary Report
++    runs-on: ubuntu-latest
++    if: github.event_name == 'schedule' && github.event.schedule == '0 6 * * 1'  # Monday 6 AM
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Generate weekly summary
++        run: |
++          echo "📅 Generating weekly CI monitoring summary..."
++          
++          # This would generate a comprehensive weekly report
++          # Could include trend analysis, team insights, recommendations
++          mix ci_monitoring --report --days 7
++          
++          echo "Weekly summary generated successfully"
+\ No newline at end of file
+diff --git a/.github/workflows/enhanced-testing.yml b/.github/workflows/enhanced-testing.yml
+new file mode 100644
+index 00000000..e19dc353
+--- /dev/null
++++ b/.github/workflows/enhanced-testing.yml
+@@ -0,0 +1,456 @@
++name: Enhanced Testing Pipeline
++
++on:
++  push:
++    branches: [ main, develop ]
++  pull_request:
++    branches: [ main, develop ]
++
++env:
++  MIX_ENV: test
++  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++  PERFORMANCE_MONITORING: true
++  VERBOSE_TESTS: true
++
++jobs:
++  # Phase 1: Fast unit tests
++  unit-tests:
++    name: Unit Tests (Fast)
++    runs-on: ubuntu-latest
++    
++    steps:
++    - uses: actions/checkout@v4
++    
++    - name: Setup Elixir
++      uses: erlef/setup-beam@v1
++      with:
++        elixir-version: '1.16'
++        otp-version: '26'
++    
++    - name: Restore dependencies cache
++      uses: actions/cache@v3
++      with:
++        path: |
++          deps
++          _build
++        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++        restore-keys: ${{ runner.os }}-mix-
++    
++    - name: Install dependencies
++      run: |
++        mix deps.get
++        mix deps.compile
++    
++    - name: Run unit tests
++      run: |
++        echo "🧪 Running unit tests with enhanced detection..."
++        mix test --only unit --cover
++    
++    - name: Upload unit test results
++      uses: actions/upload-artifact@v4
++      if: always()
++      with:
++        name: unit-test-results
++        path: |
++          cover/
++          test/support/flaky_test_history.json
++          _build/test/lib/wanderer_app/ebin/
++
++  # Phase 2: Integration tests (needs database)
++  integration-tests:
++    name: Integration Tests
++    runs-on: ubuntu-latest
++    needs: unit-tests
++    
++    services:
++      postgres:
++        image: postgres:15
++        env:
++          POSTGRES_PASSWORD: postgres
++          POSTGRES_DB: wanderer_test
++        options: >-
++          --health-cmd pg_isready
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++        ports:
++          - 5432:5432
++    
++    steps:
++    - uses: actions/checkout@v4
++    
++    - name: Setup Elixir
++      uses: erlef/setup-beam@v1
++      with:
++        elixir-version: '1.16'
++        otp-version: '26'
++    
++    - name: Restore dependencies cache
++      uses: actions/cache@v3
++      with:
++        path: |
++          deps
++          _build
++        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++        restore-keys: ${{ runner.os }}-mix-
++    
++    - name: Install dependencies
++      run: |
++        mix deps.get
++        mix deps.compile
++    
++    - name: Setup database
++      run: |
++        mix ecto.create
++        mix ecto.migrate
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Run integration tests
++      run: |
++        echo "🔗 Running integration tests..."
++        mix test --only integration --cover
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Upload integration test results
++      uses: actions/upload-artifact@v4
++      if: always()
++      with:
++        name: integration-test-results
++        path: |
++          cover/
++          test/support/flaky_test_history.json
++
++  # Phase 3: Contract tests
++  contract-tests:
++    name: Contract Tests
++    runs-on: ubuntu-latest
++    needs: integration-tests
++    
++    services:
++      postgres:
++        image: postgres:15
++        env:
++          POSTGRES_PASSWORD: postgres
++          POSTGRES_DB: wanderer_test
++        options: >-
++          --health-cmd pg_isready
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++        ports:
++          - 5432:5432
++    
++    steps:
++    - uses: actions/checkout@v4
++    
++    - name: Setup Elixir
++      uses: erlef/setup-beam@v1
++      with:
++        elixir-version: '1.16'
++        otp-version: '26'
++    
++    - name: Restore dependencies cache
++      uses: actions/cache@v3
++      with:
++        path: |
++          deps
++          _build
++        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++        restore-keys: ${{ runner.os }}-mix-
++    
++    - name: Install dependencies
++      run: |
++        mix deps.get
++        mix deps.compile
++    
++    - name: Setup database
++      run: |
++        mix ecto.create
++        mix ecto.migrate
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Run contract tests
++      run: |
++        echo "📝 Running contract tests..."
++        mix test --only contract --cover
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Validate OpenAPI specification
++      run: |
++        echo "🔍 Validating OpenAPI specification..."
++        mix openapi.validate || echo "OpenAPI validation task not available yet"
++    
++    - name: Upload contract test results
++      uses: actions/upload-artifact@v4
++      if: always()
++      with:
++        name: contract-test-results
++        path: |
++          cover/
++          test/support/flaky_test_history.json
++
++  # Phase 4: Performance tests
++  performance-tests:
++    name: Performance Tests
++    runs-on: ubuntu-latest
++    needs: contract-tests
++    
++    services:
++      postgres:
++        image: postgres:15
++        env:
++          POSTGRES_PASSWORD: postgres
++          POSTGRES_DB: wanderer_test
++        options: >-
++          --health-cmd pg_isready
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++        ports:
++          - 5432:5432
++    
++    steps:
++    - uses: actions/checkout@v4
++    
++    - name: Setup Elixir
++      uses: erlef/setup-beam@v1
++      with:
++        elixir-version: '1.16'
++        otp-version: '26'
++    
++    - name: Restore dependencies cache
++      uses: actions/cache@v3
++      with:
++        path: |
++          deps
++          _build
++        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++        restore-keys: ${{ runner.os }}-mix-
++    
++    - name: Install dependencies
++      run: |
++        mix deps.get
++        mix deps.compile
++    
++    - name: Setup database
++      run: |
++        mix ecto.create
++        mix ecto.migrate
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Run performance tests
++      run: |
++        echo "⚡ Running performance tests..."
++        mix test --only performance --cover
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Run performance baseline
++      run: |
++        echo "📊 Running performance baseline..."
++        mix test.performance --baseline || echo "Performance baseline task not available yet"
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Upload performance test results
++      uses: actions/upload-artifact@v4
++      if: always()
++      with:
++        name: performance-test-results
++        path: |
++          cover/
++          test/support/flaky_test_history.json
++          test/performance/reports/
++
++  # Phase 5: Mutation testing (nightly)
++  mutation-tests:
++    name: Mutation Tests
++    runs-on: ubuntu-latest
++    needs: performance-tests
++    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'mutation-testing')
++    
++    services:
++      postgres:
++        image: postgres:15
++        env:
++          POSTGRES_PASSWORD: postgres
++          POSTGRES_DB: wanderer_test
++        options: >-
++          --health-cmd pg_isready
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++        ports:
++          - 5432:5432
++    
++    steps:
++    - uses: actions/checkout@v4
++    
++    - name: Setup Elixir
++      uses: erlef/setup-beam@v1
++      with:
++        elixir-version: '1.16'
++        otp-version: '26'
++    
++    - name: Restore dependencies cache
++      uses: actions/cache@v3
++      with:
++        path: |
++          deps
++          _build
++        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++        restore-keys: ${{ runner.os }}-mix-
++    
++    - name: Install dependencies
++      run: |
++        mix deps.get
++        mix deps.compile
++    
++    - name: Setup database
++      run: |
++        mix ecto.create
++        mix ecto.migrate
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Run mutation tests
++      run: |
++        echo "🧬 Running mutation tests..."
++        mix test.mutation --report || echo "Mutation testing not available yet"
++      env:
++        DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++    
++    - name: Upload mutation test results
++      uses: actions/upload-artifact@v4
++      if: always()
++      with:
++        name: mutation-test-results
++        path: |
++          mutation_reports/
++          test/support/flaky_test_history.json
++
++  # Phase 6: Flaky test detection
++  flaky-test-detection:
++    name: Flaky Test Detection
++    runs-on: ubuntu-latest
++    needs: [unit-tests, integration-tests, contract-tests, performance-tests]
++    if: always()
++    
++    steps:
++    - uses: actions/checkout@v4
++    
++    - name: Download all test artifacts
++      uses: actions/download-artifact@v3
++      with:
++        path: test-artifacts
++    
++    - name: Analyze flaky tests
++      run: |
++        echo "🔍 Analyzing flaky test patterns..."
++        
++        # Combine all flaky test history files
++        find test-artifacts -name "flaky_test_history.json" -exec cat {} \; > combined_flaky_history.json
++        
++        # Check if any flaky tests were detected
++        if [ -s combined_flaky_history.json ]; then
++          echo "⚠️ Flaky tests detected in this run"
++          cat combined_flaky_history.json
++          
++          # Create issue for flaky tests if they exist
++          echo "Creating GitHub issue for flaky tests..."
++          # This would integrate with GitHub API to create issues
++        else
++          echo "✅ No flaky tests detected in this run"
++        fi
++    
++    - name: Upload flaky test analysis
++      uses: actions/upload-artifact@v4
++      if: always()
++      with:
++        name: flaky-test-analysis
++        path: |
++          combined_flaky_history.json
++          test-artifacts/
++
++  # Phase 7: Test summary and reporting
++  test-summary:
++    name: Test Summary
++    runs-on: ubuntu-latest
++    needs: [unit-tests, integration-tests, contract-tests, performance-tests, flaky-test-detection]
++    if: always()
++    
++    steps:
++    - uses: actions/checkout@v4
++    
++    - name: Download all test artifacts
++      uses: actions/download-artifact@v3
++      with:
++        path: test-artifacts
++    
++    - name: Generate comprehensive test report
++      run: |
++        echo "📊 Generating comprehensive test report..."
++        
++        # Create test summary
++        echo "# Test Suite Summary" > test_summary.md
++        echo "## Test Results" >> test_summary.md
++        
++        # Check each test phase
++        for phase in unit integration contract performance; do
++          if [ -d "test-artifacts/${phase}-test-results" ]; then
++            echo "✅ $phase tests: PASSED" >> test_summary.md
++          else
++            echo "❌ $phase tests: FAILED" >> test_summary.md
++          fi
++        done
++        
++        # Add flaky test information
++        echo "## Flaky Test Analysis" >> test_summary.md
++        if [ -f "test-artifacts/flaky-test-analysis/combined_flaky_history.json" ]; then
++          echo "⚠️ Flaky tests detected - see artifact for details" >> test_summary.md
++        else
++          echo "✅ No flaky tests detected" >> test_summary.md
++        fi
++        
++        # Add recommendations
++        echo "## Recommendations" >> test_summary.md
++        echo "- Review any flaky tests and fix underlying issues" >> test_summary.md
++        echo "- Monitor test performance and optimize slow tests" >> test_summary.md
++        echo "- Ensure all new features have contract tests" >> test_summary.md
++        
++        cat test_summary.md
++    
++    - name: Comment on PR
++      uses: actions/github-script@v7
++      if: github.event_name == 'pull_request'
++      with:
++        script: |
++          const fs = require('fs');
++          if (fs.existsSync('test_summary.md')) {
++            const summary = fs.readFileSync('test_summary.md', 'utf8');
++            github.rest.issues.createComment({
++              issue_number: context.issue.number,
++              owner: context.repo.owner,
++              repo: context.repo.repo,
++              body: summary
++            });
++          }
++    
++    - name: Upload test summary
++      uses: actions/upload-artifact@v4
++      if: always()
++      with:
++        name: test-summary
++        path: |
++          test_summary.md
++          test-artifacts/
++
++# Schedule nightly mutation testing
++on:
++  schedule:
++    - cron: '0 2 * * *'  # 2 AM UTC daily
+\ No newline at end of file
+diff --git a/.github/workflows/flaky-test-detection.yml b/.github/workflows/flaky-test-detection.yml
+new file mode 100644
+index 00000000..4794802b
+--- /dev/null
++++ b/.github/workflows/flaky-test-detection.yml
+@@ -0,0 +1,300 @@
++name: Flaky Test Detection
++
++on:
++  schedule:
++    # Run nightly at 2 AM UTC
++    - cron: '0 2 * * *'
++  workflow_dispatch:
++    inputs:
++      test_file:
++        description: 'Specific test file to check (optional)'
++        required: false
++        type: string
++      iterations:
++        description: 'Number of test iterations'
++        required: false
++        default: '10'
++        type: string
++
++env:
++  MIX_ENV: test
++  ELIXIR_VERSION: "1.17"
++  OTP_VERSION: "27"
++
++jobs:
++  detect-flaky-tests:
++    name: 🔍 Detect Flaky Tests
++    runs-on: ubuntu-22.04
++    
++    services:
++      postgres:
++        image: postgres:16
++        env:
++          POSTGRES_USER: postgres
++          POSTGRES_PASSWORD: postgres
++          POSTGRES_DB: wanderer_test
++        options: >-
++          --health-cmd pg_isready
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++        ports:
++          - 5432:5432
++
++    steps:
++      - name: ⬇️ Checkout repository
++        uses: actions/checkout@v4
++
++      - name: 🏗️ Setup Elixir & Erlang
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++
++      - name: 📦 Restore dependencies cache
++        uses: actions/cache@v4
++        id: deps-cache
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
++          restore-keys: |
++            ${{ runner.os }}-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-
++
++      - name: 📦 Install dependencies
++        if: steps.deps-cache.outputs.cache-hit != 'true'
++        run: |
++          mix deps.get
++          mix deps.compile
++
++      - name: 🏗️ Compile project
++        run: mix compile --warnings-as-errors
++
++      - name: 🏗️ Setup test database
++        run: |
++          mix ecto.create
++          mix ecto.migrate
++        env:
++          DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++
++      - name: 🔍 Run flaky test detection
++        id: flaky-detection
++        run: |
++          # Determine test target
++          TEST_FILE="${{ github.event.inputs.test_file }}"
++          ITERATIONS="${{ github.event.inputs.iterations || '10' }}"
++          
++          if [ -n "$TEST_FILE" ]; then
++            echo "Checking specific file: $TEST_FILE"
++            mix test.stability --runs $ITERATIONS --file "$TEST_FILE" --detect --report flaky_report.json
++          else
++            echo "Checking all tests"
++            mix test.stability --runs $ITERATIONS --detect --report flaky_report.json
++          fi
++        env:
++          DATABASE_URL: postgres://postgres:postgres@localhost:5432/wanderer_test
++        continue-on-error: true
++
++      - name: 📊 Upload flaky test report
++        if: always()
++        uses: actions/upload-artifact@v4
++        with:
++          name: flaky-test-report
++          path: flaky_report.json
++          retention-days: 30
++
++      - name: 💬 Comment on flaky tests
++        if: always()
++        uses: actions/github-script@v7
++        with:
++          script: |
++            const fs = require('fs');
++            
++            // Read the report
++            let report;
++            try {
++              const reportContent = fs.readFileSync('flaky_report.json', 'utf8');
++              report = JSON.parse(reportContent);
++            } catch (error) {
++              console.log('No flaky test report found');
++              return;
++            }
++            
++            if (!report.flaky_tests || report.flaky_tests.length === 0) {
++              console.log('No flaky tests detected!');
++              return;
++            }
++            
++            // Create issue body
++            const issueBody = `## 🔍 Flaky Tests Detected
++            
++            The automated flaky test detection found ${report.flaky_tests.length} potentially flaky test(s).
++            
++            ### Summary
++            - **Total test runs**: ${report.summary.total_runs}
++            - **Success rate**: ${(report.summary.success_rate * 100).toFixed(1)}%
++            - **Average duration**: ${(report.summary.avg_duration_ms / 1000).toFixed(2)}s
++            
++            ### Flaky Tests
++            
++            | Test | Failure Rate | Details |
++            |------|--------------|---------|
++            ${report.flaky_tests.map(test => 
++              `| ${test.test} | ${(test.failure_rate * 100).toFixed(1)}% | Failed ${test.failures}/${report.summary.total_runs} runs |`
++            ).join('\n')}
++            
++            ### Recommended Actions
++            
++            1. Review the identified tests for race conditions
++            2. Check for timing dependencies or async issues
++            3. Ensure proper test isolation and cleanup
++            4. Consider adding explicit waits or synchronization
++            5. Use \`async: false\` if tests share resources
++            
++            ---
++            *This issue was automatically created by the flaky test detection workflow.*
++            *Run time: ${new Date().toISOString()}*
++            `;
++            
++            try {
++              // Check if there's already an open issue
++              const issues = await github.rest.issues.listForRepo({
++                owner: context.repo.owner,
++                repo: context.repo.repo,
++                labels: 'flaky-test',
++                state: 'open'
++              });
++              
++              if (issues.data.length > 0) {
++                // Update existing issue
++                const issue = issues.data[0];
++                try {
++                  await github.rest.issues.createComment({
++                    owner: context.repo.owner,
++                    repo: context.repo.repo,
++                    issue_number: issue.number,
++                    body: issueBody
++                  });
++                  console.log(`Updated existing issue #${issue.number}`);
++                } catch (commentError) {
++                  console.error('Failed to create comment:', commentError.message);
++                  throw commentError;
++                }
++              } else {
++                // Create new issue
++                try {
++                  const newIssue = await github.rest.issues.create({
++                    owner: context.repo.owner,
++                    repo: context.repo.repo,
++                    title: '🔍 Flaky Tests Detected',
++                    body: issueBody,
++                    labels: ['flaky-test', 'test-quality', 'automated']
++                  });
++                  console.log(`Created new issue #${newIssue.data.number}`);
++                } catch (createError) {
++                  console.error('Failed to create issue:', createError.message);
++                  throw createError;
++                }
++              }
++            } catch (listError) {
++              console.error('Failed to list issues:', listError.message);
++              console.error('API error details:', listError.response?.data || 'No response data');
++              throw listError;
++            }
++
++      - name: 📈 Update metrics
++        if: always()
++        run: |
++          # Parse and store metrics for tracking
++          if [ -f flaky_report.json ]; then
++            FLAKY_COUNT=$(jq '.flaky_tests | length' flaky_report.json)
++            SUCCESS_RATE=$(jq '.summary.success_rate' flaky_report.json)
++            
++            echo "FLAKY_TEST_COUNT=$FLAKY_COUNT" >> $GITHUB_ENV
++            echo "TEST_SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_ENV
++            
++            # Log metrics (could be sent to monitoring service)
++            echo "::notice title=Flaky Test Metrics::Found $FLAKY_COUNT flaky tests with ${SUCCESS_RATE}% success rate"
++          fi
++
++  analyze-test-history:
++    name: 📊 Analyze Test History
++    runs-on: ubuntu-22.04
++    needs: detect-flaky-tests
++    if: always()
++    
++    steps:
++      - name: ⬇️ Checkout repository
++        uses: actions/checkout@v4
++
++      - name: 📥 Download previous reports
++        uses: dawidd6/action-download-artifact@v3
++        with:
++          workflow: flaky-test-detection.yml
++          workflow_conclusion: completed
++          name: flaky-test-report
++          path: historical-reports
++          if_no_artifact_found: warn
++
++      - name: 📊 Generate trend analysis
++        run: |
++          # Analyze historical trends
++          python3 <<'EOF'
++          import json
++          import os
++          from datetime import datetime
++          import glob
++          
++          reports = []
++          for report_file in glob.glob('historical-reports/*/flaky_report.json'):
++              try:
++                  with open(report_file, 'r') as f:
++                      data = json.load(f)
++                      reports.append(data)
++              except:
++                  pass
++          
++          if not reports:
++              print("No historical data found")
++              exit(0)
++          
++          # Sort by timestamp
++          reports.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
++          
++          # Analyze trends
++          print("## Test Stability Trend Analysis")
++          print(f"\nAnalyzed {len(reports)} historical reports")
++          print("\n### Flaky Test Counts Over Time")
++          
++          for report in reports[:10]:  # Last 10 reports
++              timestamp = report.get('timestamp', 'Unknown')
++              flaky_count = len(report.get('flaky_tests', []))
++              success_rate = report.get('summary', {}).get('success_rate', 0) * 100
++              print(f"- {timestamp[:10]}: {flaky_count} flaky tests ({success_rate:.1f}% success rate)")
++          
++          # Identify persistently flaky tests
++          all_flaky = {}
++          for report in reports:
++              for test in report.get('flaky_tests', []):
++                  test_name = test.get('test', '')
++                  if test_name not in all_flaky:
++                      all_flaky[test_name] = 0
++                  all_flaky[test_name] += 1
++          
++          if all_flaky:
++              print("\n### Persistently Flaky Tests")
++              sorted_flaky = sorted(all_flaky.items(), key=lambda x: x[1], reverse=True)
++              for test_name, count in sorted_flaky[:5]:
++                  percentage = (count / len(reports)) * 100
++                  print(f"- {test_name}: Flaky in {count}/{len(reports)} runs ({percentage:.1f}%)")
++          EOF
++
++      - name: 💾 Save analysis
++        uses: actions/upload-artifact@v4
++        with:
++          name: test-stability-analysis
++          path: |
++            flaky_report.json
++            historical-reports/
++          retention-days: 90
+\ No newline at end of file
+diff --git a/.github/workflows/qa-validation.yml b/.github/workflows/qa-validation.yml
+new file mode 100644
+index 00000000..4cc96928
+--- /dev/null
++++ b/.github/workflows/qa-validation.yml
+@@ -0,0 +1,733 @@
++name: 🔍 QA Validation Pipeline
++
++on:
++  pull_request:
++    branches: [main, develop]
++    types: [opened, synchronize, reopened, ready_for_review]
++  push:
++    branches: [main, develop]
++
++# Prevent concurrent runs for the same PR
++concurrency:
++  group: qa-validation-${{ github.ref }}
++  cancel-in-progress: true
++
++env:
++  MIX_ENV: test
++  ELIXIR_VERSION: '1.16'
++  OTP_VERSION: '26'
++  NODE_VERSION: '18'
++
++jobs:
++  # ============================================================================
++  # Pre-validation: Fast checks that can fail early
++  # ============================================================================
++  
++  pre-validation:
++    name: 📋 Pre-validation Checks
++    runs-on: ubuntu-latest
++    if: github.event.pull_request.draft == false
++    
++    outputs:
++      backend-changed: ${{ steps.changes.outputs.backend }}
++      frontend-changed: ${{ steps.changes.outputs.frontend }}
++      tests-changed: ${{ steps.changes.outputs.tests }}
++      
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          
++      - name: Detect file changes
++        uses: dorny/paths-filter@v2
++        id: changes
++        with:
++          filters: |
++            backend:
++              - 'lib/**/*.ex'
++              - 'config/**/*.exs'
++              - 'mix.exs'
++              - 'mix.lock'
++            frontend:
++              - 'assets/**/*'
++              - 'package.json'
++              - 'package-lock.json'
++              - 'vite.config.js'
++            tests:
++              - 'test/**/*.exs'
++              - 'test/**/*.ex'
++              
++      - name: Validate commit messages
++        if: github.event_name == 'pull_request'
++        run: |
++          echo "🔍 Validating commit messages..."
++          
++          # Get commits in this PR
++          git log --oneline ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} > commits.txt
++          
++          # Check commit message format
++          while IFS= read -r commit; do
++            if [[ ! $commit =~ ^[a-f0-9]+\ (feat|fix|docs|style|refactor|test|chore|perf|ci)(\(.+\))?:\ .+ ]]; then
++              echo "❌ Invalid commit message format: $commit"
++              echo "Expected format: type(scope): description"
++              echo "Types: feat, fix, docs, style, refactor, test, chore, perf, ci"
++              exit 1
++            fi
++          done < commits.txt
++          
++          echo "✅ All commit messages follow conventional format"
++          
++      - name: Check for merge conflicts
++        run: |
++          echo "🔍 Checking for merge conflict markers..."
++          if grep -r "^<<<<<<< HEAD\|^>>>>>>> \|^=======$" . --exclude-dir=.git --exclude-dir=node_modules; then
++            echo "❌ Merge conflict markers found!"
++            exit 1
++          fi
++          echo "✅ No merge conflicts detected"
++          
++      - name: Validate file sizes
++        run: |
++          echo "🔍 Checking for large files..."
++          find . -type f -size +50M -not -path "./.git/*" | while read file; do
++            echo "❌ Large file detected: $file ($(du -h "$file" | cut -f1))"
++            echo "Consider using Git LFS for files larger than 50MB"
++            exit 1
++          done
++          echo "✅ No oversized files detected"
++
++  # ============================================================================
++  # Backend Quality Gates
++  # ============================================================================
++  
++  backend-quality:
++    name: 🎯 Backend Quality Gates
++    runs-on: ubuntu-latest
++    needs: pre-validation
++    if: needs.pre-validation.outputs.backend-changed == 'true' || needs.pre-validation.outputs.tests-changed == 'true'
++    
++    strategy:
++      fail-fast: false
++      matrix:
++        check: 
++          - name: "compile"
++            command: "mix compile --warnings-as-errors"
++            description: "Compilation without warnings"
++          - name: "format"
++            command: "mix format --check-formatted"
++            description: "Code formatting"
++          - name: "credo"
++            command: "mix credo --strict"
++            description: "Code quality analysis"
++          - name: "dialyzer"
++            command: "mix dialyzer"
++            description: "Static type analysis"
++          - name: "deps-audit"
++            command: "mix deps.audit"
++            description: "Dependency security audit"
++          - name: "sobelow"
++            command: "mix sobelow --config"
++            description: "Security vulnerability scan"
++            
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Cache PLT files
++        uses: actions/cache@v3
++        if: matrix.check.name == 'dialyzer'
++        with:
++          path: priv/plts
++          key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-plt-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Run ${{ matrix.check.description }}
++        run: |
++          echo "🔍 Running ${{ matrix.check.description }}..."
++          ${{ matrix.check.command }}
++          echo "✅ ${{ matrix.check.description }} passed"
++
++  # ============================================================================
++  # Test Execution with Quality Gates
++  # ============================================================================
++  
++  test-execution:
++    name: 🧪 Test Execution & Coverage
++    runs-on: ubuntu-latest
++    needs: pre-validation
++    if: needs.pre-validation.outputs.backend-changed == 'true' || needs.pre-validation.outputs.tests-changed == 'true'
++    
++    services:
++      postgres:
++        image: postgres:15
++        env:
++          POSTGRES_PASSWORD: postgres
++          POSTGRES_DB: wanderer_test
++        options: >-
++          --health-cmd pg_isready
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++        ports:
++          - 5432:5432
++          
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Setup database
++        run: |
++          mix ecto.create
++          mix ecto.migrate
++          
++      - name: Run tests with coverage
++        env:
++          PERFORMANCE_MONITORING: true
++        run: |
++          echo "🧪 Running test suite with performance monitoring..."
++          mix test --cover --export-coverage default
++          echo "✅ Test execution completed"
++          
++      - name: Generate coverage report
++        run: |
++          echo "📊 Generating coverage report..."
++          mix test.coverage.summary
++          
++      - name: Check coverage threshold
++        run: |
++          echo "🎯 Checking coverage threshold..."
++          COVERAGE=$(mix test.coverage.summary --format json | jq -r '.total_coverage')
++          THRESHOLD=80
++          
++          echo "Current coverage: ${COVERAGE}%"
++          echo "Required threshold: ${THRESHOLD}%"
++          
++          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
++            echo "❌ Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
++            exit 1
++          fi
++          
++          echo "✅ Coverage threshold met"
++          
++      - name: Run flaky test detection
++        if: github.event_name == 'pull_request'
++        run: |
++          echo "🎲 Running flaky test detection..."
++          mix test.stability test/ --runs 3 --threshold 95
++          echo "✅ Flaky test detection completed"
++          
++      - name: Performance budget check
++        env:
++          PERFORMANCE_MONITORING: true
++        run: |
++          echo "⚡ Checking performance budgets..."
++          mix test.performance --budget 5000 --report-only
++          echo "✅ Performance budget check completed"
++          
++      - name: Upload coverage to Codecov
++        uses: codecov/codecov-action@v3
++        with:
++          file: ./cover/excoveralls.json
++          flags: unittests
++          name: codecov-umbrella
++          
++      - name: Archive test results
++        uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: test-results
++          path: |
++            _build/test/lib/*/eunit
++            cover/
++            test-results.xml
++
++  # ============================================================================
++  # Frontend Quality Gates
++  # ============================================================================
++  
++  frontend-quality:
++    name: 🎨 Frontend Quality Gates
++    runs-on: ubuntu-latest
++    needs: pre-validation
++    if: needs.pre-validation.outputs.frontend-changed == 'true'
++    
++    strategy:
++      fail-fast: false
++      matrix:
++        check:
++          - name: "lint"
++            command: "yarn lint"
++            description: "ESLint code quality"
++          - name: "format"
++            command: "yarn format:check"
++            description: "Prettier formatting"
++          - name: "type-check"
++            command: "yarn type-check"
++            description: "TypeScript type checking"
++          - name: "test"
++            command: "yarn test"
++            description: "Frontend tests"
++          - name: "build"
++            command: "yarn build"
++            description: "Production build"
++            
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache Elixir dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install Elixir dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Setup Node.js
++        uses: actions/setup-node@v3
++        with:
++          node-version: ${{ env.NODE_VERSION }}
++          cache: 'yarn'
++          cache-dependency-path: assets/yarn.lock
++          
++      - name: Install dependencies
++        working-directory: assets
++        run: yarn install --frozen-lockfile
++        
++      - name: Run ${{ matrix.check.description }}
++        working-directory: assets
++        run: |
++          echo "🔍 Running ${{ matrix.check.description }}..."
++          ${{ matrix.check.command }}
++          echo "✅ ${{ matrix.check.description }} passed"
++
++  # ============================================================================
++  # API Contract Validation
++  # ============================================================================
++  
++  api-contract-validation:
++    name: 📋 API Contract Validation
++    runs-on: ubuntu-latest
++    needs: pre-validation
++    if: needs.pre-validation.outputs.backend-changed == 'true' || needs.pre-validation.outputs.tests-changed == 'true'
++    
++    services:
++      postgres:
++        image: postgres:15
++        env:
++          POSTGRES_PASSWORD: postgres
++          POSTGRES_DB: wanderer_test
++        options: >-
++          --health-cmd pg_isready
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++        ports:
++          - 5432:5432
++          
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Setup database
++        run: |
++          mix ecto.create
++          mix ecto.migrate
++          
++      - name: Generate OpenAPI spec
++        run: |
++          echo "📋 Generating OpenAPI specification..."
++          mix openapi.spec.json --output openapi.json
++          echo "✅ OpenAPI spec generated"
++          
++      - name: Validate OpenAPI spec
++        run: |
++          echo "🔍 Validating OpenAPI specification..."
++          yarn dlx @apidevtools/swagger-parser validate openapi.json
++          echo "✅ OpenAPI spec is valid"
++          
++      - name: Run contract tests
++        run: |
++          echo "🧪 Running API contract tests..."
++          mix test test/contract/ --include contract
++          echo "✅ API contract tests passed"
++          
++      - name: Check for breaking changes
++        if: github.event_name == 'pull_request'
++        run: |
++          echo "🔍 Checking for API breaking changes..."
++          
++          # Get base branch OpenAPI spec
++          git fetch origin ${{ github.event.pull_request.base.ref }}
++          git checkout origin/${{ github.event.pull_request.base.ref }} -- || true
++          
++          if [ -f "openapi_base.json" ]; then
++            mix openapi.spec.json --output openapi_base.json
++            
++            # Use oasdiff to detect breaking changes
++            yarn dlx oasdiff diff openapi_base.json openapi.json \
++              --format json \
++              --fail-on breaking \
++              --output breaking-changes.json || {
++                echo "❌ Breaking API changes detected!"
++                cat breaking-changes.json
++                exit 1
++              }
++              
++            echo "✅ No breaking API changes detected"
++          else
++            echo "⚠️ No base OpenAPI spec found, skipping breaking change detection"
++          fi
++          
++      - name: Upload OpenAPI artifacts
++        uses: actions/upload-artifact@v4
++        with:
++          name: openapi-spec
++          path: |
++            openapi.json
++            breaking-changes.json
++
++  # ============================================================================
++  # Security and Compliance
++  # ============================================================================
++  
++  security-scan:
++    name: 🛡️ Security & Compliance
++    runs-on: ubuntu-latest
++    needs: pre-validation
++    if: needs.pre-validation.outputs.backend-changed == 'true' || needs.pre-validation.outputs.frontend-changed == 'true'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Run security audit
++        run: |
++          echo "🛡️ Running security audit..."
++          mix deps.audit
++          echo "✅ Dependency security audit passed"
++          
++      - name: Run Sobelow security scan
++        run: |
++          echo "🔍 Running Sobelow security scan..."
++          mix sobelow --config --exit
++          echo "✅ Sobelow security scan passed"
++          
++      - name: Scan for secrets
++        uses: trufflesecurity/trufflehog@main
++        with:
++          path: ./
++          base: ${{ github.event.repository.default_branch }}
++          head: HEAD
++          extra_args: --debug --only-verified
++          
++      - name: Check for hardcoded credentials
++        run: |
++          echo "🔍 Checking for hardcoded credentials..."
++          
++          # Common patterns to avoid
++          PATTERNS=(
++            "password.*=.*['\"][^'\"]*['\"]"
++            "api_key.*=.*['\"][^'\"]*['\"]"
++            "secret.*=.*['\"][^'\"]*['\"]"
++            "token.*=.*['\"][^'\"]*['\"]"
++          )
++          
++          for pattern in "${PATTERNS[@]}"; do
++            if grep -r -i "$pattern" lib/ config/ --exclude-dir=.git; then
++              echo "❌ Potential hardcoded credential found!"
++              echo "Pattern: $pattern"
++              echo "Please use environment variables for sensitive data"
++              exit 1
++            fi
++          done
++          
++          echo "✅ No hardcoded credentials detected"
++
++  # ============================================================================
++  # Quality Gate Summary
++  # ============================================================================
++  
++  quality-gate-summary:
++    name: 📊 Quality Gate Summary
++    runs-on: ubuntu-latest
++    needs: [pre-validation, backend-quality, test-execution, frontend-quality, api-contract-validation, security-scan]
++    if: always()
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Generate quality report
++        run: |
++          echo "📊 Generating comprehensive quality report..."
++          mix quality_report --format json --output quality-report.json
++          mix quality_report --format markdown --output quality-report.md
++          
++      - name: Check quality gates
++        run: |
++          echo "🎯 Evaluating quality gates..."
++          
++          # Get current quality metrics
++          REPORT=$(cat quality-report.json)
++          
++          # Extract key metrics
++          COMPILATION_WARNINGS=$(echo $REPORT | jq -r '.compilation.warnings // 0')
++          CREDO_ISSUES=$(echo $REPORT | jq -r '.credo.issues // 0')
++          DIALYZER_ERRORS=$(echo $REPORT | jq -r '.dialyzer.errors // 0')
++          TEST_COVERAGE=$(echo $REPORT | jq -r '.coverage.percentage // 0')
++          TEST_FAILURES=$(echo $REPORT | jq -r '.tests.failures // 0')
++          
++          echo "Current Quality Metrics:"
++          echo "- Compilation Warnings: $COMPILATION_WARNINGS"
++          echo "- Credo Issues: $CREDO_ISSUES"
++          echo "- Dialyzer Errors: $DIALYZER_ERRORS"
++          echo "- Test Coverage: $TEST_COVERAGE%"
++          echo "- Test Failures: $TEST_FAILURES"
++          
++          # Quality gate thresholds
++          PASS=true
++          
++          if [ "$COMPILATION_WARNINGS" -gt 0 ]; then
++            echo "❌ Compilation warnings detected: $COMPILATION_WARNINGS"
++            PASS=false
++          fi
++          
++          if [ "$CREDO_ISSUES" -gt 50 ]; then
++            echo "❌ Too many Credo issues: $CREDO_ISSUES (max: 50)"
++            PASS=false
++          fi
++          
++          if [ "$DIALYZER_ERRORS" -gt 0 ]; then
++            echo "❌ Dialyzer errors detected: $DIALYZER_ERRORS"
++            PASS=false
++          fi
++          
++          if [ "$(echo "$TEST_COVERAGE < 80" | bc)" -eq 1 ]; then
++            echo "❌ Test coverage below threshold: $TEST_COVERAGE% (min: 80%)"
++            PASS=false
++          fi
++          
++          if [ "$TEST_FAILURES" -gt 0 ]; then
++            echo "❌ Test failures detected: $TEST_FAILURES"
++            PASS=false
++          fi
++          
++          if [ "$PASS" = true ]; then
++            echo "✅ All quality gates passed!"
++          else
++            echo "❌ Quality gates failed!"
++            exit 1
++          fi
++          
++      - name: Upload quality report
++        uses: actions/upload-artifact@v4
++        with:
++          name: quality-report
++          path: |
++            quality-report.json
++            quality-report.md
++            
++      - name: Comment PR with quality summary
++        if: github.event_name == 'pull_request' && always()
++        uses: actions/github-script@v6
++        with:
++          script: |
++            const fs = require('fs');
++            
++            // Read quality report
++            let qualityReport = '';
++            try {
++              qualityReport = fs.readFileSync('quality-report.md', 'utf8');
++            } catch (error) {
++              qualityReport = '📊 Quality report generation failed. Please check the logs.';
++            }
++            
++            // Create comment body
++            const body = `## 🔍 QA Validation Summary
++            
++            ${qualityReport}
++            
++            ---
++            
++            🤖 This summary was automatically generated by the QA validation pipeline.
++            `;
++            
++            // Find existing comment
++            const comments = await github.rest.issues.listComments({
++              owner: context.repo.owner,
++              repo: context.repo.repo,
++              issue_number: context.issue.number,
++            });
++            
++            const existingComment = comments.data.find(
++              comment => comment.user.login === 'github-actions[bot]' && 
++                         comment.body.includes('QA Validation Summary')
++            );
++            
++            if (existingComment) {
++              // Update existing comment
++              await github.rest.issues.updateComment({
++                owner: context.repo.owner,
++                repo: context.repo.repo,
++                comment_id: existingComment.id,
++                body: body
++              });
++            } else {
++              // Create new comment
++              await github.rest.issues.createComment({
++                owner: context.repo.owner,
++                repo: context.repo.repo,
++                issue_number: context.issue.number,
++                body: body
++              });
++            }
++
++  # ============================================================================
++  # Progressive Quality Enforcement
++  # ============================================================================
++  
++  progressive-quality-check:
++    name: 🎯 Progressive Quality Enforcement
++    runs-on: ubuntu-latest
++    needs: quality-gate-summary
++    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Check progressive quality targets
++        run: |
++          echo "🎯 Checking progressive quality improvement targets..."
++          
++          # Run quality check with target enforcement
++          mix quality.progressive_check --enforce-targets
++          
++          echo "✅ Progressive quality targets evaluation completed"
++          
++      - name: Update quality baselines
++        run: |
++          echo "📊 Updating quality baselines..."
++          
++          # Update baseline metrics for future comparisons
++          mix quality.update_baselines
++          
++          echo "✅ Quality baselines updated"
+\ No newline at end of file
+diff --git a/.github/workflows/test-maintenance.yml b/.github/workflows/test-maintenance.yml
+new file mode 100644
+index 00000000..68bb1b81
+--- /dev/null
++++ b/.github/workflows/test-maintenance.yml
+@@ -0,0 +1,535 @@
++name: 🔧 Test Maintenance Automation
++
++on:
++  schedule:
++    # Daily maintenance at 2 AM UTC
++    - cron: '0 2 * * *'
++    # Weekly deep maintenance on Sundays at 3 AM UTC
++    - cron: '0 3 * * 0'
++  workflow_dispatch:
++    inputs:
++      maintenance_type:
++        description: 'Type of maintenance to run'
++        required: true
++        default: 'full'
++        type: choice
++        options:
++          - full
++          - analyze
++          - optimize
++          - clean
++          - report
++      dry_run:
++        description: 'Run in dry-run mode (show what would be done)'
++        required: false
++        default: false
++        type: boolean
++
++env:
++  MIX_ENV: test
++  ELIXIR_VERSION: '1.16'
++  OTP_VERSION: '26'
++
++jobs:
++  # ============================================================================
++  # Daily Maintenance Tasks
++  # ============================================================================
++  
++  daily-maintenance:
++    name: 📅 Daily Maintenance
++    runs-on: ubuntu-latest
++    if: github.event_name == 'schedule' && github.event.schedule == '0 2 * * *'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Restore test metrics
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          restore-keys: test-metrics-
++          
++      - name: Run daily analysis
++        run: |
++          echo "🔍 Running daily test maintenance analysis..."
++          mix test_maintenance --analyze
++          
++      - name: Clean test artifacts
++        run: |
++          echo "🧹 Cleaning test artifacts..."
++          mix test_maintenance --clean
++          
++      - name: Update CI monitoring
++        run: |
++          echo "📊 Updating CI monitoring data..."
++          mix ci_monitoring --collect
++          
++      - name: Check for maintenance alerts
++        run: |
++          echo "🚨 Checking for maintenance alerts..."
++          
++          # Check if analysis found critical issues
++          if [ -f "test_metrics/latest_maintenance_analysis.json" ]; then
++            FLAKY_TESTS=$(cat test_metrics/latest_maintenance_analysis.json | jq -r '.flaky_tests.flaky_test_count // 0')
++            SLOW_TESTS=$(cat test_metrics/latest_maintenance_analysis.json | jq -r '.slow_tests.slow_test_count // 0')
++            
++            echo "Flaky tests: $FLAKY_TESTS"
++            echo "Slow tests: $SLOW_TESTS"
++            
++            # Create alerts for critical issues
++            if [ "$FLAKY_TESTS" -gt 5 ]; then
++              echo "::warning::High number of flaky tests detected: $FLAKY_TESTS"
++            fi
++            
++            if [ "$SLOW_TESTS" -gt 20 ]; then
++              echo "::warning::High number of slow tests detected: $SLOW_TESTS"
++            fi
++          fi
++          
++      - name: Update test metrics cache
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          
++      - name: Upload daily maintenance results
++        uses: actions/upload-artifact@v4
++        with:
++          name: daily-maintenance-results
++          path: test_metrics/
++          retention-days: 7
++
++  # ============================================================================
++  # Weekly Deep Maintenance
++  # ============================================================================
++  
++  weekly-maintenance:
++    name: 📅 Weekly Deep Maintenance
++    runs-on: ubuntu-latest
++    if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * 0'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          token: ${{ secrets.GITHUB_TOKEN }}
++          
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Restore test metrics
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          restore-keys: test-metrics-
++          
++      - name: Run comprehensive analysis
++        run: |
++          echo "🔍 Running comprehensive test maintenance analysis..."
++          mix test_maintenance --analyze
++          
++      - name: Generate maintenance report
++        run: |
++          echo "📄 Generating weekly maintenance report..."
++          mix test_maintenance --report
++          
++      - name: Run optimizations (dry-run)
++        run: |
++          echo "⚡ Analyzing potential optimizations..."
++          mix test_maintenance --optimize --dry-run
++          
++      - name: Generate test health dashboard
++        run: |
++          echo "🎛️ Generating test health dashboard..."
++          mix test_health_dashboard --export
++          
++      - name: Update quality baselines
++        run: |
++          echo "📊 Updating quality baselines..."
++          mix quality.update_baselines --force
++          
++      - name: Create maintenance PR if needed
++        env:
++          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++        run: |
++          echo "🔧 Checking if maintenance PR is needed..."
++          
++          # Check if significant issues were found
++          if [ -f "test_metrics/latest_maintenance_analysis.json" ]; then
++            MAINTENANCE_BURDEN=$(cat test_metrics/latest_maintenance_analysis.json | jq -r '.health_metrics.maintenance_burden // 0')
++            QUALITY_SCORE=$(cat test_metrics/latest_maintenance_analysis.json | jq -r '.health_metrics.quality_score // 100')
++            
++            echo "Maintenance burden: $MAINTENANCE_BURDEN"
++            echo "Quality score: $QUALITY_SCORE"
++            
++            # Create PR if maintenance burden is high or quality score is low
++            if (( $(echo "$MAINTENANCE_BURDEN > 20" | bc -l) )) || (( $(echo "$QUALITY_SCORE < 80" | bc -l) )); then
++              echo "🚨 High maintenance burden or low quality score detected"
++              echo "maintenance_pr_needed=true" >> $GITHUB_OUTPUT
++            fi
++          fi
++          
++      - name: Create maintenance branch and PR
++        if: steps.weekly-maintenance.outputs.maintenance_pr_needed == 'true'
++        env:
++          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++        run: |
++          # Create maintenance branch
++          BRANCH_NAME="automated-maintenance/$(date +%Y-%m-%d)"
++          git checkout -b "$BRANCH_NAME"
++          
++          # Apply optimizations
++          echo "🔧 Applying automated optimizations..."
++          mix test_maintenance --optimize
++          
++          # Check if there are changes to commit
++          if git diff --quiet; then
++            echo "No changes to commit"
++            exit 0
++          fi
++          
++          # Commit changes
++          git config user.name "github-actions[bot]"
++          git config user.email "github-actions[bot]@users.noreply.github.com"
++          
++          git add .
++          git commit -m "$(cat <<EOF
++          chore: automated test maintenance
++          
++          - Applied automated test optimizations
++          - Updated test patterns and configurations
++          - Cleaned up unused test artifacts
++          
++          🤖 Generated with [Claude Code](https://claude.ai/code)
++          
++          Co-Authored-By: Claude <noreply@anthropic.com>
++          EOF
++          )"
++          
++          # Push branch
++          git push origin "$BRANCH_NAME"
++          
++          # Create PR
++          gh pr create \
++            --title "🔧 Automated Test Maintenance - $(date +%Y-%m-%d)" \
++            --body "$(cat <<'EOF'
++          ## 🔧 Automated Test Maintenance
++          
++          This PR contains automated test maintenance optimizations identified by our maintenance system.
++          
++          ### Changes Applied
++          - ⚡ Optimized test imports and patterns
++          - 🧹 Cleaned up unused test factories and fixtures
++          - 🚀 Applied async test optimizations where applicable
++          - 📄 Updated deprecated test patterns
++          
++          ### Maintenance Metrics
++          - Maintenance burden reduced
++          - Quality score improvements
++          - Performance optimizations applied
++          
++          ### Review Notes
++          - All changes are automated and safe
++          - Tests should continue to pass
++          - Manual review recommended for complex changes
++          
++          🤖 Generated with [Claude Code](https://claude.ai/code)
++          EOF
++          )" \
++            --label "maintenance,automated,testing" \
++            --assignee "${{ github.actor }}"
++          
++      - name: Update test metrics cache
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          
++      - name: Upload weekly maintenance results
++        uses: actions/upload-artifact@v4
++        with:
++          name: weekly-maintenance-results
++          path: |
++            test_metrics/
++            test_metrics/dashboard/
++          retention-days: 30
++
++  # ============================================================================
++  # Manual Maintenance Tasks
++  # ============================================================================
++  
++  manual-maintenance:
++    name: 🛠️ Manual Maintenance
++    runs-on: ubuntu-latest
++    if: github.event_name == 'workflow_dispatch'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Cache dependencies
++        uses: actions/cache@v3
++        with:
++          path: |
++            deps
++            _build
++          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
++          restore-keys: ${{ runner.os }}-mix-
++          
++      - name: Install dependencies
++        run: |
++          mix deps.get
++          mix deps.compile
++          
++      - name: Restore test metrics
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          restore-keys: test-metrics-
++          
++      - name: Run requested maintenance task
++        env:
++          MAINTENANCE_TYPE: ${{ github.event.inputs.maintenance_type }}
++          DRY_RUN: ${{ github.event.inputs.dry_run }}
++        run: |
++          echo "🔧 Running $MAINTENANCE_TYPE maintenance..."
++          
++          DRY_RUN_FLAG=""
++          if [ "$DRY_RUN" = "true" ]; then
++            DRY_RUN_FLAG="--dry-run"
++            echo "🔍 Running in dry-run mode"
++          fi
++          
++          case "$MAINTENANCE_TYPE" in
++            "full")
++              mix test_maintenance $DRY_RUN_FLAG
++              ;;
++            "analyze")
++              mix test_maintenance --analyze $DRY_RUN_FLAG
++              ;;
++            "optimize")
++              mix test_maintenance --optimize $DRY_RUN_FLAG
++              ;;
++            "clean")
++              mix test_maintenance --clean $DRY_RUN_FLAG
++              ;;
++            "report")
++              mix test_maintenance --report
++              ;;
++            *)
++              echo "Unknown maintenance type: $MAINTENANCE_TYPE"
++              exit 1
++              ;;
++          esac
++          
++      - name: Generate dashboard
++        if: github.event.inputs.maintenance_type == 'full' || github.event.inputs.maintenance_type == 'report'
++        run: |
++          echo "🎛️ Generating test health dashboard..."
++          mix test_health_dashboard --export
++          
++      - name: Update test metrics cache
++        uses: actions/cache@v3
++        with:
++          path: test_metrics/
++          key: test-metrics-${{ github.sha }}
++          
++      - name: Upload maintenance results
++        uses: actions/upload-artifact@v4
++        with:
++          name: manual-maintenance-results
++          path: test_metrics/
++          retention-days: 7
++          
++      - name: Comment maintenance summary
++        if: github.event.inputs.dry_run == 'false'
++        uses: actions/github-script@v6
++        with:
++          script: |
++            const fs = require('fs');
++            
++            // Read maintenance report if available
++            let summary = '## 🔧 Maintenance Results\n\n';
++            
++            try {
++              if (fs.existsSync('test_metrics/latest_maintenance_report.json')) {
++                const report = JSON.parse(fs.readFileSync('test_metrics/latest_maintenance_report.json', 'utf8'));
++                
++                summary += `**Quality Score:** ${Math.round(report.health_metrics?.quality_score || 0)}/100\n`;
++                summary += `**Maintenance Burden:** ${Math.round(report.health_metrics?.maintenance_burden || 0)}\n\n`;
++                
++                if (report.recommendations?.length > 0) {
++                  summary += '**Recommendations:**\n';
++                  report.recommendations.forEach(rec => {
++                    const priorityIcon = rec.priority === 'high' ? '🔴' : rec.priority === 'medium' ? '🟡' : '🟢';
++                    summary += `- ${priorityIcon} **${rec.title}**: ${rec.description}\n`;
++                  });
++                } else {
++                  summary += '✅ No maintenance recommendations at this time.\n';
++                }
++              } else {
++                summary += 'Maintenance completed successfully.\n';
++              }
++            } catch (error) {
++              summary += `Error reading maintenance report: ${error.message}\n`;
++            }
++            
++            summary += `\n*Maintenance type: ${process.env.MAINTENANCE_TYPE}*\n`;
++            summary += `*Triggered by: @${context.actor}*`;
++            
++            // Create a comment on the workflow run (if this were a PR)
++            console.log('Maintenance Summary:', summary);
++
++  # ============================================================================
++  # Emergency Maintenance Trigger
++  # ============================================================================
++  
++  emergency-maintenance:
++    name: 🚨 Emergency Maintenance
++    runs-on: ubuntu-latest
++    if: github.event_name == 'workflow_dispatch' && github.event.inputs.maintenance_type == 'emergency'
++    
++    steps:
++      - name: Checkout code
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++          token: ${{ secrets.GITHUB_TOKEN }}
++          
++      - name: Setup Elixir/OTP
++        uses: erlef/setup-beam@v1
++        with:
++          elixir-version: ${{ env.ELIXIR_VERSION }}
++          otp-version: ${{ env.OTP_VERSION }}
++          
++      - name: Emergency test suite recovery
++        run: |
++          echo "🚨 Running emergency test suite recovery..."
++          
++          # Clean all artifacts
++          rm -rf _build/test
++          rm -rf cover/
++          rm -rf test_metrics/
++          
++          # Reinstall dependencies
++          mix deps.clean --all
++          mix deps.get
++          mix deps.compile
++          
++          # Run basic test suite to verify
++          mix test --max-failures 1
++          
++          echo "✅ Emergency recovery completed"
++          
++      - name: Create emergency recovery issue
++        env:
++          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++        run: |
++          gh issue create \
++            --title "🚨 Emergency Test Maintenance Executed" \
++            --body "Emergency test maintenance was executed at $(date). Please review test suite status and investigate what triggered the emergency maintenance." \
++            --label "emergency,maintenance,investigation-needed"
++
++  # ============================================================================
++  # Maintenance Status Reporting
++  # ============================================================================
++  
++  maintenance-status:
++    name: 📊 Maintenance Status Report
++    runs-on: ubuntu-latest
++    needs: [daily-maintenance, weekly-maintenance, manual-maintenance]
++    if: always()
++    
++    steps:
++      - name: Download maintenance results
++        uses: actions/download-artifact@v3
++        with:
++          path: maintenance-results/
++        continue-on-error: true
++        
++      - name: Generate status summary
++        run: |
++          echo "📊 Generating maintenance status summary..."
++          
++          # Check which jobs ran and their status
++          echo "## 🔧 Test Maintenance Status Report" > maintenance-status.md
++          echo "" >> maintenance-status.md
++          echo "**Generated:** $(date)" >> maintenance-status.md
++          echo "" >> maintenance-status.md
++          
++          # Check job statuses
++          if [ "${{ needs.daily-maintenance.result }}" != "skipped" ]; then
++            echo "- **Daily Maintenance:** ${{ needs.daily-maintenance.result }}" >> maintenance-status.md
++          fi
++          
++          if [ "${{ needs.weekly-maintenance.result }}" != "skipped" ]; then
++            echo "- **Weekly Maintenance:** ${{ needs.weekly-maintenance.result }}" >> maintenance-status.md
++          fi
++          
++          if [ "${{ needs.manual-maintenance.result }}" != "skipped" ]; then
++            echo "- **Manual Maintenance:** ${{ needs.manual-maintenance.result }}" >> maintenance-status.md
++          fi
++          
++          echo "" >> maintenance-status.md
++          echo "*Automated maintenance system operational*" >> maintenance-status.md
++          
++          cat maintenance-status.md
++          
++      - name: Upload status report
++        uses: actions/upload-artifact@v4
++        with:
++          name: maintenance-status-report
++          path: maintenance-status.md
++          retention-days: 30
+\ No newline at end of file

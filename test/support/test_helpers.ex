@@ -180,11 +180,23 @@ defmodule WandererApp.TestHelpers do
   def ensure_map_server_started(map_id) do
     case WandererApp.Map.Server.map_pid(map_id) do
       pid when is_pid(pid) ->
+        # Make sure existing server has database access
+        WandererApp.DataCase.allow_database_access(pid)
+        # Also allow database access for any spawned processes
+        allow_map_server_children_database_access(pid)
+        # Ensure global Mox mode is maintained
+        if Code.ensure_loaded?(Mox), do: Mox.set_mox_global()
         :ok
 
       nil ->
+        # Ensure global Mox mode before starting map server
+        if Code.ensure_loaded?(Mox), do: Mox.set_mox_global()
         # Start the map server directly for tests
-        {:ok, _pid} = start_map_server_directly(map_id)
+        {:ok, pid} = start_map_server_directly(map_id)
+        # Grant database access to the new map server process
+        WandererApp.DataCase.allow_database_access(pid)
+        # Allow database access for any spawned processes
+        allow_map_server_children_database_access(pid)
         :ok
     end
   end
@@ -196,9 +208,28 @@ defmodule WandererApp.TestHelpers do
            {WandererApp.Map.ServerSupervisor, map_id: map_id}
          ) do
       {:ok, pid} ->
+        # Allow database access for the supervisor and its children
+        WandererApp.DataCase.allow_genserver_database_access(pid)
+
+        # Allow Mox access for the supervisor process if in test mode
+        WandererApp.Test.MockAllowance.setup_genserver_mocks(pid)
+
+        # Also get the actual map server pid and allow access
+        case WandererApp.Map.Server.map_pid(map_id) do
+          server_pid when is_pid(server_pid) ->
+            WandererApp.DataCase.allow_genserver_database_access(server_pid)
+
+            # Allow Mox access for the map server process if in test mode
+            WandererApp.Test.MockAllowance.setup_genserver_mocks(server_pid)
+
+          _ ->
+            :ok
+        end
+
         {:ok, pid}
 
       {:error, {:already_started, pid}} ->
+        WandererApp.DataCase.allow_database_access(pid)
         {:ok, pid}
 
       {:error, :max_children} ->
@@ -208,6 +239,40 @@ defmodule WandererApp.TestHelpers do
 
       error ->
         error
+    end
+  end
+
+  defp allow_map_server_children_database_access(map_server_pid) do
+    # Allow database access for all children processes
+    # This is important for MapEventRelay and other spawned processes
+
+    # Wait a bit for children to spawn
+    :timer.sleep(100)
+
+    # Get all linked processes
+    case Process.info(map_server_pid, :links) do
+      {:links, linked_pids} ->
+        Enum.each(linked_pids, fn linked_pid ->
+          if is_pid(linked_pid) and Process.alive?(linked_pid) do
+            WandererApp.DataCase.allow_database_access(linked_pid)
+
+            # Also check for their children
+            case Process.info(linked_pid, :links) do
+              {:links, sub_links} ->
+                Enum.each(sub_links, fn sub_pid ->
+                  if is_pid(sub_pid) and Process.alive?(sub_pid) and sub_pid != map_server_pid do
+                    WandererApp.DataCase.allow_database_access(sub_pid)
+                  end
+                end)
+
+              _ ->
+                :ok
+            end
+          end
+        end)
+
+      _ ->
+        :ok
     end
   end
 end

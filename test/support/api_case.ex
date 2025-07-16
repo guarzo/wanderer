@@ -100,8 +100,24 @@ defmodule WandererAppWeb.ApiCase do
   def setup_map_authentication(%{conn: conn}) do
     # Create a test map
     map = WandererAppWeb.Factory.insert(:map, %{slug: "test-map-#{System.unique_integer()}"})
+
+    # Ensure mocks are properly set up before starting map server
+    if Code.ensure_loaded?(Mox) do
+      Mox.set_mox_global()
+
+      if Code.ensure_loaded?(WandererApp.Test.Mocks) do
+        WandererApp.Test.Mocks.setup_additional_expectations()
+      end
+    end
+
     # Ensure the map server is started
     WandererApp.TestHelpers.ensure_map_server_started(map.id)
+
+    # Also ensure MapEventRelay has database access if it's running
+    if pid = Process.whereis(WandererApp.ExternalEvents.MapEventRelay) do
+      WandererApp.DataCase.allow_database_access(pid)
+    end
+
     # Authenticate the connection with the map's actual public_api_key
     authenticated_conn = put_api_key(conn, map.public_api_key)
     {:ok, conn: authenticated_conn, map: map}
