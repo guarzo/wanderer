@@ -81,7 +81,7 @@ jobs:
       - name: Check for merge conflicts
         run: |
           echo "🔍 Checking for merge conflict markers..."
-          if grep -r "<<<<<<< HEAD\|>>>>>>> \|=======" . --exclude-dir=.git; then
+          if grep -r "^<<<<<<< HEAD\|^>>>>>>> \|^=======$" . --exclude-dir=.git --exclude-dir=node_modules; then
             echo "❌ Merge conflict markers found!"
             exit 1
           fi

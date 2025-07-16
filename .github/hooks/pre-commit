@@ -87,7 +87,7 @@ else
 fi
 
 # Check for merge conflict markers
-CONFLICT_FILES=$(echo "$STAGED_FILES" | xargs grep -l "<<<<<<< HEAD\|>>>>>>> \|=======" 2>/dev/null || true)
+CONFLICT_FILES=$(echo "$STAGED_FILES" | xargs grep -l "^<<<<<<< HEAD\|^>>>>>>> \|^=======$" 2>/dev/null || true)
 if [ -n "$CONFLICT_FILES" ]; then
     print_status $RED "❌ Merge conflict markers found in:"
     echo "$CONFLICT_FILES"
