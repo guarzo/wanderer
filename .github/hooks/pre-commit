@@ -176,26 +176,26 @@ if [ -n "$STAGED_JS_FILES" ]; then
     if [ -d "assets" ]; then
         cd assets
         
-        # Check if npm is available
-        if ! command_exists npm; then
-            print_status $RED "❌ npm not found, skipping frontend checks"
+        # Check if yarn is available
+        if ! command_exists yarn; then
+            print_status $RED "❌ yarn not found, skipping frontend checks"
             OVERALL_SUCCESS=false
         else
             # Install dependencies if needed
             if [ ! -d "node_modules" ]; then
                 print_status $YELLOW "  📦 Installing dependencies..."
-                npm ci >/dev/null 2>&1 || {
+                yarn install --frozen-lockfile >/dev/null 2>&1 || {
                     print_status $RED "  ❌ Failed to install dependencies"
                     OVERALL_SUCCESS=false
                 }
             fi
             
             # Prettier check
-            if [ -f "package.json" ] && npm list prettier >/dev/null 2>&1; then
+            if [ -f "package.json" ] && yarn list prettier >/dev/null 2>&1; then
                 print_status $YELLOW "  💅 Checking code formatting..."
-                if ! npm run format:check >/dev/null 2>&1; then
+                if ! yarn format:check >/dev/null 2>&1; then
                     print_status $RED "  ❌ Code formatting issues found"
-                    echo "  Run: npm run format"
+                    echo "  Run: yarn format"
                     OVERALL_SUCCESS=false
                 else
                     print_status $GREEN "  ✅ Code formatting is correct"
@@ -203,11 +203,11 @@ if [ -n "$STAGED_JS_FILES" ]; then
             fi
             
             # ESLint check
-            if [ -f "package.json" ] && npm list eslint >/dev/null 2>&1; then
+            if [ -f "package.json" ] && yarn list eslint >/dev/null 2>&1; then
                 print_status $YELLOW "  🎯 Running ESLint..."
-                if ! npm run lint >/dev/null 2>&1; then
+                if ! yarn lint >/dev/null 2>&1; then
                     print_status $RED "  ❌ ESLint issues found"
-                    echo "  Run: npm run lint for details"
+                    echo "  Run: yarn lint for details"
                     OVERALL_SUCCESS=false
                 else
                     print_status $GREEN "  ✅ ESLint checks passed"
@@ -217,9 +217,9 @@ if [ -n "$STAGED_JS_FILES" ]; then
             # TypeScript check
             if [ -f "tsconfig.json" ]; then
                 print_status $YELLOW "  🔍 Running TypeScript check..."
-                if ! npm run type-check >/dev/null 2>&1; then
+                if ! yarn type-check >/dev/null 2>&1; then
                     print_status $YELLOW "  ⚠️  TypeScript issues found (not blocking)"
-                    echo "  Run: npm run type-check for details"
+                    echo "  Run: yarn type-check for details"
                 else
                     print_status $GREEN "  ✅ TypeScript checks passed"
                 fi

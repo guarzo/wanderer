@@ -14,7 +14,7 @@ concurrency:
 
 env:
   MIX_ENV: test
-  ELIXIR_VERSION: '1.15'
+  ELIXIR_VERSION: '1.16'
   OTP_VERSION: '26'
   NODE_VERSION: '18'
 
@@ -297,35 +297,55 @@ jobs:
       matrix:
         check:
           - name: "lint"
-            command: "npm run lint"
+            command: "yarn lint"
             description: "ESLint code quality"
           - name: "format"
-            command: "npm run format:check"
+            command: "yarn format:check"
             description: "Prettier formatting"
           - name: "type-check"
-            command: "npm run type-check"
+            command: "yarn type-check"
             description: "TypeScript type checking"
           - name: "test"
-            command: "npm run test"
+            command: "yarn test"
             description: "Frontend tests"
           - name: "build"
-            command: "npm run build"
+            command: "yarn build"
             description: "Production build"
             
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Setup Elixir/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+          
+      - name: Cache Elixir dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+          
+      - name: Install Elixir dependencies
+        run: |
+          mix deps.get
+          mix deps.compile
+          
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: assets/package-lock.json
+          cache: 'yarn'
+          cache-dependency-path: assets/yarn.lock
           
       - name: Install dependencies
         working-directory: assets
-        run: npm ci
+        run: yarn install --frozen-lockfile
         
       - name: Run ${{ matrix.check.description }}
         working-directory: assets
@@ -396,7 +416,7 @@ jobs:
       - name: Validate OpenAPI spec
         run: |
           echo "🔍 Validating OpenAPI specification..."
-          npx @apidevtools/swagger-parser validate openapi.json
+          yarn dlx @apidevtools/swagger-parser validate openapi.json
           echo "✅ OpenAPI spec is valid"
           
       - name: Run contract tests
@@ -418,7 +438,7 @@ jobs:
             mix openapi.spec.json --output openapi_base.json
             
             # Use oasdiff to detect breaking changes
-            npx oasdiff diff openapi_base.json openapi.json \
+            yarn dlx oasdiff diff openapi_base.json openapi.json \
               --format json \
               --fail-on breaking \
               --output breaking-changes.json || {
