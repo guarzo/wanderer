@@ -105,9 +105,10 @@ defmodule WandererAppWeb.AuthController do
     case WandererApp.Api.Character.by_id(character.id) do
       {:ok, loaded_character} ->
         WandererApp.Api.Character.assign_user!(loaded_character, %{user_id: user_id})
-      
+
       {:error, _} ->
-        raise Ash.Error.Invalid, errors: [%Ash.Error.Query.NotFound{resource: WandererApp.Api.Character}]
+        raise Ash.Error.Invalid,
+          errors: [%Ash.Error.Query.NotFound{resource: WandererApp.Api.Character}]
     end
   end
 

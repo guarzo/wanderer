@@ -94,5 +94,4 @@ defmodule WandererApp.ExternalEvents.RallyPointEventsTest do
       refute Map.has_key?(payload, "message")
     end
   end
-
 end

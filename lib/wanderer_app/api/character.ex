@@ -48,7 +48,7 @@ defmodule WandererApp.Api.Character do
     define(:active_by_user,
       action: :active_by_user
     )
-    
+
     define(:create, action: :create)
     define(:update, action: :update)
     define(:update_alliance, action: :update_alliance)
