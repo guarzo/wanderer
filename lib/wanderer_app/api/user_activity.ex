@@ -46,6 +46,7 @@ defmodule WandererApp.Api.UserActivity do
 
   code_interface do
     define(:read, action: :read)
+    define(:new, action: :new)
   end
 
   actions do

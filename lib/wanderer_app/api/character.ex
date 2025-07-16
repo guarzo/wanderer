@@ -24,6 +24,8 @@ defmodule WandererApp.Api.Character do
       base("/characters")
       get(:read)
       index :read
+      post(:create)
+      patch(:update)
       delete(:destroy)
     end
   end
@@ -46,6 +48,15 @@ defmodule WandererApp.Api.Character do
     define(:active_by_user,
       action: :active_by_user
     )
+    
+    define(:create, action: :create)
+    define(:update, action: :update)
+    define(:update_alliance, action: :update_alliance)
+    define(:update_corporation, action: :update_corporation)
+    define(:update_ship, action: :update_ship)
+    define(:update_location, action: :update_location)
+    define(:update_wallet_balance, action: :update_wallet_balance)
+    define(:assign_user!, action: :assign)
   end
 
   actions do
@@ -60,6 +71,36 @@ defmodule WandererApp.Api.Character do
     ]
 
     defaults [:read, :destroy]
+
+    create :create do
+      accept([
+        :eve_id,
+        :name,
+        :user_id,
+        :access_token,
+        :refresh_token,
+        :expires_at,
+        :scopes,
+        :tracking_pool,
+        :corporation_id,
+        :corporation_name,
+        :corporation_ticker,
+        :alliance_id,
+        :alliance_name,
+        :alliance_ticker,
+        :solar_system_id,
+        :structure_id,
+        :station_id,
+        :ship,
+        :ship_name,
+        :ship_item_id,
+        :eve_wallet_balance,
+        :location,
+        :character_owner_hash,
+        :token_type,
+        :online
+      ])
+    end
 
     create :link do
       accept([:eve_id, :name, :user_id])

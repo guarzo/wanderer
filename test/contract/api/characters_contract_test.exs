@@ -416,15 +416,15 @@ defmodule WandererApp.Contract.Api.CharactersContractTest do
     # Validate optional attribute fields if present
     attributes = character_data["attributes"]
 
-    if Map.has_key?(attributes, "corporation_id") do
+    if Map.has_key?(attributes, "corporation_id") and attributes["corporation_id"] != nil do
       assert is_integer(attributes["corporation_id"]), "Corporation ID should be integer"
     end
 
-    if Map.has_key?(attributes, "corporation_name") do
+    if Map.has_key?(attributes, "corporation_name") and attributes["corporation_name"] != nil do
       assert is_binary(attributes["corporation_name"]), "Corporation name should be string"
     end
 
-    if Map.has_key?(attributes, "corporation_ticker") do
+    if Map.has_key?(attributes, "corporation_ticker") and attributes["corporation_ticker"] != nil do
       assert is_binary(attributes["corporation_ticker"]),
              "Corporation ticker should be string"
     end

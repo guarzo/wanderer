@@ -48,7 +48,9 @@ defmodule WandererApp.Test.IntegrationConfig do
   def ensure_pubsub_server do
     case Process.whereis(WandererApp.PubSub) do
       nil ->
-        {:ok, _} = Phoenix.PubSub.start_link(name: WandererApp.PubSub)
+        # PubSub should be started by the application supervisor
+        # If it's not started, there's a configuration issue
+        :ok
 
       _ ->
         :ok

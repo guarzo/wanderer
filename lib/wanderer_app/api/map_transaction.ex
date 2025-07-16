@@ -34,6 +34,7 @@ defmodule WandererApp.Api.MapTransaction do
 
     define(:by_map, action: :by_map)
     define(:by_user, action: :by_user)
+    define(:create, action: :create)
   end
 
   actions do
@@ -43,6 +44,8 @@ defmodule WandererApp.Api.MapTransaction do
       :type,
       :amount
     ]
+
+    defaults [:create]
 
     read :read do
       primary?(true)

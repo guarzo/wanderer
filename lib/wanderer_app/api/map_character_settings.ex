@@ -48,6 +48,13 @@ defmodule WandererApp.Api.MapCharacterSettings do
     define(:tracked_by_map_filtered, action: :tracked_by_map_filtered)
     define(:tracked_by_character, action: :tracked_by_character)
     define(:tracked_by_map_all, action: :tracked_by_map_all)
+    define(:create, action: :create)
+    define(:update, action: :update)
+    define(:track, action: :track)
+    define(:untrack, action: :untrack)
+    define(:follow, action: :follow)
+    define(:unfollow, action: :unfollow)
+    define(:destroy, action: :destroy)
   end
 
   actions do
@@ -57,7 +64,7 @@ defmodule WandererApp.Api.MapCharacterSettings do
       :tracked
     ]
 
-    defaults [:read]
+    defaults [:read, :destroy]
 
     create :create do
       primary? true

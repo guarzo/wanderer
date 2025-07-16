@@ -8,6 +8,7 @@ defmodule WandererAppWeb.Api.MapSystemsConnectionsController do
   use WandererAppWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  require Ash.Query
   import Ash.Expr
 
   alias WandererApp.Api.MapSystem
