@@ -69,7 +69,6 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
   @connection_time_status_eol 1
   @connection_type_wormhole 0
   @connection_type_stargate 1
-  @connection_type_loop 2
   @medium_ship_size 1
 
   def get_connection_auto_expire_hours(), do: WandererApp.Env.map_connection_auto_expire_hours()
@@ -237,7 +236,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
                         } ->
         connection_start_time = get_start_time(map_id, connection_id)
 
-        (type != @connection_type_stargate) &&
+        type != @connection_type_stargate &&
           DateTime.diff(DateTime.utc_now(), connection_start_time, :hour) >=
             connection_auto_eol_hours &&
           is_connection_valid(
@@ -293,7 +292,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
           )
 
         not is_connection_exist ||
-          ((type != @connection_type_stargate) && is_connection_valid &&
+          (type != @connection_type_stargate && is_connection_valid &&
              DateTime.diff(DateTime.utc_now(), connection_mark_eol_time, :hour) >=
                connection_auto_expire_hours - connection_auto_eol_hours +
                  +connection_eol_expire_timeout_hours)
@@ -358,14 +357,34 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         {:ok, source_system_info} = get_system_static_info(old_location.solar_system_id)
         {:ok, target_system_info} = get_system_static_info(location.solar_system_id)
 
-        # Set ship size type to medium only for wormhole/loop connections involving C1 systems
-        ship_size_type = if (connection_type == @connection_type_wormhole or connection_type == @connection_type_loop) and
-                             (source_system_info.system_class == @c1 or
-                              target_system_info.system_class == @c1) do
-          @medium_ship_size
-        else
-          2  # Default to large for non-wormhole/non-loop or non-C1 connections
-        end
+        # Set ship size type based on system classes and special rules
+        ship_size_type =
+          if connection_type == @connection_type_wormhole do
+            cond do
+              # C1 systems always get medium
+              source_system_info.system_class == @c1 or target_system_info.system_class == @c1 ->
+                @medium_ship_size
+
+              # C13 systems always get frigate
+              source_system_info.system_class == @c13 or target_system_info.system_class == @c13 ->
+                0
+
+              # C4 to null gets frigate (unless C4 is shattered)
+              (source_system_info.system_class == @c4 and target_system_info.system_class == @ns and
+                 not source_system_info.is_shattered) or
+                  (target_system_info.system_class == @c4 and
+                     source_system_info.system_class == @ns and
+                     not target_system_info.is_shattered) ->
+                0
+
+              true ->
+                # Default to large for other wormhole connections
+                2
+            end
+          else
+            # Default to large for non-wormhole connections
+            2
+          end
 
         {:ok, connection} =
           WandererApp.MapConnectionRepo.create(%{
@@ -376,7 +395,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
             ship_size_type: ship_size_type
           })
 
-        if connection_type == @connection_type_wormhole or connection_type == @connection_type_loop do
+        if connection_type == @connection_type_wormhole do
           set_start_time(map_id, connection.id, DateTime.utc_now())
         end
 
