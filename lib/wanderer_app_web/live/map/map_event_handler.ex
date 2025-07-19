@@ -333,7 +333,7 @@ defmodule WandererAppWeb.MapEventHandler do
   def map_ui_character_stat(character) do
     base_character =
       character
-      |> Map.take([
+      |> safe_take_ash_fields([
         :eve_id,
         :name,
         :corporation_id,
@@ -351,6 +351,17 @@ defmodule WandererAppWeb.MapEventHandler do
     # Add ship type information
     ship_info = WandererApp.Character.get_ship(character)
     base_character |> Map.put(:ship_info, ship_info)
+  end
+
+  # Helper function to safely extract fields from Ash resources, handling Ash.NotLoaded values
+  defp safe_take_ash_fields(map, fields) do
+    fields
+    |> Enum.reduce(%{}, fn field, acc ->
+      case Map.get(map, field) do
+        %Ash.NotLoaded{} -> Map.put(acc, field, nil)
+        value -> Map.put(acc, field, value)
+      end
+    end)
   end
 
   def map_ui_connection(
