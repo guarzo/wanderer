@@ -116,6 +116,7 @@ export const useMapHandlers = (ref: ForwardedRef<MapHandlers>, onSelectionChange
             case Commands.pingAdded:
             case Commands.pingCancelled:
             case Commands.routes:
+            case Commands.userRoutes:
             case Commands.signaturesUpdated:
             case Commands.linkSignatureToSystem:
             case Commands.detailedKillsUpdated:

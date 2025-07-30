@@ -247,7 +247,7 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
       |> Enum.map(fn p ->
         %{
           p
-          | character: p.character |> MapEventHandler.map_ui_character_stat()
+          | character: p.character
         }
         |> Map.put_new(
           :ship,

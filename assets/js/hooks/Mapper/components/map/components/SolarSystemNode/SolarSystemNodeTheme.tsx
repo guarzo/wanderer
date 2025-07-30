@@ -76,6 +76,7 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
           {
             [classes.selected]: nodeVars.selected,
             [classes.rally]: nodeVars.isRally,
+            [classes.rallyRoute]: nodeVars.isRallyRoute,
           },
         )}
         onMouseDownCapture={e => nodeVars.dbClick(e)}
