@@ -8,7 +8,8 @@ import { ConnectionType, MassState, ShipSizeStatus, SolarSystemConnection, TimeS
 import { PrimeIcons } from 'primereact/api';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
 import { useMapState } from '@/hooks/Mapper/components/map/MapProvider.tsx';
-import { SHIP_SIZES_DESCRIPTION, SHIP_SIZES_NAMES_SHORT } from '@/hooks/Mapper/components/map/constants.ts';
+import { SHIP_SIZES_DESCRIPTION, SHIP_SIZES_NAMES_SHORT } from '@/hooks/Mapper/components/map/constants';
+import { useRallyRoute } from '@/hooks/Mapper/hooks/useRallyRoute';
 
 const MAP_TRANSLATES: Record<string, string> = {
   [Position.Top]: 'translate(-48%, 0%)',
@@ -42,13 +43,19 @@ export const SHIP_SIZES_COLORS = {
 export const SolarSystemEdge = ({ id, source, target, markerEnd, style, data }: EdgeProps<SolarSystemConnection>) => {
   const sourceNode = useStore(useCallback(store => store.nodeInternals.get(source), [source]));
   const targetNode = useStore(useCallback(store => store.nodeInternals.get(target), [target]));
-  const isWormhole = data?.type !== ConnectionType.gate;
+  const isLoop = data?.type === ConnectionType.loop;
+  const isWormhole = data?.type === ConnectionType.wormhole || data?.type === ConnectionType.loop;
 
   const {
     data: { isThickConnections },
   } = useMapState();
 
   const [hovered, setHovered] = useState(false);
+  
+  // Check if this edge is part of the rally route
+  const { highlightedConnections, isActive } = useRallyRoute();
+  const connectionId = [source, target].sort().join('-');
+  const isRallyRoute = isActive && highlightedConnections.has(connectionId);
 
   const [path, labelX, labelY, sx, sy, tx, ty, sourcePos, targetPos] = useMemo(() => {
     const { sx, sy, tx, ty, sourcePos, targetPos } = getEdgeParams(sourceNode!, targetNode!);
@@ -82,6 +89,8 @@ export const SolarSystemEdge = ({ id, source, target, markerEnd, style, data }: 
           [classes.TimeCrit]: isWormhole && data.time_status === TimeStatus.eol,
           [classes.Hovered]: hovered,
           [classes.Gate]: !isWormhole,
+          [classes.Loop]: isLoop,
+          [classes.RallyRoute]: isRallyRoute,
         })}
         d={path}
         markerEnd={markerEnd}
@@ -96,6 +105,8 @@ export const SolarSystemEdge = ({ id, source, target, markerEnd, style, data }: 
           [classes.MassHalf]: isWormhole && data.mass_status === MassState.half,
           [classes.Frigate]: isWormhole && data.ship_size_type === ShipSizeStatus.small,
           [classes.Gate]: !isWormhole,
+          [classes.Loop]: isLoop,
+          [classes.RallyRoute]: isRallyRoute,
         })}
         d={path}
         markerEnd={markerEnd}

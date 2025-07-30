@@ -174,6 +174,10 @@ defmodule WandererApp.Map.Server.Impl do
 
   defdelegate update_system_temporary_name(state, update), to: SystemsImpl
 
+  defdelegate update_system_owner(state, update), to: SystemsImpl
+
+  defdelegate update_system_custom_flags(state, update), to: SystemsImpl
+
   defdelegate update_system_locked(state, update), to: SystemsImpl
 
   defdelegate update_system_labels(state, update), to: SystemsImpl
@@ -349,12 +353,21 @@ defmodule WandererApp.Map.Server.Impl do
       not WandererApp.Cache.lookup!("map_#{map_id}:importing", false) and
         WandererApp.Cache.lookup!("map_#{map_id}:started", false)
 
-  def get_update_map(update, attributes),
-    do:
-      {:ok,
+  def get_update_map(update, attributes) do
+    require Logger
+    # Check if this is an owner update
+    is_owner_update = Enum.any?(attributes, fn attr ->
+      attr == :owner_type || attr == :owner_id || attr == :owner_ticker
+    end)
+
+    result = {:ok,
        Enum.reduce(attributes, Map.new(), fn attribute, map ->
-         map |> Map.put_new(attribute, get_in(update, [Access.key(attribute)]))
+         value = get_in(update, [Access.key(attribute)])
+         map |> Map.put_new(attribute, value)
        end)}
+
+    result
+  end
 
   defp map_options(options) do
     [
@@ -490,7 +503,10 @@ defmodule WandererApp.Map.Server.Impl do
                                  "position" => %{"x" => x, "y" => y},
                                  "status" => status,
                                  "tag" => tag,
-                                 "temporary_name" => temporary_name
+                                 "temporary_name" => temporary_name,
+                                 "owner_type" => owner_type,
+                                 "owner_id" => owner_id,
+                                 "custom_flags" => custom_flags
                                } = _system,
                                acc ->
         acc
@@ -513,6 +529,8 @@ defmodule WandererApp.Map.Server.Impl do
           solar_system_id: id |> String.to_integer(),
           temporary_name: temporary_name
         })
+        |> update_system_owner(%{solar_system_id: id |> String.to_integer(), owner_type: owner_type, owner_id: owner_id})
+        |> update_system_custom_flags(%{solar_system_id: id |> String.to_integer(), custom_flags: custom_flags})
         |> update_system_locked(%{solar_system_id: id |> String.to_integer(), locked: locked})
         |> update_system_labels(%{solar_system_id: id |> String.to_integer(), labels: labels})
       end)
