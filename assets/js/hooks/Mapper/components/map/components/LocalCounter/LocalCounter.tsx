@@ -44,6 +44,7 @@ export const LocalCounter = ({ localCounterCharacters, hasUserCharacters, showIc
     <div
       className={clsx(classes.TooltipActive, {
         [classes.Pathfinder]: theme === AvailableThemes.pathfinder,
+        [classes.Zoo]: theme === AvailableThemes.zoo,
       })}
     >
       <WdTooltipWrapper

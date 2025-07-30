@@ -100,6 +100,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
   @connection_type_wormhole 0
   @connection_type_stargate 1
   @connection_type_bridge 2
+  @connection_type_loop 3
   @medium_ship_size 1
 
   def get_connection_auto_expire_hours(), do: WandererApp.Env.map_connection_auto_expire_hours()
@@ -280,7 +281,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
                                  type: type
                                },
                                state ->
-        if type == @connection_type_wormhole do
+        if type == @connection_type_wormhole or type == @connection_type_loop do
           connection_start_time = get_start_time(map_id, connection_id)
           new_time_status = get_new_time_status(connection_start_time, time_status)
 
@@ -331,7 +332,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
             )
 
         not is_connection_exist ||
-          (type == @connection_type_wormhole &&
+          ((type == @connection_type_wormhole or type == @connection_type_loop) &&
              time_status == @connection_time_status_eol &&
              is_connection_valid(
                :wormholes,
@@ -421,7 +422,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
             time_status: time_status
           })
 
-        if connection_type == @connection_type_wormhole do
+        if connection_type == @connection_type_wormhole or connection_type == @connection_type_loop do
           set_start_time(map_id, connection.id, DateTime.utc_now())
         end
 
