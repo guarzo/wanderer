@@ -87,7 +87,9 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
   } = data;
 
   const {
-    storedSettings: { interfaceSettings },
+    storedSettings: {
+      interfaceSettings: { isShowUnsplashedSignatures },
+    },
     data: { systemSignatures: mapSystemSignatures },
   } = useMapRootState();
 
@@ -108,7 +110,6 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     constellation_name,
   } = systemStaticInfo;
 
-  const { isShowUnsplashedSignatures } = interfaceSettings;
   const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
   const isShowLinkedSigId = useMapGetOption('show_linked_signature_id') === 'true';
   const isShowLinkedSigIdTempName = useMapGetOption('show_linked_signature_id_temp_name') === 'true';
@@ -197,7 +198,7 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     return region_name;
   }, [constellation_name, region_id, region_name]);
 
-  const nodeVars: SolarSystemNodeVars = {
+  return {
     id,
     selected,
     visible,
@@ -233,6 +234,4 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     solarSystemName: solar_system_name,
     isRally,
   };
-
-  return nodeVars;
 };
