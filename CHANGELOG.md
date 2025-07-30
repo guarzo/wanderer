@@ -2,6 +2,79 @@
 
 <!-- changelog -->
 
+## [v1.76.0](https://github.com/wanderer-industries/wanderer/compare/v1.75.0...v1.76.0) (2025-07-30)
+
+
+
+
+### Features:
+
+* autoset connection size for c4->null and c13
+
+* apiv1 and tests
+
+* support webhook and sse
+
+* disable webhook/websocket by default
+
+* add websocket and webhooks for events
+
+* Add Jest testing for getState util
+
+### Bug Fixes:
+
+* Core: Fixed issue with callback url
+
+* remove bug with lazy delete
+
+* update broken length and remove verbose logging
+
+* Map: Fixed remove pings for removed systems
+
+* removed old documents
+
+* removed unneeded api, and fixed data comparision bug
+
+* ci comments
+
+* test updates
+
+* Map: Trying to fix problem with fast forwarding after page are inactive some time.
+
+* properly send sse events
+
+* add test coverage for api
+
+* Map: removed comments
+
+* Map: Fixed conflict
+
+* Map: Add background for Pochven's systems. Changed from Region name to constellation name for pochven systems. Changed connection style for gates (display like common connection). Changed behaviour of connections.
+
+* Core: Fixed issue with update system positions
+
+* Map: Unified settings. Second part: Import/Export
+
+* Map: Unified settings. First part: add one place for storing settings
+
+* Core: Fixed issues with map subscription component
+
+* add more logging around character online and tracking
+
+* clean up SSE warnings
+
+* update env variable usage for sse
+
+* sse cleanup
+
+* Core: Fixed map loading for not existing maps
+
+* remove misleading error
+
+* Core: Mark connections between Pochven systems as known.
+
+* update killactivity color on nodes
+
 ## [v1.75.0](https://github.com/wanderer-industries/wanderer/compare/v1.74.13...v1.75.0) (2025-07-29)
 
 
