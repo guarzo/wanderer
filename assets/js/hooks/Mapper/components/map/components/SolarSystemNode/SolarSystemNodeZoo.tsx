@@ -166,6 +166,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           nodeVars.status != null ? classes[STATUS_CLASSES[nodeVars.status]] : null,
           {
             [classes.selected]: nodeVars.selected,
+            [classes.rally]: nodeVars.isRally,
           },
         )}
         onMouseDownCapture={e => nodeVars.dbClick(e)}
