@@ -26,6 +26,7 @@ export interface ContextMenuConnectionProps {
   onChangeShipSizeStatus(state: ShipSizeStatus): void;
   onChangeType(type: ConnectionType): void;
   onToggleMassSave(isLocked: boolean): void;
+  onToggleLoop(): void;
   onHide(): void;
   edge?: Edge<SolarSystemConnection>;
 }
@@ -38,6 +39,7 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
   onChangeShipSizeStatus,
   onChangeType,
   onToggleMassSave,
+  onToggleLoop,
   onHide,
   edge,
 }) => {
@@ -53,6 +55,8 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
       sourceInfo && targetInfo && isNullsecSpace(sourceInfo.system_class) && isNullsecSpace(targetInfo.system_class);
 
     const isFrigateSize = edge.data?.ship_size_type === ShipSizeStatus.small;
+    const isLoop = edge.data?.type === ConnectionType.loop;
+    const isWormholeType = edge.data?.type === ConnectionType.wormhole || edge.data?.type === ConnectionType.loop;
 
     if (edge.data?.type === ConnectionType.bridge) {
       return [
@@ -86,6 +90,18 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
           return <LifetimeActionsWrapper lifetime={edge.data?.time_status} onChangeLifetime={onChangeTimeState} />;
         },
       },
+      ...(isLoop
+        ? [
+            {
+              label: `Loop`,
+              className: clsx({
+                [classes.ConnectionLoop]: isLoop,
+              }),
+              icon: PrimeIcons.REPLAY,
+              command: onToggleLoop,
+            },
+          ]
+        : []),
       {
         label: `Frigate`,
         className: clsx({
@@ -162,6 +178,7 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
     onChangeType,
     onChangeShipSizeStatus,
     onToggleMassSave,
+    onToggleLoop,
     onChangeMassState,
   ]);
 
