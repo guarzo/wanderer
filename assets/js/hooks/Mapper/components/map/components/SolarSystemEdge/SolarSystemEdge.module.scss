@@ -29,6 +29,19 @@
   &.Gate {
     stroke: #9aff40;
   }
+
+  &.Loop {
+    stroke: #80a5c5;
+    stroke-dasharray: 5, 5;
+    z-index: -1;
+  }
+
+  &.RallyRoute {
+    stroke: #00d4ff;
+    stroke-width: 5px;
+    filter: drop-shadow(0 0 3px rgba(0, 212, 255, 0.5));
+    animation: pulseRally 2s ease-in-out infinite;
+  }
 }
 
 .EdgePathFront {
@@ -50,6 +63,12 @@
 
   &.Gate {
     stroke: #1c1e15;
+  }
+
+  &.Loop {
+    stroke: #2c3844;
+    stroke-dasharray: 5, 5;
+    z-index: -1;
   }
 
   &.Hovered {
@@ -75,6 +94,11 @@
     &.Hovered {
       stroke-width: 3px;
     }
+  }
+
+  &.RallyRoute {
+    stroke: #0099cc;
+    stroke-width: 3px;
   }
 }
 
@@ -115,4 +139,16 @@
   width: 8px;
   height: 8px;
   font-size: 8px;
+}
+
+@keyframes pulseRally {
+  0% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.8;
+  }
 }

@@ -87,6 +87,7 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
               k162Type: values.k162Type,
               // TODO: need fix
               isEOL: values.isEOL,
+              isCrit: values.isCrit,
             }),
           };
 
@@ -166,10 +167,12 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
 
     let k162Type = null;
     let isEOL = false;
+    let isCrit = false;
     if (custom_info) {
       const customInfo = JSON.parse(custom_info);
       k162Type = customInfo.k162Type;
       isEOL = customInfo.isEOL;
+      isCrit = customInfo.isCrit;
     }
 
     signatureForm.reset({
@@ -177,6 +180,7 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
       // TODO: need fix
       k162Type: k162Type,
       isEOL: isEOL,
+      isCrit: isCrit,
       ...rest,
     });
   }, [signatureForm, signatureData]);
