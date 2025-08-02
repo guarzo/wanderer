@@ -331,6 +331,7 @@ defmodule WandererAppWeb.MapEventHandler do
   def map_ui_character_stat(nil), do: nil
 
   def map_ui_character_stat(character) do
+    # Take only the basic fields first
     base_character =
       character
       |> Map.take([
@@ -341,16 +342,28 @@ defmodule WandererAppWeb.MapEventHandler do
         :alliance_id,
         :alliance_ticker,
         :ship_name,
-        :solar_system_id,
-        :structure_id,
-        :station_id,
-        :ship,
         :online
       ])
+    
+    # Add optional fields only if they're loaded (not Ash.NotLoaded)
+    base_character = 
+      base_character
+      |> maybe_add_field(character, :solar_system_id)
+      |> maybe_add_field(character, :structure_id)
+      |> maybe_add_field(character, :station_id)
+      |> maybe_add_field(character, :ship)
 
     # Add ship type information
     ship_info = WandererApp.Character.get_ship(character)
     base_character |> Map.put(:ship_info, ship_info)
+  end
+  
+  defp maybe_add_field(map, source, field) do
+    case Map.get(source, field) do
+      %Ash.NotLoaded{} -> map
+      nil -> map
+      value -> Map.put(map, field, value)
+    end
   end
 
   def map_ui_connection(
