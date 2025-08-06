@@ -21,7 +21,9 @@ import { KillsCounter } from '@/hooks/Mapper/components/map/components/KillsCoun
 export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
   const { localCounterCharacters } = useLocalCounter(nodeVars);
-  const { killsCount: localKillsCount, killsActivityType: localKillsActivityType } = useNodeKillsCount(nodeVars.solarSystemId);
+  const { killsCount: localKillsCount, killsActivityType: localKillsActivityType } = useNodeKillsCount(
+    nodeVars.solarSystemId,
+  );
 
   // console.log('JOipP', `render ${nodeVars.id}`, render++);
 
@@ -74,6 +76,7 @@ export const SolarSystemNodeTheme = memo((props: NodeProps<MapSolarSystemType>) 
           {
             [classes.selected]: nodeVars.selected,
             [classes.rally]: nodeVars.isRally,
+            [classes.rallyRoute]: nodeVars.isRallyRoute,
           },
         )}
         onMouseDownCapture={e => nodeVars.dbClick(e)}

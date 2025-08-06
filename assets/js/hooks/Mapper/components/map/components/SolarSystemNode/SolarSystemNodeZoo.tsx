@@ -28,8 +28,10 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const nodeVars = useSolarSystemNode(props);
 
   const updatedSignatures = useNodeSignatures(nodeVars.solarSystemId);
-  const localKillsCount = useNodeKillsCount(nodeVars.solarSystemId, nodeVars.killsCount);
 
+  const { killsCount: localKillsCount, killsActivityType: localKillsActivityType } = useNodeKillsCount(
+    nodeVars.solarSystemId,
+  );
   const { getEdges } = useReactFlow();
   const edges = getEdges();
   const connectionCount = edges.filter(edge => edge.source === props.id || edge.target === props.id).length;
@@ -81,13 +83,13 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {localKillsCount && localKillsCount > 0 && nodeVars.solarSystemId && (
+          {localKillsCount && localKillsCount > 0 && nodeVars.solarSystemId && localKillsActivityType && (
             <KillsCounter
               killsCount={localKillsCount}
               systemId={nodeVars.solarSystemId}
               size={TooltipSize.lg}
-              killsActivityType={nodeVars.killsActivityType}
-              className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[nodeVars.killsActivityType!])}
+              killsActivityType={localKillsActivityType}
+              className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES[localKillsActivityType])}
             >
               <div className={clsx(classes.BookmarkWithIcon)}>
                 <span className={clsx(PrimeIcons.BOLT, classes.icon)} />
@@ -166,6 +168,8 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           nodeVars.status != null ? classes[STATUS_CLASSES[nodeVars.status]] : null,
           {
             [classes.selected]: nodeVars.selected,
+            [classes.rally]: nodeVars.isRally,
+            [classes.rallyRoute]: nodeVars.isRallyRoute,
           },
         )}
         onMouseDownCapture={e => nodeVars.dbClick(e)}

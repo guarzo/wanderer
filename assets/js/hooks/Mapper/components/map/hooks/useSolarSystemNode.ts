@@ -14,6 +14,7 @@ import { useUnsplashedSignatures } from './useUnsplashedSignatures';
 import { useSystemName } from './useSystemName';
 import { LabelInfo, useLabelsInfo } from './useLabelsInfo';
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
+import { useRallyRoute } from '@/hooks/Mapper/hooks/useRallyRoute';
 
 export interface SolarSystemNodeVars {
   id: string;
@@ -50,6 +51,7 @@ export interface SolarSystemNodeVars {
   isRally: boolean;
   classTitle: string | null;
   temporaryName?: string | null;
+  isRallyRoute: boolean;
 }
 
 const SpaceToClass: Record<string, string> = {
@@ -198,6 +200,10 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     return region_name;
   }, [constellation_name, region_id, region_name]);
 
+  // Check if this system is part of the rally route
+  const { highlightedSystems, isActive: isRallyRouteActive } = useRallyRoute();
+  const isRallyRoute = isRallyRouteActive && highlightedSystems.has(solar_system_id);
+
   return {
     id,
     selected,
@@ -233,5 +239,6 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     regionName,
     solarSystemName: solar_system_name,
     isRally,
+    isRallyRoute,
   };
 };
