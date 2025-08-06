@@ -46,8 +46,6 @@ defmodule WandererApp.Api.MapUserSettings do
     define(:update_settings, action: :update_settings)
     define(:update_following_character, action: :update_following_character)
     define(:update_ready_characters, action: :update_ready_characters)
-
-    define(:update_hubs, action: :update_hubs)
   end
 
   actions do
