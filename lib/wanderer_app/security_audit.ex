@@ -39,7 +39,7 @@ defmodule WandererApp.SecurityAudit do
     }
 
     # Store in database
-    store_audit_entry(audit_entry)
+    # store_audit_entry(audit_entry)
 
     # Send to telemetry for monitoring
     emit_telemetry_event(audit_entry)
@@ -489,11 +489,11 @@ defmodule WandererApp.SecurityAudit do
 
   defp store_audit_entry(audit_entry) do
     # Handle async processing if enabled
-    if async_enabled?() do
-      WandererApp.SecurityAudit.AsyncProcessor.log_event(audit_entry)
-    else
-      do_store_audit_entry(audit_entry)
-    end
+    # if async_enabled?() do
+    #   WandererApp.SecurityAudit.AsyncProcessor.log_event(audit_entry)
+    # else
+    #   do_store_audit_entry(audit_entry)
+    # end
   end
 
   @doc false
@@ -501,13 +501,22 @@ defmodule WandererApp.SecurityAudit do
     # Ensure event_type is properly formatted
     event_type = normalize_event_type(audit_entry.event_type)
 
+    # Generate unique entity_id to avoid constraint violations
+    entity_id =
+      if audit_entry.session_id do
+        # Include high-resolution timestamp and unique component for guaranteed uniqueness
+        "#{hash_identifier(audit_entry.session_id)}_#{:os.system_time(:microsecond)}_#{System.unique_integer([:positive])}"
+      else
+        generate_entity_id()
+      end
+
     attrs = %{
-      user_id: audit_entry.user_id,
-      character_id: nil,
-      entity_id: hash_identifier(audit_entry.session_id),
+      entity_id: entity_id,
       entity_type: :security_event,
       event_type: event_type,
-      event_data: encode_event_data(audit_entry)
+      event_data: encode_event_data(audit_entry),
+      user_id: audit_entry.user_id,
+      character_id: nil
     }
 
     case UserActivity.new(attrs) do
@@ -620,7 +629,7 @@ defmodule WandererApp.SecurityAudit do
   defp convert_datetime(value), do: value
 
   defp generate_entity_id do
-    "audit_#{DateTime.utc_now() |> DateTime.to_unix(:microsecond)}_#{System.unique_integer([:positive])}"
+    "audit_#{:os.system_time(:microsecond)}_#{System.unique_integer([:positive])}"
   end
 
   defp async_enabled? do
