@@ -5,6 +5,7 @@ import { MenuItem } from 'primereact/menuitem';
 import { ConnectionType, MassState, ShipSizeStatus, SolarSystemConnection, TimeStatus } from '@/hooks/Mapper/types';
 import clsx from 'clsx';
 import classes from './ContextMenuConnection.module.scss';
+import { Edge } from 'reactflow';
 import {
   MASS_STATE_NAMES,
   MASS_STATE_NAMES_ORDER,
@@ -17,7 +18,7 @@ import {
 export interface ContextMenuConnectionProps {
   contextMenuRef: RefObject<ContextMenu>;
   onDeleteConnection(): void;
-  onChangeTimeState(): void;
+  onChangeTimeState(status?: TimeStatus): void;
   onChangeMassState(state: MassState): void;
   onChangeShipSizeStatus(state: ShipSizeStatus): void;
   onToggleMassSave(isLocked: boolean): void;
@@ -52,10 +53,28 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
             {
               label: `EOL`,
               className: clsx({
-                [classes.ConnectionTimeEOL]: edge.data?.time_status === TimeStatus.eol,
+                [classes.ConnectionTimeEOL]:
+                  edge.data?.time_status === TimeStatus.eol_4hr || edge.data?.time_status === TimeStatus.eol_1hr,
               }),
               icon: PrimeIcons.CLOCK,
-              command: onChangeTimeState,
+              // Click on EOL directly toggles through states: default -> eol_4hr -> eol_1hr -> default
+              command: () => onChangeTimeState(),
+              items: [
+                {
+                  label: '< 4 hours',
+                  className: clsx({
+                    [classes.SelectedItem]: edge.data?.time_status === TimeStatus.eol_4hr,
+                  }),
+                  command: () => onChangeTimeState(TimeStatus.eol_4hr),
+                },
+                {
+                  label: '< 1 hour',
+                  className: clsx({
+                    [classes.SelectedItem]: edge.data?.time_status === TimeStatus.eol_1hr,
+                  }),
+                  command: () => onChangeTimeState(TimeStatus.eol_1hr),
+                },
+              ],
             },
             {
               label: `Loop`,
@@ -128,7 +147,15 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
         command: onDeleteConnection,
       },
     ];
-  }, [edge, onChangeTimeState, onDeleteConnection, onChangeShipSizeStatus, onToggleMassSave, onChangeMassState]);
+  }, [
+    edge,
+    onChangeTimeState,
+    onDeleteConnection,
+    onChangeShipSizeStatus,
+    onToggleMassSave,
+    onChangeMassState,
+    onToggleLoop,
+  ]);
 
   return (
     <>

@@ -30,9 +30,27 @@ export const useContextMenuConnectionHandlers = () => {
     setEdge(undefined);
   };
 
-  const onChangeTimeState = () => {
+  const onChangeTimeState = (status?: TimeStatus) => {
     if (!edge || !edge.data) {
       return;
+    }
+
+    // Use provided status, or cycle through states: default -> eol_4hr -> eol_1hr -> default
+    let newStatus = status;
+    if (newStatus === undefined) {
+      switch (edge.data.time_status) {
+        case TimeStatus.default:
+          newStatus = TimeStatus.eol_4hr;
+          break;
+        case TimeStatus.eol_4hr:
+          newStatus = TimeStatus.eol_1hr;
+          break;
+        case TimeStatus.eol_1hr:
+          newStatus = TimeStatus.default;
+          break;
+        default:
+          newStatus = TimeStatus.default;
+      }
     }
 
     outCommand({
@@ -40,7 +58,7 @@ export const useContextMenuConnectionHandlers = () => {
       data: {
         source: edge.source,
         target: edge.target,
-        value: edge.data.time_status === TimeStatus.default ? TimeStatus.eol : TimeStatus.default,
+        value: newStatus,
       },
     });
     setEdge(undefined);
