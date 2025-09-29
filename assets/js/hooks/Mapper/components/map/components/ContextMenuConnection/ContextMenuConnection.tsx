@@ -90,18 +90,14 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
           return <LifetimeActionsWrapper lifetime={edge.data?.time_status} onChangeLifetime={onChangeTimeState} />;
         },
       },
-      ...(isLoop
-        ? [
-            {
-              label: `Loop`,
-              className: clsx({
-                [classes.ConnectionLoop]: isLoop,
-              }),
-              icon: PrimeIcons.REPLAY,
-              command: onToggleLoop,
-            },
-          ]
-        : []),
+      {
+        label: `Loop`,
+        className: clsx({
+          [classes.ConnectionLoop]: isLoop,
+        }),
+        icon: PrimeIcons.REPLAY,
+        command: onToggleLoop,
+      },
       {
         label: `Frigate`,
         className: clsx({
