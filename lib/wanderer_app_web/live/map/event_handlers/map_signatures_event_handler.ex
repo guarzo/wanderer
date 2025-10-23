@@ -191,7 +191,7 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
     # Get the system to clean up expired signatures
     case WandererApp.Api.MapSystem.read_by_map_and_solar_system(%{
            map_id: map_id,
-           solar_system_id: solar_system_id |> String.to_integer()
+           solar_system_id: solar_system_id
          }) do
       {:ok, system} ->
         # Clean up expired signatures before updating
