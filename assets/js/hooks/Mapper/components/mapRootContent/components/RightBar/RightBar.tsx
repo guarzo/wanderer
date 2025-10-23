@@ -14,6 +14,7 @@ interface RightBarProps {
   onShowOnTheMap?: () => void;
   onShowMapSettings?: () => void;
   onShowTrackingDialog?: () => void;
+  onShowFleetReadiness?: () => void;
   additionalContent?: ReactNode;
 }
 
@@ -21,6 +22,7 @@ export const RightBar = ({
   onShowOnTheMap,
   onShowMapSettings,
   onShowTrackingDialog,
+  onShowFleetReadiness,
   additionalContent,
 }: RightBarProps) => {
   const {
@@ -63,6 +65,17 @@ export const RightBar = ({
                 id="show-tracking-button"
               >
                 <i className="pi pi-user-plus"></i>
+              </button>
+            </WdTooltipWrapper>
+
+            <WdTooltipWrapper content="Fleet readiness" position={TooltipPosition.left}>
+              <button
+                className="btn bg-transparent text-gray-400 hover:text-white border-transparent hover:bg-transparent py-2 h-auto min-h-auto"
+                type="button"
+                onClick={onShowFleetReadiness}
+                id="show-fleet-readiness-button"
+              >
+                <i className="pi pi-users"></i>
               </button>
             </WdTooltipWrapper>
 
