@@ -441,7 +441,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
       SignaturesImpl.apply_update_signature(map_id, sig, update_params)
     end)
 
-    Impl.broadcast!(map_id, :signatures_updated, solar_system_id)
+    # Broadcast now handled by Ash after_action hook
   end
 
   def maybe_add_connection(
@@ -535,7 +535,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
           solar_system_id: location.solar_system_id
         })
 
-        Impl.broadcast!(map_id, :add_connection, connection)
+        # Broadcast now handled by Ash after_action hook
 
         # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
         WandererApp.ExternalEvents.broadcast(map_id, :connection_added, %{
@@ -733,7 +733,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
       {:ok, connection} when not is_nil(connection) ->
         :ok = WandererApp.MapConnectionRepo.destroy(map_id, connection)
 
-        Impl.broadcast!(map_id, :remove_connections, [connection])
+        # Broadcast now handled by Ash after_action hook
         map_id |> WandererApp.Map.remove_connection(connection)
 
         # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
@@ -783,7 +783,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         callback_fn.(connection, updated_connection)
       end
 
-      Impl.broadcast!(map_id, :update_connection, updated_connection)
+      # Broadcast now handled by Ash after_action hook
 
       # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
       WandererApp.ExternalEvents.broadcast(map_id, :connection_updated, %{
