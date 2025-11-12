@@ -184,8 +184,8 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
 
   # Extract map identifier from multiple sources
   defp get_map_identifier(conn) do
-    # 1. Check path params (e.g., /api/v1/maps/:map_identifier/systems)
-    case conn.params["map_identifier"] do
+    # 1. Check path params (e.g., /api/maps/:map_identifier/systems)
+    case conn.path_params["map_identifier"] do
       id when is_binary(id) and id != "" -> id
       _ ->
         # 2. Check request body for map_id (JSON:API format)
