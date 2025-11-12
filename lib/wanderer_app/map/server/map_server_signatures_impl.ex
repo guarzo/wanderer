@@ -6,7 +6,7 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
   alias WandererApp.Api.{MapSystem, MapSystemSignature}
   alias WandererApp.Character
   alias WandererApp.User.ActivityTracker
-  alias WandererApp.Map.Server.{Impl, ConnectionsImpl, SystemsImpl}
+  alias WandererApp.Map.Server.{ConnectionsImpl, SystemsImpl}
   alias WandererApp.Utils.EVEUtil
 
   @doc """
@@ -138,7 +138,7 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
     end
 
     # 5. Broadcast to any live subscribers
-    Impl.broadcast!(map_id, :signatures_updated, system.solar_system_id)
+    # Broadcasts now handled by individual Ash after_action hooks
 
     # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
     # Send individual signature events
@@ -279,7 +279,8 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
         group: sig["group"],
         type: Map.get(sig, "type"),
         custom_info: Map.get(sig, "custom_info"),
-        character_eve_id: character_eve_id,
+        # Use character_eve_id from sig if provided, otherwise use the default
+        character_eve_id: Map.get(sig, "character_eve_id", character_eve_id),
         deleted: false
       }
     end)

@@ -1,6 +1,8 @@
 defmodule WandererApp.Api.MapSystemSignature do
   @moduledoc false
 
+  alias WandererApp.Api.Changes.BroadcastSignatureUpdate
+
   use Ash.Resource,
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer,
@@ -72,7 +74,11 @@ defmodule WandererApp.Api.MapSystemSignature do
       :custom_info
     ]
 
-    defaults [:destroy]
+    # Define explicit destroy action with PubSub broadcasting
+    destroy :destroy do
+      require_atomic? false
+      change BroadcastSignatureUpdate
+    end
 
     read :read do
       primary?(true)
@@ -115,6 +121,7 @@ defmodule WandererApp.Api.MapSystemSignature do
       argument :system_id, :uuid, allow_nil?: false
 
       change manage_relationship(:system_id, :system, on_lookup: :relate, on_no_match: nil)
+      change BroadcastSignatureUpdate
     end
 
     update :update do
@@ -135,18 +142,25 @@ defmodule WandererApp.Api.MapSystemSignature do
 
       primary? true
       require_atomic? false
+      change BroadcastSignatureUpdate
     end
 
     update :update_linked_system do
       accept [:linked_system_id]
+      require_atomic? false
+      change BroadcastSignatureUpdate
     end
 
     update :update_type do
       accept [:type]
+      require_atomic? false
+      change BroadcastSignatureUpdate
     end
 
     update :update_group do
       accept [:group]
+      require_atomic? false
+      change BroadcastSignatureUpdate
     end
 
     read :by_system_id do

@@ -304,7 +304,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         {:ok, result} ->
           :ok = WandererApp.Map.remove_system(map_id, solar_system_id)
           @ddrt.delete([solar_system_id], "rtree_#{map_id}")
-          Impl.broadcast!(map_id, :systems_removed, [solar_system_id])
+          # Broadcast now handled by Ash after_action hook
 
           # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
           Logger.debug(fn ->
@@ -377,7 +377,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         Logger.debug(fn -> "Removing connection from map: #{inspect(connection)}" end)
         :ok = WandererApp.MapConnectionRepo.destroy(map_id, connection)
         :ok = WandererApp.Map.remove_connection(map_id, connection)
-        Impl.broadcast!(map_id, :remove_connections, [connection])
+        # Broadcast now handled by Ash after_action hook
       rescue
         e ->
           Logger.error("Failed to remove connection: #{inspect(e)}")
@@ -401,7 +401,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
           "[cleanup_linked_signatures] for system #{system.solar_system_id}: #{inspect(eve_id)}"
         )
 
-        Impl.broadcast!(map_id, :signatures_updated, system.solar_system_id)
+        # Broadcast now handled by Ash after_action hook
       rescue
         e ->
           Logger.error("Failed to cleanup linked signature: #{inspect(e)}")
@@ -471,7 +471,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
             WandererApp.Map.add_system(map_id, updated_system)
 
-            Impl.broadcast!(map_id, :add_system, updated_system)
+            # Broadcast now handled by Ash after_action hook
 
             # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
             WandererApp.ExternalEvents.broadcast(map_id, :add_system, %{
@@ -509,7 +509,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                 )
 
                 WandererApp.Map.add_system(map_id, new_system)
-                Impl.broadcast!(map_id, :add_system, new_system)
+                # Broadcast now handled by Ash after_action hook
 
                 # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
                 WandererApp.ExternalEvents.broadcast(map_id, :add_system, %{
@@ -628,7 +628,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       ttl: @system_inactive_timeout
     )
 
-    Impl.broadcast!(map_id, :add_system, system)
+    # Broadcast now handled by Ash after_action hook
 
     # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
     Logger.debug(fn ->
@@ -821,7 +821,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       ttl: @system_inactive_timeout
     )
 
-    Impl.broadcast!(map_id, :update_system, updated_system)
+    # Broadcast now handled by Ash after_action hook
 
     # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
     WandererApp.ExternalEvents.broadcast(map_id, :system_metadata_changed, %{
