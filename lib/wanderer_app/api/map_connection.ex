@@ -1,6 +1,8 @@
 defmodule WandererApp.Api.MapConnection do
   @moduledoc false
 
+  alias WandererApp.Api.Changes.BroadcastMapUpdate
+
   use Ash.Resource,
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer,
@@ -73,7 +75,50 @@ defmodule WandererApp.Api.MapConnection do
       :custom_info
     ]
 
-    defaults [:create, :read, :update, :destroy]
+    # Define explicit actions with PubSub broadcasting
+    defaults [:read]
+
+    create :create do
+      accept [
+        :map_id,
+        :solar_system_source,
+        :solar_system_target,
+        :type,
+        :ship_size_type,
+        :mass_status,
+        :time_status,
+        :wormhole_type,
+        :count_of_passage,
+        :locked,
+        :custom_info
+      ]
+
+      change {BroadcastMapUpdate, event: :add_connection}
+    end
+
+    update :update do
+      accept [
+        :map_id,
+        :solar_system_source,
+        :solar_system_target,
+        :type,
+        :ship_size_type,
+        :mass_status,
+        :time_status,
+        :wormhole_type,
+        :count_of_passage,
+        :locked,
+        :custom_info
+      ]
+
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
+    end
+
+    destroy :destroy do
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :remove_connections}
+    end
 
     read :read_by_map do
       argument(:map_id, :string, allow_nil?: false)
@@ -110,30 +155,44 @@ defmodule WandererApp.Api.MapConnection do
 
     update :update_mass_status do
       accept [:mass_status]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
     end
 
     update :update_time_status do
       accept [:time_status]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
     end
 
     update :update_ship_size_type do
       accept [:ship_size_type]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
     end
 
     update :update_locked do
       accept [:locked]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
     end
 
     update :update_custom_info do
       accept [:custom_info]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
     end
 
     update :update_type do
       accept [:type]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
     end
 
     update :update_wormhole_type do
       accept [:wormhole_type]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_connection}
     end
   end
 

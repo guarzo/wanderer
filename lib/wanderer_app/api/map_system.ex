@@ -1,6 +1,8 @@
 defmodule WandererApp.Api.MapSystem do
   @moduledoc false
 
+  alias WandererApp.Api.Changes.BroadcastMapUpdate
+
   @derive {Jason.Encoder,
            only: [
              :id,
@@ -127,7 +129,55 @@ defmodule WandererApp.Api.MapSystem do
       :linked_sig_eve_id
     ]
 
-    defaults [:create, :update, :destroy]
+    # Define explicit actions with PubSub broadcasting
+    create :create do
+      accept [
+        :map_id,
+        :name,
+        :solar_system_id,
+        :position_x,
+        :position_y,
+        :status,
+        :visible,
+        :locked,
+        :custom_name,
+        :description,
+        :tag,
+        :temporary_name,
+        :labels,
+        :added_at,
+        :linked_sig_eve_id
+      ]
+
+      change {BroadcastMapUpdate, event: :add_system}
+    end
+
+    update :update do
+      accept [
+        :map_id,
+        :name,
+        :solar_system_id,
+        :position_x,
+        :position_y,
+        :status,
+        :visible,
+        :locked,
+        :custom_name,
+        :description,
+        :tag,
+        :temporary_name,
+        :labels,
+        :linked_sig_eve_id
+      ]
+
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
+    end
+
+    destroy :destroy do
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :systems_removed}
+    end
 
     read :read do
       primary?(true)
@@ -160,44 +210,64 @@ defmodule WandererApp.Api.MapSystem do
 
     update :update_name do
       accept [:name]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_description do
       accept [:description]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_locked do
       accept [:locked]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_status do
       accept [:status]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_tag do
       accept [:tag]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_temporary_name do
       accept [:temporary_name]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_labels do
       accept [:labels]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_position do
       accept [:position_x, :position_y]
 
+      require_atomic? false
       change(set_attribute(:visible, true))
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_linked_sig_eve_id do
       accept [:linked_sig_eve_id]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
 
     update :update_visible do
       accept [:visible]
+      require_atomic? false
+      change {BroadcastMapUpdate, event: :update_system}
     end
   end
 
