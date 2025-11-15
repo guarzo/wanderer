@@ -2,6 +2,61 @@
 
 <!-- changelog -->
 
+## [v1.84.17](https://github.com/wanderer-industries/wanderer/compare/v1.84.16...v1.84.17) (2025-11-14)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed activity tracking issues
+
+## [v1.84.16](https://github.com/wanderer-industries/wanderer/compare/v1.84.15...v1.84.16) (2025-11-13)
+
+
+
+
+### Bug Fixes:
+
+* core: removed maps auto-start logic
+
+## [v1.84.15](https://github.com/wanderer-industries/wanderer/compare/v1.84.14...v1.84.15) (2025-11-13)
+
+
+
+
+### Bug Fixes:
+
+* core: fixed maps start/stop logic, added server downtime period support
+
+## [v1.84.14](https://github.com/wanderer-industries/wanderer/compare/v1.84.13...v1.84.14) (2025-11-13)
+
+
+
+
+### Bug Fixes:
+
+* Map: Fixed problem related with error if settings was removed and mapper crashed. Fixed settings reset.
+
+## [v1.84.13](https://github.com/wanderer-industries/wanderer/compare/v1.84.12...v1.84.13) (2025-11-13)
+
+
+
+
+## [v1.84.12](https://github.com/wanderer-industries/wanderer/compare/v1.84.11...v1.84.12) (2025-11-13)
+
+
+
+
+## [v1.84.11](https://github.com/wanderer-industries/wanderer/compare/v1.84.10...v1.84.11) (2025-11-12)
+
+
+
+
+### Bug Fixes:
+
+* api and doc updates
+
 ## [v1.84.10](https://github.com/wanderer-industries/wanderer/compare/v1.84.9...v1.84.10) (2025-11-12)
 
 
