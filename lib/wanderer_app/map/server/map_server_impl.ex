@@ -257,6 +257,10 @@ defmodule WandererApp.Map.Server.Impl do
   defdelegate update_connection_custom_info(map_id, connection_update), to: ConnectionsImpl
   defdelegate update_signatures(map_id, signatures_update), to: SignaturesImpl
 
+  defdelegate update_system_owner(map_id, update), to: SystemsImpl
+
+  defdelegate update_system_custom_flags(map_id, update), to: SystemsImpl
+
   def import_settings(map_id, settings, user_id) do
     WandererApp.Cache.put(
       "map_#{map_id}:importing",
@@ -454,12 +458,21 @@ defmodule WandererApp.Map.Server.Impl do
       not WandererApp.Cache.lookup!("map_#{map_id}:importing", false) and
         WandererApp.Cache.lookup!("map_#{map_id}:started", false)
 
-  def get_update_map(update, attributes),
-    do:
-      {:ok,
+  def get_update_map(update, attributes) do
+    require Logger
+    # Check if this is an owner update
+    is_owner_update = Enum.any?(attributes, fn attr ->
+      attr == :owner_type || attr == :owner_id || attr == :owner_ticker
+    end)
+
+    result = {:ok,
        Enum.reduce(attributes, Map.new(), fn attribute, map ->
-         map |> Map.put_new(attribute, get_in(update, [Access.key(attribute)]))
+         value = get_in(update, [Access.key(attribute)])
+         map |> Map.put_new(attribute, value)
        end)}
+
+    result
+  end
 
   defp map_options(options) do
     [
@@ -541,17 +554,23 @@ defmodule WandererApp.Map.Server.Impl do
         character_id
       ) do
     systems
-    |> Enum.each(fn %{
-                      "description" => description,
-                      "id" => id,
-                      "labels" => labels,
-                      "locked" => locked,
-                      "name" => name,
-                      "position" => %{"x" => x, "y" => y},
-                      "status" => status,
-                      "tag" => tag,
-                      "temporary_name" => temporary_name
-                    } ->
+    |> Enum.each(fn system ->
+      # Extract required fields with defaults for optional ones
+      description = Map.get(system, "description", "")
+      id = Map.get(system, "id")
+      labels = Map.get(system, "labels", [])
+      locked = Map.get(system, "locked", false)
+      name = Map.get(system, "name", "")
+      position = Map.get(system, "position", %{"x" => 0, "y" => 0})
+      x = Map.get(position, "x", 0)
+      y = Map.get(position, "y", 0)
+      status = Map.get(system, "status", 0)
+      tag = Map.get(system, "tag", "")
+      temporary_name = Map.get(system, "temporary_name", "")
+      owner_type = Map.get(system, "owner_type")
+      owner_id = Map.get(system, "owner_id")
+      custom_flags = Map.get(system, "custom_flags")
+
       solar_system_id = id |> String.to_integer()
 
       add_system(
@@ -579,6 +598,14 @@ defmodule WandererApp.Map.Server.Impl do
         solar_system_id: solar_system_id,
         temporary_name: temporary_name
       })
+
+      if owner_type || owner_id do
+        update_system_owner(map_id, %{solar_system_id: solar_system_id, owner_type: owner_type, owner_id: owner_id})
+      end
+
+      if custom_flags do
+        update_system_custom_flags(map_id, %{solar_system_id: solar_system_id, custom_flags: custom_flags})
+      end
 
       update_system_locked(map_id, %{solar_system_id: solar_system_id, locked: locked})
 

@@ -1,13 +1,12 @@
 import { InfoDrawer } from '@/hooks/Mapper/components/ui-kit';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
-
-import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants.ts';
 import { renderInfoColumn } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/renders';
 import { K162_TYPES_MAP } from '@/hooks/Mapper/constants.ts';
 import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo.ts';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { TimeStatus } from '@/hooks/Mapper/types';
 import { SystemSignature } from '@/hooks/Mapper/types/signatures';
+import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants';
 import clsx from 'clsx';
 import { useMemo } from 'react';
 import classes from './UnsplashedSignature.module.scss';
@@ -37,6 +36,10 @@ export const UnsplashedSignature = ({ signature }: UnsplashedSignatureProps) => 
 
   const isEOL = useMemo(() => {
     return customInfo?.time_status === TimeStatus._1h;
+  }, [customInfo]);
+
+  const isCrit= useMemo(() => {
+    return customInfo?.isCrit;
   }, [customInfo]);
 
   const whClassStyle = useMemo(() => {

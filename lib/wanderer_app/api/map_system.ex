@@ -97,10 +97,14 @@ defmodule WandererApp.Api.MapSystem do
     define(:update_tag, action: :update_tag)
     define(:update_temporary_name, action: :update_temporary_name)
     define(:update_custom_name, action: :update_custom_name)
+    define(:update_owner, action: :update_owner)
+    define(:update_owner_id, action: :update_owner_id)
+    define(:update_owner_type, action: :update_owner_type)
     define(:update_labels, action: :update_labels)
     define(:update_linked_sig_eve_id, action: :update_linked_sig_eve_id)
     define(:update_position, action: :update_position)
     define(:update_visible, action: :update_visible)
+    define(:update_custom_flags, action: :update_custom_flags)
   end
 
   actions do
@@ -270,6 +274,26 @@ defmodule WandererApp.Api.MapSystem do
       require_atomic? false
     end
 
+    update :update_owner do
+      accept [:owner_id, :owner_type, :owner_ticker]
+      require_atomic? false
+    end
+
+    update :update_owner_id do
+      accept [:owner_id]
+      require_atomic? false
+    end
+
+    update :update_owner_type do
+      accept [:owner_type]
+      require_atomic? false
+    end
+
+    update :update_custom_flags do
+      accept [:custom_flags]
+      require_atomic? false
+    end
+
     update :update_labels do
       accept [:labels]
       require_atomic? false
@@ -318,6 +342,22 @@ defmodule WandererApp.Api.MapSystem do
     end
 
     attribute :temporary_name, :string do
+      allow_nil? true
+    end
+
+    attribute :owner_id, :string do
+      allow_nil? true
+    end
+
+    attribute :owner_type, :string do
+      allow_nil? true
+    end
+
+    attribute :owner_ticker, :string do
+      allow_nil? true
+    end
+
+    attribute :custom_flags, :string do
       allow_nil? true
     end
 

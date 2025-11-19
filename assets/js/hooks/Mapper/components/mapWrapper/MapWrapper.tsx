@@ -4,7 +4,7 @@ import { OnMapAddSystemCallback, OnMapSelectionChange } from '@/hooks/Mapper/com
 import {
   SystemCustomLabelDialog,
   SystemLinkSignatureDialog,
-  SystemSettingsDialog,
+  CustomSystemSettingsDialog,
 } from '@/hooks/Mapper/components/mapInterface/components';
 import { Connections } from '@/hooks/Mapper/components/mapRootContent/components/Connections';
 import { getSystemById } from '@/hooks/Mapper/helpers';
@@ -288,7 +288,7 @@ export const MapWrapper = () => {
       />
 
       {openSettings != null && (
-        <SystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
+        <CustomSystemSettingsDialog systemId={openSettings} visible setVisible={() => setOpenSettings(null)} />
       )}
       {openPing != null && (
         <SystemPingDialog

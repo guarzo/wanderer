@@ -41,6 +41,8 @@ export enum Commands {
   refreshTrackingData = 'refresh_tracking_data',
   pingAdded = 'ping_added',
   pingCancelled = 'ping_cancelled',
+  readyCharactersUpdated = 'ready_characters_updated',
+  allReadyCharactersCleared = 'all_ready_characters_cleared',
 }
 
 export type Command =
@@ -77,7 +79,9 @@ export type Command =
   | Commands.showTracking
   | Commands.refreshTrackingData
   | Commands.pingAdded
-  | Commands.pingCancelled;
+  | Commands.pingCancelled
+  | Commands.readyCharactersUpdated
+  | Commands.allReadyCharactersCleared;
 
 export type CommandInit = {
   systems: SolarSystemRawType[];
@@ -161,6 +165,17 @@ export type CommandUpdateTracking = {
 };
 export type CommandPingAdded = PingData[];
 export type CommandPingCancelled = Pick<PingData, 'type' | 'id'>;
+export type CommandUpdateReadyCharacters = {
+  ready_character_eve_ids: string[];
+};
+export type CommandReadyCharactersUpdated = {
+  user_id: string;
+  user_name: string;
+  ready_character_eve_ids: string[];
+};
+export type CommandAllReadyCharactersCleared = {
+  cleared_by_user_id: string;
+};
 
 export interface UserSettings {
   primaryCharacterId?: string;
@@ -212,6 +227,8 @@ export interface CommandData {
   [Commands.refreshTrackingData]: CommandRefreshTrackingData;
   [Commands.pingAdded]: CommandPingAdded;
   [Commands.pingCancelled]: CommandPingCancelled;
+  [Commands.readyCharactersUpdated]: CommandReadyCharactersUpdated;
+  [Commands.allReadyCharactersCleared]: CommandAllReadyCharactersCleared;
 }
 
 export interface MapHandlers {
@@ -241,6 +258,7 @@ export enum OutCommand {
   updateSignatures = 'update_signatures',
   updateSystemName = 'update_system_name',
   updateSystemTemporaryName = 'update_system_temporary_name',
+  updateSystemOwner = 'update_system_owner',
   updateSystemDescription = 'update_system_description',
   updateSystemLabels = 'update_system_labels',
   updateSystemLocked = 'update_system_locked',
@@ -271,10 +289,16 @@ export enum OutCommand {
   updateCharacterTracking = 'updateCharacterTracking',
   updateFollowingCharacter = 'updateFollowingCharacter',
   updateMainCharacter = 'updateMainCharacter',
+  updateReadyCharacters = 'updateReadyCharacters',
+  getAllReadyCharacters = 'getAllReadyCharacters',
+  clearAllReadyCharacters = 'clearAllReadyCharacters',
   addPing = 'add_ping',
   cancelPing = 'cancel_ping',
   startTracking = 'startTracking',
 
+  updateSystemCustomFlags = 'update_system_custom_flags',
+  getAllianceNames = 'get_alliance_names',
+  getAllianceTicker = 'get_alliance_ticker',
   // Only UI commands
   openSettings = 'open_settings',
   showActivity = 'show_activity',
