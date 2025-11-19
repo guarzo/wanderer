@@ -2,6 +2,7 @@ export enum ConnectionType {
   wormhole,
   gate,
   bridge,
+  loop,
 }
 
 export enum MassState {
