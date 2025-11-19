@@ -25,6 +25,8 @@ import {
   CommandUpdateSystems,
   CommandUserSettingsUpdated,
   MapHandlers,
+  CommandReadyCharactersUpdated,
+  CommandAllReadyCharactersCleared,
 } from '@/hooks/Mapper/types/mapHandlers.ts';
 import { ForwardedRef, useImperativeHandle } from 'react';
 
@@ -56,8 +58,15 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
     updateDetailedKills,
   } = useCommandsSystems();
   const { addConnections, removeConnections, updateConnection } = useCommandsConnections();
-  const { charactersUpdated, characterAdded, characterRemoved, characterUpdated, presentCharacters } =
-    useCommandsCharacters();
+  const {
+    charactersUpdated,
+    characterAdded,
+    characterRemoved,
+    characterUpdated,
+    presentCharacters,
+    readyCharactersUpdated,
+    allReadyCharactersCleared,
+  } = useCommandsCharacters();
   const mapUpdated = useMapUpdated();
   const mapRoutes = useRoutes();
   const mapUserRoutes = useUserRoutes();
@@ -178,6 +187,15 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
           case Commands.pingBlocked:
             pingBlocked(data as CommandPingBlocked);
             break;
+
+          case Commands.readyCharactersUpdated:
+            readyCharactersUpdated(data as CommandReadyCharactersUpdated);
+            break;
+
+          case Commands.allReadyCharactersCleared:
+            allReadyCharactersCleared(data as CommandAllReadyCharactersCleared);
+            break;
+
           default:
             console.warn(`JOipP Interface handlers: Unknown command: ${type}`, data);
             break;
@@ -186,5 +204,33 @@ export const useMapRootHandlers = (ref: ForwardedRef<MapHandlers>) => {
         emitMapEvent({ name: type, data });
       },
     };
-  }, []);
+  }, [
+    addComment,
+    addConnections,
+    addSystems,
+    allReadyCharactersCleared,
+    characterActivityData,
+    characterAdded,
+    characterRemoved,
+    characterUpdated,
+    charactersUpdated,
+    mapInit,
+    mapRoutes,
+    mapUpdated,
+    mapUserRoutes,
+    pingAdded,
+    pingCancelled,
+    presentCharacters,
+    readyCharactersUpdated,
+    removeComment,
+    removeConnections,
+    removeSystems,
+    trackingCharactersData,
+    updateConnection,
+    updateDetailedKills,
+    updateLinkSignatureToSystem,
+    updateSystemSignatures,
+    updateSystems,
+    userSettingsUpdated,
+  ]);
 };
