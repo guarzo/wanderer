@@ -213,6 +213,44 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       ),
       do: update_system(map_id, :update_temporary_name, [:temporary_name], update)
 
+  def update_system_owner(state, update) do
+    require Logger
+
+    # Convert string keys to atoms if needed
+    update =
+      case update do
+        %{owner_ticker: _} ->
+          update
+
+        %{"owner_ticker" => ticker} ->
+          update
+          |> Map.put(:owner_ticker, ticker)
+          |> Map.delete("owner_ticker")
+
+        _ ->
+          update
+      end
+
+    # Ensure all owner fields are present
+    update =
+      update
+      |> Map.put_new(:owner_id, nil)
+      |> Map.put_new(:owner_type, nil)
+      |> Map.put_new(:owner_ticker, nil)
+
+    Logger.debug(fn -> "[update_system_owner] Updating with: #{inspect(update)}" end)
+
+    state
+    |> update_system(:update_owner, [:owner_type, :owner_id, :owner_ticker], update)
+  end
+
+  def update_system_custom_flags(
+        state,
+        update
+      ) do
+    state |> update_system(:update_custom_flags, [:custom_flags], update)
+  end
+
   def update_system_locked(
         map_id,
         update
@@ -888,6 +926,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
          update,
          callback_fn \\ nil
        ) do
+    require Logger
+
     with :ok <- WandererApp.Map.update_system_by_solar_system_id(map_id, update),
          {:ok, system} <-
            WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(

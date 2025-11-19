@@ -1,5 +1,4 @@
 import { XYPosition } from 'reactflow';
-
 import { SystemSignature } from './signatures';
 
 export enum SolarSystemStaticInfoRawNames {
@@ -117,9 +116,11 @@ export type SolarSystemRawType = {
   status: number;
   name: string | null;
   temporary_name: string | null;
+  owner_id: string | null;
+  owner_type: string | null;
+  custom_flags: string | null;
   linked_sig_eve_id: string | null;
   comments_count: number | null;
-
   system_static_info: SolarSystemStaticInfoRaw;
   system_signatures: SystemSignature[];
 };
