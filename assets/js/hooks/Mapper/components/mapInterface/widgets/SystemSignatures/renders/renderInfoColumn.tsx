@@ -10,6 +10,13 @@ import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureC
 import clsx from 'clsx';
 import { renderName } from './renderName.tsx';
 
+const renderSignatureNameOrGroup = (row: SystemSignature) => {
+  if (row.name && row.name !== 'Unknown') {
+    return renderName(row);
+  }
+  return row.group ? <span title={row.group}>{row.group}</span> : null;
+};
+
 export const renderInfoColumn = (row: SystemSignature) => {
   if (!row.group || row.group === SignatureGroup.Wormhole) {
     const customInfo = parseSignatureCustomInfo(row.custom_info);
@@ -18,9 +25,9 @@ export const renderInfoColumn = (row: SystemSignature) => {
 
     return (
       <div className="flex justify-start items-center gap-[4px]">
-        {row.temporary_name && <span className={clsx('text-[12px]')}>{row.temporary_name}</span>}
+        {renderSignatureNameOrGroup(row)}
 
-        {customInfo.time_status === TimeStatus._1h && (
+        {customInfo.isEOL && (
           <WdTooltipWrapper offset={5} position={TooltipPosition.top} content="Signature marked as EOL">
             <div className="pi pi-clock text-fuchsia-400 text-[11px] mr-[2px]"></div>
           </WdTooltipWrapper>
@@ -67,7 +74,7 @@ export const renderInfoColumn = (row: SystemSignature) => {
 
   return (
     <div className="flex gap-1 items-center">
-      {renderName(row)}{' '}
+      {renderSignatureNameOrGroup(row)}{' '}
       {row.description && (
         <WdTooltipWrapper content={row.description}>
           <span className={clsx(PrimeIcons.EXCLAMATION_CIRCLE, 'text-[12px]')}></span>
