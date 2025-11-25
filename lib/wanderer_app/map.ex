@@ -626,8 +626,9 @@ defmodule WandererApp.Map do
   end
 
   defp get_passages_activity(map_id, nil) do
+    require Logger
     # Query all map chain passages without time filter
-    from(p in WandererApp.Api.MapChainPassages,
+    result = from(p in WandererApp.Api.MapChainPassages,
       join: c in assoc(p, :character),
       where: p.map_id == ^map_id,
       group_by: [c.id],
@@ -635,11 +636,16 @@ defmodule WandererApp.Map do
     )
     |> WandererApp.Repo.all()
     |> Enum.map(fn {character, count} -> %{character: character, count: count} end)
+
+    total_passages = Enum.reduce(result, 0, fn %{count: count}, acc -> acc + count end)
+    Logger.info("[CharacterActivity] unfiltered passages total_count=#{total_passages}")
+    result
   end
 
   defp get_passages_activity(map_id, cutoff_date) do
+    require Logger
     # Query map chain passages with time filter
-    from(p in WandererApp.Api.MapChainPassages,
+    result = from(p in WandererApp.Api.MapChainPassages,
       join: c in assoc(p, :character),
       where:
         p.map_id == ^map_id and
@@ -649,6 +655,10 @@ defmodule WandererApp.Map do
     )
     |> WandererApp.Repo.all()
     |> Enum.map(fn {character, count} -> %{character: character, count: count} end)
+
+    total_passages = Enum.reduce(result, 0, fn %{count: count}, acc -> acc + count end)
+    Logger.info("[CharacterActivity] filtered passages total_count=#{total_passages}")
+    result
   end
 
   defp get_connections_activity(map_id, nil) do
