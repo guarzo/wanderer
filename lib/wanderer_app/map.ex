@@ -588,6 +588,8 @@ defmodule WandererApp.Map do
   If days parameter is provided, filters activity to that time period.
   """
   def get_character_activity(map_id, days \\ nil) do
+    require Logger
+
     with {:ok, map} <- WandererApp.Api.Map.by_id(map_id) do
       _map_with_acls = Ash.load!(map, :acls)
 
@@ -595,10 +597,14 @@ defmodule WandererApp.Map do
       cutoff_date =
         if days, do: DateTime.utc_now() |> DateTime.add(-days * 24 * 3600, :second), else: nil
 
+      Logger.info("[CharacterActivity] days=#{inspect(days)}, cutoff_date=#{inspect(cutoff_date)}")
+
       # Get activity data
       passages_activity = get_passages_activity(map_id, cutoff_date)
       connections_activity = get_connections_activity(map_id, cutoff_date)
       signatures_activity = get_signatures_activity(map_id, cutoff_date)
+
+      Logger.info("[CharacterActivity] passages_count=#{length(passages_activity)}, connections_count=#{map_size(connections_activity)}, signatures_count=#{map_size(signatures_activity)}")
 
       # Return activity data
       result =
