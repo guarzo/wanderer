@@ -35,8 +35,13 @@ defmodule WandererAppWeb.MapActivityEventHandler do
       ) do
     Task.async(fn ->
       try do
-        # Extract days parameter (nil if not provided)
-        days = Map.get(params, "days")
+        # Extract days parameter and ensure it's an integer or nil
+        days = case Map.get(params, "days") do
+          nil -> nil
+          val when is_integer(val) -> val
+          val when is_binary(val) -> String.to_integer(val)
+          _ -> nil
+        end
 
         # Get raw activity data from the domain logic
         result =

@@ -645,7 +645,7 @@ defmodule WandererApp.Map do
   defp get_passages_activity(map_id, cutoff_date) do
     require Logger
     # Query map chain passages with time filter
-    result = from(p in WandererApp.Api.MapChainPassages,
+    query = from(p in WandererApp.Api.MapChainPassages,
       join: c in assoc(p, :character),
       where:
         p.map_id == ^map_id and
@@ -653,6 +653,21 @@ defmodule WandererApp.Map do
       group_by: [c.id],
       select: {c, count(p.id)}
     )
+
+    {sql, params} = Ecto.Adapters.SQL.to_sql(:all, WandererApp.Repo, query)
+    Logger.info("[CharacterActivity] SQL: #{sql}")
+    Logger.info("[CharacterActivity] Params: #{inspect(params)}")
+
+    # Debug: check timestamp range in the database
+    timestamp_query = from(p in WandererApp.Api.MapChainPassages,
+      where: p.map_id == ^map_id,
+      select: %{min: min(p.inserted_at), max: max(p.inserted_at), count: count(p.id)}
+    )
+    timestamp_stats = WandererApp.Repo.one(timestamp_query)
+    Logger.info("[CharacterActivity] Passages timestamp range: min=#{inspect(timestamp_stats.min)}, max=#{inspect(timestamp_stats.max)}, total=#{timestamp_stats.count}")
+    Logger.info("[CharacterActivity] Cutoff date: #{inspect(cutoff_date)}")
+
+    result = query
     |> WandererApp.Repo.all()
     |> Enum.map(fn {character, count} -> %{character: character, count: count} end)
 
