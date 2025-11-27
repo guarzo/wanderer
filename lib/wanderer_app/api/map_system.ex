@@ -276,18 +276,22 @@ defmodule WandererApp.Api.MapSystem do
 
     update :update_owner do
       accept [:owner_id, :owner_type, :owner_ticker]
+      require_atomic? false
     end
 
     update :update_owner_id do
       accept [:owner_id]
+      require_atomic? false
     end
 
     update :update_owner_type do
       accept [:owner_type]
+      require_atomic? false
     end
 
     update :update_custom_flags do
       accept [:custom_flags]
+      require_atomic? false
     end
 
     update :update_labels do
