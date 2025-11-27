@@ -973,13 +973,12 @@ defmodule WandererApp.Map.Server.SystemsImpl do
              map_id,
              update.solar_system_id
            ),
-         {:ok, update_map} <- Impl.get_update_map(update, attributes) do
-      {:ok, updated_system} =
-        apply(WandererApp.MapSystemRepo, update_method, [
-          system,
-          update_map
-        ])
-
+         {:ok, update_map} <- Impl.get_update_map(update, attributes),
+         {:ok, updated_system} <-
+           apply(WandererApp.MapSystemRepo, update_method, [
+             system,
+             update_map
+           ]) do
       if not is_nil(callback_fn) do
         callback_fn.(updated_system)
       end
