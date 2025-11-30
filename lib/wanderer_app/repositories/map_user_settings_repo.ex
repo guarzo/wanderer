@@ -1,6 +1,6 @@
 defmodule WandererApp.MapUserSettingsRepo do
   use WandererApp, :repository
-  
+
   require Logger
 
   @default_form_data %{
@@ -122,7 +122,8 @@ defmodule WandererApp.MapUserSettingsRepo do
   Gets all map user settings where the specified character_eve_id is marked as ready.
   Returns {:ok, [settings]} or {:error, reason}
   """
-  def get_settings_with_ready_character(character_eve_id) when is_binary(character_eve_id) and character_eve_id != "" do
+  def get_settings_with_ready_character(character_eve_id)
+      when is_binary(character_eve_id) and character_eve_id != "" do
     # Use raw Ecto query since Ash may not support array operations well
     import Ecto.Query
 
@@ -153,7 +154,10 @@ defmodule WandererApp.MapUserSettingsRepo do
           {:ok, ash_results}
 
         error ->
-          Logger.error("Unexpected result from Repo.all in get_settings_with_ready_character: #{inspect(error)}")
+          Logger.error(
+            "Unexpected result from Repo.all in get_settings_with_ready_character: #{inspect(error)}"
+          )
+
           {:error, :unexpected_result}
       end
     rescue
