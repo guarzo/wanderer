@@ -169,7 +169,13 @@ defmodule WandererApp.Character.TrackingUtils do
       {true, settings_result} ->
         case check_character_tracking_permission(character, map_id) do
           {:ok, :allowed} ->
-            do_update_character_tracking_impl(character, map_id, track, caller_pid, settings_result)
+            do_update_character_tracking_impl(
+              character,
+              map_id,
+              track,
+              caller_pid,
+              settings_result
+            )
 
           {:error, reason} ->
             Logger.warning(

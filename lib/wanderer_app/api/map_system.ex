@@ -30,6 +30,12 @@ defmodule WandererApp.Api.MapSystem do
   postgres do
     repo(WandererApp.Repo)
     table("map_system_v1")
+
+    custom_indexes do
+      # Performance index for filtering visible systems by map
+      # Added in upstream migration 20251108142542
+      index [:map_id], name: "map_system_v1_map_id_visible_index", where: "visible = true"
+    end
   end
 
   json_api do
@@ -144,7 +150,12 @@ defmodule WandererApp.Api.MapSystem do
         :temporary_name,
         :labels,
         :added_at,
-        :linked_sig_eve_id
+        :linked_sig_eve_id,
+        # Zoo-specific fields (for map duplication)
+        :owner_id,
+        :owner_type,
+        :owner_ticker,
+        :custom_flags
       ]
 
       # Inject map_id from token

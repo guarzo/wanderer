@@ -147,14 +147,17 @@ config :git_ops,
 
 # Add this to the existing configuration
 config :wanderer_app, :signature_cleanup,
-  max_age_hours: 24  # Default to 24 hours
+  # Default to 24 hours
+  max_age_hours: 24
 
 # Replace the signature configuration with one that uses environment variables
 config :wanderer_app, :signatures,
   # Wormhole signatures expire after the configured hours (default 24, 0 means never expire)
-  wormhole_expiration_hours: String.to_integer(System.get_env("SIGNATURE_WORMHOLE_EXPIRATION_HOURS") || "24"),
+  wormhole_expiration_hours:
+    String.to_integer(System.get_env("SIGNATURE_WORMHOLE_EXPIRATION_HOURS") || "24"),
   # All other signatures expire after the configured hours (default 72, 0 means never expire)
-  default_expiration_hours: String.to_integer(System.get_env("SIGNATURE_DEFAULT_EXPIRATION_HOURS") || "72"),
+  default_expiration_hours:
+    String.to_integer(System.get_env("SIGNATURE_DEFAULT_EXPIRATION_HOURS") || "72"),
   # Don't expire signatures that have connections
   preserve_connected: true
 

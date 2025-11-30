@@ -204,49 +204,51 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   end
 
   def handle_ui_event(
-      "update_system_owner",
-      %{"system_id" => sid} = params,
-      %{
-        assigns: %{
-          map_id: map_id,
-          current_user: current_user,
-          tracked_characters: tracked_characters,
-          user_permissions: user_permissions
-        }
-      } = socket
-    ) do
-
+        "update_system_owner",
+        %{"system_id" => sid} = params,
+        %{
+          assigns: %{
+            map_id: map_id,
+            current_user: current_user,
+            tracked_characters: tracked_characters,
+            user_permissions: user_permissions
+          }
+        } = socket
+      ) do
     # Extract owner_id, owner_type, and owner_ticker from params using STRING keys
     oid = Map.get(params, "owner_id")
     otype = Map.get(params, "owner_type")
     ticker = Map.get(params, "owner_ticker")
 
     # Clean up potential null/empty string values
-    oid = case oid do
-      "null" -> nil
-      "" -> nil
-      val -> val
-    end
+    oid =
+      case oid do
+        "null" -> nil
+        "" -> nil
+        val -> val
+      end
 
-    otype = case otype do
-      "null" -> nil
-      "" -> nil
-      val -> val
-    end
+    otype =
+      case otype do
+        "null" -> nil
+        "" -> nil
+        val -> val
+      end
 
-    ticker = case ticker do
-      "null" -> nil
-      "" -> nil
-      val -> val
-    end
+    ticker =
+      case ticker do
+        "null" -> nil
+        "" -> nil
+        val -> val
+      end
 
     if can_update_system?(:owner, user_permissions) do
       system_id_int =
-          case sid do
-            id when is_integer(id) -> id
-            id when is_binary(id) -> String.to_integer(id)
-            _ -> nil
-          end
+        case sid do
+          id when is_integer(id) -> id
+          id when is_binary(id) -> String.to_integer(id)
+          _ -> nil
+        end
 
       if system_id_int do
         WandererApp.Map.Server.update_system_owner(
@@ -259,10 +261,11 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           }
         )
 
-        main_character_id = case tracked_characters do
-          [first | _] -> first.id
-          _ -> nil
-        end
+        main_character_id =
+          case tracked_characters do
+            [first | _] -> first.id
+            _ -> nil
+          end
 
         if main_character_id do
           {:ok, _} =
@@ -280,7 +283,6 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
     {:noreply, socket}
   end
-
 
   def handle_ui_event(
         "update_system_" <> param,
@@ -456,41 +458,46 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     else
       search_term = search
 
-      result = Character.search(first_char.id, params: [search: search_term, categories: "corporation"])
+      result =
+        Character.search(first_char.id, params: [search: search_term, categories: "corporation"])
 
       # Format the results to include both ticker and name
-      formatted_result = case result do
-        {:ok, results} ->
-          formatted_results = Enum.map(results, fn item ->
-            name = Map.get(item, :label, "")
-            corp_id = Map.get(item, :value, "")
+      formatted_result =
+        case result do
+          {:ok, results} ->
+            formatted_results =
+              Enum.map(results, fn item ->
+                name = Map.get(item, :label, "")
+                corp_id = Map.get(item, :value, "")
 
-            # Fetch the ticker for each corporation
-            ticker = case WandererApp.Esi.get_corporation_info(corp_id) do
-              {:ok, %{"ticker" => ticker}} ->
-                ticker
-              _ ->
-                ""
-            end
+                # Fetch the ticker for each corporation
+                ticker =
+                  case WandererApp.Esi.get_corporation_info(corp_id) do
+                    {:ok, %{"ticker" => ticker}} ->
+                      ticker
 
-            # Create formatted label with ticker if available
-            formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
+                    _ ->
+                      ""
+                  end
 
-            # Update the item with the formatted label and ticker
-            Map.merge(item, %{
-              formatted: formatted_label,
-              name: name,
-              ticker: ticker,
-              id: item.value,
-              type: "corp"
-            })
-          end)
+                # Create formatted label with ticker if available
+                formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
 
-          {:ok, formatted_results}
+                # Update the item with the formatted label and ticker
+                Map.merge(item, %{
+                  formatted: formatted_label,
+                  name: name,
+                  ticker: ticker,
+                  id: item.value,
+                  type: "corp"
+                })
+              end)
 
-        other ->
-          other
-      end
+            {:ok, formatted_results}
+
+          other ->
+            other
+        end
 
       formatted_result
     end
@@ -507,41 +514,46 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     else
       search_term = search
 
-      result = Character.search(first_char.id, params: [search: search_term, categories: "alliance"])
+      result =
+        Character.search(first_char.id, params: [search: search_term, categories: "alliance"])
 
       # Format the results to include both ticker and name
-      formatted_result = case result do
-        {:ok, results} ->
-          formatted_results = Enum.map(results, fn item ->
-            name = Map.get(item, :label, "")
-            alliance_id = Map.get(item, :value, "")
+      formatted_result =
+        case result do
+          {:ok, results} ->
+            formatted_results =
+              Enum.map(results, fn item ->
+                name = Map.get(item, :label, "")
+                alliance_id = Map.get(item, :value, "")
 
-            # Fetch the ticker for each alliance
-            ticker = case WandererApp.Esi.get_alliance_info(alliance_id) do
-              {:ok, %{"ticker" => ticker}} ->
-                ticker
-              _ ->
-                ""
-            end
+                # Fetch the ticker for each alliance
+                ticker =
+                  case WandererApp.Esi.get_alliance_info(alliance_id) do
+                    {:ok, %{"ticker" => ticker}} ->
+                      ticker
 
-            # Create formatted label with ticker if available
-            formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
+                    _ ->
+                      ""
+                  end
 
-            # Update the item with the formatted label and ticker
-            Map.merge(item, %{
-              formatted: formatted_label,
-              name: name,
-              ticker: ticker,
-              id: item.value,
-              type: "alliance"
-            })
-          end)
+                # Create formatted label with ticker if available
+                formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
 
-          {:ok, formatted_results}
+                # Update the item with the formatted label and ticker
+                Map.merge(item, %{
+                  formatted: formatted_label,
+                  name: name,
+                  ticker: ticker,
+                  id: item.value,
+                  type: "alliance"
+                })
+              end)
 
-        other ->
-          other
-      end
+            {:ok, formatted_results}
+
+          other ->
+            other
+        end
 
       formatted_result
     end
@@ -558,12 +570,14 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     result = search_corporation_names(user_chars, search)
 
     # Format the response
-    response = case result do
-      {:ok, results} ->
-        %{results: results}
-      _ ->
-        %{results: []}
-    end
+    response =
+      case result do
+        {:ok, results} ->
+          %{results: results}
+
+        _ ->
+          %{results: []}
+      end
 
     {:reply, response, socket}
   end
@@ -577,12 +591,14 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     result = search_alliance_names(user_chars, search)
 
     # Format the response
-    response = case result do
-      {:ok, results} ->
-        %{results: results}
-      _ ->
-        %{results: []}
-    end
+    response =
+      case result do
+        {:ok, results} ->
+          %{results: results}
+
+        _ ->
+          %{results: []}
+      end
 
     {:reply, response, socket}
   end
@@ -611,7 +627,10 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
   # Catch-all for UI events NOT handled by specific clauses above
   def handle_ui_event(event, params, socket) do
-    Logger.warn("[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}, Params: #{inspect(params)}, Assigns: #{inspect(socket.assigns)}")
+    Logger.warn(
+      "[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}, Params: #{inspect(params)}, Assigns: #{inspect(socket.assigns)}"
+    )
+
     # Forward to the core event handler as a fallback
     MapCoreEventHandler.handle_ui_event(event, params, socket)
   end

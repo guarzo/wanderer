@@ -1,6 +1,28 @@
 import { MdOutlineBlock, MdLocalFireDepartment } from 'react-icons/md';
 import { FaIndustry, FaHourglassEnd, FaExclamationTriangle, FaSkull } from 'react-icons/fa';
 
+/**
+ * Zoo-Specific Label System
+ *
+ * The zoo fork repurposes upstream's generic labels (A/B/C/1/2/3) with
+ * EVE Online wormhole-specific meanings:
+ *
+ * | Key    | Upstream | Zoo Meaning        | Use Case                           |
+ * |--------|----------|--------------------|------------------------------------|
+ * | la/de  | Label A  | Dead End           | System with no exit wormholes      |
+ * | lb/gas | Label B  | Gas Site           | System has harvestable gas sites   |
+ * | lc/eol | Label C  | End of Life        | Wormhole about to collapse (<4h)   |
+ * | l1/crit| Label 1  | Critical Mass      | Wormhole at mass verge             |
+ * | l2/structure | Label 2 | Structure     | System has attackable structure    |
+ * | l3/steve | Label 3 | Steve/Danger      | High danger (historic: player named Steve) |
+ *
+ * Note: These labels are stored in the database using the original keys (la, lb, etc.)
+ * but displayed with zoo-specific names and icons.
+ *
+ * @see constants.ts for MARKER_BOOKMARK_BG_STYLES using these labels
+ * @see zoo-theme.scss for corresponding CSS classes
+ */
+
 // Extend the LABELS enum with new wormhole keys
 export enum LABELS {
   clear = 'clear',

@@ -165,10 +165,11 @@ defmodule WandererApp.MapSystemRepo do
 
     # Ensure we have a clean update map with all required fields
     # Convert empty strings to nil for owner_ticker
-    ticker = case Map.get(update, :owner_ticker) do
-      "" -> nil
-      ticker -> ticker
-    end
+    ticker =
+      case Map.get(update, :owner_ticker) do
+        "" -> nil
+        ticker -> ticker
+      end
 
     clean_update = %{
       owner_id: Map.get(update, :owner_id),
@@ -176,8 +177,9 @@ defmodule WandererApp.MapSystemRepo do
       owner_ticker: ticker
     }
 
-    result = system
-    |> WandererApp.Api.MapSystem.update_owner(clean_update)
+    result =
+      system
+      |> WandererApp.Api.MapSystem.update_owner(clean_update)
 
     result
   end

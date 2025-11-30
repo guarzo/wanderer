@@ -70,7 +70,6 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
           }
         } = socket
       ) do
-
     # Get all ready characters for this map from all users
     all_ready_characters = get_all_ready_characters_for_map(map_id)
 
@@ -84,6 +83,7 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
         ui_character_with_ready = Map.put(ui_character, :ready, is_ready)
         ui_character_with_ready
       end)
+
     socket
     |> MapEventHandler.push_map_event(
       "characters_updated",

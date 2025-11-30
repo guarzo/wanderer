@@ -58,7 +58,7 @@ defmodule WandererApp.MapTestHelpers do
       {:error, :not_found} -> :ok
       false -> :ok
     end
-    
+
     # Wait for it to disappear from registry
     wait_for_map_stopped(map_id)
   end

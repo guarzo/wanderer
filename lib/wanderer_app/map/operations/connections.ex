@@ -101,7 +101,7 @@ defmodule WandererApp.Map.Operations.Connections do
   """
   defp resolve_ship_size(type_val, ship_size_val, src_info, tgt_info) do
     case parse_type(type_val) do
-       type when type in [@connection_type_wormhole, @connection_type_loop] ->
+      type when type in [@connection_type_wormhole, @connection_type_loop] ->
         wormhole_ship_size(ship_size_val, src_info, tgt_info)
 
       _other ->

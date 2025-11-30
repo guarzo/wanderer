@@ -8,14 +8,10 @@ defmodule WandererApp.Repo.Migrations.AddOwnerTicker do
   use Ecto.Migration
 
   def up do
-    alter table(:map_system_v1) do
-      add :owner_ticker, :text
-    end
+    execute("ALTER TABLE map_system_v1 ADD COLUMN IF NOT EXISTS owner_ticker text")
   end
 
   def down do
-    alter table(:map_system_v1) do
-      remove :owner_ticker
-    end
+    execute("ALTER TABLE map_system_v1 DROP COLUMN IF EXISTS owner_ticker")
   end
 end

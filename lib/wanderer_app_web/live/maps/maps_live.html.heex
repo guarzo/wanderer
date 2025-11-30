@@ -170,7 +170,10 @@
       type="checkbox"
       field={f[:create_default_acl]}
       label="Create default access list"
-      checked={Phoenix.HTML.Form.normalize_value("checkbox", f[:create_default_acl].value) == true or is_nil(f[:create_default_acl].value)}
+      checked={
+        Phoenix.HTML.Form.normalize_value("checkbox", f[:create_default_acl].value) == true or
+          is_nil(f[:create_default_acl].value)
+      }
     />
     <.live_select
       field={f[:acls]}
