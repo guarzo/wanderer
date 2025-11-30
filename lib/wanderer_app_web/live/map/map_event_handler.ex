@@ -150,7 +150,7 @@ defmodule WandererAppWeb.MapEventHandler do
 
   @map_structures_ui_events [
     "update_structures",
-    "get_structures",
+    "get_structures"
   ]
 
   @map_kills_events [
@@ -345,9 +345,9 @@ defmodule WandererAppWeb.MapEventHandler do
         :ship_name,
         :online
       ])
-    
+
     # Add optional fields only if they're loaded (not Ash.NotLoaded)
-    base_character = 
+    base_character =
       base_character
       |> maybe_add_field(character, :solar_system_id)
       |> maybe_add_field(character, :structure_id)
@@ -358,7 +358,7 @@ defmodule WandererAppWeb.MapEventHandler do
     ship_info = WandererApp.Character.get_ship(character)
     base_character |> Map.put(:ship_info, ship_info)
   end
-  
+
   defp maybe_add_field(map, source, field) do
     case Map.get(source, field) do
       %Ash.NotLoaded{} -> map
@@ -436,22 +436,25 @@ defmodule WandererAppWeb.MapEventHandler do
       end
 
     # Handle the case where owner_ticker is an empty string
-    final_owner_ticker = case owner_ticker do
-      "" -> nil
-      ticker -> ticker
-    end
+    final_owner_ticker =
+      case owner_ticker do
+        "" -> nil
+        ticker -> ticker
+      end
 
     # Handle the case where owner_type is an empty string
-    final_owner_type = case owner_type do
-      "" -> nil
-      type -> type
-    end
+    final_owner_type =
+      case owner_type do
+        "" -> nil
+        type -> type
+      end
 
     # Handle the case where owner_id is an empty string
-    final_owner_id = case owner_id do
-      "" -> nil
-      id -> id
-    end
+    final_owner_id =
+      case owner_id do
+        "" -> nil
+        id -> id
+      end
 
     result = %{
       id: "#{solar_system_id}",

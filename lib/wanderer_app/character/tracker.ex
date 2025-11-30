@@ -187,14 +187,22 @@ defmodule WandererApp.Character.Tracker do
                   if not online.online do
                     case WandererApp.Character.get_character(character_id) do
                       {:ok, character} ->
-                        case WandererApp.Character.TrackingUtils.clear_ready_status_on_offline(character.eve_id) do
-                          :ok -> :ok
+                        case WandererApp.Character.TrackingUtils.clear_ready_status_on_offline(
+                               character.eve_id
+                             ) do
+                          :ok ->
+                            :ok
+
                           {:error, reason} ->
-                            Logger.warning("Failed to clear ready status for character #{character.eve_id}: #{inspect(reason)}")
+                            Logger.warning(
+                              "Failed to clear ready status for character #{character.eve_id}: #{inspect(reason)}"
+                            )
                         end
 
                       {:error, reason} ->
-                        Logger.warning("Failed to get character #{character_id} for ready status clearing: #{inspect(reason)}")
+                        Logger.warning(
+                          "Failed to get character #{character_id} for ready status clearing: #{inspect(reason)}"
+                        )
                     end
                   end
 
