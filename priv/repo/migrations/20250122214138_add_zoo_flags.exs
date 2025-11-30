@@ -8,14 +8,10 @@ defmodule WandererApp.Repo.Migrations.AddZooFlags do
   use Ecto.Migration
 
   def up do
-    alter table(:map_system_v1) do
-      add :custom_flags, :text
-    end
+    execute("ALTER TABLE map_system_v1 ADD COLUMN IF NOT EXISTS custom_flags text")
   end
 
   def down do
-    alter table(:map_system_v1) do
-      remove :custom_flags
-    end
+    execute("ALTER TABLE map_system_v1 DROP COLUMN IF EXISTS custom_flags")
   end
 end
