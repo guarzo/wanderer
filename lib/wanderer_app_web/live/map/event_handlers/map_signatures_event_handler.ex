@@ -196,6 +196,7 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
       {:ok, system} ->
         # Clean up expired signatures before updating
         cleanup_expired_signatures(system.id)
+
       _ ->
         :ok
     end
@@ -459,9 +460,14 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
     map_id = system.map_id
 
     # Get configuration
-    wormhole_expiration_hours = Application.get_env(:wanderer_app, :signatures)[:wormhole_expiration_hours] || 24
-    default_expiration_hours = Application.get_env(:wanderer_app, :signatures)[:default_expiration_hours] || 72
-    preserve_connected = Application.get_env(:wanderer_app, :signatures)[:preserve_connected] || true
+    wormhole_expiration_hours =
+      Application.get_env(:wanderer_app, :signatures)[:wormhole_expiration_hours] || 24
+
+    default_expiration_hours =
+      Application.get_env(:wanderer_app, :signatures)[:default_expiration_hours] || 72
+
+    preserve_connected =
+      Application.get_env(:wanderer_app, :signatures)[:preserve_connected] || true
 
     # Get the max age for very old signatures (default 24 hours)
     max_age_hours = Application.get_env(:wanderer_app, :signature_cleanup)[:max_age_hours] || 24
@@ -470,13 +476,15 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
     signatures = WandererApp.Api.MapSystemSignature.by_system_id!(system_id)
 
     # Calculate cutoff times
-    wormhole_cutoff = if wormhole_expiration_hours > 0,
-                       do: DateTime.utc_now() |> DateTime.add(-wormhole_expiration_hours, :hour),
-                       else: nil
+    wormhole_cutoff =
+      if wormhole_expiration_hours > 0,
+        do: DateTime.utc_now() |> DateTime.add(-wormhole_expiration_hours, :hour),
+        else: nil
 
-    default_cutoff = if default_expiration_hours > 0,
-                      do: DateTime.utc_now() |> DateTime.add(-default_expiration_hours, :hour),
-                      else: nil
+    default_cutoff =
+      if default_expiration_hours > 0,
+        do: DateTime.utc_now() |> DateTime.add(-default_expiration_hours, :hour),
+        else: nil
 
     # Calculate the cutoff time for very old signatures
     old_cutoff = DateTime.utc_now() |> DateTime.add(-max_age_hours, :hour)
@@ -489,19 +497,20 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
       cleanup_very_old_signatures(signatures, old_cutoff, preserve_connected, system, map_id)
     else
       # Find expired signatures based on type-specific rules
-      expired_signatures = signatures
-      |> Enum.filter(fn sig ->
-        # Skip signatures with connections if preserve_connected is true
-        if preserve_connected && not is_nil(sig.linked_system_id) do
-          false
-        else
-          # Check if signature is expired based on its type
-          cutoff = if sig.group == "Wormhole", do: wormhole_cutoff, else: default_cutoff
+      expired_signatures =
+        signatures
+        |> Enum.filter(fn sig ->
+          # Skip signatures with connections if preserve_connected is true
+          if preserve_connected && not is_nil(sig.linked_system_id) do
+            false
+          else
+            # Check if signature is expired based on its type
+            cutoff = if sig.group == "Wormhole", do: wormhole_cutoff, else: default_cutoff
 
-          # If cutoff is nil (expiration disabled for this type), don't expire
-          not is_nil(cutoff) && DateTime.compare(sig.updated_at, cutoff) == :lt
-        end
-      end)
+            # If cutoff is nil (expiration disabled for this type), don't expire
+            not is_nil(cutoff) && DateTime.compare(sig.updated_at, cutoff) == :lt
+          end
+        end)
 
       # Process expired signatures
       process_expired_signatures(expired_signatures, system, map_id)
@@ -514,16 +523,17 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
   # Helper function to clean up very old signatures regardless of type
   defp cleanup_very_old_signatures(signatures, old_cutoff, preserve_connected, system, map_id) do
     # Find very old signatures (regardless of type)
-    very_old_signatures = signatures
-    |> Enum.filter(fn sig ->
-      # Skip signatures with connections if preserve_connected is true
-      if preserve_connected && not is_nil(sig.linked_system_id) do
-        false
-      else
-        # Check if signature is older than the cutoff time
-        DateTime.compare(sig.updated_at, old_cutoff) == :lt
-      end
-    end)
+    very_old_signatures =
+      signatures
+      |> Enum.filter(fn sig ->
+        # Skip signatures with connections if preserve_connected is true
+        if preserve_connected && not is_nil(sig.linked_system_id) do
+          false
+        else
+          # Check if signature is older than the cutoff time
+          DateTime.compare(sig.updated_at, old_cutoff) == :lt
+        end
+      end)
 
     # Process very old signatures
     process_expired_signatures(very_old_signatures, system, map_id)
@@ -533,8 +543,9 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
   defp process_expired_signatures(expired_signatures, system, map_id) do
     # If we found expired signatures, delete them and broadcast the update
     if not Enum.empty?(expired_signatures) do
+      count = length(expired_signatures)
       # Log what we're doing
-      Logger.info("Cleaning up #{length(expired_signatures)} expired signatures from system #{system.solar_system_id}")
+      Logger.info("Cleaning up #{count} expired signatures from system #{system.solar_system_id}")
 
       # Delete each expired signature
       expired_signatures
@@ -542,8 +553,8 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
         # If signature has a linked system, handle that first
         if not is_nil(sig.linked_system_id) do
           # Update the linked system to remove the signature reference
-          WandererApp.Map.Server.update_system_linked_sig_eve_id(%{
-            map_id: map_id,
+          map_id
+          |> WandererApp.Map.Server.update_system_linked_sig_eve_id(%{
             solar_system_id: sig.linked_system_id,
             linked_sig_eve_id: nil
           })
@@ -552,8 +563,22 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
         # Delete the signature
         Ash.destroy!(sig)
 
-        Logger.debug("Deleted expired signature #{sig.eve_id} from system #{system.solar_system_id}")
+        Logger.debug(
+          "Deleted expired signature #{sig.eve_id} from system #{system.solar_system_id}"
+        )
       end)
+
+      # Emit telemetry for monitoring signature cleanup
+      :telemetry.execute(
+        [:wanderer_app, :signature_cleanup, :completed],
+        %{count: count},
+        %{
+          system_id: system.id,
+          solar_system_id: system.solar_system_id,
+          map_id: map_id,
+          trigger: :on_demand
+        }
+      )
 
       # Broadcast that signatures were updated for this system
       Phoenix.PubSub.broadcast!(WandererApp.PubSub, map_id, %{

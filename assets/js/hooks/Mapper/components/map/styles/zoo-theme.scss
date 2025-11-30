@@ -42,6 +42,26 @@
     background-color: #FFFFE0;
   }
 
+  .eve-zoo-effect-color-wormhole-magic {
+    fill: #9B59B6;
+    background-color: #9B59B6;
+  }
+
+  .eve-zoo-effect-color-wormhole-infinity {
+    fill: #3498DB;
+    background-color: #3498DB;
+  }
+
+  .eve-zoo-effect-color-wormhole-planet {
+    fill: #27AE60;
+    background-color: #27AE60;
+  }
+
+  .eve-zoo-effect-color-wormhole-loop {
+    fill: #E74C3C;
+    background-color: #E74C3C;
+  }
+
   /* Zoo Text Color Classes */
   .text-eve-zoo-effect-color-has-eol {
     color: #FF69B4;
@@ -61,5 +81,21 @@
 
   .text-eve-zoo-effect-color-is-dead-end {
     color: #34495E;
+  }
+
+  .text-eve-zoo-effect-color-wormhole-magic {
+    color: #9B59B6;
+  }
+
+  .text-eve-zoo-effect-color-wormhole-infinity {
+    color: #3498DB;
+  }
+
+  .text-eve-zoo-effect-color-wormhole-planet {
+    color: #27AE60;
+  }
+
+  .text-eve-zoo-effect-color-wormhole-loop {
+    color: #E74C3C;
   }
 }
