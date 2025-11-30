@@ -1,7 +1,9 @@
 import { ConnectionType, MassState, ShipSizeStatus } from '../../types/connection';
 import { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER } from './labelIconMap';
+import { ZOO_BOOKMARK_STYLES, ZOO_TEXT_STYLES } from './zooConstants';
 export type { LabelIcon, LabelInfo } from './labelIconMap';
 export { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER };
+export { ZOO_BOOKMARK_STYLES, ZOO_TEXT_STYLES } from './zooConstants';
 
 export enum SOLAR_SYSTEM_CLASS_IDS {
   ccp1 = -1,
@@ -630,8 +632,10 @@ export const EFFECT_BACKGROUND_STYLES: Record<string, string> = {
   'Federal Stellar Observatory': 'eve-wh-effect-color-federalStellarObservatory',
 };
 
-// Marker bookmark background styles, including new wormhole styles
+// Marker bookmark background styles
+// Upstream styles are defined here, zoo-specific styles are merged from zooConstants.ts
 export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
+  // Upstream styles
   custom: 'wd-marker-bookmark-color-custom',
   shattered: 'wd-marker-bookmark-color-shattered',
   a0: 'wd-marker-bookmark-color-a0',
@@ -639,25 +643,14 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   activityWarn: 'wd-marker-bookmark-color-warn',
   activityDanger: 'wd-marker-bookmark-color-danger',
 
-  gas: 'eve-zoo-effect-color-has-gas',
-  eol: 'eve-zoo-effect-color-has-eol',
-  deadEnd: 'eve-zoo-effect-color-is-dead-end',
-  crit: 'eve-zoo-effect-color-is-critical',
-  unSplashed: 'eve-zoo-effect-color-unsplashed',
-  de: 'eve-zoo-effect-color-is-dead-end',
-  wormhole: 'eve-zoo-effect-color-wormhole',
-  flygd: 'eve-zoo-effect-color-flygd',
-
+  // Upstream label styles
   lc: 'wd-marker-bookmark-color-ytirium',
   l1: 'wd-marker-bookmark-color-l1',
   l2: 'wd-marker-bookmark-color-l2',
   l3: 'wd-marker-bookmark-color-l3',
 
-  // New wormhole background styles
-  wormholeMagic: 'eve-zoo-effect-color-wormhole-magic',
-  wormholeInfinity: 'eve-zoo-effect-color-wormhole-infinity',
-  wormholePlanet: 'eve-zoo-effect-color-wormhole-planet',
-  wormholeLoop: 'eve-zoo-effect-color-wormhole-loop',
+  // Zoo-specific styles (merged from zooConstants.ts)
+  ...ZOO_BOOKMARK_STYLES,
 };
 
 export enum STATUSES {

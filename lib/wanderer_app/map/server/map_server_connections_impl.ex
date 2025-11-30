@@ -515,8 +515,33 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
       when not is_nil(location) and not is_nil(old_location) and
              not is_nil(old_location.solar_system_id) and
              location.solar_system_id != old_location.solar_system_id do
-    {:ok, character} = WandererApp.Character.get_character(character_id)
+    case WandererApp.Character.get_character(character_id) do
+      {:ok, character} ->
+        do_add_connection(
+          map_id,
+          location,
+          old_location,
+          character_id,
+          character,
+          is_manual,
+          extra_info
+        )
 
+      {:error, :not_found} ->
+        Logger.warning("[maybe_add_connection] Character #{character_id} not found")
+        {:error, :not_found}
+    end
+  end
+
+  defp do_add_connection(
+         map_id,
+         location,
+         old_location,
+         character_id,
+         character,
+         is_manual,
+         extra_info
+       ) do
     if not is_manual do
       :telemetry.execute([:wanderer_app, :map, :character, :jump], %{count: 1}, %{})
 
@@ -584,7 +609,8 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
             locked: locked
           })
 
-        if connection_type == @connection_type_wormhole or connection_type == @connection_type_loop do
+        if connection_type == @connection_type_wormhole or
+             connection_type == @connection_type_loop do
           set_start_time(map_id, connection.id, DateTime.utc_now())
         end
 

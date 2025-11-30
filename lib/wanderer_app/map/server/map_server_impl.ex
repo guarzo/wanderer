@@ -461,11 +461,13 @@ defmodule WandererApp.Map.Server.Impl do
   def get_update_map(update, attributes) do
     require Logger
     # Check if this is an owner update
-    is_owner_update = Enum.any?(attributes, fn attr ->
-      attr == :owner_type || attr == :owner_id || attr == :owner_ticker
-    end)
+    is_owner_update =
+      Enum.any?(attributes, fn attr ->
+        attr == :owner_type || attr == :owner_id || attr == :owner_ticker
+      end)
 
-    result = {:ok,
+    result =
+      {:ok,
        Enum.reduce(attributes, Map.new(), fn attribute, map ->
          value = get_in(update, [Access.key(attribute)])
          map |> Map.put_new(attribute, value)
@@ -600,11 +602,18 @@ defmodule WandererApp.Map.Server.Impl do
       })
 
       if owner_type || owner_id do
-        update_system_owner(map_id, %{solar_system_id: solar_system_id, owner_type: owner_type, owner_id: owner_id})
+        update_system_owner(map_id, %{
+          solar_system_id: solar_system_id,
+          owner_type: owner_type,
+          owner_id: owner_id
+        })
       end
 
       if custom_flags do
-        update_system_custom_flags(map_id, %{solar_system_id: solar_system_id, custom_flags: custom_flags})
+        update_system_custom_flags(map_id, %{
+          solar_system_id: solar_system_id,
+          custom_flags: custom_flags
+        })
       end
 
       update_system_locked(map_id, %{solar_system_id: solar_system_id, locked: locked})
