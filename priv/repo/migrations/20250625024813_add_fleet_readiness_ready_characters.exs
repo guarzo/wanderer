@@ -8,14 +8,22 @@ defmodule WandererApp.Repo.Migrations.AddFleetReadinessReadyCharacters do
   use Ecto.Migration
 
   def up do
-    alter table(:map_user_settings_v1) do
-      add :ready_characters, {:array, :text}, default: []
-    end
+    execute("""
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'map_user_settings_v1'
+        AND column_name = 'ready_characters'
+      ) THEN
+        ALTER TABLE map_user_settings_v1
+        ADD COLUMN ready_characters text[] DEFAULT '{}';
+      END IF;
+    END $$;
+    """)
   end
 
   def down do
-    alter table(:map_user_settings_v1) do
-      remove :ready_characters
-    end
+    execute("ALTER TABLE map_user_settings_v1 DROP COLUMN IF EXISTS ready_characters")
   end
 end
