@@ -2,6 +2,341 @@
 
 <!-- changelog -->
 
+## [v1.90.0](https://github.com/wanderer-industries/wanderer/compare/v1.89.3...v1.90.0) (2025-12-01)
+
+
+
+
+### Features:
+
+* removed unnecessary command
+
+* rework wormholes reference
+
+* Add zkb and eve who links for characters where it possibly was add
+
+* Add support markdown for system description
+
+* add date filter for character activity
+
+* core: added support for new ship types
+
+* Core: ESI API rate limits support
+
+* Core: Added map roles settings for copy/paste
+
+* Core: Added map roles settings for copy/paste
+
+* Core: Added an ability to copy/paste selected map area between maps
+
+* core: fix pwa icons + add screen in manifest
+
+* Core: Added PWA web manifest
+
+* Core: Updated connections EOL logic
+
+* Core: Reduced DB calls to check existing system jumps
+
+* Signatures: Sync signature temporary name with system on link signature to system
+
+* Signatures: add support for signature temp names
+
+* Core: added support for jumpgates connection type
+
+### Bug Fixes:
+
+* core: fixed tracking issues
+
+* core: fixed tracking issues
+
+* core: fixed tracking issues
+
+* core: fixed c4 -> ns connections auto size issues
+
+* core: fixed pings cleanup
+
+* core: fixed linked signatures cleanup
+
+* core: fixed pings issue
+
+* core: fixed tracking issues
+
+* core: fixed tracking issues
+
+* core: fixed env errors
+
+* defensive check for undefined excluded systems
+
+* core: fixed env issues
+
+* Map: Add ability to see character passage direction in list of passages
+
+* core: fixed connections cleanup and rally points delete issues
+
+* sse enable checkbox, and kills ticker
+
+* core: invalidate map characters every 1 hour for any missing/revoked permissions
+
+* core: fixed connection time status issues. fixed character alliance update issues
+
+* core: increased API pool limits
+
+* core: increased API pool limits
+
+* auth: fixed character auth issues
+
+* fixed duplicated map slugs
+
+* structure search / paste issues
+
+* apiv1 token auth and structure fixes
+
+* removed ipv6 distribution env settings
+
+* core: fixed character tracking issues
+
+* core: fixed character tracking issues
+
+* core: fixed character tracking issues
+
+* core: fixed connactions validation logic
+
+* core: fixed ACL updates
+
+* tests: updated tests
+
+* tests: updated tests
+
+* core: supported characters_updates for external events
+
+* core: improved character tracking
+
+* core: improved character tracking
+
+* core: improved character location tracking
+
+* core: disable character tracker pausing
+
+* core: used upsert for adding map systems
+
+* core: fixed map pings cancel errors
+
+* Map: Fixed problem related with error if settings was removed and mapper crashed. Fixed settings reset.
+
+* core: fixed map initialization
+
+* core: fixed map characters adding
+
+* core: fixed map start issues
+
+* core: fixed map start issues
+
+* core: added gracefull map poll recovery from saved state. added map slug unique checks
+
+* core: fixed activity tracking issues
+
+* core: removed maps auto-start logic
+
+* core: fixed maps start/stop logic, added server downtime period support
+
+* Map: Fixed problem related with error if settings was removed and mapper crashed. Fixed settings reset.
+
+* api and doc updates
+
+* core: Fixed adding system on character dock
+
+* core: added cleanup jobs for old system signatures & chain passages
+
+* api and structure search fixes
+
+* core: Added map slug uniqness checking while using API
+
+* core: Added tracking for map & character event handling errors
+
+* core: fixed issue with updating system signatures
+
+* core: fixed linked signature time status update
+
+* api: fixed  api for get/update map systems
+
+* add index for map/systems api
+
+* Core: Fixed connection time status update issue
+
+* Core: Fixed page reloads
+
+* Core: Fixed old map API for systems & added small QOL improvements
+
+* Connections: Set new connection time status based on to/from system class
+
+* Kills: Fixed zkb links (added following '/').
+
+* Map: Fix system static info - add source region for U319 from Null-sec
+
+* Map: Fix system static info - for J012635 add D382; for J015092 - changed from J244, Z060 to N110, J244; for J000487 removed C008
+
+* Map: Copy-Paste restriction: support from FE side - fixed problem with incorrect disabling copy and paste buttons
+
+* Map: Copy-Paste restriction: support from FE side - removed unnecessary constant
+
+* Core: Fixed 'viewer' map access & characters tracking
+
+* Map: Copy-Paste restriction: support from FE side
+
+* Core: Added Eve data downloaded files cleanup logic
+
+* Map: Fixed problem with commit - for correct restore deprecated data - change config key
+
+* Map: Fixed problem with commit - for correct restore deprecated data
+
+* Core: Fixed system select after tab switch
+
+* Core: Fixed map events buffering on tab switch
+
+* Signatures: Fixed EOL indication for un-splashed and signatures list
+
+* Map: Add ability to copy and past systems (UI part)
+
+* Signatures: Rework for lazy signatures deletion
+
+* Signatures: Fixed issue with wrong linked signatures deletions
+
+* Map: Fix problem with restoring settings on widgets
+
+* Map: Fixed problem with rendering dropdown classes in signatures
+
+* Map: Fixed problem with a lot unnecessary loads zkb data on resize map
+
+* Core: Update connection ship size based on linked signature type
+
+* Core: Fixed signature to system link issues
+
+* Map: Added ability to see focused element
+
+* Core: Fixed cancel ping errors
+
+* Map: Removed unnecessary vertical scroller in Character Tracking dialog. Main always first in list of tracking characters, following next after main, another characters sorting by name
+
+* Map: Added Search tool for systems what on the map
+
+* api dropping custom name
+
+* Core: Fixed characters tracking updates.
+
+* Core: Fixed modals auto-save on Enter.
+
+* Core: Fixed system details modal auto-save on Enter.
+
+* Core: Fixed updating connection time status based on linked signature data. Fixed FR gas sites parsing.
+
+* Map: Added migration mechanism
+
+* Core: Fixed connection passages count
+
+* Map: Remove settings some default values if migration from very old settings system
+
+* Map: Fixed eslint problems
+
+* Map: MIGRATION: support from old store settings import
+
+* Map: Add common migration mechanism. ATTENTION! This is a non-reversible stored map settings commit â it means we do not guarantee that settings will work if you check out back. Weâve tried to migrate old settings, but it may not work well or may NOT work at all.
+
+* Map: Add front-end migrations for local store settings
+
+* Map: Add support for Bridge. Made all tooltips left and right paddings.
+
+* pr feedback
+
+* Map: Update lifetime design and buttons
+
+* Map: Fixed for all Large wormholes jump mass from 300 to 375. Fixed jump mass and total mass for N290, K329. Fixed static for J005663 was H296 now Y790. Added J492 wormhole. Change lifetime for E587 from 16 to 48
+
+* Map: Update wormhole lifetime UI and removed unnecessary code
+
+* Updated ACL create/update APIs
+
+* Fixed issue with ACL add members button for managers. Added WANDERER_RESTRICT_ACLS_CREATION env support.
+
+* Map: Fix problem with unnecessary rerenders and loads routes if move/positioning widgets.
+
+* Fixed issue with loading connection info
+
+* Updated character tracking, added an extra check for offline characters to reduce errors
+
+* Decreased character tracking grace period
+
+* Fixed CSP errors
+
+* removed wormhole only logic error
+
+* Removed invalid invite options
+
+* Auto select following char system on start
+
+* Updated character tracking
+
+* Updated character tracking
+
+* Updated character tracking, added grace period to reduce false-positive cases
+
+* resolve tracking issues
+
+* pr feedback
+
+* ensure pub/sub occurs after acl api change
+
+* clean up id generation
+
+* resolve issue with async event processing
+
+* Fixed character tracking settings
+
+* Fixed character tracking settings
+
+* Fixed character tracking settings
+
+* Fixed character tracking settings
+
+* update system signature api to return correct system id
+
+* Core: Fixed maps start timeout
+
+* Core: Reduced ESI api calls to update character corp/ally info
+
+* Core: Added character trackers start queue
+
+* Core: added DB connection default timeouts
+
+* Core: Fixed auth redirect URL
+
+* default signature types not being shown
+
+* empty subscriptions for sse
+
+* Core: fixed tracking paused issues, fixed user activity data
+
+* timestamp errors for sse and tracking
+
+* Map: Fix problem when systems was deselected after change tab
+
+* Fixed docs
+
+* restore security audit
+
+* core: Fixed character tracking issues
+
+* Map: Fix indents for ally logos in list "On the map"
+
+* Map: Fix cancelling ping from system context menu
+
+* Map: Hide admin settings tab
+
+* Map: Remote map setting refactoring
+
+* unable to cancel ping from right click context menu
+
+* Map: Add Temp name field
+
 ## [v1.89.3](https://github.com/wanderer-industries/wanderer/compare/v1.89.2...v1.89.3) (2025-11-30)
 
 
