@@ -28,6 +28,7 @@ services:
       - ~/.gitconfig:/root/.gitconfig
       - ~/.gitignore:/root/.gitignore
       - ~/.ssh:/root/.ssh
+      - ~/.dotfiles:/root/.dotfiles:ro
       - elixir-artifacts:/opt/elixir-artifacts
     command: sleep infinity
 
