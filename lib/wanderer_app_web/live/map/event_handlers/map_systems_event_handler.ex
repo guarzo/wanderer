@@ -281,7 +281,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       end
     end
 
-    {:noreply, socket}
+    {:reply, %{}, socket}
   end
 
   def handle_ui_event(
@@ -344,7 +344,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
       })
     end
 
-    {:noreply, socket}
+    {:reply, %{}, socket}
   end
 
   def handle_ui_event(
