@@ -345,7 +345,7 @@ defmodule WandererAppWeb.MapCoreEventHandler do
 
   def handle_ui_event(event, body, socket) do
     Logger.debug(fn -> "unhandled map ui event: #{inspect(event)} #{inspect(body)}" end)
-    {:noreply, socket}
+    {:reply, %{}, socket}
   end
 
   defp save_default_settings(map_id, settings, current_user) do
