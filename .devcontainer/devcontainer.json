@@ -14,7 +14,13 @@
         "search.exclude": {
           "**/doc": true
         },
-        "elixirLS.dialyzerEnabled": false
+        "elixirLS.dialyzerEnabled": false,
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/bin/zsh"
+          }
+        }
       }
     }
   },
