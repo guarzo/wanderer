@@ -625,9 +625,58 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     end
   end
 
+  # Fallback for update_system_owner when map isn't fully loaded
+  def handle_ui_event(
+        "update_system_owner",
+        _params,
+        %{assigns: %{map_loaded?: false}} = socket
+      ) do
+    Logger.debug("[MapSystemsEventHandler] Ignoring update_system_owner - map not loaded yet")
+    {:reply, %{}, socket}
+  end
+
+  def handle_ui_event(
+        "update_system_owner",
+        _params,
+        %{assigns: assigns} = socket
+      )
+      when not is_map_key(assigns, :map_id) or not is_map_key(assigns, :tracked_characters) do
+    Logger.debug(
+      "[MapSystemsEventHandler] Ignoring update_system_owner - missing required assigns"
+    )
+
+    {:reply, %{}, socket}
+  end
+
+  # Fallback for update_system_custom_flags when map isn't fully loaded
+  def handle_ui_event(
+        "update_system_custom_flags",
+        _params,
+        %{assigns: %{map_loaded?: false}} = socket
+      ) do
+    Logger.debug(
+      "[MapSystemsEventHandler] Ignoring update_system_custom_flags - map not loaded yet"
+    )
+
+    {:reply, %{}, socket}
+  end
+
+  def handle_ui_event(
+        "update_system_custom_flags",
+        _params,
+        %{assigns: assigns} = socket
+      )
+      when not is_map_key(assigns, :map_id) or not is_map_key(assigns, :main_character_id) do
+    Logger.debug(
+      "[MapSystemsEventHandler] Ignoring update_system_custom_flags - missing required assigns"
+    )
+
+    {:reply, %{}, socket}
+  end
+
   # Catch-all for UI events NOT handled by specific clauses above
   def handle_ui_event(event, params, socket) do
-    Logger.warn(
+    Logger.warning(
       "[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}, Params: #{inspect(params)}, Assigns: #{inspect(socket.assigns)}"
     )
 
