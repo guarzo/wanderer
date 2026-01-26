@@ -560,12 +560,20 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
           })
         end
 
-        # Delete the signature
-        Ash.destroy!(sig)
+        # Delete the signature, handling race conditions gracefully
+        case Ash.destroy(sig) do
+          {:ok, _} ->
+            Logger.debug(
+              "Deleted expired signature #{sig.eve_id} from system #{system.solar_system_id}"
+            )
 
-        Logger.debug(
-          "Deleted expired signature #{sig.eve_id} from system #{system.solar_system_id}"
-        )
+          {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} ->
+            # Already deleted by another process - this is fine
+            Logger.debug("Signature #{sig.eve_id} already deleted by another process")
+
+          {:error, error} ->
+            Logger.warning("Failed to delete signature #{sig.eve_id}: #{inspect(error)}")
+        end
       end)
 
       # Emit telemetry for monitoring signature cleanup
