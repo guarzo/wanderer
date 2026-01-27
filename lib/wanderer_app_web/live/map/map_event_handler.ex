@@ -25,15 +25,20 @@ defmodule WandererAppWeb.MapEventHandler do
     :present_characters_updated,
     :refresh_user_characters,
     :show_tracking,
-    :untrack_character
+    :untrack_character,
+    :ready_characters_updated,
+    :all_ready_characters_cleared
   ]
 
   @map_characters_ui_events [
     "getCharacterInfo",
     "getCharactersTrackingInfo",
+    "getAllReadyCharacters",
+    "clearAllReadyCharacters",
     "updateCharacterTracking",
     "updateFollowingCharacter",
     "updateMainCharacter",
+    "updateReadyCharacters",
     "startTracking"
   ]
 
@@ -58,6 +63,15 @@ defmodule WandererAppWeb.MapEventHandler do
     "update_system_tag",
     "update_system_temporary_name",
     "update_system_status",
+    "get_user_hubs",
+    "add_user_hub",
+    "delete_user_hub",
+    "update_system_owner",
+    "get_corporation_names",
+    "get_corporation_ticker",
+    "get_alliance_names",
+    "get_alliance_ticker",
+    "update_system_custom_flags",
     "manual_paste_systems_and_connections"
   ]
 
@@ -136,9 +150,7 @@ defmodule WandererAppWeb.MapEventHandler do
 
   @map_structures_ui_events [
     "update_structures",
-    "get_structures",
-    "get_corporation_names",
-    "get_corporation_ticker"
+    "get_structures"
   ]
 
   @map_kills_events [
@@ -319,8 +331,9 @@ defmodule WandererAppWeb.MapEventHandler do
 
   def map_ui_character_stat(nil), do: nil
 
-  def map_ui_character_stat(character),
-    do:
+  def map_ui_character_stat(character) do
+    # Take only the basic fields first
+    base_character =
       character
       |> Map.take([
         :eve_id,
@@ -328,8 +341,31 @@ defmodule WandererAppWeb.MapEventHandler do
         :corporation_id,
         :corporation_ticker,
         :alliance_id,
-        :alliance_ticker
+        :alliance_ticker,
+        :ship_name,
+        :online
       ])
+
+    # Add optional fields only if they're loaded (not Ash.NotLoaded)
+    base_character =
+      base_character
+      |> maybe_add_field(character, :solar_system_id)
+      |> maybe_add_field(character, :structure_id)
+      |> maybe_add_field(character, :station_id)
+      |> maybe_add_field(character, :ship)
+
+    # Add ship type information
+    ship_info = WandererApp.Character.get_ship(character)
+    base_character |> Map.put(:ship_info, ship_info)
+  end
+
+  defp maybe_add_field(map, source, field) do
+    case Map.get(source, field) do
+      %Ash.NotLoaded{} -> map
+      nil -> map
+      value -> Map.put(map, field, value)
+    end
+  end
 
   def map_ui_connection(
         %{
@@ -366,11 +402,28 @@ defmodule WandererAppWeb.MapEventHandler do
           labels: labels,
           linked_sig_eve_id: linked_sig_eve_id,
           temporary_name: temporary_name,
+          owner_type: owner_type,
+          owner_id: owner_id,
+          custom_flags: custom_flags,
           status: status,
           visible: visible
-        } = _system,
-        include_static_data? \\ true
+        } = system,
+        _include_static_data? \\ true
       ) do
+    require Logger
+
+    # Check if the system has an owner_ticker field
+    owner_ticker = Map.get(system, :owner_ticker)
+
+    system_static_info = get_system_static_info(solar_system_id)
+
+    system_signatures =
+      system_id
+      |> WandererAppWeb.MapSignaturesEventHandler.get_system_signatures()
+      |> Enum.filter(fn signature ->
+        is_nil(signature.linked_system) && signature.group == "Wormhole"
+      end)
+
     comments_count =
       system_id
       |> WandererApp.Maps.get_system_comments_activity()
@@ -382,30 +435,49 @@ defmodule WandererAppWeb.MapEventHandler do
           0
       end
 
-    system_info =
-      %{
-        id: "#{solar_system_id}",
-        position: %{x: position_x, y: position_y},
-        description: description,
-        name: name,
-        labels: labels,
-        locked: locked,
-        linked_sig_eve_id: linked_sig_eve_id,
-        status: status,
-        tag: tag,
-        temporary_name: temporary_name,
-        comments_count: comments_count,
-        visible: visible
-      }
-
-    system_info =
-      if include_static_data? do
-        system_info |> Map.merge(%{system_static_info: get_system_static_info(solar_system_id)})
-      else
-        system_info
+    # Handle the case where owner_ticker is an empty string
+    final_owner_ticker =
+      case owner_ticker do
+        "" -> nil
+        ticker -> ticker
       end
 
-    system_info
+    # Handle the case where owner_type is an empty string
+    final_owner_type =
+      case owner_type do
+        "" -> nil
+        type -> type
+      end
+
+    # Handle the case where owner_id is an empty string
+    final_owner_id =
+      case owner_id do
+        "" -> nil
+        id -> id
+      end
+
+    result = %{
+      id: "#{solar_system_id}",
+      position: %{x: position_x, y: position_y},
+      description: description,
+      name: name,
+      system_static_info: system_static_info,
+      system_signatures: system_signatures,
+      labels: labels,
+      locked: locked,
+      linked_sig_eve_id: linked_sig_eve_id,
+      status: status,
+      tag: tag,
+      temporary_name: temporary_name,
+      comments_count: comments_count,
+      owner_type: final_owner_type,
+      owner_id: final_owner_id,
+      owner_ticker: final_owner_ticker,
+      custom_flags: custom_flags,
+      visible: visible
+    }
+
+    result
   end
 
   def map_ui_system_static_info(nil), do: %{}

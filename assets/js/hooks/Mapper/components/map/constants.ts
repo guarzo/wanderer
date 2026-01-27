@@ -1,4 +1,9 @@
-import { ConnectionType, MassState, ShipSizeStatus } from '@/hooks/Mapper/types';
+import { ConnectionType, MassState, ShipSizeStatus } from '../../types/connection';
+import { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER } from './labelIconMap';
+import { ZOO_BOOKMARK_STYLES, ZOO_TEXT_STYLES } from './zooConstants';
+export type { LabelIcon, LabelInfo } from './labelIconMap';
+export { LABEL_ICON_MAP, LABELS, LABELS_INFO, LABELS_ORDER };
+export { ZOO_BOOKMARK_STYLES, ZOO_TEXT_STYLES } from './zooConstants';
 
 export enum SOLAR_SYSTEM_CLASS_IDS {
   ccp1 = -1,
@@ -627,7 +632,10 @@ export const EFFECT_BACKGROUND_STYLES: Record<string, string> = {
   'Federal Stellar Observatory': 'eve-wh-effect-color-federalStellarObservatory',
 };
 
+// Marker bookmark background styles
+// Upstream styles are defined here, zoo-specific styles are merged from zooConstants.ts
 export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
+  // Upstream styles
   custom: 'wd-marker-bookmark-color-custom',
   shattered: 'wd-marker-bookmark-color-shattered',
   a0: 'wd-marker-bookmark-color-a0',
@@ -635,33 +643,14 @@ export const MARKER_BOOKMARK_BG_STYLES: Record<string, string> = {
   activityWarn: 'wd-marker-bookmark-color-warn',
   activityDanger: 'wd-marker-bookmark-color-danger',
 
-  la: 'wd-marker-bookmark-color-average',
-  lb: 'wd-marker-bookmark-color-ytirium',
+  // Upstream label styles
   lc: 'wd-marker-bookmark-color-ytirium',
   l1: 'wd-marker-bookmark-color-l1',
   l2: 'wd-marker-bookmark-color-l2',
   l3: 'wd-marker-bookmark-color-l3',
-};
 
-export enum LABELS {
-  clear = 'clear',
-  la = 'a',
-  lb = 'b',
-  lc = 'c',
-  l1 = '1',
-  l2 = '2',
-  l3 = '3',
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const LABELS_INFO: Record<string, any> = {
-  [LABELS.clear]: { id: 'clear', name: 'Clear', shortName: '', icon: '' },
-  [LABELS.la]: { id: 'la', name: 'Label A', shortName: 'A', icon: '' },
-  [LABELS.lb]: { id: 'lb', name: 'Label B', shortName: 'B', icon: '' },
-  [LABELS.lc]: { id: 'lc', name: 'Label C', shortName: 'C', icon: '' },
-  [LABELS.l1]: { id: 'l1', name: 'Label 1', shortName: '1', icon: '' },
-  [LABELS.l2]: { id: 'l2', name: 'Label 2', shortName: '2', icon: '' },
-  [LABELS.l3]: { id: 'l3', name: 'Label 3', shortName: '3', icon: '' },
+  // Zoo-specific styles (merged from zooConstants.ts)
+  ...ZOO_BOOKMARK_STYLES,
 };
 
 export enum STATUSES {
@@ -694,8 +683,6 @@ export const STATUSES_ORDER = [
   STATUSES.dangerous,
 ];
 
-export const LABELS_ORDER = [LABELS.clear, LABELS.la, LABELS.lb, LABELS.lc, LABELS.l1, LABELS.l2, LABELS.l3];
-
 export const STATUS_COLOR_CLASSES: Record<number, string> = {
   [STATUSES.unknown]: 'eve-system-status-color-clear',
   [STATUSES.home]: 'eve-system-status-color-home',
@@ -716,12 +703,13 @@ export const STATUS_CLASSES: Record<number, string> = {
   [STATUSES.dangerous]: 'eve-system-status-dangerous',
 };
 
-export const TYPE_NAMES_ORDER = [ConnectionType.wormhole, ConnectionType.gate, ConnectionType.bridge];
+export const TYPE_NAMES_ORDER = [ConnectionType.wormhole, ConnectionType.gate, ConnectionType.bridge, ConnectionType.loop];
 
 export const TYPE_NAMES = {
   [ConnectionType.wormhole]: 'Wormhole',
   [ConnectionType.gate]: 'Gate',
   [ConnectionType.bridge]: 'Jumpgate',
+  [ConnectionType.loop]: 'Loop',
 };
 
 export const MASS_STATE_NAMES_ORDER = [MassState.verge, MassState.half, MassState.normal];
@@ -747,6 +735,7 @@ export const SHIP_SIZES_NAMES = {
   [ShipSizeStatus.freight]: 'Huge',
   [ShipSizeStatus.capital]: 'Capital',
 };
+
 export const SHIP_SIZES_SIZE = {
   [ShipSizeStatus.small]: '5K',
   [ShipSizeStatus.medium]: '62K',
