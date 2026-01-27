@@ -145,8 +145,21 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
             linked_sig_eve_id: nil
           })
 
-          s
-          |> WandererApp.Api.MapSystemSignature.destroy!()
+          # Handle race conditions gracefully - signature may already be deleted
+          case Ash.destroy(s) do
+            :ok ->
+              :ok
+
+            {:ok, _} ->
+              :ok
+
+            {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} ->
+              # Already deleted by another process - this is fine
+              :ok
+
+            {:error, error} ->
+              Logger.warning("Failed to delete signature #{s.eve_id}: #{inspect(error)}")
+          end
         end)
 
         # Audit log signatures deleted with connection
@@ -276,7 +289,7 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
       |> Enum.map(fn p ->
         %{
           p
-          | character: p.character |> MapEventHandler.map_ui_character_stat()
+          | character: p.character
         }
         |> Map.put_new(
           :ship,

@@ -26,12 +26,7 @@ export enum WidgetsIds {
   userRoutes = 'userRoutes',
 }
 
-export const STORED_VISIBLE_WIDGETS_DEFAULT = [
-  WidgetsIds.info,
-  WidgetsIds.local,
-  WidgetsIds.routes,
-  WidgetsIds.signatures,
-];
+export const STORED_VISIBLE_WIDGETS_DEFAULT = [WidgetsIds.routes, WidgetsIds.signatures];
 
 export const DEFAULT_WIDGETS: WindowProps[] = [
   {
@@ -142,3 +137,12 @@ export const WIDGETS_CHECKBOXES_PROPS: WidgetsCheckboxesType = [
     label: 'Comments',
   },
 ];
+
+export function getWidgetsCheckboxesProps(detailedKillsDisabled: boolean): WidgetsCheckboxesType {
+  return filterOutKills(WIDGETS_CHECKBOXES_PROPS, detailedKillsDisabled);
+}
+
+function filterOutKills<T extends { id: WidgetsIds }>(items: T[], shouldFilter: boolean) {
+  if (!shouldFilter) return items;
+  return items.filter(w => w.id !== WidgetsIds.kills);
+}
