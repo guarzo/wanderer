@@ -13,6 +13,7 @@ export interface MapContextMenuProps {
   onShowMapSettings?: () => void;
   onShowTrackingDialog?: () => void;
   onShowWormholesReference?: () => void;
+  onShowFleetReadiness?: () => void;
 }
 
 export const MapContextMenu = ({
@@ -20,6 +21,7 @@ export const MapContextMenu = ({
   onShowMapSettings,
   onShowTrackingDialog,
   onShowWormholesReference,
+  onShowFleetReadiness,
 }: MapContextMenuProps) => {
   const {
     outCommand,
@@ -44,6 +46,12 @@ export const MapContextMenu = ({
           label: 'Tracking',
           icon: 'pi pi-user-plus',
           command: onShowTrackingDialog,
+          visible: canTrackCharacters,
+        },
+        {
+          label: 'Fleet Readiness',
+          icon: 'pi pi-users',
+          command: onShowFleetReadiness,
           visible: canTrackCharacters,
         },
         {
@@ -84,11 +92,13 @@ export const MapContextMenu = ({
       ] as MenuItem[]
     ).filter(item => item.visible);
   }, [
-    canTrackCharacters,
     onShowTrackingDialog,
+    canTrackCharacters,
+    onShowFleetReadiness,
     handleShowActivity,
-    onShowMapSettings,
     onShowOnTheMap,
+    onShowWormholesReference,
+    onShowMapSettings,
     setInterfaceSettings,
   ]);
 
