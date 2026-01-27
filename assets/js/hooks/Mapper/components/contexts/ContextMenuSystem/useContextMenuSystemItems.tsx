@@ -1,7 +1,7 @@
 import {
   useLabelsMenu,
   useStatusMenu,
-  useTagMenu,
+  useZooTagMenu,
   useUserRoute,
 } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
 import { useMemo } from 'react';
@@ -39,7 +39,7 @@ export const useContextMenuSystemItems = ({
   userHubs,
   systems,
 }: Omit<ContextMenuSystemProps, 'contextMenuRef'>) => {
-  const getTags = useTagMenu(systems, systemId, onSystemTag);
+  const getTags = useZooTagMenu(systems, systemId, onSystemTag);
   const getStatus = useStatusMenu(systems, systemId, onSystemStatus);
   const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog);
   const getWaypointMenu = useWaypointMenu(onWaypointSet);
@@ -185,20 +185,21 @@ export const useContextMenuSystemItems = ({
   }, [
     systemId,
     systems,
+    ping?.solar_system_id,
     getTags,
     getStatus,
     getLabels,
     getWaypointMenu,
-    getUserRoutes,
     hubs,
     onHubToggle,
+    getUserRoutes,
+    isShowPingBtn,
     canLockSystem,
     onLockToggle,
+    canManageSystem,
     canDeleteSystem,
     onDeleteSystem,
     onOpenSettings,
     onTogglePing,
-    ping,
-    isShowPingBtn,
   ]);
 };

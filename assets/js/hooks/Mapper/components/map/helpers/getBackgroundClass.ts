@@ -3,7 +3,7 @@ import {
   SECURITY_BACKGROUND_CLASSES,
   SYSTEM_CLASS_BACKGROUND_CLASSES,
   WORMHOLE_CLASS_BACKGROUND_CLASSES,
-} from '@/hooks/Mapper/components/map/constants.ts';
+} from '@/hooks/Mapper/components/map/constants';
 import { isKnownSpace } from '@/hooks/Mapper/components/map/helpers/isKnownSpace.ts';
 import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormholeSpace.ts';
 
