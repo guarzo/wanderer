@@ -12,6 +12,8 @@ defmodule WandererApp.Map.Operations.Connections do
 
   # Connection type constants
   @connection_type_wormhole 0
+  @connection_type_stargate 1
+  @connection_type_loop 2
 
   # Ship size constants
   @small_ship_size 0
@@ -116,7 +118,7 @@ defmodule WandererApp.Map.Operations.Connections do
   # If wormhole_type is provided (e.g., "H296"), infer ship size from it.
   defp resolve_ship_size(type_val, ship_size_val, wormhole_type, src_info, tgt_info) do
     case parse_type(type_val) do
-      @connection_type_wormhole ->
+      type when type in [@connection_type_wormhole, @connection_type_loop] ->
         wormhole_ship_size(ship_size_val, wormhole_type, src_info, tgt_info)
 
       _other ->

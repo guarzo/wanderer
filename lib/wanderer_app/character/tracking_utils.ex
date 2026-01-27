@@ -460,4 +460,65 @@ defmodule WandererApp.Character.TrackingUtils do
         {:ok,
          current_user_characters
          |> Enum.find(fn c -> c.eve_id === main_character_eve_id end)}
+
+  @doc """
+  Clears ready status for a character across all maps when they go offline.
+  This ensures characters don't remain marked as ready when they're not online.
+  """
+  def clear_ready_status_on_offline(character_eve_id) do
+    with {:ok, _character} <- WandererApp.Character.get_by_eve_id("#{character_eve_id}") do
+      # Get all map user settings that have this character marked as ready
+      case WandererApp.MapUserSettingsRepo.get_settings_with_ready_character(character_eve_id) do
+        {:ok, settings_list} ->
+          # Remove character from ready list in each setting
+          Enum.each(settings_list, fn user_settings ->
+            updated_ready_characters =
+              (user_settings.ready_characters || [])
+              |> List.delete(character_eve_id)
+
+            case WandererApp.Api.MapUserSettings.update_ready_characters(user_settings, %{
+                   ready_characters: updated_ready_characters
+                 }) do
+              {:ok, _updated_settings} ->
+                # Broadcast the change to other users in the map
+                broadcast_ready_status_cleared(
+                  user_settings.map_id,
+                  user_settings.user_id,
+                  character_eve_id
+                )
+
+              {:error, reason} ->
+                Logger.error(
+                  "Failed to clear ready status for character #{character_eve_id}: #{inspect(reason)}"
+                )
+            end
+          end)
+
+          :ok
+
+        {:error, reason} ->
+          Logger.error(
+            "Failed to get settings for character #{character_eve_id}: #{inspect(reason)}"
+          )
+
+          {:error, reason}
+      end
+    else
+      {:error, reason} ->
+        Logger.error("Failed to get character #{character_eve_id}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp broadcast_ready_status_cleared(map_id, user_id, character_eve_id) do
+    WandererAppWeb.Endpoint.broadcast!(
+      "map:#{map_id}",
+      "character_ready_status_cleared",
+      %{
+        user_id: user_id,
+        character_eve_id: character_eve_id,
+        reason: "character_offline"
+      }
+    )
+  end
 end
