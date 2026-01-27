@@ -1,7 +1,7 @@
 import {
   useLabelsMenu,
   useStatusMenu,
-  useTagMenu,
+  useThemeTagMenu,
   useUserRoute,
 } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
 import { useMemo } from 'react';
@@ -46,7 +46,7 @@ export const useContextMenuSystemItems = ({
   // Intel-managed fields are owned by the source map, so their menus are read-only here.
   const hasIntelSource = !!mapOptions?.intel_source_map_id;
 
-  const getTags = useTagMenu(systems, systemId, onSystemTag, hasIntelSource);
+  const getTags = useThemeTagMenu(systems, systemId, onSystemTag, hasIntelSource);
   const getStatus = useStatusMenu(systems, systemId, onSystemStatus, hasIntelSource);
   const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog, hasIntelSource);
   const getWaypointMenu = useWaypointMenu(onWaypointSet);
@@ -188,21 +188,22 @@ export const useContextMenuSystemItems = ({
   }, [
     systemId,
     systems,
+    ping?.solar_system_id,
     getTags,
     getStatus,
     getLabels,
     getWaypointMenu,
-    getUserRoutes,
     hubs,
     onHubToggle,
+    getUserRoutes,
+    isShowPingBtn,
     canLockSystem,
     onLockToggle,
+    canManageSystem,
     canDeleteSystem,
     onDeleteSystem,
     onOpenSettings,
     onTogglePing,
-    ping,
-    isShowPingBtn,
     hasIntelSource,
   ]);
 };

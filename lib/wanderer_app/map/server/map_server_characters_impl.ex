@@ -312,8 +312,9 @@ defmodule WandererApp.Map.Server.CharactersImpl do
 
   defp remove_and_untrack_characters(map_id, character_ids) do
     # Option 4: Enhanced logging for character removal
-    Logger.info(fn ->
-      "[CharacterCleanup] Map #{map_id} - starting removal of #{length(character_ids)} characters: #{inspect(character_ids)}"
+    Logger.warning(fn ->
+      "[CharacterCleanup] Map #{map_id} - permission-driven removal of #{length(character_ids)} characters: " <>
+        "#{inspect(character_ids)}, reason=acl_permission_revoked_3x"
     end)
 
     # Emit telemetry for monitoring
@@ -908,12 +909,18 @@ defmodule WandererApp.Map.Server.CharactersImpl do
   end
 
   defp update_location(
-         _state,
-         _character_id,
-         _location,
+         %{map_id: map_id} = _state,
+         character_id,
+         location,
          %{solar_system_id: nil}
-       ),
-       do: :ok
+       ) do
+    Logger.warning(
+      "[CharacterTracking] Skipped system add for character #{character_id} on map #{map_id}: " <>
+        "new_system=#{inspect(location.solar_system_id)}, reason=nil_old_solar_system_id"
+    )
+
+    :ok
+  end
 
   defp update_location(
          %{map: map, map_id: map_id, map_opts: map_opts} =
