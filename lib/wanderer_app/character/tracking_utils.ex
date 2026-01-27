@@ -87,11 +87,21 @@ defmodule WandererApp.Character.TrackingUtils do
           %{eve_id: eve_id} -> eve_id
         end
 
+      # Get ready characters from user settings
+      ready_characters =
+        case user_settings do
+          nil -> []
+          %{ready_characters: nil} -> []
+          %{ready_characters: ready_chars} when is_list(ready_chars) -> ready_chars
+          _ -> []
+        end
+
       {:ok,
        %{
          characters: characters_data,
          main: main_character_eve_id,
-         following: following_character_eve_id
+         following: following_character_eve_id,
+         ready_characters: ready_characters
        }}
     else
       nil ->

@@ -22,6 +22,10 @@ export default {
   },
   ping(rtt) {
     this._nowMs = Date.now();
-    this.pushEvent('ping', { rtt: rtt });
+    try {
+      this.pushEvent('ping', { rtt: rtt });
+    } catch {
+      // LiveView not connected yet, will retry on reconnect
+    }
   },
 };
