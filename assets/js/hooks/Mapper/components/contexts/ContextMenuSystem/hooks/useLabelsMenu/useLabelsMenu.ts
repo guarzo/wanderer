@@ -4,7 +4,7 @@ import { useCallback, useRef } from 'react';
 import { SolarSystemRawType } from '@/hooks/Mapper/types';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import clsx from 'clsx';
-import { LABELS, LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants.ts';
+import { LABELS, LABELS_INFO, LABELS_ORDER } from '@/hooks/Mapper/components/map/constants';
 import { GRADIENT_MENU_ACTIVE_CLASSES } from '@/hooks/Mapper/constants.ts';
 import { LabelsManager } from '@/hooks/Mapper/utils/labelsManager.ts';
 
@@ -31,7 +31,7 @@ export const useLabelsMenu = (
   ref.current = { onSystemLabels, systemId, systems, onCustomLabelDialog };
 
   return useCallback(() => {
-    const { onSystemLabels, systemId, systems, onCustomLabelDialog } = ref.current;
+    const { onSystemLabels, systemId, systems } = ref.current;
     const system = systemId ? getSystemById(systems, systemId) : undefined;
     const labels = new LabelsManager(system?.labels ?? '');
 
@@ -55,24 +55,6 @@ export const useLabelsMenu = (
         icon: PrimeIcons.BOOKMARK,
         className: clsx({ [GRADIENT_MENU_ACTIVE_CLASSES]: hasLabels }),
         items: [
-          ...(labels.customLabel.length > 0
-            ? [
-                {
-                  label: 'Clear custom label',
-                  icon: 'pi pi-trash',
-                  command: () => {
-                    labels.updateCustomLabel('');
-                    onSystemLabels(labels.toString());
-                  },
-                },
-              ]
-            : []),
-          {
-            label: 'Custom label',
-            icon: 'pi pi-language',
-            command: onCustomLabelDialog,
-          },
-          { separator: true },
           ...statusList.map(x => ({
             label: LABELS_INFO[x].name,
             icon: x === LABELS.clear ? PrimeIcons.TRASH : PrimeIcons.BOOKMARK,
