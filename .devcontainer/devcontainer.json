@@ -14,17 +14,20 @@
         "search.exclude": {
           "**/doc": true
         },
-        "elixirLS.dialyzerEnabled": false
+        "elixirLS.dialyzerEnabled": false,
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/bin/zsh"
+          }
+        }
       }
     }
   },
   "service": "wanderer",
   "workspaceFolder": "/app",
+  "remoteUser": "developer",
+  "containerUser": "developer",
   "shutdownAction": "stopCompose",
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "networkArgs": ["--add-host=host.docker.internal:host-gateway"]
-    }
-  },
   "forwardPorts": [4444]
 }

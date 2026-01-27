@@ -195,8 +195,23 @@ defmodule WandererApp.Map.Server.SignaturesImpl do
       })
     end
 
-    sig
-    |> MapSystemSignature.destroy!()
+    # Handle race conditions gracefully - signature may already be deleted
+    case Ash.destroy(sig) do
+      :ok ->
+        :ok
+
+      {:ok, _} ->
+        :ok
+
+      {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} ->
+        # Already deleted by another process - this is fine
+        :ok
+
+      {:error, error} ->
+        require Logger
+        Logger.warning("Failed to delete signature #{sig.eve_id}: #{inspect(error)}")
+        {:error, error}
+    end
   end
 
   defp is_active_signature_for_target?(map_id, sig) do

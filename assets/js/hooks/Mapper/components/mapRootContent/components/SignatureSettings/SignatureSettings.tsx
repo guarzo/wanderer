@@ -61,6 +61,8 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
               k162Type: values.k162Type,
               time_status: values.time_status,
               mass_status: values.mass_status,
+              isEOL: values.isEOL,
+              isCrit: values.isCrit,
             }),
           };
 
@@ -142,11 +144,15 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
     let k162Type = null;
     let time_status = TimeStatus._24h;
     let mass_status = MassState.normal;
+    let isEOL = false;
+    let isCrit = false;
     if (custom_info) {
       const customInfo = JSON.parse(custom_info);
       k162Type = customInfo.k162Type;
-      time_status = customInfo.time_status;
+      time_status = customInfo.time_status || TimeStatus._24h;
       mass_status = customInfo.mass_status ?? MassState.normal;
+      isEOL = customInfo.isEOL || false;
+      isCrit = customInfo.isCrit || false;
     }
 
     signatureForm.reset({
@@ -154,6 +160,8 @@ export const SignatureSettings = ({ systemId, show, onHide, signatureData }: Map
       k162Type: k162Type,
       time_status: time_status,
       mass_status: mass_status,
+      isEOL: isEOL,
+      isCrit: isCrit,
       ...rest,
     });
   }, [signatureForm, signatureData]);

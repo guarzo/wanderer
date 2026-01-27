@@ -107,7 +107,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
 
   @connection_type_wormhole 0
   @connection_type_stargate 1
-  # @connection_type_bridge 2 # reserved for future use
+  @connection_type_loop 3
   @medium_ship_size 1
 
   def get_connection_auto_expire_hours(), do: WandererApp.Env.map_connection_auto_expire_hours()
@@ -362,7 +362,7 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
           )
 
       not is_connection_exist ||
-        (type == @connection_type_wormhole &&
+        ((type == @connection_type_wormhole or type == @connection_type_loop) &&
            time_status == @connection_time_status_eol &&
            is_connection_valid(
              :wormholes,
@@ -611,8 +611,43 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
       when not is_nil(location) and not is_nil(old_location) and
              not is_nil(old_location.solar_system_id) and
              location.solar_system_id != old_location.solar_system_id do
-    {:ok, character} = WandererApp.Character.get_character(character_id)
+    case WandererApp.Character.get_character(character_id) do
+      {:ok, character} ->
+        do_add_connection(
+          map_id,
+          location,
+          old_location,
+          character_id,
+          character,
+          is_manual,
+          extra_info
+        )
 
+      {:error, :not_found} ->
+        Logger.warning("[maybe_add_connection] Character #{character_id} not found")
+        {:error, :not_found}
+    end
+  end
+
+  def maybe_add_connection(
+        _map_id,
+        _location,
+        _old_location,
+        _character_id,
+        _is_manual,
+        _connection_extra_info
+      ),
+      do: :ok
+
+  defp do_add_connection(
+         map_id,
+         location,
+         old_location,
+         character_id,
+         character,
+         is_manual,
+         extra_info
+       ) do
     if not is_manual do
       :telemetry.execute([:wanderer_app, :map, :character, :jump], %{count: 1}, %{})
 
@@ -682,7 +717,8 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
             wormhole_type: wormhole_type
           })
 
-        if connection_type == @connection_type_wormhole do
+        if connection_type == @connection_type_wormhole or
+             connection_type == @connection_type_loop do
           set_start_time(map_id, connection.id, DateTime.utc_now())
         end
 
@@ -737,16 +773,6 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
         :ok
     end
   end
-
-  def maybe_add_connection(
-        _map_id,
-        _location,
-        _old_location,
-        _character_id,
-        _is_manual,
-        _connection_extra_info
-      ),
-      do: :ok
 
   defp get_extra_info(nil, _key, default_value), do: default_value
 
