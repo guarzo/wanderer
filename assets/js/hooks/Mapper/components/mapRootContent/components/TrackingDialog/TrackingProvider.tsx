@@ -85,10 +85,10 @@ export const TrackingProvider = ({ children }: WithChildren) => {
         data: {},
       });
 
-      setTrackingCharacters(res.data.characters);
+      setTrackingCharacters(res.data.characters || []);
       setFollowing(res.data.following);
       setMain(res.data.main);
-      setReady(res.data.ready_characters);
+      setReady(res.data.ready_characters || []);
     } catch (err) {
       console.error('TrackingProviderError', err);
     }
