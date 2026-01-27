@@ -1,5 +1,3 @@
-version: "0.1"
-
 services:
   db:
     image: postgres:13-alpine
@@ -8,7 +6,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - db-new:/var/lib/postgresql/data
 
@@ -21,13 +19,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    user: developer
     ports:
       - 4444:4444
     volumes:
       - ..:/app:delegated
-      - ~/.gitconfig:/root/.gitconfig
-      - ~/.gitignore:/root/.gitignore
-      - ~/.ssh:/root/.ssh
+      - ~/.gitconfig:/home/developer/.gitconfig:ro
+      - ~/.gitignore:/home/developer/.gitignore:ro
+      - ~/.ssh:/home/developer/.ssh:ro
+      - ~/.dotfiles:/home/developer/.dotfiles:ro
       - elixir-artifacts:/opt/elixir-artifacts
     command: sleep infinity
 
