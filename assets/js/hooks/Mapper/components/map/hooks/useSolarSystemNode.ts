@@ -14,6 +14,7 @@ import { useUnsplashedSignatures } from './useUnsplashedSignatures';
 import { useSystemName } from './useSystemName';
 import { LabelInfo, useLabelsInfo } from './useLabelsInfo';
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic';
+import { useRallyRoute } from '@/hooks/Mapper/hooks/useRallyRoute';
 
 export interface SolarSystemNodeVars {
   id: string;
@@ -54,6 +55,7 @@ export interface SolarSystemNodeVars {
   description: string | null;
   comments_count: number | null;
   systemHighlighted: string | undefined;
+  isRallyRoute: boolean;
 }
 
 export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarSystemNodeVars => {
@@ -72,7 +74,9 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
   } = data;
 
   const {
-    storedSettings: { interfaceSettings },
+    storedSettings: {
+      interfaceSettings: { isShowUnsplashedSignatures },
+    },
     data: { systemSignatures: mapSystemSignatures, pings },
   } = useMapRootState();
 
@@ -93,7 +97,6 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     constellation_name,
   } = systemStaticInfo;
 
-  const { isShowUnsplashedSignatures } = interfaceSettings;
   const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
   const isShowLinkedSigId = useMapGetOption('show_linked_signature_id') === 'true';
   const isShowLinkedSigIdTempName = useMapGetOption('show_linked_signature_id_temp_name') === 'true';
@@ -182,7 +185,11 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     return region_name;
   }, [constellation_name, region_id, region_name]);
 
-  const nodeVars: SolarSystemNodeVars = {
+  // Check if this system is part of the rally route
+  const { highlightedSystems, isActive: isRallyRouteActive } = useRallyRoute();
+  const isRallyRoute = isRallyRouteActive && highlightedSystems.has(solar_system_id);
+
+  return {
     id,
     selected,
     visible,
@@ -221,7 +228,6 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     description,
     comments_count,
     systemHighlighted,
+    isRallyRoute,
   };
-
-  return nodeVars;
 };
