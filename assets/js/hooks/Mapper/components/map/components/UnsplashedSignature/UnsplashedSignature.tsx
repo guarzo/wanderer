@@ -1,13 +1,12 @@
 import { InfoDrawer } from '@/hooks/Mapper/components/ui-kit';
 import { WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper';
-
-import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants.ts';
 import { renderInfoColumn } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/renders';
 import { K162_TYPES_MAP } from '@/hooks/Mapper/constants.ts';
 import { parseSignatureCustomInfo } from '@/hooks/Mapper/helpers/parseSignatureCustomInfo.ts';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { TimeStatus } from '@/hooks/Mapper/types';
 import { SystemSignature } from '@/hooks/Mapper/types/signatures';
+import { WORMHOLE_CLASS_STYLES, WORMHOLES_ADDITIONAL_INFO } from '@/hooks/Mapper/components/map/constants';
 import clsx from 'clsx';
 import { useMemo } from 'react';
 import classes from './UnsplashedSignature.module.scss';
@@ -39,8 +38,8 @@ export const UnsplashedSignature = ({ signature }: UnsplashedSignatureProps) => 
     return customInfo?.time_status === TimeStatus._1h;
   }, [customInfo]);
 
-  const is4H = useMemo(() => {
-    return customInfo?.time_status === TimeStatus._4h;
+  const isCrit= useMemo(() => {
+    return customInfo?.isCrit;
   }, [customInfo]);
 
   const whClassStyle = useMemo(() => {
@@ -69,7 +68,7 @@ export const UnsplashedSignature = ({ signature }: UnsplashedSignatureProps) => 
         <svg width="13" height="8" viewBox="0 0 13 8" xmlns="http://www.w3.org/2000/svg">
           <rect y="1" width="13" height="4" rx="2" className={whClassStyle} fill="currentColor" />
           {isEOL && <rect x="4" width="5" height="6" rx="1" className={clsx(classes.Eol)} fill="#a153ac" />}
-          {is4H && <rect x="4" width="5" height="6" rx="1" className={clsx(classes.Eol)} fill="#d8b4fe" />}
+          {isCrit && <rect x="4" width="5" height="6" rx="1" className={clsx(classes.Eol)} fill="#d8b4fe" />}
         </svg>
       </div>
     </WdTooltipWrapper>
