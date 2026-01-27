@@ -10,6 +10,8 @@ type WdCharStateWrapperProps = {
   isExpired?: boolean;
   isMain?: boolean;
   isFollowing?: boolean;
+  isReady?: boolean;
+  isTrackingPaused?: boolean;
   location: LocationRaw | null;
   isOnline: boolean;
 } & WithChildren;
@@ -20,6 +22,8 @@ export const WdCharStateWrapper = ({
   isMain,
   isFollowing,
   isExpired,
+  isReady,
+  isTrackingPaused,
   children,
 }: WdCharStateWrapperProps) => {
   return (
@@ -29,12 +33,24 @@ export const WdCharStateWrapper = ({
         'flex w-[35px] h-[35px] rounded-[4px] border-[1px] border-solid bg-transparent cursor-pointer',
         'transition-colors duration-250 hover:bg-stone-300/90',
         {
-          ['border-stone-800/90']: !isExpired && !isOnline,
-          ['border-lime-600/70']: !isExpired && isOnline,
+          ['border-stone-800/90']: !isExpired && !isOnline && !isReady,
+          ['border-lime-600/70']: !isExpired && isOnline && !isReady,
+          ['border-orange-500/90']: isReady && isOnline,
+          ['border-orange-700/70']: isReady && !isOnline,
           ['border-red-600/70']: isExpired,
         },
       )}
     >
+      {isTrackingPaused && (
+        <span
+          className={clsx(
+            'absolute top-0 left-0 w-[35px] h-[35px] flex items-center justify-center',
+            'text-yellow-500 text-[9px] z-10 bg-gray-800/40',
+            'pi',
+            PrimeIcons.PAUSE,
+          )}
+        />
+      )}
       {isMain && (
         <span
           className={clsx(
@@ -51,6 +67,16 @@ export const WdCharStateWrapper = ({
             'absolute top-[23px] left-[22px] w-[10px] h-[10px]',
             'text-sky-300 text-[10px] rounded-[1px] z-10',
             'pi pi-angle-double-right',
+          )}
+        />
+      )}
+      {isReady && (
+        <span
+          className={clsx(
+            'absolute top-[2px] left-[2px] w-[8px] h-[8px] flex items-center justify-center',
+            'text-orange-500 text-[8px] rounded-[1px] z-10',
+            'pi',
+            PrimeIcons.BOLT,
           )}
         />
       )}
