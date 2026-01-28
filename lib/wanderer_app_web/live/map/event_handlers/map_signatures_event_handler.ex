@@ -561,8 +561,14 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
         end
 
         # Delete the signature, handling race conditions gracefully
+        # Ash.destroy can return :ok or {:ok, record} depending on options
         case Ash.destroy(sig) do
           :ok ->
+            Logger.debug(
+              "Deleted expired signature #{sig.eve_id} from system #{system.solar_system_id}"
+            )
+
+          {:ok, _} ->
             Logger.debug(
               "Deleted expired signature #{sig.eve_id} from system #{system.solar_system_id}"
             )

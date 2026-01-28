@@ -332,6 +332,7 @@ defmodule WandererAppWeb.Router do
     get "/:id", MapAccessListAPIController, :show
     put "/:id", MapAccessListAPIController, :update
     post "/:acl_id/members", AccessListMemberAPIController, :create
+    get "/:acl_id/members/:member_id", AccessListMemberAPIController, :show
     put "/:acl_id/members/:member_id", AccessListMemberAPIController, :update_role
     delete "/:acl_id/members/:member_id", AccessListMemberAPIController, :delete
   end
