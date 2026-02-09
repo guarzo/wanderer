@@ -2,6 +2,7 @@ import { ContextStoreDataUpdate, useContextStore } from '@/hooks/Mapper/utils';
 import { createContext, Dispatch, ForwardedRef, forwardRef, SetStateAction, useContext } from 'react';
 import {
   ActivitySummary,
+  ClientEnv,
   CommandLinkSignatureToSystem,
   MapUnionTypes,
   OutCommandHandler,
@@ -57,6 +58,7 @@ export type MapRootData = MapUnionTypes & {
   loadingPublicRoutes: boolean;
   map_slug: string | null;
   expiredCharacters: string[];
+  clientEnv: ClientEnv;
 };
 
 const INITIAL_DATA: MapRootData = {
@@ -104,6 +106,7 @@ const INITIAL_DATA: MapRootData = {
   loadingPublicRoutes: false,
   map_slug: null,
   expiredCharacters: [],
+  clientEnv: { intelSharingEnabled: false, detailedKillsDisabled: false },
 };
 
 export enum InterfaceStoredSettingsProps {
