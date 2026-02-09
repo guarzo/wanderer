@@ -13,6 +13,7 @@ import { TooltipPosition, WdImageSize, WdImgButton } from '@/hooks/Mapper/compon
 import { CustomSystemSettingsDialogProps } from './helpers';
 import { useCustomSystemSettings } from './hooks/useCustomSystemSettings';
 import { isWormholeSpace } from '../../../map/helpers/isWormholeSpace';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 
 const CHECKBOX_ITEMS = [
   { code: 'B', label: 'Blobber' },
@@ -31,6 +32,11 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
   setVisible,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    data: { options: mapOptions },
+  } = useMapRootState();
+  const hasIntelSource = !!mapOptions?.intel_source_map_id;
 
   const {
     system,
@@ -102,6 +108,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
   const onSubmit = useCallback(
     async (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
+      if (hasIntelSource) return;
       console.log('[CustomSystemSettingsDialog] Form submitted with owner values:', {
         ownerName,
         ownerId: system?.owner_id,
@@ -110,7 +117,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
       await handleSave();
       setVisible(false);
     },
-    [handleSave, ownerName, system, setVisible],
+    [handleSave, ownerName, system, setVisible, hasIntelSource],
   );
 
   return (
@@ -124,12 +131,18 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
     >
       <form onSubmit={onSubmit}>
         <div className="flex flex-col gap-3">
+          {hasIntelSource && (
+            <div className="text-stone-400 text-[11px] bg-blue-900/20 border border-blue-500/30 rounded px-2 py-1">
+              <i className="pi pi-info-circle mr-1" />
+              These fields are managed by the intel source map and cannot be edited here.
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             {/* Bookmark Name Field */}
             <div className="flex flex-col gap-1">
               <label htmlFor="temporaryName">Bookmark Name</label>
               <IconField>
-                {temporaryName && (
+                {!hasIntelSource && temporaryName && (
                   <WdImgButton
                     className="pi pi-trash text-red-400"
                     textSize={WdImageSize.large}
@@ -147,6 +160,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
                   ref={inputRef}
                   maxLength={10}
                   value={temporaryName}
+                  disabled={hasIntelSource}
                   onChange={handleTemporaryNameChange}
                 />
               </IconField>
@@ -156,7 +170,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
               <div className="flex flex-col gap-1">
                 <label htmlFor="label">Tag (4-j, 7-A, etc)</label>
                 <IconField>
-                  {label && (
+                  {!hasIntelSource && label && (
                     <WdImgButton
                       className="pi pi-trash text-red-400"
                       textSize={WdImageSize.large}
@@ -173,6 +187,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
                     autoComplete="off"
                     value={label}
                     maxLength={5}
+                    disabled={hasIntelSource}
                     onChange={e => setLabel(e.target.value.toUpperCase())}
                   />
                 </IconField>
@@ -183,7 +198,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
                 <div className="flex flex-col gap-1">
                   <label htmlFor="owner">Ticker</label>
                   <IconField>
-                    {ownerName && (
+                    {!hasIntelSource && ownerName && (
                       <WdImgButton
                         className="pi pi-trash text-red-400"
                         textSize={WdImageSize.large}
@@ -210,6 +225,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
                       onSelect={e => handleOwnerSelect(e.value)}
                       field="formatted"
                       forceSelection={false}
+                      disabled={hasIntelSource}
                     />
                   </IconField>
                 </div>
@@ -224,6 +240,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
                           <Checkbox
                             inputId={item.code}
                             checked={checked}
+                            disabled={hasIntelSource}
                             onChange={e => {
                               const isChecked = e.checked ?? false;
                               if (isChecked) {
@@ -249,12 +266,13 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
                 rows={5}
                 autoResize
                 value={description}
+                disabled={hasIntelSource}
                 onChange={e => setDescription(e.target.value)}
               />
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="submit" outlined size="small" label="Save" />
+            <Button type="submit" outlined size="small" label="Save" disabled={hasIntelSource} />
           </div>
         </div>
       </form>

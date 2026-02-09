@@ -111,6 +111,7 @@ defmodule WandererApp.Api.MapSystem do
     define(:update_position, action: :update_position)
     define(:update_visible, action: :update_visible)
     define(:update_custom_flags, action: :update_custom_flags)
+    define(:update_intel, action: :update_intel)
   end
 
   actions do
@@ -324,6 +325,12 @@ defmodule WandererApp.Api.MapSystem do
 
     update :update_visible do
       accept [:visible]
+      require_atomic? false
+    end
+
+    update :update_intel do
+      accept [:custom_name, :description, :tag, :temporary_name, :labels, :status,
+              :custom_flags, :owner_id, :owner_type, :owner_ticker]
       require_atomic? false
     end
   end

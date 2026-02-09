@@ -72,7 +72,8 @@ defmodule WandererAppWeb.MapEventHandler do
     "get_alliance_names",
     "get_alliance_ticker",
     "update_system_custom_flags",
-    "manual_paste_systems_and_connections"
+    "manual_paste_systems_and_connections",
+    "sync_intel"
   ]
 
   @map_system_comments_events [
