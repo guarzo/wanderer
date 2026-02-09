@@ -56,6 +56,7 @@ export interface SolarSystemNodeVars {
   comments_count: number | null;
   systemHighlighted: string | undefined;
   isRallyRoute: boolean;
+  hasIntelSource: boolean;
 }
 
 export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarSystemNodeVars => {
@@ -77,7 +78,7 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     storedSettings: {
       interfaceSettings: { isShowUnsplashedSignatures },
     },
-    data: { systemSignatures: mapSystemSignatures, pings },
+    data: { systemSignatures: mapSystemSignatures, pings, options: mapOptions },
   } = useMapRootState();
 
   const systemStaticInfo = useMemo(() => {
@@ -229,5 +230,6 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     comments_count,
     systemHighlighted,
     isRallyRoute,
+    hasIntelSource: !!mapOptions?.intel_source_map_id,
   };
 };
