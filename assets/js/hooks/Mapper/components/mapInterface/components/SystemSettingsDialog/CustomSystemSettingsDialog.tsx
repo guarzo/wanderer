@@ -2,7 +2,7 @@
 import React, { useRef, useCallback, useMemo, useEffect } from 'react';
 import debounce from 'lodash.debounce';
 import { Dialog } from 'primereact/dialog';
-import { Button } from 'primereact/button';
+import { WdButton } from '@/hooks/Mapper/components/ui-kit';
 import { IconField } from 'primereact/iconfield';
 import { InputText } from 'primereact/inputtext';
 import { InputTextarea } from 'primereact/inputtextarea';
@@ -23,7 +23,6 @@ const CHECKBOX_ITEMS = [
   { code: 'PW', label: 'Prewarp Sites' },
   { code: 'PT', label: 'POS Trash' },
   { code: 'DNP', label: 'Do Not Pod' },
-  { code: 'CF', label: 'Coward Finder' },
 ];
 
 export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProps> = ({
@@ -272,7 +271,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="submit" outlined size="small" label="Save" disabled={hasIntelSource} />
+            <WdButton type="submit" outlined size="small" label="Save" disabled={hasIntelSource} />
           </div>
         </div>
       </form>
