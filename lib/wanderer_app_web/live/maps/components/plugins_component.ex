@@ -23,6 +23,7 @@ defmodule WandererAppWeb.Maps.PluginsComponent do
        error: nil,
        saving: false,
        show_bot_token: false,
+       show_advanced: false,
        success_message: nil
      )}
   end
@@ -99,6 +100,11 @@ defmodule WandererAppWeb.Maps.PluginsComponent do
   @impl true
   def handle_event("toggle_bot_token", _, socket) do
     {:noreply, assign(socket, show_bot_token: !socket.assigns.show_bot_token)}
+  end
+
+  @impl true
+  def handle_event("toggle_advanced", _, socket) do
+    {:noreply, assign(socket, show_advanced: !socket.assigns.show_advanced)}
   end
 
   @impl true
@@ -384,6 +390,117 @@ defmodule WandererAppWeb.Maps.PluginsComponent do
                         placeholder="Channel ID for all notifications (required)"
                       />
                     </div>
+                  </div>
+                </div>
+
+                <%!-- Notification Toggles --%>
+                <div class="grid grid-cols-2 gap-2">
+                  <label class="flex items-center gap-2 cursor-pointer py-1">
+                    <input type="hidden" name="notifications_enabled" value="false" />
+                    <input
+                      type="checkbox"
+                      name="notifications_enabled"
+                      value="true"
+                      class="checkbox checkbox-primary checkbox-sm"
+                      checked={
+                        get_config_value(
+                          @parsed_configs,
+                          "notifier",
+                          ["features", "notifications_enabled"],
+                          true
+                        )
+                      }
+                    />
+                    <span class="text-sm">Notifications Enabled</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer py-1">
+                    <input type="hidden" name="kill_notifications_enabled" value="false" />
+                    <input
+                      type="checkbox"
+                      name="kill_notifications_enabled"
+                      value="true"
+                      class="checkbox checkbox-primary checkbox-sm"
+                      checked={
+                        get_config_value(
+                          @parsed_configs,
+                          "notifier",
+                          ["features", "kill_notifications_enabled"],
+                          true
+                        )
+                      }
+                    />
+                    <span class="text-sm">Kill Notifications</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer py-1">
+                    <input type="hidden" name="system_notifications_enabled" value="false" />
+                    <input
+                      type="checkbox"
+                      name="system_notifications_enabled"
+                      value="true"
+                      class="checkbox checkbox-primary checkbox-sm"
+                      checked={
+                        get_config_value(
+                          @parsed_configs,
+                          "notifier",
+                          ["features", "system_notifications_enabled"],
+                          true
+                        )
+                      }
+                    />
+                    <span class="text-sm">System Notifications</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer py-1">
+                    <input type="hidden" name="character_notifications_enabled" value="false" />
+                    <input
+                      type="checkbox"
+                      name="character_notifications_enabled"
+                      value="true"
+                      class="checkbox checkbox-primary checkbox-sm"
+                      checked={
+                        get_config_value(
+                          @parsed_configs,
+                          "notifier",
+                          ["features", "character_notifications_enabled"],
+                          true
+                        )
+                      }
+                    />
+                    <span class="text-sm">Character Notifications</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer py-1">
+                    <input type="hidden" name="rally_notifications_enabled" value="false" />
+                    <input
+                      type="checkbox"
+                      name="rally_notifications_enabled"
+                      value="true"
+                      class="checkbox checkbox-primary checkbox-sm"
+                      checked={
+                        get_config_value(
+                          @parsed_configs,
+                          "notifier",
+                          ["features", "rally_notifications_enabled"],
+                          true
+                        )
+                      }
+                    />
+                    <span class="text-sm">Rally Notifications</span>
+                  </label>
+                </div>
+
+                <%!-- Advanced Settings Toggle --%>
+                <div
+                  class="flex items-center gap-2 cursor-pointer py-2 text-stone-400 hover:text-stone-300"
+                  phx-click="toggle_advanced"
+                  phx-target={@myself}
+                >
+                  <span class="text-xs">{if @show_advanced, do: "▼", else: "▶"}</span>
+                  <span class="text-sm font-medium">Advanced Settings</span>
+                </div>
+
+                <%= if @show_advanced do %>
+                  <%!-- Channel Overrides --%>
+                  <div>
+                    <h4 class="text-md font-semibold mb-2 text-stone-300">Channel Overrides</h4>
                     <div class="grid grid-cols-2 gap-3">
                       <div>
                         <label class="block text-sm text-stone-400 mb-1">System Kill Channel</label>
@@ -493,225 +610,139 @@ defmodule WandererAppWeb.Maps.PluginsComponent do
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <%!-- Feature Toggles --%>
-                <div>
-                  <h4 class="text-md font-semibold mb-2 text-stone-300">Feature Toggles</h4>
-                  <div class="grid grid-cols-2 gap-2">
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="notifications_enabled" value="false" />
-                      <input
-                        type="checkbox"
-                        name="notifications_enabled"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "notifications_enabled"],
-                            true
-                          )
-                        }
-                      />
-                      <span class="text-sm">Notifications Enabled</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="kill_notifications_enabled" value="false" />
-                      <input
-                        type="checkbox"
-                        name="kill_notifications_enabled"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "kill_notifications_enabled"],
-                            true
-                          )
-                        }
-                      />
-                      <span class="text-sm">Kill Notifications</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="system_notifications_enabled" value="false" />
-                      <input
-                        type="checkbox"
-                        name="system_notifications_enabled"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "system_notifications_enabled"],
-                            true
-                          )
-                        }
-                      />
-                      <span class="text-sm">System Notifications</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="character_notifications_enabled" value="false" />
-                      <input
-                        type="checkbox"
-                        name="character_notifications_enabled"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "character_notifications_enabled"],
-                            true
-                          )
-                        }
-                      />
-                      <span class="text-sm">Character Notifications</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="rally_notifications_enabled" value="false" />
-                      <input
-                        type="checkbox"
-                        name="rally_notifications_enabled"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "rally_notifications_enabled"],
-                            true
-                          )
-                        }
-                      />
-                      <span class="text-sm">Rally Notifications</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="wormhole_only_kill_notifications" value="false" />
-                      <input
-                        type="checkbox"
-                        name="wormhole_only_kill_notifications"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "wormhole_only_kill_notifications"],
-                            false
-                          )
-                        }
-                      />
-                      <span class="text-sm">Wormhole-only Kills</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="track_kspace" value="false" />
-                      <input
-                        type="checkbox"
-                        name="track_kspace"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "track_kspace"],
-                            true
-                          )
-                        }
-                      />
-                      <span class="text-sm">Track K-Space</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer py-1">
-                      <input type="hidden" name="priority_systems_only" value="false" />
-                      <input
-                        type="checkbox"
-                        name="priority_systems_only"
-                        value="true"
-                        class="checkbox checkbox-primary checkbox-sm"
-                        checked={
-                          get_config_value(
-                            @parsed_configs,
-                            "notifier",
-                            ["features", "priority_systems_only"],
-                            false
-                          )
-                        }
-                      />
-                      <span class="text-sm">Priority Systems Only</span>
-                    </label>
-                  </div>
-                </div>
-
-                <%!-- Filtering --%>
-                <div>
-                  <h4 class="text-md font-semibold mb-2 text-stone-300">Filtering</h4>
-                  <div class="space-y-3">
-                    <div>
-                      <label class="block text-sm text-stone-400 mb-1">Corporation Kill Focus</label>
-                      <input
-                        type="text"
-                        name="corporation_kill_focus"
-                        value={
-                          comma_join(
+                  <%!-- Behavior Toggles --%>
+                  <div>
+                    <h4 class="text-md font-semibold mb-2 text-stone-300">Behavior</h4>
+                    <div class="grid grid-cols-2 gap-2">
+                      <label class="flex items-center gap-2 cursor-pointer py-1">
+                        <input type="hidden" name="wormhole_only_kill_notifications" value="false" />
+                        <input
+                          type="checkbox"
+                          name="wormhole_only_kill_notifications"
+                          value="true"
+                          class="checkbox checkbox-primary checkbox-sm"
+                          checked={
                             get_config_value(
                               @parsed_configs,
                               "notifier",
-                              ["settings", "corporation_kill_focus"],
-                              []
+                              ["features", "wormhole_only_kill_notifications"],
+                              false
                             )
-                          )
-                        }
-                        class="input input-bordered text-sm bg-neutral-800 text-white w-full"
-                        placeholder="Comma-separated corporation EVE IDs"
-                      />
-                      <p class="text-xs text-stone-500 mt-1">
-                        Kills involving these corps route to character kill channel
-                      </p>
-                    </div>
-                    <div>
-                      <label class="block text-sm text-stone-400 mb-1">Character Exclude List</label>
-                      <input
-                        type="text"
-                        name="character_exclude_list"
-                        value={
-                          comma_join(
+                          }
+                        />
+                        <span class="text-sm">Wormhole-only Kills</span>
+                      </label>
+                      <label class="flex items-center gap-2 cursor-pointer py-1">
+                        <input type="hidden" name="track_kspace" value="false" />
+                        <input
+                          type="checkbox"
+                          name="track_kspace"
+                          value="true"
+                          class="checkbox checkbox-primary checkbox-sm"
+                          checked={
                             get_config_value(
                               @parsed_configs,
                               "notifier",
-                              ["settings", "character_exclude_list"],
-                              []
+                              ["features", "track_kspace"],
+                              true
                             )
-                          )
-                        }
-                        class="input input-bordered text-sm bg-neutral-800 text-white w-full"
-                        placeholder="Comma-separated character EVE IDs to exclude"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-sm text-stone-400 mb-1">System Exclude List</label>
-                      <input
-                        type="text"
-                        name="system_exclude_list"
-                        value={
-                          comma_join(
+                          }
+                        />
+                        <span class="text-sm">Track K-Space</span>
+                      </label>
+                      <label class="flex items-center gap-2 cursor-pointer py-1">
+                        <input type="hidden" name="priority_systems_only" value="false" />
+                        <input
+                          type="checkbox"
+                          name="priority_systems_only"
+                          value="true"
+                          class="checkbox checkbox-primary checkbox-sm"
+                          checked={
                             get_config_value(
                               @parsed_configs,
                               "notifier",
-                              ["settings", "system_exclude_list"],
-                              []
+                              ["features", "priority_systems_only"],
+                              false
                             )
-                          )
-                        }
-                        class="input input-bordered text-sm bg-neutral-800 text-white w-full"
-                        placeholder="Comma-separated system IDs to exclude"
-                      />
+                          }
+                        />
+                        <span class="text-sm">Priority Systems Only</span>
+                      </label>
                     </div>
                   </div>
-                </div>
+
+                  <%!-- Filtering --%>
+                  <div>
+                    <h4 class="text-md font-semibold mb-2 text-stone-300">Filtering</h4>
+                    <div class="space-y-3">
+                      <div>
+                        <label class="block text-sm text-stone-400 mb-1">
+                          Corporation Kill Focus
+                        </label>
+                        <input
+                          type="text"
+                          name="corporation_kill_focus"
+                          value={
+                            comma_join(
+                              get_config_value(
+                                @parsed_configs,
+                                "notifier",
+                                ["settings", "corporation_kill_focus"],
+                                []
+                              )
+                            )
+                          }
+                          class="input input-bordered text-sm bg-neutral-800 text-white w-full"
+                          placeholder="Comma-separated corporation EVE IDs"
+                        />
+                        <p class="text-xs text-stone-500 mt-1">
+                          Kills involving these corps route to character kill channel
+                        </p>
+                      </div>
+                      <div>
+                        <label class="block text-sm text-stone-400 mb-1">
+                          Character Exclude List
+                        </label>
+                        <input
+                          type="text"
+                          name="character_exclude_list"
+                          value={
+                            comma_join(
+                              get_config_value(
+                                @parsed_configs,
+                                "notifier",
+                                ["settings", "character_exclude_list"],
+                                []
+                              )
+                            )
+                          }
+                          class="input input-bordered text-sm bg-neutral-800 text-white w-full"
+                          placeholder="Comma-separated character EVE IDs to exclude"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-sm text-stone-400 mb-1">System Exclude List</label>
+                        <input
+                          type="text"
+                          name="system_exclude_list"
+                          value={
+                            comma_join(
+                              get_config_value(
+                                @parsed_configs,
+                                "notifier",
+                                ["settings", "system_exclude_list"],
+                                []
+                              )
+                            )
+                          }
+                          class="input input-bordered text-sm bg-neutral-800 text-white w-full"
+                          placeholder="Comma-separated system IDs to exclude"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
 
                 <div class="flex justify-end">
                   <button
