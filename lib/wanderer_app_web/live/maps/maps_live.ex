@@ -152,6 +152,10 @@ defmodule WandererAppWeb.MapsLive do
          _url
        )
        when not is_nil(current_user) do
+    # DEBUG: remove after verifying plugins tab visibility
+    require Logger
+    Logger.info("PLUGINS_DEBUG: plugins_enabled?=#{WandererApp.Env.plugins_enabled?()} plugins_config=#{inspect(Application.get_env(:wanderer_app, :plugins))}")
+
     WandererApp.Maps.check_user_can_delete_map(map_slug, current_user)
     |> case do
       {:ok, map} ->
