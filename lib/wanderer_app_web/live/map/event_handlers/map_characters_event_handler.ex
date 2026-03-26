@@ -422,52 +422,21 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
 
   defp perform_clear_all_ready_characters(map_id, current_user_id, socket) do
     try do
-      # Get all user settings for this map
-      import Ecto.Query
-
-      user_settings_query =
-        from(settings in "map_user_settings_v1",
-          where: settings.map_id == type(^map_id, :binary_id),
-          select: %{
-            id: settings.id,
-            map_id: settings.map_id,
-            user_id: settings.user_id,
-            ready_characters: settings.ready_characters,
-            settings: settings.settings,
-            main_character_eve_id: settings.main_character_eve_id,
-            following_character_eve_id: settings.following_character_eve_id,
-            hubs: settings.hubs
-          }
-        )
-
-      map_user_settings = WandererApp.Repo.all(user_settings_query)
+      # Get all user settings for this map using Ash action
+      {:ok, map_user_settings} = WandererApp.Api.MapUserSettings.read_by_map(map_id)
 
       # Clear ready characters for all users
       results =
         Enum.map(map_user_settings, fn user_setting ->
-          # Load the user setting as an Ash resource using by_user_id
-          case WandererApp.Api.MapUserSettings.by_user_id(
-                 user_setting.map_id,
-                 user_setting.user_id
-               ) do
-            {:ok, ash_user_setting} ->
-              case WandererApp.Api.MapUserSettings.update_ready_characters(ash_user_setting, %{
-                     ready_characters: []
-                   }) do
-                {:ok, _updated_settings} ->
-                  :ok
-
-                {:error, reason} ->
-                  Logger.error(
-                    "Failed to clear ready characters for user #{user_setting.user_id}: #{inspect(reason)}"
-                  )
-
-                  {:error, reason}
-              end
+          case WandererApp.Api.MapUserSettings.update_ready_characters(user_setting, %{
+                 ready_characters: []
+               }) do
+            {:ok, _updated_settings} ->
+              :ok
 
             {:error, reason} ->
               Logger.error(
-                "Failed to load user setting for map #{user_setting.map_id} user #{user_setting.user_id}: #{inspect(reason)}"
+                "Failed to clear ready characters for user #{user_setting.user_id}: #{inspect(reason)}"
               )
 
               {:error, reason}
