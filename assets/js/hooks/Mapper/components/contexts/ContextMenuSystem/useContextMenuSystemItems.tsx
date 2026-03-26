@@ -1,7 +1,7 @@
 import {
   useLabelsMenu,
   useStatusMenu,
-  useZooTagMenu,
+  useThemeTagMenu,
   useUserRoute,
 } from '@/hooks/Mapper/components/contexts/ContextMenuSystem/hooks';
 import { useMemo } from 'react';
@@ -39,7 +39,7 @@ export const useContextMenuSystemItems = ({
   userHubs,
   systems,
 }: Omit<ContextMenuSystemProps, 'contextMenuRef'>) => {
-  const getTags = useZooTagMenu(systems, systemId, onSystemTag);
+  const getTags = useThemeTagMenu(systems, systemId, onSystemTag);
   const getStatus = useStatusMenu(systems, systemId, onSystemStatus);
   const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog);
   const getWaypointMenu = useWaypointMenu(onWaypointSet);
