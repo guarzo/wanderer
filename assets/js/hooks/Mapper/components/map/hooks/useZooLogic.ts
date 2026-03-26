@@ -155,7 +155,7 @@ export function useNodeOwnerTicker(ownerId?: string | null, ownerType?: string |
     return () => {
       isMounted = false;
     };
-  }, [outCommand, ownerId, ownerType, ownerTicker, ticker]);
+  }, [outCommand, ownerId, ownerType, ownerTicker]);
 
   return { ownerTicker: ticker, ownerURL };
 }
@@ -248,9 +248,7 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
 
     let signatureAgeHours = 0;
     if (newestTimestamp > 0) {
-      // Adjust for timezone offset.
-      const adjustedNow = now + new Date().getTimezoneOffset() * 60000;
-      const ageMs = adjustedNow - newestTimestamp;
+      const ageMs = now - newestTimestamp;
       signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
       signatureAgeHours = Math.max(0, signatureAgeHours);
     }
