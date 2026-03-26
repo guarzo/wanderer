@@ -101,11 +101,6 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
   const onSubmit = useCallback(
     async (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      console.log('[CustomSystemSettingsDialog] Form submitted with owner values:', {
-        ownerName,
-        ownerId: system?.owner_id,
-        ownerType: system?.owner_type,
-      });
       await handleSave();
       setVisible(false);
     },
