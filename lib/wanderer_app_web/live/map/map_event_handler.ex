@@ -405,19 +405,11 @@ defmodule WandererAppWeb.MapEventHandler do
           labels: labels,
           linked_sig_eve_id: linked_sig_eve_id,
           temporary_name: temporary_name,
-          owner_type: owner_type,
-          owner_id: owner_id,
-          custom_flags: custom_flags,
           status: status,
           visible: visible
         } = system,
         _include_static_data? \\ true
       ) do
-    require Logger
-
-    # Check if the system has an owner_ticker field
-    owner_ticker = Map.get(system, :owner_ticker)
-
     system_static_info = get_system_static_info(solar_system_id)
 
     system_signatures =
@@ -438,27 +430,6 @@ defmodule WandererAppWeb.MapEventHandler do
           0
       end
 
-    # Handle the case where owner_ticker is an empty string
-    final_owner_ticker =
-      case owner_ticker do
-        "" -> nil
-        ticker -> ticker
-      end
-
-    # Handle the case where owner_type is an empty string
-    final_owner_type =
-      case owner_type do
-        "" -> nil
-        type -> type
-      end
-
-    # Handle the case where owner_id is an empty string
-    final_owner_id =
-      case owner_id do
-        "" -> nil
-        id -> id
-      end
-
     result = %{
       id: "#{solar_system_id}",
       position: %{x: position_x, y: position_y},
@@ -473,14 +444,22 @@ defmodule WandererAppWeb.MapEventHandler do
       tag: tag,
       temporary_name: temporary_name,
       comments_count: comments_count,
-      owner_type: final_owner_type,
-      owner_id: final_owner_id,
-      owner_ticker: final_owner_ticker,
-      custom_flags: custom_flags,
       visible: visible
     }
 
-    result
+    Map.merge(result, zoo_system_fields(system))
+  end
+
+  @zoo_system_keys [:owner_type, :owner_id, :owner_ticker, :custom_flags]
+
+  defp zoo_system_fields(system) do
+    system
+    |> Map.take(@zoo_system_keys)
+    |> Enum.reduce(%{}, fn
+      {_key, nil}, acc -> acc
+      {_key, ""}, acc -> acc
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
   end
 
   def map_ui_system_static_info(nil), do: %{}
