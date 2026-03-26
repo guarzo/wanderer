@@ -7,6 +7,8 @@ import { PrimeIcons } from 'primereact/api';
 import { GiConcentrationOrb } from 'react-icons/gi';
 import { useSolarSystemNode, useNodeKillsCount } from '../../hooks';
 import { useLocalCounter } from '@/hooks/Mapper/components/hooks/useLocalCounter.ts';
+import { useMapState } from '@/hooks/Mapper/components/map/MapProvider';
+import { SyncIntelIcon } from '../SyncIntelIcon';
 
 import {
   useZooNames,
@@ -28,6 +30,7 @@ import { TooltipSize } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper/u
 
 export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) => {
   const nodeVars = useSolarSystemNode(props);
+  const { outCommand } = useMapState();
 
   const updatedSignatures = useNodeSignatures(nodeVars.solarSystemId);
 
@@ -243,6 +246,9 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                   {nodeVars.locked && <i className={clsx(PrimeIcons.LOCK, classes.lockIcon)} />}
                   {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
                     <i className={clsx(PrimeIcons.MAP_MARKER, classes.mapMarker)} />
+                  )}
+                  {nodeVars.hasIntelSource && (
+                    <SyncIntelIcon solarSystemId={nodeVars.solarSystemId} outCommand={outCommand} />
                   )}
                 </div>
                 <LocalCounter
