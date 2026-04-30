@@ -6,31 +6,28 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5434:5432"
+      - "5435:5432"
     volumes:
       - db-new:/var/lib/postgresql/data
 
   wanderer:
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
       PORT: 4444
       DB_HOST: db
       WEB_APP_URL: "http://localhost:4444"
       ERL_AFLAGS: "-kernel shell_history enabled"
-    build:
-      context: .
-      dockerfile: Dockerfile
-    user: developer
     ports:
       - 4444:4444
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ..:/app:delegated
-      - ~/.gitconfig:/home/developer/.gitconfig:ro
-      - ~/.gitignore:/home/developer/.gitignore:ro
-      - ~/.ssh:/home/developer/.ssh:ro
-      - ~/.dotfiles:/home/developer/.dotfiles:ro
-      - elixir-artifacts:/opt/elixir-artifacts
+      - command-history:/commandhistory
     command: sleep infinity
 
 volumes:
-  elixir-artifacts: {}
   db-new: {}
+  command-history: {}
