@@ -51,6 +51,10 @@ erl_crash.dump
 /config/*.secret.exs
 .elixir_ls/
 
+# Devcontainer host-specific files
+/.devcontainer/docker-compose.override.yml
+/.devcontainer/devcontainer-lock.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
