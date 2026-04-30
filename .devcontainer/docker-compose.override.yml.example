@@ -1,0 +1,24 @@
+# docker-compose.override.yml.example
+#
+# Copy this file to docker-compose.override.yml for host-specific mounts.
+# The override file is gitignored and will be auto-created (empty) by
+# devcontainer.json's initializeCommand if missing.
+#
+# Uncomment any sections you want.
+services:
+  wanderer:
+    volumes:
+      # Host SSH keys (Git over SSH, signing)
+      - ~/.ssh:/home/developer/.ssh:ro
+
+      # GitHub CLI auth
+      - ~/.config/gh:/home/developer/.config/gh:ro
+
+      # Claude Code config, commands, plugins, settings
+      - ~/.claude:/home/developer/.claude:cached
+
+      # OpenCode global config
+      - ~/.config/opencode:/home/developer/.config/opencode:cached
+
+      # Host dotfiles (read-only; used by Claude Code commands symlinks etc.)
+      - ~/.dotfiles:/home/developer/.dotfiles:cached,ro
