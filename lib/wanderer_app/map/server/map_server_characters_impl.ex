@@ -908,12 +908,18 @@ defmodule WandererApp.Map.Server.CharactersImpl do
   end
 
   defp update_location(
-         _state,
-         _character_id,
-         _location,
+         %{map_id: map_id} = _state,
+         character_id,
+         location,
          %{solar_system_id: nil}
-       ),
-       do: :ok
+       ) do
+    Logger.warning(
+      "[CharacterTracking] Skipped system add for character #{character_id} on map #{map_id}: " <>
+        "new_system=#{inspect(location.solar_system_id)}, reason=nil_old_solar_system_id"
+    )
+
+    :ok
+  end
 
   defp update_location(
          %{map: map, map_id: map_id, map_opts: map_opts} =
