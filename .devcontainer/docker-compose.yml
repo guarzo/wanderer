@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5435:5432"
+      - "5436:5432"
     volumes:
       - db-new:/var/lib/postgresql/data
 
@@ -26,8 +26,12 @@ services:
     volumes:
       - ..:/app:delegated
       - command-history:/commandhistory
+      - mix-deps:/app/deps
+      - mix-build:/app/_build
     command: sleep infinity
 
 volumes:
   db-new: {}
   command-history: {}
+  mix-deps: {}
+  mix-build: {}
