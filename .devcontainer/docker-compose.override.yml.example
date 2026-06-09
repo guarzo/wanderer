@@ -17,8 +17,5 @@ services:
       # Claude Code config, commands, plugins, settings
       - ~/.claude:/home/developer/.claude:cached
 
-      # OpenCode global config
-      - ~/.config/opencode:/home/developer/.config/opencode:cached
-
       # Host dotfiles (read-only; used by Claude Code commands symlinks etc.)
       - ~/.dotfiles:/home/developer/.dotfiles:cached,ro

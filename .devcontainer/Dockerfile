@@ -6,26 +6,33 @@ ARG USER_GID=$USER_UID
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install OS packages, Node.js (via nodesource), yarn, Claude Code, and gh CLI
+# Install OS packages, Node.js (via nodesource), yarn, and gh CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
         sudo \
         curl \
         make \
         git \
+        git-lfs \
         bash \
         zsh \
         build-essential \
         ca-certificates \
         gnupg \
         jq \
+        ripgrep \
+        tree \
+        lsof \
+        htop \
+        less \
         vim \
+        locales \
         net-tools \
         netcat-openbsd \
         procps \
         inotify-tools \
     && curl -sL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g yarn @anthropic-ai/claude-code \
+    && npm install -g yarn \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -35,6 +42,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends gh \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Generate UTF-8 locale (some Elixir libs are encoding-sensitive)
+RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
 
 # Create non-root user with passwordless sudo and zsh as login shell
 RUN groupadd --gid $USER_GID $USERNAME \
@@ -55,11 +68,17 @@ RUN mix local.hex --force && mix local.rebar --force
 # Install oh-my-zsh
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
-# .zshrc with oh-my-zsh, persistent history, and project aliases
+# Install zsh plugins (autosuggestions + syntax highlighting)
+RUN git clone https://github.com/zsh-users/zsh-autosuggestions \
+        ${ZSH_CUSTOM:-/home/$USERNAME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
+    && git clone https://github.com/zsh-users/zsh-syntax-highlighting \
+        ${ZSH_CUSTOM:-/home/$USERNAME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+
+# .zshrc with oh-my-zsh, persistent history, project aliases, and dotfiles
 RUN printf '%s\n' \
         'export ZSH="$HOME/.oh-my-zsh"' \
         'ZSH_THEME="robbyrussell"' \
-        'plugins=(git mix)' \
+        'plugins=(git mix docker docker-compose zsh-autosuggestions zsh-syntax-highlighting)' \
         'source $ZSH/oh-my-zsh.sh' \
         '' \
         '# Persistent history (mounted volume)' \
@@ -69,6 +88,16 @@ RUN printf '%s\n' \
         'setopt appendhistory' \
         'setopt sharehistory' \
         'setopt hist_ignore_dups' \
+        '' \
+        '# Source host dotfiles (if mounted)' \
+        'if [[ -d ~/.dotfiles ]]; then' \
+        '  export DOTFILES=$HOME/.dotfiles' \
+        '  typeset -U config_files' \
+        '  config_files=($DOTFILES/**/*.zsh)' \
+        '  for file in ${(M)config_files:#*/path.zsh}; do source $file 2>/dev/null; done' \
+        '  for file in ${${config_files:#*/path.zsh}:#*/completion.zsh}; do source $file 2>/dev/null; done' \
+        '  unset config_files' \
+        'fi' \
         '' \
         '# Aliases' \
         'alias ll="ls -la"' \
@@ -82,6 +111,9 @@ RUN printf '%s\n' \
         'alias mf="mix format"' \
         'alias ms="iex -S mix phx.server"' \
         'alias deps="mix deps.get"' \
+        '' \
+        '# Ensure Claude Code and local binaries are on PATH' \
+        'export PATH="$HOME/.local/bin:$PATH"' \
         '' \
         'export EDITOR=vim' \
         'cd /app 2>/dev/null || true' \
