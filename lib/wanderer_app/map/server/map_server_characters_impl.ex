@@ -312,8 +312,9 @@ defmodule WandererApp.Map.Server.CharactersImpl do
 
   defp remove_and_untrack_characters(map_id, character_ids) do
     # Option 4: Enhanced logging for character removal
-    Logger.info(fn ->
-      "[CharacterCleanup] Map #{map_id} - starting removal of #{length(character_ids)} characters: #{inspect(character_ids)}"
+    Logger.warning(fn ->
+      "[CharacterCleanup] Map #{map_id} - permission-driven removal of #{length(character_ids)} characters: " <>
+        "#{inspect(character_ids)}, reason=acl_permission_revoked_3x"
     end)
 
     # Emit telemetry for monitoring
