@@ -431,6 +431,12 @@ defmodule WandererApp.Character.TrackingUtils do
     with false <- is_nil(caller_pid) do
       character_ids = characters |> Enum.map(& &1.id)
 
+      Logger.info(
+        "[TrackingUtils] Setting tracked=false in presence for #{length(character_ids)} characters " <>
+          "on map #{map_id}, character_ids=#{inspect(character_ids)}, " <>
+          "caller_pid=#{inspect(caller_pid)}, reason=presence_untrack_called"
+      )
+
       character_ids
       |> Enum.each(fn character_id ->
         WandererAppWeb.Presence.update(caller_pid, map_id, character_id, %{

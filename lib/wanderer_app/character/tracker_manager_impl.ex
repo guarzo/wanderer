@@ -356,10 +356,10 @@ defmodule WandererApp.Character.TrackerManager.Impl do
     untrack_queue
     |> Task.async_stream(
       fn {map_id, character_id} ->
-        Logger.debug(fn ->
-          "[TrackerManager] Untracking character #{character_id} from map #{map_id} - " <>
-            "reason: character no longer present on map"
-        end)
+        Logger.info(
+          "[TrackerManager] Untracking character #{character_id} from map #{map_id}, " <>
+            "reason=presence_queue_processed"
+        )
 
         remove_from_untrack_queue(map_id, character_id)
 
