@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 set -e
 
-echo "→ ensuring cache volumes are writable"
-# /app/deps and /app/_build are named volumes (see docker-compose.yml) and may
-# come up root-owned on first build. Fix ownership so non-root mix can use them.
+echo "→ ensuring build dirs are writable"
+# deps/ and _build/ come from the /app bind mount (see docker-compose.yml), so
+# they carry host ownership. When the host uid differs from the container user's,
+# mix cannot write to them. Best-effort fix; harmless when uids already match.
 sudo chown -R "$(id -u):$(id -g)" /app/deps /app/_build 2>/dev/null || true
 
-echo "→ installing Claude Code CLI"
-# Prefer the official install script over the npm package — gives us the native
-# binary at ~/.local/bin/claude rather than an npm shim.
-if ! curl -fsSL https://claude.ai/install.sh | bash; then
-  echo "⚠️  Claude Code CLI installation failed, continuing..."
-fi
+# NOTE: the Claude Code CLI install used to run here as
+# `curl -fsSL https://claude.ai/install.sh | bash`. It was removed because the
+# local seed (local-seed.sh, wired in via the gitignored compose override) already
+# installs the CLI, guarded by a `command -v claude` check. Running both meant two
+# installers racing for ~/.local/bin/claude on every create. The seed is the single
+# owner: it runs on every container start rather than only on create, so it also
+# survives rebuilds that wipe the ephemeral writable layer.
 
 echo "→ fetching & compiling deps"
 mix deps.get
@@ -41,6 +43,34 @@ if mix help | grep -q "ecto.create"; then
   echo "→ database is ready, running ecto.create && ecto.migrate"
   mix ecto.create --quiet
   mix ecto.migrate
+
+  # Seed the EVE SDE reference data (solar systems, jumps, ship types) only when
+  # it is missing. `mix ecto.setup` would run priv/repo/seeds.exs unconditionally,
+  # but that downloads and bulk-imports the SDE (~23k rows) every time — slow and
+  # pointless when the database volume already has it. Checking the table is the
+  # cheap way to tell a fresh volume from a warm one.
+  #
+  # --no-start matters: a bare `mix run` boots the whole supervision tree
+  # (TheraDataFetcher, TurnurDataFetcher, Map.Reconciler, TrackerManager, ...),
+  # which starts outbound pollers just to count rows and would report "not
+  # seeded" if any of them failed to start. Start ecto_sql and the Repo alone
+  # instead — --no-start also skips :db_connection, so ensure_all_started is
+  # required or Repo.start_link exits with "no process".
+  echo "→ checking EVE SDE reference data"
+  if mix run --no-start -e '
+    {:ok, _} = Application.ensure_all_started(:ecto_sql)
+    {:ok, _} = WandererApp.Repo.start_link(pool_size: 2)
+    count =
+      case Ecto.Adapters.SQL.query(WandererApp.Repo, "select count(*) from map_solar_system_v2", []) do
+        {:ok, %{rows: [[n]]}} -> n
+        _ -> 0
+      end
+    System.halt(if count > 0, do: 0, else: 1)' >/dev/null 2>&1; then
+    echo "→ SDE data already present, skipping seeds"
+  else
+    echo "→ seeding EVE SDE data (downloads the SDE, may take a few minutes)"
+    mix run priv/repo/seeds.exs || echo "⚠️  SDE seeding failed — run 'mix run priv/repo/seeds.exs' manually"
+  fi
 fi
 
 echo "→ installing JS & CSS dependencies"
