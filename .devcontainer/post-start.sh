@@ -5,39 +5,24 @@ set -e
 
 echo "🔄 Running post-start tasks..."
 
-# Fix Claude Code host-path references.
-# When ~/.claude is mounted from the host, config files contain absolute paths
-# using the host username (e.g. /home/tng/.claude/...) which don't resolve in
-# the container where the user is "developer". Create a symlink from the host
-# home directory to the container home so these paths resolve.
+# NOTE: two blocks used to live here and were deliberately removed.
+#
+# 1. A "host path fix" that grepped host home paths out of ~/.claude/plugins/*.json
+#    and created root-owned symlinks between home directories (e.g. /home/tng -> $HOME).
+#    That was only needed back when ~/.claude was bind-mounted from the host, which
+#    meant host-absolute paths leaked into a container with a different username.
+#    ~/.claude is now a container-local named volume seeded read-only from
+#    /host-seed (see local-seed.sh), so no host paths are written into it and the
+#    symlinks would only serve to alias two homes together and mask real path bugs.
+#
+# 2. `git config --global --unset credential.helper`, which removed a Windows
+#    credential helper. --global resolves to $HOME/.gitconfig, and VS Code shares
+#    the host .gitconfig into the container read-write, so this mutated the
+#    developer's HOST git config as a side effect of starting a container. The
+#    credential.useHttpPath setting the devcontainer actually needs is supplied
+#    by a compose `configs:` entry in the local override instead.
+
 CONTAINER_HOME="$(eval echo ~)"
-
-if [ -d "$CONTAINER_HOME/.claude" ]; then
-    # Detect all host usernames referenced in Claude's config. Over a container's
-    # lifetime multiple host usernames may have been written, and we need a
-    # symlink for each so stale absolute paths still resolve.
-    MARKETPLACE_CFG="$CONTAINER_HOME/.claude/plugins/known_marketplaces.json"
-    INSTALLED_CFG="$CONTAINER_HOME/.claude/plugins/installed_plugins.json"
-    HOST_HOMES=$(
-        {
-            [ -f "$MARKETPLACE_CFG" ] && grep -oP '"installLocation":\s*"\K/home/[^/]+' "$MARKETPLACE_CFG"
-            [ -f "$INSTALLED_CFG" ]   && grep -oP '"installPath":\s*"\K/home/[^/]+' "$INSTALLED_CFG"
-        } 2>/dev/null | sort -u
-    )
-    for HOST_HOME in $HOST_HOMES; do
-        if [ -n "$HOST_HOME" ] && [ "$HOST_HOME" != "$CONTAINER_HOME" ] && [ ! -e "$HOST_HOME" ]; then
-            echo "🔗 Creating symlink $HOST_HOME -> $CONTAINER_HOME (Claude Code host path fix)"
-            sudo ln -sfn "$CONTAINER_HOME" "$HOST_HOME"
-        fi
-    done
-fi
-
-# Remove Windows credential helper if present (copied from host .gitconfig).
-# The devcontainer already has its own credential helper in /etc/gitconfig.
-if grep -q "credential-manager.exe" "$CONTAINER_HOME/.gitconfig" 2>/dev/null; then
-    echo "🔧 Removing Windows credential helper from git config..."
-    git config --global --unset credential.helper 2>/dev/null || true
-fi
 
 # Display helpful information
 echo ""
