@@ -89,15 +89,10 @@ RUN printf '%s\n' \
         'setopt sharehistory' \
         'setopt hist_ignore_dups' \
         '' \
-        '# Source host dotfiles (if mounted)' \
-        'if [[ -d ~/.dotfiles ]]; then' \
-        '  export DOTFILES=$HOME/.dotfiles' \
-        '  typeset -U config_files' \
-        '  config_files=($DOTFILES/**/*.zsh)' \
-        '  for file in ${(M)config_files:#*/path.zsh}; do source $file 2>/dev/null; done' \
-        '  for file in ${${config_files:#*/path.zsh}:#*/completion.zsh}; do source $file 2>/dev/null; done' \
-        '  unset config_files' \
-        'fi' \
+        '# NOTE: personal dotfiles are intentionally NOT sourced here. Doing so' \
+        '# only ever worked for a developer who separately bind-mounts ~/.dotfiles' \
+        '# via a local (gitignored) compose override, so it was dead code for' \
+        '# everyone else. That wiring now lives with the mount that enables it.' \
         '' \
         '# Aliases' \
         'alias ll="ls -la"' \
