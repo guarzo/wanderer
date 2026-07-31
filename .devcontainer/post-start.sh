@@ -5,23 +5,6 @@ set -e
 
 echo "🔄 Running post-start tasks..."
 
-# NOTE: two blocks used to live here and were deliberately removed.
-#
-# 1. A "host path fix" that grepped host home paths out of ~/.claude/plugins/*.json
-#    and created root-owned symlinks between home directories (e.g. /home/tng -> $HOME).
-#    That was only needed back when ~/.claude was bind-mounted from the host, which
-#    meant host-absolute paths leaked into a container with a different username.
-#    ~/.claude is now a container-local named volume seeded read-only from
-#    /host-seed (see local-seed.sh), so no host paths are written into it and the
-#    symlinks would only serve to alias two homes together and mask real path bugs.
-#
-# 2. `git config --global --unset credential.helper`, which removed a Windows
-#    credential helper. --global resolves to $HOME/.gitconfig, and VS Code shares
-#    the host .gitconfig into the container read-write, so this mutated the
-#    developer's HOST git config as a side effect of starting a container. The
-#    credential.useHttpPath setting the devcontainer actually needs is supplied
-#    by a compose `configs:` entry in the local override instead.
-
 CONTAINER_HOME="$(eval echo ~)"
 
 # Display helpful information
