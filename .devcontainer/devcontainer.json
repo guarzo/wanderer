@@ -17,7 +17,6 @@
   "remoteEnv": {
     "PATH": "${containerEnv:HOME}/.local/bin:${containerEnv:PATH}"
   },
-
   "customizations": {
     "vscode": {
       "extensions": [
