@@ -7,14 +7,6 @@ echo "→ ensuring build dirs are writable"
 # mix cannot write to them. Best-effort fix; harmless when uids already match.
 sudo chown -R "$(id -u):$(id -g)" /app/deps /app/_build 2>/dev/null || true
 
-# NOTE: the Claude Code CLI install used to run here as
-# `curl -fsSL https://claude.ai/install.sh | bash`. It was removed because the
-# local seed (local-seed.sh, wired in via the gitignored compose override) already
-# installs the CLI, guarded by a `command -v claude` check. Running both meant two
-# installers racing for ~/.local/bin/claude on every create. The seed is the single
-# owner: it runs on every container start rather than only on create, so it also
-# survives rebuilds that wipe the ephemeral writable layer.
-
 echo "→ fetching & compiling deps"
 mix deps.get
 mix compile
