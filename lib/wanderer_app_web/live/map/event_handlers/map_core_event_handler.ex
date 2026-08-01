@@ -453,6 +453,13 @@ defmodule WandererAppWeb.MapCoreEventHandler do
     end
   end
 
+  # Without this clause a caller lacking `manage_map` fell through to the generic
+  # catch-all, which replies `{:noreply, ...}` — the client's push awaited a reply
+  # that never came. Mirrors the `get_intel_source_maps` fallback above.
+  def handle_ui_event("set_intel_source_map", _params, socket) do
+    {:reply, %{success: false, error: "unauthorized"}, socket}
+  end
+
   def handle_ui_event(event, body, socket) do
     Logger.debug(fn -> "unhandled map ui event: #{inspect(event)} #{inspect(body)}" end)
     {:noreply, socket}

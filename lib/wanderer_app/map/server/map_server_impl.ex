@@ -569,6 +569,10 @@ defmodule WandererApp.Map.Server.Impl do
       temporary_name = Map.get(system, "temporary_name", "")
       owner_type = Map.get(system, "owner_type")
       owner_id = Map.get(system, "owner_id")
+      # Exported by `get_export_settings`, so it has to be read back here too —
+      # without it an imported system kept its owner id but lost the ticker the
+      # map actually renders.
+      owner_ticker = Map.get(system, "owner_ticker")
       custom_flags = Map.get(system, "custom_flags")
 
       solar_system_id = id |> String.to_integer()
@@ -603,7 +607,8 @@ defmodule WandererApp.Map.Server.Impl do
         update_system_owner(map_id, %{
           solar_system_id: solar_system_id,
           owner_type: owner_type,
-          owner_id: owner_id
+          owner_id: owner_id,
+          owner_ticker: owner_ticker
         })
       end
 
