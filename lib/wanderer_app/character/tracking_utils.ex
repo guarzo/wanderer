@@ -532,14 +532,33 @@ defmodule WandererApp.Character.TrackingUtils do
   end
 
   defp broadcast_ready_status_cleared(map_id, user_id, character_eve_id) do
-    WandererAppWeb.Endpoint.broadcast!(
-      "map:#{map_id}",
-      "character_ready_status_cleared",
-      %{
+    # PubSub on the bare `map_id` topic — the topic `MapCoreEventHandler`
+    # subscribes to. The previous `Endpoint.broadcast!("map:#{map_id}", ...)`
+    # published to a topic with no subscribers (this app defines no Phoenix
+    # channels), so a character going offline never cleared on anyone's screen.
+    #
+    # Reuses the `:ready_characters_updated` event the client already handles,
+    # carrying the map-wide ready set: the client applies the list to every
+    # character it holds, so a per-user list would clear other users' flags.
+    Phoenix.PubSub.broadcast!(WandererApp.PubSub, map_id, %{
+      event: :ready_characters_updated,
+      payload: %{
         user_id: user_id,
-        character_eve_id: character_eve_id,
-        reason: "character_offline"
+        cleared_character_eve_id: character_eve_id,
+        ready_character_eve_ids: all_ready_character_eve_ids(map_id)
       }
-    )
+    })
+  end
+
+  defp all_ready_character_eve_ids(map_id) do
+    case WandererApp.MapUserSettingsRepo.get_by_map(map_id) do
+      {:ok, settings_list} ->
+        settings_list
+        |> Enum.flat_map(fn setting -> setting.ready_characters || [] end)
+        |> Enum.uniq()
+
+      {:error, _reason} ->
+        []
+    end
   end
 end

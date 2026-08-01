@@ -36,6 +36,34 @@ Our only source of funding is your donations.
 
 Wanderer is a standard Elixir/Phoenix application backed by a PostgreSQL database for general data. On the frontend we use [TailwindCSS](https://tailwindcss.com/) for styling and React to make the map interactive.
 
+## Features
+
+### Discord kill notifications
+
+Map owners and admins can configure Discord webhooks under **Map settings →
+Notifications** to receive kill notifications for systems on that map,
+optionally filtered to wormhole space and excluding chosen systems. The filter
+is server-side and per-map — it is separate from the per-user filters of the
+in-app kills widget.
+
+There are two destinations per map, each with its own webhook, enabled flag and
+health state. The **system** destination receives kills in the map's systems.
+The optional **character** destination receives kills involving the map's
+tracked characters, so they can be routed to a separate channel. If a
+destination is disabled the kills for that role are dropped — they are never
+rerouted to the other channel.
+
+Requires `WANDERER_WEBHOOKS_ENABLED=true`. When it is false the delivery workers
+are not running and "Send test message" reports that notifications are disabled
+on this server. `WANDERER_DISCORD_POOL_SIZE` (default `10`) sizes the isolated
+Finch connection pool used for Discord delivery.
+`WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS` (default `3600`) drops killmails
+older than the given age, so an upstream replay does not post stale kills.
+
+The webhook URL is stored encrypted and is never displayed in full after it is
+saved — the settings tab shows only a masked hint. Pointing a destination at a
+different channel means entering the full URL again.
+
 ## Development
 
 ### Setup
