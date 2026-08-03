@@ -51,6 +51,23 @@
 
 **Phase order.** A: schema split (Tasks 1–4) — lands and is verified before anything is built on it, with Task 4 as the seam that keeps the suite green. B: ingestion and matching (5–8). C: embeds and the privacy constraint (9–10). D: resilience and config (11–12). E: UI and public surface (13–15).
 
+## Execution Order
+
+**Tasks are NOT executed in numerical order.** Execute them in this order:
+
+```
+1 → 2 → 3 → 4 → 5 → 6 → 7 → 9 → 10 → 11 → 8 → 12 → 13 → 14 → 15 → 16
+```
+
+Task 8 is the integration point: it consumes `EmbedFormatter.format_batch/2` and `max_kills_per_event/0` (Task 9), `SystemName.display_name/3` (Task 10), and the age guard's placement in `do_dispatch/2` (Task 11). Running it at its numerical position would mean writing calls to three interfaces that do not exist yet.
+
+Two consequences that are easy to get wrong:
+
+- **Task 11 is written against the pre-Task-8 dispatcher** and patches a `with` chain that still calls `system_allowed?/2`. That is correct *because* Task 11 runs first. Task 8 is what deletes `system_allowed?/2`, having moved its logic into `Router.route/3` for the per-kill carve-outs.
+- **Task 8 rewrites the whole `with` chain and must preserve Task 11's age-guard line.** Dropping it fails no test — stale kills simply start posting again on the next upstream replay. Task 8's step for that edit carries the warning inline.
+
+Task numbering is kept stable so the phase groupings and every cross-task reference stay readable; only the execution sequence differs.
+
 ---
 
 ## Phase A — Schema split (Tasks 1–4)
@@ -1108,6 +1125,14 @@ Replace the `actions do` block (lines 51-158) with:
       primary? true
       require_atomic? false
 
+      # The webhook ids MUST be captured before the delete runs. PostgreSQL
+      # executes ON DELETE CASCADE as a referential action of the DELETE
+      # statement itself, not at commit, so by the time an after_action hook
+      # runs the child rows are already gone and `Ash.load(record, :webhooks)`
+      # returns an empty list. That failure is silent: no error, no stopped
+      # workers, and queued messages keep posting to webhooks the user just
+      # removed.
+      change before_action(&__MODULE__.stash_webhook_ids/2)
       change after_action(&__MODULE__.after_destroy/3)
     end
 
@@ -1170,32 +1195,39 @@ see CONTRACT.md; the supervisor-side change is Task 3). Replace lines 197-210 wi
   end
 
   @doc false
-  def after_destroy(_changeset, record, _context) do
+  def stash_webhook_ids(changeset, _context) do
+    ids =
+      case Ash.load(changeset.data, :webhooks) do
+        {:ok, %{webhooks: webhooks}} when is_list(webhooks) -> Enum.map(webhooks, & &1.id)
+        _ -> []
+      end
+
+    Ash.Changeset.put_context(changeset, :webhook_ids, ids)
+  end
+
+  @doc false
+  def after_destroy(changeset, record, _context) do
     WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(record.map_id)
 
     # Stop every destination's delivery worker: without this, anything already
-    # queued keeps posting to webhooks the user has just removed. The children
-    # are cascade-deleted by the FK, which fires no application hooks, so the
-    # parent has to do this for all of them.
-    case Ash.load(record, :webhooks) do
-      {:ok, %{webhooks: webhooks}} when is_list(webhooks) ->
-        Enum.each(webhooks, fn hook ->
-          WandererApp.ExternalEvents.Discord.WorkerSupervisor.stop_worker(hook.id)
-        end)
-
-      _ ->
-        :ok
-    end
+    # queued keeps posting to webhooks the user has just removed. The ids come
+    # from the changeset context because the FK cascade has already deleted the
+    # child rows by the time this hook runs — reading them here would return an
+    # empty list and quietly stop nothing.
+    changeset.context
+    |> Map.get(:webhook_ids, [])
+    |> Enum.each(fn id ->
+      WandererApp.ExternalEvents.Discord.WorkerSupervisor.stop_worker(id)
+    end)
 
     {:ok, record}
   end
 ```
 
-Implementer note: `Ash.load/2` on a just-destroyed record still resolves the
-children inside the enclosing transaction, before the FK cascade commits. If it
-returns an empty list in practice, load `:webhooks` in the destroy's `before_action`
-and stash the ids in the changeset context instead — do not silently drop the
-worker-stop.
+The test for this must actually start the workers and assert their registry
+entries disappear. Asserting only that `destroy` returns `:ok` would pass against
+an `after_destroy` that stops nothing at all, which is exactly the bug this
+structure exists to prevent.
 
 - [ ] **Step 6: Generate the schema migration**
 
@@ -1248,11 +1280,23 @@ Codegen never writes data steps; this one is yours.
     """)
 ```
 
-And in `down/0`, before the columns are re-added is too late — the reverse copy
-needs the columns back first, so place it **after** the `add` calls that restore
-them:
+In `down/0` the reverse copy needs the columns back first, so it goes **after** the
+`add` calls that restore them — but the ordering alone is not enough.
+
+> **`encrypted_webhook_url` was `allow_nil? false`, so codegen will restore it as
+> `null: false`.** Adding a NOT NULL column with no default to a table that already
+> has rows fails on the spot, before the reverse copy ever runs, and the rollback
+> aborts. Edit the generated `add` to be nullable, copy the data, then apply the
+> constraint:
 
 ```elixir
+    # 1. Restore the column WITHOUT the NOT NULL constraint. Codegen will have
+    #    written `null: false` here; change it.
+    alter table(:map_discord_notifications_v1) do
+      add :encrypted_webhook_url, :binary, null: true
+    end
+
+    # 2. Copy each notification's :system destination back onto the parent.
     execute("""
     UPDATE map_discord_notifications_v1 n
     SET encrypted_webhook_url = w.encrypted_webhook_url,
@@ -1264,6 +1308,14 @@ them:
     FROM map_discord_webhooks_v1 w
     WHERE w.notification_id = n.id AND w.role = 'system'
     """)
+
+    # 3. Only now can the original constraint be reinstated. A notification with
+    #    no :system child would fail here — which is correct: it has no URL to
+    #    roll back to, and silently leaving the column nullable would diverge
+    #    from the pre-migration schema.
+    execute(
+      "ALTER TABLE map_discord_notifications_v1 ALTER COLUMN encrypted_webhook_url SET NOT NULL"
+    )
 ```
 
 Check the generated column type for `role` in Task 1's migration: if codegen wrote
@@ -4687,15 +4739,27 @@ Replace `lib/wanderer_app/external_events/discord_dispatcher.ex:46-48`:
   alias WandererApp.ExternalEvents.Discord.WorkerSupervisor
 ```
 
-Replace `do_dispatch/2` at lines 148-180 with:
+Replace `do_dispatch/2` at lines 148-180 with the following.
+
+> **Task 11 runs before this task** (see Execution Order in the plan header), so
+> by now `do_dispatch/2` already contains the age-guard line
+> `[_ | _] = recent <- Enum.filter(killmails, &kill_fresh?(&1, now))` and its
+> `now = DateTime.utc_now()` binding. **Preserve both.** Rewriting the chain
+> without them silently deletes the staleness guard, and nothing fails — stale
+> kills simply start posting again on the next upstream replay. Note that
+> `reject_duplicates/2` now takes `recent`, not `killmails`, so the guard runs
+> before anything is marked.
 
 ```elixir
   defp do_dispatch(map_id, %{type: :map_kill, payload: payload}) do
+    now = DateTime.utc_now()
+
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
          {:ok, system_id, killmails} <- extract_kills(payload),
-         [_ | _] = fresh <- reject_duplicates(map_id, killmails) do
+         [_ | _] = recent <- Enum.filter(killmails, &kill_fresh?(&1, now)),
+         [_ | _] = fresh <- reject_duplicates(map_id, recent) do
       # System-level filtering used to happen here for the whole batch. It now
       # lives in `Router.route/3`, because `excluded_systems` and `wh_only` have
       # per-kill carve-outs for kills involving this map's own pilots.
@@ -7813,32 +7877,18 @@ Replace lines 38-76 (`handle_event("save", …)` and `handle_event("replace-url"
   end
 
   # Creating the config and its required `:system` destination is one user
-  # action, so a failure to create the webhook must not leave a parent record
-  # with no destination sitting in the database.
+  # action. Task 2's `create` takes `webhook_url` as a required argument and
+  # creates the `:system` child through `manage_relationship` in the SAME
+  # transaction, so there is no window in which a parent exists without a
+  # destination. Do not split this into two calls with a compensating cleanup:
+  # the two-step version fails outright (`create` rejects a missing
+  # `webhook_url`) and its explicit child create would collide with Task 1's
+  # (notification_id, role) identity.
   defp create_with_system_webhook(map_id, attrs, url) do
-    with {:ok, rec} <- MapDiscordNotification.create(Map.put(attrs, :map_id, map_id)),
-         {:ok, _webhook} <-
-           MapDiscordWebhook.create(%{
-             notification_id: rec.id,
-             role: :system,
-             webhook_url: url
-           }) do
-      {:ok, rec}
-    else
-      {:error, error} = failure ->
-        cleanup_orphan(map_id)
-        _ = error
-        failure
-    end
-  end
-
-  defp cleanup_orphan(map_id) do
-    with {:ok, rec} <- MapDiscordNotification.by_map(map_id),
-         {:ok, []} <- MapDiscordWebhook.by_notification(rec.id) do
-      MapDiscordNotification.destroy(rec)
-    else
-      _ -> :ok
-    end
+    attrs
+    |> Map.put(:map_id, map_id)
+    |> Map.put(:webhook_url, url)
+    |> MapDiscordNotification.create()
   end
 
   def handle_event("replace-url", %{"role" => role}, socket) do
@@ -8245,22 +8295,33 @@ Add to `test/wanderer_app_web/live/map_notifications_test.exs`:
     assert html =~ "Pick a corporation from the list."
   end
 
-  test "a user with no characters is told why corporation search is unavailable", %{
-    conn: conn,
-    user: user,
-    map: map
-  } do
-    # Detach every character from the user so `current_user.characters` is [].
-    for character <- user.characters || [] do
-      Ash.destroy!(character)
-    end
-
+  test "a user with no characters is told why corporation search is unavailable", %{map: map} do
     notification_with_webhooks(map, [:system])
 
-    view = open_notifications(conn, map)
+    # Rendered directly rather than driven through the LiveView, because the
+    # mounted LiveView cannot reach this state:
+    #
+    #   * `UserAuth.on_mount/4` builds `@current_user` with
+    #     `User.by_id!(user_id) |> Ash.load!(:characters)`
+    #     (`lib/wanderer_app_web/controllers/user_auth.ex:15`), so `characters`
+    #     is always a loaded list there — never `%Ash.NotLoaded{}`.
+    #   * `setup` gives the map an `owner_id` pointing at THIS user's character
+    #     (`map_notifications_test.exs:9-16`). Deleting that character to force
+    #     an empty list would take the map's owner with it, so the request would
+    #     fail on authorization long before reaching this branch.
+    #
+    # The branch is still worth covering — it is what a freshly-registered
+    # account with no linked characters sees — so assert on the component with
+    # the assign set explicitly.
+    html =
+      render_component(WandererAppWeb.MapNotificationsComponent,
+        id: "map-notifications",
+        map_id: map.id,
+        current_user: %WandererApp.Api.User{characters: []}
+      )
 
-    assert render(view) =~ "Add a character to this account to search corporations."
-    refute has_element?(view, "#focus_corp_live_select_component")
+    assert html =~ "Add a character to this account to search corporations."
+    refute html =~ "focus_corp_live_select_component"
   end
 
   test "the two live_selects have distinct ids and the corp search does not return systems", %{
@@ -8716,3 +8777,179 @@ Expected: pass.
 - [ ] **Step 8: Commit**
 
 `git commit -m "fix(api): read the real killmail payload keys in the JSON:API formatter"`
+
+---
+
+### Task 16: Whole-repository verification gate
+
+Every preceding task verified itself with a *focused* test run — `mix test` on one
+or two files. That is the right granularity while iterating, but it means nothing
+in this plan has ever run the full suite against the finished state. This change is
+cross-cutting: it splits a table, rekeys a supervision tree, alters a public
+JSON:API payload, and edits a LiveView template. The failure modes it can leave
+behind are exactly the ones focused runs cannot see — a test in an unrelated file
+that seeded `map_discord_notifications_v1` directly, a stale Ash resource snapshot,
+a compile warning in a module nobody re-compiled.
+
+This task adds no features. It is a gate: every step is a command with a pass
+condition, and the task is not complete until all of them pass or a deviation is
+explicitly recorded.
+
+**Files:**
+- Modify: none (fix-ups only, wherever a step fails)
+
+**Interfaces:**
+- Consumes: the completed state of Tasks 1-15
+- Produces: nothing
+
+- [ ] **Step 1: Confirm every checkbox above is ticked**
+
+Run: `grep -c '^- \[ \]' docs/superpowers/plans/2026-08-03-native-killmail-notifications.md`
+Expected: the count covers only this task's own remaining steps. Any unticked step
+in Tasks 1-15 means the gate is being run too early — go back and finish it. Do not
+tick a step here to "unblock" one there.
+
+- [ ] **Step 2: Compile from scratch with warnings as errors**
+
+Run: `MIX_ENV=test mix do clean, compile --warnings-as-errors`
+Expected: no output beyond compilation progress.
+
+`clean` is not optional. Incremental compilation only rebuilds what changed, so a
+module that still references `Worker.deliver/3` (Task 3 made it `deliver/2`) or the
+removed `encrypted_webhook_url` attribute can sit in `_build` un-recompiled and
+warning-free for the whole implementation.
+
+CI does not currently fail on warnings — `.github/workflows/test.yml:73-77` captures
+`mix compile` output and reports a count with `continue-on-error`. That makes this
+step the *only* place a warning gets caught, so treat a failure here as a real
+failure rather than as a stricter-than-CI nuisance.
+
+- [ ] **Step 3: Run the full test suite**
+
+Run: `mix test`
+Expected: 0 failures.
+
+The `test` alias runs `ecto.create --quiet, ecto.migrate --quiet` first
+(`mix.exs:149`), so this also proves the migrations apply cleanly to a database
+built from nothing.
+
+Pay attention to these specific cross-cutting risks when reading failures:
+
+* **Tests that construct notifications directly.** Task 2 made `webhook_url` a
+  required argument on `MapDiscordNotification.create/1`. Any pre-existing test or
+  factory that called it without one now fails with an argument error. Fix by
+  passing a URL, not by relaxing the constraint.
+* **Tests that assert on the JSON:API kill payload.** Task 15 changed the value of
+  `occurred_at` (it was the broadcast time, it is now the kill time). A test
+  asserting the old behaviour is asserting the bug.
+* **Ordering-sensitive failures.** `:system_static_info_cache` is global rather than
+  sandboxed. If a test passes alone but fails in the suite, suspect cache bleed
+  between the SystemName tests and anything else that seeds static system info.
+
+- [ ] **Step 4: Re-run any failure in isolation before changing anything**
+
+Run: `mix test <path>:<line> --seed 0`
+Expected: this distinguishes a genuine regression from a test-ordering artifact. A
+test that passes at `--seed 0` and fails in the suite is an isolation problem in the
+test, not a bug in the feature — fix the test's setup, do not change production code
+to accommodate it.
+
+- [ ] **Step 5: Confirm the resource snapshots match the resources**
+
+Run: `mix ash.codegen --check`
+Expected: reports no pending changes.
+
+Tasks 1 and 2 hand-edited a generated migration. If a resource attribute was
+adjusted afterwards without re-running codegen, `priv/resource_snapshots/repo/` now
+disagrees with the resource modules, and the *next* unrelated `mix ash.codegen` in
+this repo will emit a migration containing this feature's leftovers attributed to
+someone else's change.
+
+If it reports pending changes, inspect them before generating: a diff that only
+restates what the hand-edited migration already did means the snapshot needs
+updating, not the database.
+
+- [ ] **Step 6: Roll the migration back and forward on a populated database**
+
+Run:
+
+```bash
+mix ecto.rollback -r WandererApp.Repo
+mix ash.migrate
+mix test test/unit/api/map_discord_notification_test.exs test/unit/api/map_discord_webhook_test.exs
+```
+
+Expected: all three commands succeed.
+
+Task 2 Step 11 already tested this, but it tested it *at that point in the plan*.
+Later tasks add columns and constraints; this re-runs the round trip against the
+final schema. The `down/0` written in Task 2 restores `encrypted_webhook_url` as
+nullable, copies the `:system` destination back, and only then re-applies `NOT
+NULL` — if a later task changed the webhook resource, that copy may no longer cover
+every column and the rollback will fail here.
+
+- [ ] **Step 7: Format**
+
+Run: `mix format` then `mix format --check-formatted`
+Expected: the check passes.
+
+- [ ] **Step 8: Compare Credo against the pre-feature baseline**
+
+Run:
+
+```bash
+mix credo --strict --format=json | grep -o '"issues":\[' > /dev/null && \
+  mix credo --strict | tail -20
+```
+
+Expected: the issue count has not grown relative to `main`. The repo carries a
+standing budget of 87 issues (`.github/workflows/test.yml:292`), so zero is not the
+target and "Credo reports issues" is not by itself a failure. Get the baseline with
+`git stash push -u -m "credo-baseline-$$"` … `mix credo --strict` … `git stash apply
+<sha>` if a comparison is needed, or simply read the reported issues and confirm
+none of them are in files this feature touched.
+
+- [ ] **Step 9: Read the whole diff**
+
+Run: `git diff main...HEAD --stat` then `git diff main...HEAD`
+
+Read it. Specifically look for:
+
+* **Debug output** — `IO.inspect`, `dbg()`, `Logger.debug` added for diagnosis and
+  never removed.
+* **Secrets in test fixtures** — every webhook URL in a test must be a fake
+  `https://discord.com/api/webhooks/...` value. A real one committed here is
+  published; rotating it afterwards does not un-publish it.
+* **Anything logging a webhook URL.** Run `grep -rn 'webhook_url' lib/ | grep -i 'log\|inspect'` and expect no hits. Webhook URLs are credentials — Task 1 encrypts
+  them at rest with AshCloak precisely so they never appear in plaintext, and a log
+  line defeats that.
+* **Scope creep** — files touched that no task in this plan names.
+
+- [ ] **Step 10: Verify the privacy constraint end to end**
+
+Run: `mix test test/unit/external_events/discord/system_name_test.exs`
+Expected: pass, including the regression test named for the constraint.
+
+Then confirm by inspection that nothing outside `SystemName` can leak a map-local
+name into a character-channel embed:
+
+Run: `grep -rn 'temporary_name\|custom_name' lib/wanderer_app/external_events/`
+Expected: hits only inside `system_name.ex`. A hit in `embed_formatter.ex` or
+`router.ex` means some other code path can read a map-local name directly and the
+`role` gate has been bypassed.
+
+This is the one requirement in the plan where a defect cannot be walked back:
+character webhooks are frequently posted into public channels, so a map-local system
+name reaching one is disclosed the moment it renders, and deleting the message does
+not retract it.
+
+- [ ] **Step 11: Record any deviation, then commit**
+
+If any step above failed and was fixed, the fix belongs in a commit of its own with
+a message naming the gate that caught it. If any step could not be run, say so
+explicitly in the completion report — which step, why, and what remains unverified.
+Do not report the feature as verified on the strength of the steps that did run.
+
+```bash
+git commit -m "chore: whole-repository verification gate for native Discord killmail notifications"
+```
