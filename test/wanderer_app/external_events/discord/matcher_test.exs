@@ -6,7 +6,12 @@ defmodule WandererApp.ExternalEvents.Discord.MatcherTest do
   setup do
     map = WandererAppWeb.Factory.insert(:map, %{})
     Matcher.invalidate_tracked(map.id)
-    on_exit(fn -> Matcher.invalidate_tracked(map.id) end)
+
+    on_exit(fn ->
+      Matcher.invalidate_tracked(map.id)
+      Cachex.del(:map_cache, map.id)
+    end)
+
     %{map: map}
   end
 
@@ -46,6 +51,23 @@ defmodule WandererApp.ExternalEvents.Discord.MatcherTest do
 
       assert {:ok, nil} =
                Cachex.get(:discord_notification_cache, "map:#{unknown_map_id}:tracked_eve_ids")
+    end
+
+    test "an unresolvable character id costs one pilot, not the whole map's set", %{map: map} do
+      start_map_with_characters(map, ["95465499"])
+
+      # Simulate a stale id in `map.characters` whose backing character
+      # record no longer resolves (`get_map_character!/2` logs and returns
+      # `nil` for it rather than raising).
+      Cachex.get_and_update(:map_cache, map.id, fn stored_map ->
+        {:commit, Map.update!(stored_map, :characters, &[Ecto.UUID.generate() | &1])}
+      end)
+
+      Matcher.invalidate_tracked(map.id)
+
+      ids = Matcher.tracked_eve_ids(map.id)
+      assert MapSet.member?(ids, 95_465_499)
+      assert MapSet.size(ids) == 1
     end
   end
 
