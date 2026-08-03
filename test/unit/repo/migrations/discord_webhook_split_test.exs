@@ -66,6 +66,52 @@ defmodule WandererApp.Repo.Migrations.DiscordWebhookSplitTest do
     count
   end
 
+  # Postgres delivers `RAISE WARNING`/`RAISE NOTICE` output as protocol notice
+  # messages attached to the `Postgrex.Result` of the query that produced them
+  # (deps/postgrex/lib/postgrex/protocol.ex: `msg_notice` accumulates into
+  # `result.messages`). Ecto surfaces that same result via the
+  # `[:wanderer_app, :repo, :query]` telemetry event's `result` metadata
+  # (deps/ecto_sql/lib/ecto/adapters/sql.ex `log/5`), regardless of whether the
+  # query ran through a plain `Repo.query!` or — as here — through
+  # `Ecto.Migration.Runner.run/8`. Attaching a telemetry handler is therefore
+  # the only way to observe the warning text without hand-typing the SQL
+  # ourselves: `execute/1` inside a migration discards its return value.
+  defp with_pg_notices(fun) do
+    handler_id = {__MODULE__, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:wanderer_app, :repo, :query],
+      fn _event, _measurements, %{result: result}, _config ->
+        case result do
+          {:ok, %{messages: [_ | _] = messages}} ->
+            send(test_pid, {:pg_notice_messages, messages})
+
+          _ ->
+            :ok
+        end
+      end,
+      nil
+    )
+
+    return_value = fun.()
+    :telemetry.detach(handler_id)
+
+    notices =
+      Stream.unfold(:start, fn _ ->
+        receive do
+          {:pg_notice_messages, messages} -> {messages, :cont}
+        after
+          0 -> nil
+        end
+      end)
+      |> Enum.to_list()
+      |> List.flatten()
+
+    {return_value, notices}
+  end
+
   test "down/0 copies a webhook's state onto the parent and deletes it; up/0 splits it back out, leaving :character rows untouched throughout" do
     map = Factory.insert(:map, %{})
 
@@ -168,7 +214,19 @@ defmodule WandererApp.Repo.Migrations.DiscordWebhookSplitTest do
         ]
       )
 
-    :ok = run_migration(:up)
+    # up/0 must not abort just because it's skipping this row — and it must
+    # say so in a `RAISE WARNING` naming the notification, since the parent's
+    # `encrypted_webhook_url` (still non-null after the `:down` above restored
+    # it) is about to be dropped without ever reaching this hand-planted
+    # :system row.
+    {migration_result, notices} = with_pg_notices(fn -> run_migration(:up) end)
+
+    assert migration_result == :ok
+
+    warning = Enum.find(notices, &(&1.severity == "WARNING"))
+    assert warning, "expected a RAISE WARNING notice, got: #{inspect(notices)}"
+    assert warning.message =~ "split_discord_webhooks"
+    assert warning.message =~ to_string(notification.id)
 
     # No duplicate: still exactly one :system row for this notification.
     assert count_system_rows(notification.id) == 1
@@ -182,5 +240,25 @@ defmodule WandererApp.Repo.Migrations.DiscordWebhookSplitTest do
       )
 
     assert Ecto.UUID.load!(stored_id) == pre_existing_id
+  end
+
+  test "down/0 raises a legible error naming the notification when it has no :system webhook to restore from" do
+    map = Factory.insert(:map, %{})
+
+    {:ok, notification} =
+      MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    {:ok, [system_hook]} = MapDiscordWebhook.by_notification(notification.id)
+
+    # Destroy the only :system webhook this notification has. down/0's
+    # reverse UPDATE joins on `role = 'system'`; with no such row to join to,
+    # the parent's `encrypted_webhook_url` is left NULL, and the preflight
+    # check must abort with a message naming this notification rather than
+    # letting `SET NOT NULL` fail with Postgres' generic, id-less error.
+    :ok = MapDiscordWebhook.destroy(system_hook)
+
+    assert_raise Postgrex.Error, ~r/#{notification.id}/, fn ->
+      run_migration(:down)
+    end
   end
 end
