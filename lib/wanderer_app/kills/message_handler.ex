@@ -263,7 +263,9 @@ defmodule WandererApp.Kills.MessageHandler do
   @spec adapt_nested_format_kill(map()) :: map()
   defp adapt_nested_format_kill(kill) do
     victim = kill["victim"]
-    attackers = Map.get(kill, "attackers", [])
+    # Raw, undefaulted lookup: nil means "attackers" was absent (or explicitly
+    # nil), which is different from a payload that carried an empty list.
+    attackers = kill["attackers"]
     zkb = Map.get(kill, "zkb", %{})
 
     # Validate attackers is a list
@@ -276,7 +278,7 @@ defmodule WandererApp.Kills.MessageHandler do
       |> add_victim_data(victim)
       |> add_final_blow_attacker_data(final_blow_attacker)
       |> add_kill_statistics(attackers_list, zkb)
-      |> add_attacker_identity_data(attackers_list)
+      |> maybe_add_attacker_identity_data(attackers, attackers_list)
 
     # Validate that critical output fields are present
     case validate_required_output_fields(adapted_kill) do
@@ -363,6 +365,20 @@ defmodule WandererApp.Kills.MessageHandler do
   # Every field produced here is OPTIONAL: `@required_output_fields` must not
   # grow. Empty lists are a valid result (an all-NPC kill has no pilots), and
   # nil top-damage fields are valid (an all-NPC kill has no top-damage pilot).
+  #
+  # Only attach these keys when the payload genuinely carried an "attackers"
+  # list — even an empty one. An absent or malformed "attackers" value means
+  # "we don't know who attacked", which Task 7 must be able to tell apart from
+  # "we know, and it was nobody": leaving all six keys absent signals the
+  # former, an empty list signals the latter.
+  @spec maybe_add_attacker_identity_data(map(), any(), list()) :: map()
+  defp maybe_add_attacker_identity_data(acc, attackers, attackers_list)
+       when is_list(attackers) do
+    add_attacker_identity_data(acc, attackers_list)
+  end
+
+  defp maybe_add_attacker_identity_data(acc, _attackers, _attackers_list), do: acc
+
   @spec add_attacker_identity_data(map(), list()) :: map()
   defp add_attacker_identity_data(acc, attackers_list) do
     top_damage_attacker = find_top_damage_attacker(attackers_list)
