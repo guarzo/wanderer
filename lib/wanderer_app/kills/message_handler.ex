@@ -393,14 +393,36 @@ defmodule WandererApp.Kills.MessageHandler do
 
   # NPC attackers carry no character or corporation id, so nils are dropped
   # rather than retained as a nil member that could never match anything.
+  #
+  # Ids are normalized to integers here, at the source, so every downstream
+  # consumer (Discord.Matcher's tracked-pilot set, Task 7's involvement
+  # check) can compare without coercion. A payload carrying a string id
+  # (`"character_id" => "91000001"`) would otherwise put a binary in this
+  # list, silently failing to match an integer set.
   @spec collect_ids(list(), String.t()) :: [integer()]
   defp collect_ids(attackers_list, key) do
     attackers_list
     |> Enum.filter(&is_map/1)
     |> Enum.map(&Map.get(&1, key))
+    |> Enum.map(&normalize_id/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
+
+  # Wire values are normally integers already; a numeric string is accepted
+  # (parsed in full — `"12345abc"` and `" 12345"` are rejected, not
+  # truncated, via the `{id, ""}` guard) and anything else is dropped.
+  @spec normalize_id(term()) :: integer() | nil
+  defp normalize_id(id) when is_integer(id), do: id
+
+  defp normalize_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp normalize_id(_), do: nil
 
   # Critical fields that the frontend expects to be present in killmail data
   @required_output_fields [

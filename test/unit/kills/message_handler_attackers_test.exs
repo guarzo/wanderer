@@ -110,6 +110,28 @@ defmodule WandererApp.Kills.MessageHandlerAttackersTest do
 
       assert kill["attacker_count"] == 4
     end
+
+    test "a string character_id on the wire yields an integer in attacker_char_ids" do
+      string_id_kill =
+        Map.put(nested_kill(), "attackers", [
+          %{
+            "character_id" => "91000001",
+            "character_name" => "String Id Pilot",
+            "corporation_id" => "98100001",
+            "damage_done" => 500,
+            "final_blow" => true,
+            "ship_type_id" => 587
+          }
+        ])
+
+      assert {:ok, kill} = MessageHandler.adapt_kill_data(string_id_kill)
+
+      # Discord.Matcher's tracked-pilot set is built from integers; a binary
+      # here would silently fail to ever match it.
+      assert kill["attacker_char_ids"] == [91_000_001]
+      assert kill["attacker_corp_ids"] == [98_100_001]
+      assert Enum.all?(kill["attacker_char_ids"], &is_integer/1)
+    end
   end
 
   describe "top damage attacker" do
