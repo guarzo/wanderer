@@ -4267,14 +4267,19 @@ defmodule WandererApp.ExternalEvents.Discord.RouterTest do
     end)
 
     map = Factory.insert(:map, %{})
-    {:ok, notification} = MapDiscordNotification.create(%{map_id: map.id})
 
-    {:ok, system_wh} =
-      MapDiscordWebhook.create(%{
-        notification_id: notification.id,
-        role: :system,
+    # Task 2's `create` takes `webhook_url` as a required argument and seeds the
+    # `:system` child through `manage_relationship` in the same transaction, so
+    # the system webhook already exists here. Creating a second `:system` row
+    # would violate the (notification_id, role) identity from Task 1.
+    {:ok, notification} =
+      MapDiscordNotification.create(%{
+        map_id: map.id,
         webhook_url: "https://discord.com/api/webhooks/1/sys"
       })
+
+    notification = Ash.load!(notification, :webhooks)
+    system_wh = Enum.find(notification.webhooks, &(&1.role == :system))
 
     %{map: map, notification: notification, system_wh: system_wh}
   end
@@ -4496,14 +4501,16 @@ The existing setup at `test/unit/external_events/discord_dispatcher_test.exs:15-
 ```elixir
     map = Factory.insert(:map, %{})
 
-    {:ok, notification} = MapDiscordNotification.create(%{map_id: map.id})
-
-    {:ok, system_wh} =
-      MapDiscordWebhook.create(%{
-        notification_id: notification.id,
-        role: :system,
+    # See the note in Task 8's first setup block: `create` seeds the `:system`
+    # child itself, so read it back rather than creating a second one.
+    {:ok, notification} =
+      MapDiscordNotification.create(%{
+        map_id: map.id,
         webhook_url: "https://discord.com/api/webhooks/123/tok"
       })
+
+    notification = Ash.load!(notification, :webhooks)
+    system_wh = Enum.find(notification.webhooks, &(&1.role == :system))
 
     DiscordDispatcher.invalidate_cache(map.id)
 
@@ -4581,8 +4588,18 @@ Add to `test/unit/external_events/discord_dispatcher_test.exs`. This is the core
 
   # `tracked_eve_ids/1` reads a cache keyed by map (Task 6). Seed it directly:
   # this file is about routing and batching, not about how the set is built.
+  # The cache name MUST match Task 6's — Matcher reads
+  # `:discord_notification_cache` under a namespaced key. Seeding a different
+  # cache here would leave the tracked set empty, every kill would take the
+  # `:not_involved` branch, and the routing tests would pass for the wrong
+  # reason while asserting nothing.
   defp track(map_id, eve_ids) do
-    Cachex.put(:discord_match_cache, "map:#{map_id}:tracked_eve_ids", MapSet.new(eve_ids))
+    Cachex.put(
+      :discord_notification_cache,
+      "map:#{map_id}:tracked_eve_ids",
+      MapSet.new(eve_ids)
+    )
+
     on_exit(fn -> WandererApp.ExternalEvents.Discord.Matcher.invalidate_tracked(map_id) end)
     :ok
   end
@@ -7481,10 +7498,18 @@ Add to `test/wanderer_app_web/live/map_notifications_test.exs`:
     view
   end
 
+  # Task 2's `create` takes `webhook_url` as a required argument and seeds the
+  # `:system` child in the same transaction, so `roles` here only controls
+  # whether a `:character` row is added on top. Passing `:system` in `roles`
+  # would violate the (notification_id, role) identity from Task 1.
   defp notification_with_webhooks(map, roles) do
-    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id})
+    {:ok, rec} =
+      MapDiscordNotification.create(%{
+        map_id: map.id,
+        webhook_url: "https://discord.com/api/webhooks/#{:erlang.unique_integer([:positive])}/tok"
+      })
 
-    for role <- roles do
+    for role <- roles, role != :system do
       {:ok, _} =
         WandererApp.Api.MapDiscordWebhook.create(%{
           notification_id: rec.id,
@@ -7534,12 +7559,11 @@ Add to `test/wanderer_app_web/live/map_notifications_test.exs`:
   end
 
   test "neither saved url is ever rendered in full", %{conn: conn, map: map} do
-    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id})
-
-    {:ok, _} =
-      WandererApp.Api.MapDiscordWebhook.create(%{
-        notification_id: rec.id,
-        role: :system,
+    # `create` seeds the `:system` webhook itself — see the note on
+    # `notification_with_webhooks/2` above.
+    {:ok, rec} =
+      MapDiscordNotification.create(%{
+        map_id: map.id,
         webhook_url: "https://discord.com/api/webhooks/123/SYSTEMSECRET"
       })
 
@@ -7561,9 +7585,8 @@ Add to `test/wanderer_app_web/live/map_notifications_test.exs`:
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `mix test test/wanderer_app_web/live/map_notifications_test.exs`
-Expected: FAIL — `#webhook-form-system` is never rendered, and
-`MapDiscordNotification.create(%{map_id: map.id})` fails or the old single-URL form
-is what renders.
+Expected: FAIL — `#webhook-form-system` is never rendered, and the old
+single-URL form is what renders instead.
 
 - [ ] **Step 3: Rewrite the component's `update/2` to load both webhooks**
 
