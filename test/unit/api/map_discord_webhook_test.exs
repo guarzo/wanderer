@@ -118,13 +118,9 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
   end
 
   test "enforces one webhook per (notification, role)", %{notification: notification} do
-    {:ok, _} =
-      MapDiscordWebhook.create(%{
-        notification_id: notification.id,
-        role: :system,
-        webhook_url: valid_url()
-      })
-
+    # `MapDiscordNotification.create/1` (setup) already creates the :system
+    # webhook — this asserts a second :system create for the same notification
+    # is rejected.
     assert {:error, _} =
              MapDiscordWebhook.create(%{
                notification_id: notification.id,
@@ -134,13 +130,8 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
   end
 
   test "allows both roles under the same notification", %{notification: notification} do
-    {:ok, _} =
-      MapDiscordWebhook.create(%{
-        notification_id: notification.id,
-        role: :system,
-        webhook_url: valid_url()
-      })
-
+    # `MapDiscordNotification.create/1` (setup) already created the :system
+    # webhook; only the :character one needs creating here.
     assert {:ok, _} =
              MapDiscordWebhook.create(%{
                notification_id: notification.id,
@@ -189,12 +180,9 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
   end
 
   test "set_enabled toggles only this webhook", %{notification: notification} do
-    {:ok, sys} =
-      MapDiscordWebhook.create(%{
-        notification_id: notification.id,
-        role: :system,
-        webhook_url: valid_url()
-      })
+    # `MapDiscordNotification.create/1` (setup) already created the :system
+    # webhook.
+    {:ok, [sys]} = MapDiscordWebhook.by_notification(notification.id)
 
     {:ok, char} =
       MapDiscordWebhook.create(%{
@@ -281,12 +269,10 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
   test "record_failure disables only the failing webhook", %{notification: notification} do
     # This is the entire point of the split: before it, ten failures on the
     # character channel would have silenced system kills too.
-    {:ok, sys} =
-      MapDiscordWebhook.create(%{
-        notification_id: notification.id,
-        role: :system,
-        webhook_url: valid_url()
-      })
+    #
+    # `MapDiscordNotification.create/1` (setup) already created the :system
+    # webhook.
+    {:ok, [sys]} = MapDiscordWebhook.by_notification(notification.id)
 
     {:ok, char} =
       MapDiscordWebhook.create(%{
