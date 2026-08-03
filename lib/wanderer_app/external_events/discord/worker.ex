@@ -1,10 +1,14 @@
 defmodule WandererApp.ExternalEvents.Discord.Worker do
   @moduledoc """
-  Serializes Discord delivery for one map.
+  Serializes Discord delivery for one webhook.
 
   Discord rate-limits a webhook to roughly 5 requests/second and answers 429
-  with a `retry-after`. Everything for a map funnels through this process so
+  with a `retry-after`. Everything for a webhook funnels through this process so
   concurrent kill batches cannot interleave and burst.
+
+  A map has up to two destinations (system and character), and they get separate
+  workers on purpose: a 429 or a dead URL on one channel must not stall or
+  disable the other.
 
   ## Asynchronous: never blocks on the network
 
@@ -31,15 +35,15 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
 
   ## Ids, not records
 
-  The queue holds `{notification_id, messages}`. The notification is reloaded
-  from the database immediately before every send, so a webhook URL the user
+  The queue holds messages only; the webhook id lives in state. The webhook row
+  is reloaded from the database immediately before every send, so a URL the user
   has replaced or deleted is never used, and a stale `consecutive_failures`
   snapshot cannot corrupt the counter.
 
-  If the reload finds the notification deleted, or finds `enabled?` false, the
-  queued event is dropped silently: no request, and no status write. There is
-  nothing meaningful to record against a row the user removed, and writing a
-  failure onto a row they deliberately disabled would be misleading.
+  If the reload finds the webhook deleted, or finds `enabled?` false, the queued
+  event is dropped silently: no request, and no status write. There is nothing
+  meaningful to record against a row the user removed, and writing a failure
+  onto a row they deliberately disabled would be misleading.
 
   ## Per-event status
 
@@ -60,7 +64,7 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
 
   require Logger
 
-  alias WandererApp.Api.MapDiscordNotification
+  alias WandererApp.Api.MapDiscordWebhook
   alias WandererApp.ExternalEvents.Discord.HttpClient
 
   @idle_timeout :timer.seconds(60)
@@ -78,14 +82,19 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   @inter_chunk_delay_ms 250
 
   def start_link(opts) do
-    map_id = Keyword.fetch!(opts, :map_id)
+    webhook_id = Keyword.fetch!(opts, :webhook_id)
     registry = Keyword.fetch!(opts, :registry)
-    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {registry, map_id}})
+    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {registry, webhook_id}})
   end
 
-  @doc "Queues one event's messages for delivery, by notification id."
-  def enqueue(pid, notification_id, messages) do
-    GenServer.cast(pid, {:enqueue, notification_id, messages})
+  @doc """
+  Queues one event's messages for delivery.
+
+  No id argument: the worker IS the webhook now, so the queue holds messages
+  alone and the id comes from state.
+  """
+  def enqueue(pid, messages) do
+    GenServer.cast(pid, {:enqueue, messages})
   end
 
   @impl true
@@ -97,7 +106,7 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
 
     {:ok,
      %{
-       map_id: Keyword.fetch!(opts, :map_id),
+       webhook_id: Keyword.fetch!(opts, :webhook_id),
        idle_timeout: idle_timeout,
        event_deadline_ms: Keyword.get(opts, :event_deadline_ms, @event_deadline_ms),
        queue: :queue.new(),
@@ -108,10 +117,10 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   end
 
   @impl true
-  def handle_cast({:enqueue, notification_id, messages}, state) do
+  def handle_cast({:enqueue, messages}, state) do
     state =
       state
-      |> push({notification_id, messages})
+      |> push(messages)
       |> maybe_start_next()
 
     {:noreply, state, state.idle_timeout}
@@ -181,7 +190,11 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
     # purpose, and unbounded growth risks the VM. queue_len is unchanged
     # because one item leaves as one enters.
     {{:value, _dropped}, q} = :queue.out(state.queue)
-    Logger.warning("[Discord.Worker] queue full for map #{state.map_id}, dropping oldest event")
+
+    Logger.warning(
+      "[Discord.Worker] queue full for webhook #{state.webhook_id}, dropping oldest event"
+    )
+
     %{state | queue: :queue.in(item, q)}
   end
 
@@ -196,15 +209,14 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
       {:empty, _} ->
         state
 
-      {{:value, {notification_id, messages}}, rest} ->
+      {{:value, messages}, rest} ->
         current = %{
-          notification_id: notification_id,
           pending: messages,
           attempt: 1,
           task_ref: nil,
           # Most recently loaded record, reused for the status write so
           # finishing an event does not re-query what we just read.
-          notification: nil,
+          webhook: nil,
           deadline: System.monotonic_time(:millisecond) + state.event_deadline_ms
         }
 
@@ -226,22 +238,22 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
         finish(state, {:error, "gave up after #{@max_attempts} attempts", :count})
 
       true ->
-        # Reload every time: the URL may have been replaced or the config
+        # Reload every time: the URL may have been replaced or the webhook
         # deleted since this event was queued. This reload is the one that
         # matters — nothing is sent against a stale record.
-        case MapDiscordNotification.by_id(current.notification_id) do
-          {:ok, notification} ->
-            state = put_current(state, %{current | notification: notification})
+        case MapDiscordWebhook.by_id(state.webhook_id) do
+          {:ok, webhook} ->
+            state = put_current(state, %{current | webhook: webhook})
 
-            if notification.enabled? do
-              do_post(state, notification)
+            if webhook.enabled? do
+              do_post(state, webhook)
             else
               # Disabled while queued — drop the event silently, no status write.
               drop_current(state)
             end
 
           _ ->
-            Logger.debug("[Discord.Worker] notification gone, dropping queued event")
+            Logger.debug("[Discord.Worker] webhook gone, dropping queued event")
             drop_current(state)
         end
     end
@@ -251,9 +263,9 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   # socket. The HTTP client can take up to its 15s receive timeout; blocking
   # here would let casts pile up in the mailbox and silently defeat the
   # bounded state queue — the same defect as sleeping, just harder to see.
-  defp do_post(%{current: current} = state, notification) do
+  defp do_post(%{current: current} = state, webhook) do
     [message | _rest] = current.pending
-    url = notification.webhook_url
+    url = webhook.webhook_url
 
     task =
       Task.Supervisor.async_nolink(
@@ -334,38 +346,38 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   # Falls back to a query when no record was loaded (e.g. the deadline expired
   # before the first attempt).
   defp finish(%{current: current} = state, outcome) do
-    case current.notification do
-      nil -> record_outcome(current.notification_id, outcome)
-      notification -> apply_outcome(notification, outcome)
+    case current.webhook do
+      nil -> record_outcome(state.webhook_id, outcome)
+      webhook -> apply_outcome(webhook, outcome)
     end
 
     drop_current(state)
   end
 
-  defp record_outcome(notification_id, outcome) do
-    case MapDiscordNotification.by_id(notification_id) do
-      {:ok, notification} -> apply_outcome(notification, outcome)
+  defp record_outcome(webhook_id, outcome) do
+    case MapDiscordWebhook.by_id(webhook_id) do
+      {:ok, webhook} -> apply_outcome(webhook, outcome)
       _ -> :ok
     end
   end
 
-  defp apply_outcome(notification, :ok) do
-    case MapDiscordNotification.record_success(notification) do
+  defp apply_outcome(webhook, :ok) do
+    case MapDiscordWebhook.record_success(webhook) do
       {:ok, _} -> :ok
       {:error, reason} -> Logger.warning("[Discord] record_success failed: #{inspect(reason)}")
     end
   end
 
-  defp apply_outcome(notification, {:error, reason, :disable}) do
-    case MapDiscordNotification.disable(notification, to_string(reason)) do
+  defp apply_outcome(webhook, {:error, reason, :disable}) do
+    case MapDiscordWebhook.disable(webhook, to_string(reason)) do
       {:ok, _} -> :ok
       {:error, err} -> Logger.warning("[Discord] disable failed: #{inspect(err)}")
     end
   end
 
-  defp apply_outcome(notification, {:error, reason, :count}) do
+  defp apply_outcome(webhook, {:error, reason, :count}) do
     # record_failure disables at @max_consecutive_failures on the resource side.
-    case MapDiscordNotification.record_failure(notification, to_string(reason)) do
+    case MapDiscordWebhook.record_failure(webhook, to_string(reason)) do
       {:ok, _} -> :ok
       {:error, err} -> Logger.warning("[Discord] record_failure failed: #{inspect(err)}")
     end
