@@ -18,6 +18,9 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   @doc """
   The EVE character ids tracked on `map_id`, as **integers**.
 
+  Membership rule: every character registered on the map, whether or not
+  their location tracker is running.
+
   `WandererApp.Api.Character`'s `eve_id` is a string; killmail payloads carry
   integers. The conversion happens here, once per cache build, so that no
   comparison site anywhere else has to think about it.
@@ -72,6 +75,12 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
         ids =
           map_id
           |> WandererApp.Map.list_characters()
+          # `list_characters/1` can return `nil` entries for character ids on
+          # the map whose backing record no longer resolves
+          # (`Character.get_map_character!/2` logs and returns `nil` rather
+          # than raising). One stale id must cost one pilot, not the whole
+          # map's set.
+          |> Enum.reject(&is_nil/1)
           |> Enum.map(& &1.eve_id)
           |> Enum.map(&parse_eve_id/1)
           |> Enum.reject(&is_nil/1)
