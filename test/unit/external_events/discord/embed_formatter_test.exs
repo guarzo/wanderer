@@ -257,6 +257,25 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
       refute description =~ "nil"
     end
 
+    test "an NPC final blow with a named top-damage pilot still reports the others clause" do
+      kill =
+        Factory.build(:killmail, %{
+          "npc" => true,
+          "attacker_count" => 3,
+          "final_blow_char_id" => nil,
+          "final_blow_char_name" => nil,
+          "final_blow_corp_id" => nil,
+          "final_blow_corp_ticker" => nil,
+          "top_damage_char_id" => 90_000_003,
+          "top_damage_char_name" => "Top Gun"
+        })
+
+      description = EmbedFormatter.format_kill(kill, @bystander, "Home")["description"]
+
+      assert description =~ "top damage by **[Top Gun]"
+      assert description =~ "and 2 others."
+    end
+
     test "names render unlinked when the id is missing" do
       kill =
         Factory.build(:killmail, %{
@@ -354,6 +373,22 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
         })
 
       embed = EmbedFormatter.format_kill(kill, @loss, "Home")
+
+      assert embed["thumbnail"]["url"] ==
+               "https://images.evetech.net/characters/90000001/portrait?size=1024"
+    end
+
+    test "a string-typed victim_char_id still links the name and renders the portrait" do
+      kill =
+        Factory.build(:killmail, %{
+          "victim_char_id" => "90000001",
+          "victim_ship_type_id" => nil
+        })
+
+      embed = EmbedFormatter.format_kill(kill, @loss, "Home")
+
+      assert embed["description"] =~
+               "**[Test Victim](https://zkillboard.com/character/90000001/)**"
 
       assert embed["thumbnail"]["url"] ==
                "https://images.evetech.net/characters/90000001/portrait?size=1024"

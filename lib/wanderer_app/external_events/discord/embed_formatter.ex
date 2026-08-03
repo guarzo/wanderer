@@ -119,7 +119,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   defp author(kill, {:involved, :victim}), do: author_line("Loss", kill["victim_corp_id"])
   defp author(kill, {:involved, :attacker}), do: author_line("Kill", kill["final_blow_corp_id"])
 
-  defp author_line(label, corp_id) when is_integer(corp_id) do
+  defp author_line(label, corp_id) when is_integer(corp_id) or is_binary(corp_id) do
     %{
       "name" => label,
       "icon_url" => "#{@image_base}/corporations/#{corp_id}/logo?size=64"
@@ -191,23 +191,21 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
     end
   end
 
-  # Relative to the final-blow pilot named in the previous clause — with nobody
-  # named ("to X") there is no antecedent for "others" to modify, so a wholly
-  # anonymous fight (e.g. an NPC kill) renders no others-clause at all rather
-  # than a dangling ", and 1 other."
+  # Relative to whichever pilot(s) got named in the clauses above — final blow,
+  # top damage, or both. With nobody named at all there is no antecedent for
+  # "others" to modify, so a wholly anonymous fight (e.g. an NPC final blow
+  # with no top-damage pilot either) renders no others-clause at all rather
+  # than a dangling ", and 1 other." An NPC final blow with a *named*
+  # top-damage pilot still gets an others-clause, since something was named.
   defp others_clause(kill) do
-    case present(kill["final_blow_char_name"]) do
-      nil ->
-        nil
+    named = named_attacker_count(kill)
 
-      _name ->
-        named = named_attacker_count(kill)
-
-        case kill["attacker_count"] do
-          count when is_integer(count) and count - named == 1 -> ", and 1 other"
-          count when is_integer(count) and count - named > 1 -> ", and #{count - named} others"
-          _ -> nil
-        end
+    if named > 0 do
+      case kill["attacker_count"] do
+        count when is_integer(count) and count - named == 1 -> ", and 1 other"
+        count when is_integer(count) and count - named > 1 -> ", and #{count - named} others"
+        _ -> nil
+      end
     end
   end
 
@@ -220,14 +218,14 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
     final_blow + top_damage
   end
 
-  defp character_link(id, name) when is_integer(id),
+  defp character_link(id, name) when is_integer(id) or is_binary(id),
     do: "**[#{name}](#{@zkill_base}/character/#{id}/)**"
 
   defp character_link(_id, name), do: "**#{name}**"
 
   defp corporation_link(_id, nil), do: nil
 
-  defp corporation_link(id, ticker) when is_integer(id),
+  defp corporation_link(id, ticker) when is_integer(id) or is_binary(id),
     do: "**[#{ticker}](#{@zkill_base}/corporation/#{id}/)**"
 
   defp corporation_link(_id, ticker), do: "**#{ticker}**"
@@ -267,13 +265,13 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # upstream; the character portrait is only for kills that carry no ship type.
   defp thumbnail(kill) do
     cond do
-      is_integer(kill["victim_ship_type_id"]) ->
+      is_integer(kill["victim_ship_type_id"]) or is_binary(kill["victim_ship_type_id"]) ->
         %{
           "url" =>
             "#{@image_base}/types/#{kill["victim_ship_type_id"]}/render?size=#{@thumbnail_size}"
         }
 
-      is_integer(kill["victim_char_id"]) ->
+      is_integer(kill["victim_char_id"]) or is_binary(kill["victim_char_id"]) ->
         %{
           "url" =>
             "#{@image_base}/characters/#{kill["victim_char_id"]}/portrait?size=#{@thumbnail_size}"
