@@ -146,6 +146,52 @@ defmodule WandererApp.ExternalEvents.Discord.MatcherInvolvementTest do
   test "a malformed victim char id string does not match and does not crash" do
     kill = flat(%{"victim_char_id" => "12345abc"})
 
-    assert Matcher.involvement(kill, @tracked, @focus) == :not_involved
+    # `parse_eve_id/1` logs a warning for the non-numeric id; suppress it here
+    # so this test doesn't print a stray log line on every green run.
+    capture_log(fn ->
+      assert Matcher.involvement(kill, @tracked, @focus) == :not_involved
+    end)
+  end
+
+  # `collect_ids/2` normalizes attacker ids to integers on the *nested*
+  # branch only (`add_attacker_identity_data/2`); the flat branch is a pure
+  # pass-through with no coercion. Nothing today enforces that a flat
+  # payload can't carry these keys as binaries, so the comparison site must
+  # coerce them too, or a string-typed tracked attacker silently misses.
+  test "a flat-shaped payload with string attacker ids still produces a kill verdict" do
+    kill = flat(%{"attacker_char_ids" => ["1002"], "attacker_corp_ids" => []})
+
+    assert Matcher.involvement(kill, @tracked, @focus) == {:involved, :attacker}
+  end
+
+  # NPC and structure kills legitimately have no character victim. Both
+  # attacker keys are absent on this fixture too, so this also fires the
+  # divergence log — wrapped to keep test output clean.
+  test "an absent victim char id does not match and does not crash" do
+    kill = flat(%{"victim_char_id" => nil, "victim_corp_id" => nil})
+
+    capture_log(fn ->
+      assert Matcher.involvement(kill, @tracked, @focus) == :not_involved
+    end)
+  end
+
+  # Half-present attacker data: one key present, the other absent. The `||`
+  # inside `attacker_match?/3` must not be reached by the absent-vs-empty
+  # gate re-triggering on the missing half.
+  test "one attacker key present and the other absent still matches on the present key" do
+    kill = flat(%{"attacker_char_ids" => [1002]})
+
+    assert Matcher.involvement(kill, @tracked, @focus) == {:involved, :attacker}
+  end
+
+  # `focus_corp_ids` is a caller contract, not runtime data — the guard makes
+  # a non-list argument a compile-visible `FunctionClauseError` rather than a
+  # `Protocol.UndefinedError` buried inside `Enum.member?/2`'s `in` expansion.
+  test "a non-list focus_corp_ids raises FunctionClauseError, not a protocol error" do
+    kill = nested(%{})
+
+    assert_raise FunctionClauseError, fn ->
+      Matcher.involvement(kill, @tracked, nil)
+    end
   end
 end
