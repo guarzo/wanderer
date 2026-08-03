@@ -132,7 +132,7 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   carve-outs as character tracking.
   """
   @spec involvement(map(), MapSet.t(integer()), [integer()]) :: verdict()
-  def involvement(kill, tracked_eve_ids, focus_corp_ids) do
+  def involvement(kill, tracked_eve_ids, focus_corp_ids) when is_list(focus_corp_ids) do
     cond do
       MapSet.member?(tracked_eve_ids, parse_eve_id(kill["victim_char_id"])) ->
         {:involved, :victim}
@@ -161,14 +161,21 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   # to the system webhook: the same conservative destination a matching-cache
   # failure produces.
   #
-  # `attacker_char_ids` / `attacker_corp_ids` are already normalized to
-  # integers by `collect_ids/2` (message_handler.ex) at flatten time, so no
-  # coercion happens here — unlike the single-id victim fields above, which are
-  # pure pass-throughs on the flat-payload branch and may still be binaries.
+  # `attacker_char_ids` / `attacker_corp_ids` are normalized to integers by
+  # `collect_ids/2` (message_handler.ex) at flatten time — but only on the
+  # *nested* branch (reached via `add_attacker_identity_data/2`). The flat
+  # branch returns the payload unmodified and applies no key whitelist and no
+  # coercion, so if a flat payload ever does carry these keys as binaries
+  # (nothing today enforces that it can't), `parse_eve_id/1` is the backstop.
+  # It passes integers straight through, so this costs nothing on the
+  # already-normalized nested path.
   defp attacker_match?(kill, tracked_eve_ids, focus_corp_ids) do
     if Map.has_key?(kill, "attacker_char_ids") or Map.has_key?(kill, "attacker_corp_ids") do
-      Enum.any?(kill["attacker_char_ids"] || [], &MapSet.member?(tracked_eve_ids, &1)) or
-        Enum.any?(kill["attacker_corp_ids"] || [], &(&1 in focus_corp_ids))
+      Enum.any?(
+        kill["attacker_char_ids"] || [],
+        &MapSet.member?(tracked_eve_ids, parse_eve_id(&1))
+      ) or
+        Enum.any?(kill["attacker_corp_ids"] || [], &(parse_eve_id(&1) in focus_corp_ids))
     else
       log_attacker_divergence(kill)
       false
