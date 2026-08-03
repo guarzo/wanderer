@@ -5,14 +5,38 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   Only `killmail_id`, `kill_time` and `solar_system_id` are guaranteed present
   on a killmail (see `WandererApp.Kills.MessageHandler`), so every other field
   is rendered defensively.
+
+  Each kill arrives paired with the involvement verdict from
+  `WandererApp.ExternalEvents.Discord.Matcher.involvement/3`. The verdict, not
+  the payload, decides the colour and the author line.
   """
+
+  @type verdict :: {:involved, :victim} | {:involved, :attacker} | :not_involved
 
   @max_embeds_per_message 10
   @max_kills_per_event 30
-  @color 0xD9534F
 
-  @zkill_base "https://zkillboard.com/kill/"
+  @color_loss 0xE74C3C
+  @color_kill 0x2ECC71
+
+  # ISK tiers for kills involving nobody we track, largest first.
+  #
+  # NOTE: @color_kill (0x2ECC71) and the 10M tier (0x00FF00) are both green.
+  # They are *distinct meanings* that happen to share a hue — "you killed
+  # something" versus "a bystander kill worth 10M-100M" — and they are
+  # disambiguated by the author line, which is present on a kill and absent on
+  # an uninvolved embed. Do not collapse these two constants into one.
+  @value_colors [
+    {5_000_000_000, 0xFF0000},
+    {1_000_000_000, 0xFF6600},
+    {100_000_000, 0xFFFF00},
+    {10_000_000, 0x00FF00}
+  ]
+  @color_default 0x808080
+
+  @zkill_base "https://zkillboard.com"
   @image_base "https://images.evetech.net"
+  @thumbnail_size 1024
 
   # ISK magnitude table, largest first: {threshold, divisor, unit, next_unit}.
   # `next_unit` is what a value promotes to when rounding pushes it to >= 1000
@@ -33,17 +57,17 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   @spec max_kills_per_event() :: pos_integer()
   def max_kills_per_event, do: @max_kills_per_event
 
-  @spec format_batch([map()], String.t() | nil) :: [map()]
+  @spec format_batch([{map(), verdict()}], String.t() | nil) :: [map()]
   def format_batch([], _system_name), do: []
 
-  def format_batch(killmails, system_name) do
-    total = length(killmails)
-    shown = Enum.take(killmails, @max_kills_per_event)
+  def format_batch(entries, system_name) do
+    total = length(entries)
+    shown = Enum.take(entries, @max_kills_per_event)
     overflow = total - length(shown)
 
     messages =
       shown
-      |> Enum.map(&format_kill(&1, system_name))
+      |> Enum.map(fn {kill, verdict} -> format_kill(kill, verdict, system_name) end)
       |> Enum.chunk_every(@max_embeds_per_message)
       |> Enum.map(&%{"embeds" => &1})
 
@@ -57,30 +81,161 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
     init ++ [Map.put(last, "content", "…and #{overflow} more kills not shown.")]
   end
 
-  @spec format_kill(map(), String.t() | nil) :: map()
-  def format_kill(kill, system_name) do
-    victim = present(kill["victim_char_name"]) || "Unknown pilot"
-    ship = present(kill["victim_ship_name"]) || "Unknown ship"
-
+  @spec format_kill(map(), verdict(), String.t() | nil) :: map()
+  def format_kill(kill, verdict, system_name) do
     %{
-      "title" => "#{victim} lost a #{ship}",
+      "title" => title(kill, system_name),
       "url" => zkill_url(kill["killmail_id"]),
-      "color" => @color,
-      "timestamp" => present(kill["kill_time"]),
-      "fields" => fields(kill, system_name)
+      "color" => color(verdict, kill["total_value"]),
+      "description" => description(kill),
+      "fields" => fields(kill)
     }
-    |> maybe_put("thumbnail", thumbnail(kill["victim_ship_type_id"]))
+    |> maybe_put("author", author(kill, verdict))
+    |> maybe_put("thumbnail", thumbnail(kill))
     |> maybe_put("footer", footer(kill))
     |> drop_nils()
   end
 
-  defp fields(kill, system_name) do
+  defp title(kill, system_name) do
+    ship = present(kill["victim_ship_name"]) || "Unknown ship"
+    system = present(system_name) || "Unknown system"
+    "#{ship} destroyed in #{system}"
+  end
+
+  defp color({:involved, :victim}, _value), do: @color_loss
+  defp color({:involved, :attacker}, _value), do: @color_kill
+
+  defp color(:not_involved, value) when is_number(value) do
+    Enum.find_value(@value_colors, @color_default, fn {threshold, color} ->
+      if value >= threshold, do: color
+    end)
+  end
+
+  defp color(:not_involved, _value), do: @color_default
+
+  # Omitted entirely when we are not involved: neither "Kill" nor "Loss" would
+  # be a true statement about a fight none of our pilots were in.
+  defp author(_kill, :not_involved), do: nil
+  defp author(kill, {:involved, :victim}), do: author_line("Loss", kill["victim_corp_id"])
+  defp author(kill, {:involved, :attacker}), do: author_line("Kill", kill["final_blow_corp_id"])
+
+  defp author_line(label, corp_id) when is_integer(corp_id) do
+    %{
+      "name" => label,
+      "icon_url" => "#{@image_base}/corporations/#{corp_id}/logo?size=64"
+    }
+  end
+
+  defp author_line(label, _corp_id), do: %{"name" => label}
+
+  # Prose, not a field grid. Each clause carries its own leading separator and
+  # returns nil when the underlying data is absent, so an NPC kill simply reads
+  # "X lost their Y." rather than naming a placeholder attacker.
+  defp description(kill) do
     [
-      field("System", present(system_name) || "Unknown system", true),
+      victim_clause(kill),
+      final_blow_clause(kill),
+      top_damage_clause(kill),
+      others_clause(kill)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join()
+    |> Kernel.<>(".")
+  end
+
+  defp victim_clause(kill) do
+    pilot =
+      character_link(kill["victim_char_id"], present(kill["victim_char_name"]) || "Unknown pilot")
+
+    ship = present(kill["victim_ship_name"]) || "Unknown ship"
+
+    case corporation_link(kill["victim_corp_id"], present(kill["victim_corp_ticker"])) do
+      nil -> "#{pilot} lost their **#{ship}**"
+      corp -> "#{pilot} (#{corp}) lost their **#{ship}**"
+    end
+  end
+
+  defp final_blow_clause(kill) do
+    case present(kill["final_blow_char_name"]) do
+      nil ->
+        nil
+
+      name ->
+        pilot = character_link(kill["final_blow_char_id"], name)
+
+        case corporation_link(kill["final_blow_corp_id"], present(kill["final_blow_corp_ticker"])) do
+          nil -> " to #{pilot}"
+          corp -> " to #{pilot} (#{corp})"
+        end
+    end
+  end
+
+  defp top_damage_clause(kill) do
+    with name when not is_nil(name) <- present(kill["top_damage_char_name"]),
+         true <- distinct_from_final_blow?(kill) do
+      ", top damage by #{character_link(kill["top_damage_char_id"], name)}"
+    else
+      _ -> nil
+    end
+  end
+
+  # Ids are authoritative when both are present; names are the fallback for
+  # payloads that carry one without the other.
+  defp distinct_from_final_blow?(kill) do
+    case {kill["final_blow_char_id"], kill["top_damage_char_id"]} do
+      {fb, td} when is_integer(fb) and is_integer(td) ->
+        fb != td
+
+      _ ->
+        present(kill["final_blow_char_name"]) != present(kill["top_damage_char_name"])
+    end
+  end
+
+  # Relative to the final-blow pilot named in the previous clause — with nobody
+  # named ("to X") there is no antecedent for "others" to modify, so a wholly
+  # anonymous fight (e.g. an NPC kill) renders no others-clause at all rather
+  # than a dangling ", and 1 other."
+  defp others_clause(kill) do
+    case present(kill["final_blow_char_name"]) do
+      nil ->
+        nil
+
+      _name ->
+        named = named_attacker_count(kill)
+
+        case kill["attacker_count"] do
+          count when is_integer(count) and count - named == 1 -> ", and 1 other"
+          count when is_integer(count) and count - named > 1 -> ", and #{count - named} others"
+          _ -> nil
+        end
+    end
+  end
+
+  defp named_attacker_count(kill) do
+    final_blow = if present(kill["final_blow_char_name"]), do: 1, else: 0
+
+    top_damage =
+      if present(kill["top_damage_char_name"]) && distinct_from_final_blow?(kill), do: 1, else: 0
+
+    final_blow + top_damage
+  end
+
+  defp character_link(id, name) when is_integer(id),
+    do: "**[#{name}](#{@zkill_base}/character/#{id}/)**"
+
+  defp character_link(_id, name), do: "**#{name}**"
+
+  defp corporation_link(_id, nil), do: nil
+
+  defp corporation_link(id, ticker) when is_integer(id),
+    do: "**[#{ticker}](#{@zkill_base}/corporation/#{id}/)**"
+
+  defp corporation_link(_id, ticker), do: "**#{ticker}**"
+
+  defp fields(kill) do
+    [
       field("Value", format_isk(kill["total_value"]), true),
-      field("Final blow", final_blow(kill), true),
-      field("Corp", present(kill["victim_corp_name"]), true),
-      field("Alliance", present(kill["victim_alliance_name"]), true)
+      field("When", relative_time(kill["kill_time"]), true)
     ]
     |> Enum.reject(&is_nil/1)
   end
@@ -88,26 +243,56 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   defp field(_name, nil, _inline), do: nil
   defp field(name, value, inline), do: %{"name" => name, "value" => value, "inline" => inline}
 
-  defp final_blow(kill) do
-    case {present(kill["final_blow_char_name"]), kill["attacker_count"]} do
-      {nil, _} -> nil
-      {name, count} when is_integer(count) and count > 1 -> "#{name} (+#{count - 1})"
-      {name, _} -> name
+  # `<t:unix:R>` renders client-side as "3 hours ago", in the reader's own
+  # timezone. An unparseable kill_time drops the field rather than guessing.
+  defp relative_time(kill_time) when is_binary(kill_time) do
+    case DateTime.from_iso8601(kill_time) do
+      {:ok, datetime, _offset} -> "<t:#{DateTime.to_unix(datetime)}:R>"
+      _ -> nil
+    end
+  end
+
+  defp relative_time(%DateTime{} = datetime), do: "<t:#{DateTime.to_unix(datetime)}:R>"
+
+  defp relative_time(%NaiveDateTime{} = naive),
+    do: relative_time(DateTime.from_naive!(naive, "Etc/UTC"))
+
+  defp relative_time(unix) when is_integer(unix), do: "<t:#{unix}:R>"
+  defp relative_time(_), do: nil
+
+  # Selection is on FIELD PRESENCE ONLY. This is *not* a 404 fallback: Discord
+  # fetches the image itself when it renders the embed, so a failed fetch is
+  # never observable from here and cannot be reacted to. If the ship type id is
+  # present we use the ship render even if that render happens not to exist
+  # upstream; the character portrait is only for kills that carry no ship type.
+  defp thumbnail(kill) do
+    cond do
+      is_integer(kill["victim_ship_type_id"]) ->
+        %{
+          "url" =>
+            "#{@image_base}/types/#{kill["victim_ship_type_id"]}/render?size=#{@thumbnail_size}"
+        }
+
+      is_integer(kill["victim_char_id"]) ->
+        %{
+          "url" =>
+            "#{@image_base}/characters/#{kill["victim_char_id"]}/portrait?size=#{@thumbnail_size}"
+        }
+
+      true ->
+        nil
     end
   end
 
   defp footer(kill) do
-    case present(kill["victim_corp_ticker"]) do
+    case kill["killmail_id"] do
       nil -> nil
-      ticker -> %{"text" => "[#{ticker}]"}
+      id -> %{"text" => "Killmail ID: #{id}"}
     end
   end
 
-  defp thumbnail(nil), do: nil
-  defp thumbnail(type_id), do: %{"url" => "#{@image_base}/types/#{type_id}/render?size=64"}
-
   defp zkill_url(nil), do: nil
-  defp zkill_url(id), do: "#{@zkill_base}#{id}/"
+  defp zkill_url(id), do: "#{@zkill_base}/kill/#{id}/"
 
   @doc false
   def format_isk(nil), do: nil
