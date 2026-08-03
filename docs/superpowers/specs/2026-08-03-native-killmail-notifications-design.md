@@ -170,6 +170,34 @@ the 24h killmail cache, and the frontend kills widget — roughly 1–2 KB on a
 `attacker_corp_ids` is retained even though focus-corp matching is the only
 consumer, because collecting it costs one `Enum.map` over a list already in hand.
 
+**The already-flat branch.** `adapt_kill_data/1` has a second supported input
+shape: a payload that already carries `victim_char_id` is passed through
+`validate_flat_format_kill/1`, which only checks three required fields and returns
+the map otherwise unchanged (`message_handler.ex:187-197`, `243-255`). Such a
+payload has no `attackers` list to extract from, so it arrives with none of the
+new fields and would silently match nobody — the exact failure mode §3 warns
+about, where "no tracked pilots involved" and "the data was never there" look
+identical.
+
+The design does **not** assume upstream stops sending flat payloads. Instead:
+
+- Matching treats a **missing** attacker key as unknown, not as an empty list.
+  `attacker_char_ids` absent ≠ `attacker_char_ids: []`. Victim matching still runs
+  normally, since `victim_char_id` and `victim_corp_id` are present in both shapes.
+- When the keys are absent and the victim does not match, the kill is routed to
+  the system webhook (the same conservative destination as a matching-cache
+  failure, per the failure table) rather than dropped or attributed.
+- A flat payload that *does* carry the new keys — which is what upstream will send
+  once it is the one producing them — is used as-is. The pass-through branch needs
+  no change for that case.
+- This divergence is logged once per occurrence at debug level with the killmail
+  ID, so if flat payloads turn out to be common in production it is visible rather
+  than inferred from missing notifications.
+
+This is a compatibility behaviour, not a normalization: reconstructing attacker
+arrays that were never sent is impossible, and pretending an empty list is
+equivalent would be worse than admitting the data is unknown.
+
 ### 3. Matching — per-map, cached
 
 The dispatcher receives an event already scoped to one `map_id`, so matching
@@ -255,13 +283,20 @@ The dispatch sequence becomes:
    applying §4 in order. Kills that drop (rules 1 and 2, or a disabled
    destination) fall out here and belong to no partition.
 3. **For each non-empty partition independently:**
-   - Take `EmbedFormatter.max_kills_per_event()` kills. **The cap is per
-     destination, not per event** — it is a Discord message-size concern, so two
-     destinations do not compete for one budget.
-   - Mark exactly those taken kills as attempted, keyed by map and killmail as
+   - Split the partition at `EmbedFormatter.max_kills_per_event()` into a
+     *rendered* head and an overflow tail. **The cap is per destination, not per
+     event** — it is a Discord message-size concern, so two destinations do not
+     compete for one budget.
+   - Mark exactly the rendered head as attempted, keyed by map and killmail as
      today. Kills beyond the cap are never rendered and so are never marked,
      preserving the existing rule that a kill lost to a *formatting* cap stays
      eligible.
+   - **Pass the whole partition — not the truncated head — to the formatter**,
+     which takes the cap itself and counts the remainder into its overflow line.
+     This mirrors the current dispatcher exactly, where `formatted` is marked but
+     `fresh` is what reaches `format_batch/2` (`discord_dispatcher.ex:165-172`);
+     handing the formatter the pre-truncated list would silently delete the
+     overflow line.
    - Format with that destination's system-name policy (§7) — this is why
      formatting happens per partition rather than once.
    - Deliver to that destination's webhook id.
@@ -370,11 +405,29 @@ find when they go looking.
 ~30% jitter. Without jitter, every instance restarting after an upstream blip
 reconnects in lockstep.
 
+The jitter must be injectable for testing — the delay calculation takes the random
+source as an argument (or reads a module attribute overridable in test config) so a
+test can pin it and assert exact values. A function that calls `:rand.uniform/1`
+internally can only be tested by asserting a range, which would not catch a ceiling
+applied before jitter instead of after.
+
 **Maximum age.** Kills older than `discord_max_killmail_age_seconds` (default 3600)
 are dropped at the dispatcher. This guards against upstream replay on reconnect,
 and is the precondition that would make preload safe if it is ever added. Parsing
 failure on `kill_time` **allows** the kill through — fail-open, consistent with the
 dispatcher's existing posture.
+
+**Configuration plumbing.** The new key follows the existing three-file pattern
+used by `webhooks_enabled`, and all three must be touched or the default silently
+becomes the only reachable value:
+
+1. `config/runtime.exs` — add to the `:external_events` block alongside
+   `webhook_timeout_ms` (`runtime.exs:495-500`), read via
+   `get_int_from_path_or_env("WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS", 3600)`.
+2. `lib/wanderer_app/env.ex` — a `discord_max_killmail_age_seconds/0` accessor
+   mirroring `webhooks_enabled?/0` (`env.ex:92-95`), so the dispatcher never reads
+   `Application.get_env` directly.
+3. `.env.example` — document it next to `WANDERER_WEBHOOK_TIMEOUT_MS` (line 18).
 
 ### 9. Configuration UI
 
@@ -405,6 +458,30 @@ resolve to a corporation ID, render as removable chips. Add and remove are separ
 events guarded the same way `add-excluded` and `remove-excluded` are — reachable
 only from a rendered record.
 
+Corporation search needs plumbing that does not exist yet, and this is the one part
+of the UI that is not a straight copy of an existing pattern:
+
+- **The component has no user.** `MapNotificationsComponent` is passed only
+  `map_id` (`maps_live.html.heex:665-669`). It must also receive `current_user`,
+  since ESI search is performed *as a character*.
+- **The search itself is private to another handler.**
+  `search_corporation_names/2` lives in `map_systems_event_handler.ex:629-660`; it
+  takes the user's character list, requires a search string of at least three
+  characters, calls `Character.search/2` with `categories: "corporation"`, then
+  enriches each hit with a ticker via `Esi.get_corporation_info/1` to build a
+  `[TICKER] Name` label. Extract it into a shared module both callers use rather
+  than copying it — the ticker-enrichment and minimum-length rules are behaviour
+  worth having in one place.
+- **A user with no characters cannot search.** The function's first clause returns
+  `{:ok, []}` for an empty character list. The UI must say so explicitly instead of
+  showing an empty dropdown that looks like "no such corporation".
+- **Stored IDs must resolve back to labels.** `focus_corp_ids` persists integers,
+  so after a page reload the chips have to be rehydrated through
+  `Esi.get_corporation_info/1`. When that call fails or the ESI is down, render the
+  bare ID as the chip label rather than dropping the chip — a silently vanishing
+  focus corporation would look like the setting was lost, and the user might re-add
+  a duplicate. Removal must work from the ID-labelled chip too.
+
 **Test-message semantics are unchanged and still weaker than they look.**
 `send_test_message/1` returns `:ok` on *enqueue*, not on delivery
 (`discord_dispatcher.ex:71-84`); the UI must keep saying "queued", not "sent".
@@ -433,8 +510,27 @@ the nils or be relying on the broadcast timestamp.
 
 1. Create `map_discord_webhooks_v1`.
 2. For each `map_discord_notifications_v1` row, insert a child with
-   `role = :system`, copying `webhook_url` and all four failure-state columns.
+   `role = :system`, copying `webhook_url`, all four failure-state columns, **and
+   `enabled?`**.
 3. Drop the moved columns from the parent; add `focus_corp_ids` defaulting to `[]`.
+
+**Mapping `enabled?` across the split.** Today a single parent flag carries two
+distinct meanings: the user switching notifications off, and `record_failure`
+auto-disabling after ten consecutive failures
+(`map_discord_notification.ex:128`). After the split those meanings separate —
+the parent flag becomes purely the user's intent for the map, and each child's
+flag is that destination's health.
+
+The migration cannot tell the two apart retroactively, so it copies `enabled?` to
+**both** rows. A row disabled by failure therefore migrates to parent-disabled
+*and* child-disabled. That is the conservative direction: a map that was silent
+before the upgrade stays silent after it, and no webhook starts posting because a
+migration guessed generously. The cost is that a user re-enabling at the map level
+also has to re-enable the destination — acceptable, and only for the small set of
+maps that were disabled at migration time.
+
+The parent must keep `enabled?` for exactly this reason: it is the user-facing
+kill switch for the whole map and cannot be inferred from the children.
 
 **Ciphertext portability — resolved, safe to copy in SQL.** `AshCloak.do_encrypt/2`
 is `value |> :erlang.term_to_binary() |> vault.encrypt!() |> Base.encode64()`
@@ -460,6 +556,7 @@ the richer embeds.
 | Failure | Behaviour |
 |---|---|
 | `kill_time` unparseable | Kill allowed through (fail-open) |
+| Attacker keys absent (flat-format payload) | Treated as unknown, not empty; victim matching still runs, otherwise routed to the system webhook (§2) |
 | Tracked-EVE-ID cache miss or error | Rebuild from `list_characters/1`; on error treat as not involved and route to the system webhook rather than dropping |
 | Character webhook absent | Rule 3 falls back to the system webhook |
 | Chosen webhook disabled | Kill dropped, not rerouted (§4) |
@@ -481,6 +578,21 @@ Unit tests, `async: true` where no shared state is involved.
 - Victim tracked → `:victim`; attacker tracked → `:attacker`; both → `:victim`.
 - Focus corp matches on victim corp and on attacker corp.
 - No attackers, NPC-only attackers, and empty ID lists.
+- **Absent vs. empty attacker keys** (§2): a flat-format payload with no
+  `attacker_char_ids` key at all, and a non-matching victim, routes to the system
+  webhook — distinct from a payload carrying `attacker_char_ids: []`, which is a
+  genuine NPC kill. Plus: a flat payload whose victim *does* match still attributes
+  correctly, and a flat payload that already carries the new keys is used as-is.
+
+**Resilience (§8)**
+
+- Max age: a kill exactly at the boundary, one second either side, a
+  future-dated `kill_time`, and an unparseable `kill_time` (fail-open, allowed
+  through).
+- Backoff: with the random source pinned, the delay sequence is exactly the
+  expected values; the ceiling holds after jitter is applied, not before, so no
+  delay ever exceeds 60s; and the first retry is not zero.
+- The env accessor returns the configured value, not only the default.
 
 **Routing** — one test per table row in §4, plus the character-webhook fallback,
 plus both carve-outs (excluded system with a tracked pilot; non-wormhole with a
@@ -505,6 +617,8 @@ under that destination's name policy. Specifically:
 - The 30-kill cap applies **per destination**, not per event: 30 kills to each of
   two destinations all render, and the overflow line counts only that
   destination's excess.
+- A 35-kill partition marks 30 and renders an overflow line reading 5 — proving
+  the formatter received the full partition, not the truncated head.
 - A batch whose kills all route to one destination produces exactly one delivery,
   matching today's behaviour.
 - Delivery failure on one partition does not release or affect the dedup marks of
@@ -519,10 +633,15 @@ destroying a child invalidates the parent map's config cache.
 a URL without the stored value ever being rendered back, removing the character
 webhook while the system webhook remains, the system webhook not being removable,
 per-destination enable/disable, and the test message reporting "queued" rather
-than "sent".
+than "sent". Focus corps: a user with no characters gets an explicit message rather
+than an empty dropdown, and a stored `focus_corp_ids` entry whose
+`get_corporation_info/1` lookup fails renders as an ID-labelled chip that is still
+removable.
 
 **Migration** — an existing single-webhook row becomes one `:system` child with
-failure state intact and a decryptable URL.
+failure state intact and a decryptable URL. Separately, a **failure-disabled row**
+(`enabled?: false`, `consecutive_failures: 10`) migrates to parent-disabled *and*
+child-disabled, and posts nothing until both are re-enabled.
 
 **Environment note:** the Elixir toolchain is not installed on the WSL host
 (`.tool-versions` pins Elixir 1.17.3-otp-26 / Erlang 26.2.5.5, both reported
