@@ -32,7 +32,8 @@ produces today.
 6. Map-local system names on the system webhook only (privacy constraint, §7).
 7. Jittered exponential reconnect backoff on the kills WebSocket client.
 8. A maximum-age guard on killmails reaching the dispatcher.
-9. Fix the `:map_kill` JSON:API attribute names, which currently emit `nil`.
+9. Configuration UI for managing both destinations independently.
+10. Fix the `:map_kill` JSON:API attribute names, which currently emit `nil`.
 
 ### Explicitly deferred
 
@@ -94,11 +95,43 @@ Split the resource so the parent holds policy and each child holds one destinati
 | `id` | uuid primary key |
 | `notification_id` | belongs_to, `on_delete: :delete` |
 | `role` | `:system` or `:character` |
-| `webhook_url` | encrypted via AshCloak, `allow_nil? false`, max 2000 |
+| `webhook_url` | AshCloak attribute; the physical column is `encrypted_webhook_url :binary`, matching the existing table (`priv/repo/migrations/20260801234058_add_map_discord_notifications.exs:38`) |
 | `enabled?` | boolean, default true |
 | `last_delivery_at`, `last_error`, `last_error_at`, `consecutive_failures` | per-webhook failure state, moved verbatim |
 
 Identity: unique on `[notification_id, role]`.
+
+**Enforcing "a system webhook always exists."** The unique identity gives *at most*
+one webhook per role; it cannot give *at least* one. The invariant is enforced in
+the create action instead:
+
+- `MapDiscordNotification.create` takes a `webhook_url` argument and creates the
+  parent and its `:system` child **in one transaction**
+  (`Ash.Changeset.manage_relationship/4` with `type: :create`, or an explicit
+  transaction). Either both rows exist or neither does; a failure on the child
+  rolls the parent back rather than leaving a policy row with no destination.
+- The `:character` webhook is added afterwards as an ordinary child create.
+- Destroying the `:system` webhook directly is not offered. Removing kill
+  notifications entirely means destroying the parent.
+
+Because the invariant is transactional rather than declarative, it gets a test that
+asserts no parent exists after a forced child-create failure.
+
+**Cache invalidation from the child.** The dispatcher caches the config for five
+minutes (`application.ex:133`), and today invalidation hangs off the parent
+(`map_discord_notification.ex:197`). With destinations in a child table, **every
+child create, update, destroy, and enable/disable must invalidate the parent's
+cache entry too** — otherwise a newly added character webhook is ignored for up to
+five minutes, and a removed one keeps being selected, dropping kills that should
+have fallen back to the system webhook.
+
+The child's `after_action` hooks resolve `map_id` by reading their
+`notification_id` (one extra read, on a rare path) and then call
+`DiscordDispatcher.invalidate_cache/1`, guarded by the same `rescue` the parent
+uses so a missing cache never fails the write.
+
+`MapDiscordNotification.by_map/1` must load the `:webhooks` relationship, since the
+cached value is what routing reads.
 
 The `cloak` block, `valid_webhook_url?/1`, and the `@discord_hosts` allowlist move
 to the child resource. `record_success`, `record_failure`, and `disable` move to
@@ -111,13 +144,23 @@ discipline, and a third destination later costs a row rather than five columns.
 
 ### 2. Ingestion — retain attacker identity
 
-`MessageHandler.adapt_nested_format_kill/1` gains two fields on the flattened kill:
+`MessageHandler.adapt_nested_format_kill/1` gains these fields on the flattened kill:
 
 - `attacker_char_ids` — integer list, nils rejected (NPC attackers have none)
 - `attacker_corp_ids` — integer list, nils rejected, deduplicated
+- `top_damage_char_id`, `top_damage_char_name`, `top_damage_corp_id`,
+  `top_damage_corp_ticker` — the attacker with the highest `damage_done`
 
-Everything else about the flattening is unchanged, including
-`@required_output_fields` (the new fields are optional; an empty list is valid).
+The top-damage fields exist because §5's prose names and links that pilot; the ID
+lists alone cannot render it. They are extracted by a `find_top_damage_attacker/1`
+mirroring the existing `find_final_blow_attacker/1`
+(`message_handler.ex:374-391`), and populated through the same
+`add_final_blow_attacker_data/2`-style helper, so both attackers are resolved by
+one shared code path. When the top-damage attacker *is* the final-blow attacker,
+the fields are still populated; §5 decides whether to render them.
+
+`@required_output_fields` is unchanged — all new fields are optional, and empty
+lists and nils are valid (a kill with only NPC attackers has no top-damage pilot).
 
 These stay internal. The external JSON:API formatter's allowlist means SSE and
 generic-webhook subscribers are unaffected. Growth is confined to internal PubSub,
@@ -140,11 +183,14 @@ call, which is too expensive per killmail. Introduce a cached
 - Cache key `"map:#{map_id}:tracked_eve_ids"`.
 - Built lazily from `Map.list_characters/1`, converting each `eve_id` **string** to
   an integer once at build time.
-- Invalidated from `Map.add_character/2` and `Map.remove_character/2`.
+- Invalidated from every writer of `map.characters`: `Map.add_character/2`,
+  `Map.remove_character/2`, and `Map.add_characters!/2` (`map.ex:235-258`), which
+  is the bulk path used when a map initialises. Missing that third writer would
+  leave the set stale exactly when a map starts up.
 
 The string-to-integer conversion is the single most likely source of a silent bug
 here: a type mismatch matches nothing and looks exactly like "no tracked pilots
-were involved." It gets an explicit test (§9).
+were involved." It gets an explicit test (see Testing).
 
 **Involvement verdict.** For each kill and map:
 
@@ -191,9 +237,42 @@ Notes:
   rather than sent to the other channel. Disabling a channel must mean silence for
   that class of kill, not silent misdirection into a channel the user did not
   choose, which for a public character channel is also a privacy question (§7).
-- Exactly one destination is chosen. The dedup key stays `"#{map_id}:#{killmail_id}"`.
-  Should a future change ever post one kill to both channels, that key must gain
-  the role or the second post will be suppressed.
+- Exactly one destination is chosen **per kill**. The dedup key stays
+  `"#{map_id}:#{killmail_id}"`. Should a future change ever post one kill to both
+  channels, that key must gain the role or the second post will be suppressed.
+
+### 4.1 Batching across mixed destinations
+
+A single `:map_kill` event carries a batch of killmails for one system, and the
+current dispatcher formats and delivers that batch as a unit to one destination
+(`discord_dispatcher.ex:148-180`). Routing is per-kill, so one batch can now
+contain kills bound for different destinations, or bound for none.
+
+The dispatch sequence becomes:
+
+1. Reject duplicates, as today, producing `fresh`.
+2. **Partition `fresh` per kill** into `%{system: [...], character: [...]}`,
+   applying §4 in order. Kills that drop (rules 1 and 2, or a disabled
+   destination) fall out here and belong to no partition.
+3. **For each non-empty partition independently:**
+   - Take `EmbedFormatter.max_kills_per_event()` kills. **The cap is per
+     destination, not per event** — it is a Discord message-size concern, so two
+     destinations do not compete for one budget.
+   - Mark exactly those taken kills as attempted, keyed by map and killmail as
+     today. Kills beyond the cap are never rendered and so are never marked,
+     preserving the existing rule that a kill lost to a *formatting* cap stays
+     eligible.
+   - Format with that destination's system-name policy (§7) — this is why
+     formatting happens per partition rather than once.
+   - Deliver to that destination's webhook id.
+4. Each partition's delivery result is handled independently. A
+   `{:error, :not_running}` releases only that partition's marks.
+
+Consequences worth stating: a kill dropped by §4 is never marked, so it stays
+eligible if it arrives again. The overflow line ("…and N more kills not shown.")
+is computed per destination and counts only that destination's overflow. Telemetry
+counts are emitted per destination with the role in the metadata, rather than once
+for the event.
 
 ### 5. Embeds
 
@@ -248,8 +327,18 @@ existing overflow line.
   would let a 429 on the character channel stall system kills.
 - `WorkerSupervisor.deliver/3` takes a webhook id; the worker reloads the webhook
   row for its URL and records outcomes against that row.
-- `after_destroy` on a webhook stops its worker. Destroying a notification cascades
-  to its webhooks and stops all their workers.
+- `after_destroy` on a webhook stops its worker.
+- **Destroying a notification must stop its children's workers explicitly.** The
+  child FK uses `on_delete: :delete`, which is a PostgreSQL cascade — the database
+  removes the rows without Ash running the children's `after_destroy` hooks, so
+  their workers would survive and keep posting to webhooks whose rows are gone.
+  The parent's destroy therefore reads its child webhook ids in a `before_action`,
+  stashes them in the changeset context, and stops those workers in its
+  `after_action`. Reading them afterwards is too late: the rows are already gone.
+
+  This mirrors the existing reason `after_destroy` stops the map's worker today
+  (`map_discord_notification.ex:203-209`) — without it, queued messages keep
+  posting to a webhook the user just removed.
 
 Everything else about the worker — queue cap 100, 5 attempts, `retry-after`
 parsing, 1s→8s backoff, scheduling via `send_after` rather than sleeping — is
@@ -287,17 +376,56 @@ and is the precondition that would make preload safe if it is ever added. Parsin
 failure on `kill_time` **allows** the kill through — fail-open, consistent with the
 dispatcher's existing posture.
 
-### 9. Incidental fix — `:map_kill` JSON:API attributes
+### 9. Configuration UI
+
+`map_notifications_component.ex` is single-destination throughout: `save` handles
+one `webhook_url`, `replace-url` is a single boolean, `send-test` targets the map,
+and status is read from the parent row. The stated outcome — an owner configures
+one or two webhooks and their focus corporations — requires reworking it.
+
+**Per destination** (`:system` and `:character`), the component offers:
+
+| Action | Behaviour |
+|---|---|
+| Add | Only shown for `:character`; `:system` always exists (§1) |
+| Replace URL | Per-destination `replacing_url?` state, replacing today's single boolean. The URL is still never rendered back in full. |
+| Remove | `:character` only. `:system` cannot be removed; removing notifications entirely means deleting the parent. |
+| Enable/disable | Per destination, independent of the parent's `enabled?` |
+| Send test | Targets one webhook id, so an owner can verify each channel separately |
+| Status | Per destination: `last_delivery_at`, `last_error`, `consecutive_failures`, and whether the failure threshold disabled it |
+
+The system destination is presented first and described as required; the character
+destination is presented as optional, with its fallback behaviour (§4) stated in
+the UI so an owner understands that leaving it unset sends everything to the system
+channel rather than dropping it.
+
+**Focus corporations** reuse the `live_select` pattern already built for excluded
+systems (`map_notifications_component.ex:85-110`): search by corporation name,
+resolve to a corporation ID, render as removable chips. Add and remove are separate
+events guarded the same way `add-excluded` and `remove-excluded` are — reachable
+only from a rendered record.
+
+**Test-message semantics are unchanged and still weaker than they look.**
+`send_test_message/1` returns `:ok` on *enqueue*, not on delivery
+(`discord_dispatcher.ex:71-84`); the UI must keep saying "queued", not "sent".
+
+### 10. Incidental fix — `:map_kill` JSON:API attributes
 
 `json_api_formatter.ex:364-375` reads `payload["victim_character_name"]`,
-`payload["victim_ship_type"]`, `payload["system_id"]`, and
-`payload["killmail_time"]`, but `MessageHandler` produces `victim_char_name`,
-`victim_ship_name`, `solar_system_id`, and `kill_time`. All four have been emitting
-`nil` to every external subscriber.
+`payload["victim_ship_type"]`, and `payload["system_id"]`, but `MessageHandler`
+produces `victim_char_name`, `victim_ship_name`, and `solar_system_id`. Those three
+have been emitting `nil` to every external subscriber.
 
-Correct the key names. This is a behaviour change for external consumers — those
-attributes go from always-`nil` to populated — and warrants a changelog line, since
-a consumer may have coded around the nils.
+`occurred_at` is a fourth, subtler case: it reads `payload["killmail_time"]` —
+also never present — but falls back to `event.timestamp`
+(`json_api_formatter.ex:373`). So it has been populated, with the time the event
+was *broadcast* rather than the time of the kill. Correcting it to `kill_time`
+changes its value rather than filling in a nil.
+
+Correct all four key names. This is a behaviour change for external consumers —
+three attributes go from always-`nil` to populated, and `occurred_at` changes
+meaning — and warrants a changelog line, since a consumer may have coded around
+the nils or be relying on the broadcast timestamp.
 
 ## Migration and compatibility
 
@@ -308,12 +436,13 @@ a consumer may have coded around the nils.
    `role = :system`, copying `webhook_url` and all four failure-state columns.
 3. Drop the moved columns from the parent; add `focus_corp_ids` defaulting to `[]`.
 
-**Ciphertext portability risk.** `webhook_url` is encrypted at rest through AshCloak.
-Step 2 copies the ciphertext between tables. This is safe only if the vault's
-encryption is not bound to the table or row identity. **This must be verified against
-the configured `WandererApp.Vault` before the migration is written** — if the
-binding does exist, the migration has to decrypt and re-encrypt through the
-application rather than move ciphertext in SQL.
+**Ciphertext portability — resolved, safe to copy in SQL.** `AshCloak.do_encrypt/2`
+is `value |> :erlang.term_to_binary() |> vault.encrypt!() |> Base.encode64()`
+(`deps/ash_cloak/lib/ash_cloak.ex:65-73`). The resource is used only to look up
+which vault to use; neither the table nor the row identity enters the ciphertext,
+and the vault's AES-GCM uses fixed AAD. Moving the `encrypted_webhook_url` column
+value between tables therefore decrypts correctly, and step 2 can be plain SQL with
+no decrypt/re-encrypt round trip through the application.
 
 **Behaviour change on upgrade.** `wh_only` defaults to `true`, so most existing maps
 have it on. The tracked-character carve-outs (§4, rules 1–2) mean kills involving
@@ -366,8 +495,31 @@ boundary; author line omitted when not involved; thumbnail selection across
 present/absent ship type and character; solo kill; top damage equal to final blow;
 overflow line preserved.
 
+**Batch partitioning (§4.1)** — a single event carrying kills that route to
+different destinations produces one message set per destination, each formatted
+under that destination's name policy. Specifically:
+
+- A mixed batch (one tracked-pilot kill, one bystander kill) delivers to both
+  webhooks, and the character-webhook message shows the canonical system name
+  while the system-webhook message shows the map-local one.
+- The 30-kill cap applies **per destination**, not per event: 30 kills to each of
+  two destinations all render, and the overflow line counts only that
+  destination's excess.
+- A batch whose kills all route to one destination produces exactly one delivery,
+  matching today's behaviour.
+- Delivery failure on one partition does not release or affect the dedup marks of
+  the other.
+
 **Resource** — per-webhook failure isolation: failing one webhook to threshold
-leaves the sibling enabled.
+leaves the sibling enabled. Creating a notification without a `:system` child is
+rejected. Destroying the parent stops both workers. Creating, updating, or
+destroying a child invalidates the parent map's config cache.
+
+**Configuration UI (§9)** — LiveView tests: adding a character webhook, replacing
+a URL without the stored value ever being rendered back, removing the character
+webhook while the system webhook remains, the system webhook not being removable,
+per-destination enable/disable, and the test message reporting "queued" rather
+than "sent".
 
 **Migration** — an existing single-webhook row becomes one `:system` child with
 failure state intact and a decryptable URL.
@@ -378,12 +530,13 @@ missing by mise). Tests must be run in the devcontainer.
 
 ## Open risks
 
-1. **Ciphertext portability across tables** — must be settled before writing the
-   migration (see above). It is the only item that could force a materially
-   different migration strategy.
-2. **Cache invalidation coverage** — the tracked-EVE-ID cache is invalidated from
-   `Map.add_character/2` and `remove_character/2`. If any other path mutates
-   `map.characters`, the set goes stale and notifications route to the wrong
-   channel. Worth a grep for writers of `:characters` during implementation.
-3. **Payload growth in the kills cache** — bounded and small per kill, but it
+1. **Cache invalidation coverage** — the tracked-EVE-ID cache is invalidated from
+   `Map.add_character/2`, `remove_character/2`, and `add_characters!/2`. If any
+   other path mutates `map.characters`, the set goes stale and notifications route
+   to the wrong channel. Worth re-running a grep for writers of `:characters`
+   during implementation, since a missed writer fails silently.
+2. **Payload growth in the kills cache** — bounded and small per kill, but it
    applies to every cached killmail for 24h, not only to those in flight.
+3. **Channel volume after upgrade** — the carve-outs make busy maps noisier with
+   no user action. Accepted deliberately (see Migration), but it is the change most
+   likely to generate feedback.
