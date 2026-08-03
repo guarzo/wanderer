@@ -201,13 +201,13 @@ defmodule WandererApp.Kills.MessageHandler do
 
   # Pattern match on nested format with valid structure
   def adapt_kill_data(
-         %{
-           "killmail_id" => killmail_id,
-           "kill_time" => _kill_time,
-           "victim" => victim
-         } = kill
-       )
-       when is_map(victim) do
+        %{
+          "killmail_id" => killmail_id,
+          "kill_time" => _kill_time,
+          "victim" => victim
+        } = kill
+      )
+      when is_map(victim) do
     # Validate and normalize IDs first
     with {:ok, valid_killmail_id} <- validate_killmail_id(killmail_id),
          {:ok, valid_system_id} <- get_and_validate_system_id(kill) do
@@ -276,6 +276,7 @@ defmodule WandererApp.Kills.MessageHandler do
       |> add_victim_data(victim)
       |> add_final_blow_attacker_data(final_blow_attacker)
       |> add_kill_statistics(attackers_list, zkb)
+      |> add_attacker_identity_data(attackers_list)
 
     # Validate that critical output fields are present
     case validate_required_output_fields(adapted_kill) do
@@ -323,18 +324,24 @@ defmodule WandererApp.Kills.MessageHandler do
   end
 
   @spec add_final_blow_attacker_data(map(), map()) :: map()
-  defp add_final_blow_attacker_data(acc, attacker) do
+  defp add_final_blow_attacker_data(acc, attacker),
+    do: add_prefixed_attacker_data(acc, attacker, "final_blow")
+
+  # Shared by the final-blow and top-damage attackers so the two can never
+  # drift in how names, tickers and ids are read from an attacker map.
+  @spec add_prefixed_attacker_data(map(), map(), String.t()) :: map()
+  defp add_prefixed_attacker_data(acc, attacker, prefix) do
     attacker_data = %{
-      "final_blow_char_id" => attacker["character_id"],
-      "final_blow_char_name" => get_character_name(attacker),
-      "final_blow_corp_id" => attacker["corporation_id"],
-      "final_blow_corp_ticker" => get_corp_ticker(attacker),
-      "final_blow_corp_name" => get_corp_name(attacker),
-      "final_blow_alliance_id" => attacker["alliance_id"],
-      "final_blow_alliance_ticker" => get_alliance_ticker(attacker),
-      "final_blow_alliance_name" => get_alliance_name(attacker),
-      "final_blow_ship_type_id" => attacker["ship_type_id"],
-      "final_blow_ship_name" => get_ship_name(attacker)
+      "#{prefix}_char_id" => attacker["character_id"],
+      "#{prefix}_char_name" => get_character_name(attacker),
+      "#{prefix}_corp_id" => attacker["corporation_id"],
+      "#{prefix}_corp_ticker" => get_corp_ticker(attacker),
+      "#{prefix}_corp_name" => get_corp_name(attacker),
+      "#{prefix}_alliance_id" => attacker["alliance_id"],
+      "#{prefix}_alliance_ticker" => get_alliance_ticker(attacker),
+      "#{prefix}_alliance_name" => get_alliance_name(attacker),
+      "#{prefix}_ship_type_id" => attacker["ship_type_id"],
+      "#{prefix}_ship_name" => get_ship_name(attacker)
     }
 
     Map.merge(acc, attacker_data)
@@ -347,6 +354,36 @@ defmodule WandererApp.Kills.MessageHandler do
       "total_value" => zkb["total_value"] || zkb["totalValue"] || 0,
       "npc" => zkb["npc"] || false
     })
+  end
+
+  # Attacker identity, retained for Discord involvement matching. Deliberately
+  # separate from `add_kill_statistics/3`, which is about aggregates and
+  # discards the attacker list after taking its length.
+  #
+  # Every field produced here is OPTIONAL: `@required_output_fields` must not
+  # grow. Empty lists are a valid result (an all-NPC kill has no pilots), and
+  # nil top-damage fields are valid (an all-NPC kill has no top-damage pilot).
+  @spec add_attacker_identity_data(map(), list()) :: map()
+  defp add_attacker_identity_data(acc, attackers_list) do
+    top_damage_attacker = find_top_damage_attacker(attackers_list)
+
+    acc
+    |> Map.merge(%{
+      "attacker_char_ids" => collect_ids(attackers_list, "character_id"),
+      "attacker_corp_ids" => collect_ids(attackers_list, "corporation_id")
+    })
+    |> add_prefixed_attacker_data(top_damage_attacker, "top_damage")
+  end
+
+  # NPC attackers carry no character or corporation id, so nils are dropped
+  # rather than retained as a nil member that could never match anything.
+  @spec collect_ids(list(), String.t()) :: [integer()]
+  defp collect_ids(attackers_list, key) do
+    attackers_list
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&Map.get(&1, key))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   # Critical fields that the frontend expects to be present in killmail data
@@ -392,6 +429,26 @@ defmodule WandererApp.Kills.MessageHandler do
   end
 
   defp find_final_blow_attacker(_), do: %{}
+
+  # Mirrors `find_final_blow_attacker/1`: returns `%{}` when there is nothing
+  # to pick, so the downstream extractor yields nils rather than crashing.
+  @spec find_top_damage_attacker(list(map()) | any()) :: map()
+  defp find_top_damage_attacker([]), do: %{}
+
+  defp find_top_damage_attacker(attackers) when is_list(attackers) do
+    attackers
+    |> Enum.filter(&is_map/1)
+    |> Enum.max_by(&damage_done/1, fn -> %{} end)
+  end
+
+  defp find_top_damage_attacker(_), do: %{}
+
+  # `damage_done` is occasionally absent or non-numeric in upstream payloads;
+  # treat those attackers as having dealt no damage rather than crashing the
+  # whole killmail's adaptation.
+  @spec damage_done(map()) :: number()
+  defp damage_done(%{"damage_done" => damage}) when is_number(damage), do: damage
+  defp damage_done(_), do: 0
 
   # Generic field extraction with multiple possible field names
   @spec extract_field(map(), list(String.t())) :: String.t() | nil
