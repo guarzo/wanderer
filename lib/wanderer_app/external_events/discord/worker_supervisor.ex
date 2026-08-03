@@ -1,6 +1,12 @@
 defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
   @moduledoc """
-  Starts one delivery worker per map on demand, addressed through a Registry.
+  Starts one delivery worker per Discord webhook on demand, addressed through a
+  Registry keyed by webhook id.
+
+  Per webhook, not per map: Discord's rate limits are per webhook, and a failure
+  must be attributable to the destination that caused it. Sharing a worker
+  between a map's system and character channels would let a 429 on one stall the
+  other, and a 404 on one disable both.
 
   Workers are transient: they own an in-memory queue, shut down when idle, and
   are not restarted with their queue intact. Losing a queued notification on
@@ -31,16 +37,16 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
 
     # :rest_for_one, not :one_for_one — workers register in the Registry, so a
     # Registry crash would leave them running but unreachable, and the next
-    # deliver/3 would start a *second* worker for the same map and double-post.
-    # Restarting everything after the Registry clears those orphans.
+    # deliver/2 would start a *second* worker for the same webhook and
+    # double-post. Restarting everything after the Registry clears those orphans.
     Supervisor.init(children, strategy: :rest_for_one)
   end
 
   @doc """
-  Enqueues messages for a map, starting its worker if it is not running.
+  Enqueues messages for one webhook, starting its worker if it is not running.
 
-  Takes the notification *id*, never the record: the worker reloads it just
-  before each send so a replaced or deleted webhook is not used, and so a stale
+  Takes the webhook *id*, never the record: the worker reloads it just before
+  each send so a replaced or deleted webhook is not used, and so a stale
   `consecutive_failures` snapshot cannot corrupt the counter.
 
   Returns `{:error, :not_running}` when the worker infrastructure is not
@@ -48,12 +54,12 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
   tolerance of the same condition. Callers on the dispatch path must not crash
   just because the kill-switch is off.
   """
-  def deliver(_map_id, _notification_id, []), do: :ok
+  def deliver(_webhook_id, []), do: :ok
 
-  def deliver(map_id, notification_id, messages) do
-    case ensure_worker(map_id) do
+  def deliver(webhook_id, messages) do
+    case ensure_worker(webhook_id) do
       {:ok, pid} ->
-        Worker.enqueue(pid, notification_id, messages)
+        Worker.enqueue(pid, messages)
 
       {:error, :not_running} ->
         # Not an error worth logging on every event: the kill-switch being off
@@ -61,26 +67,30 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
         {:error, :not_running}
 
       {:error, reason} ->
-        Logger.warning("[Discord] could not start worker for #{map_id}: #{inspect(reason)}")
+        Logger.warning(
+          "[Discord] could not start worker for webhook #{webhook_id}: #{inspect(reason)}"
+        )
+
         {:error, reason}
     end
   end
 
   @doc """
-  Stops a map's delivery worker if one is running, discarding its queue.
+  Stops one webhook's delivery worker if one is running, discarding its queue.
 
-  Called from the resource's custom destroy: without it, a removed webhook keeps
+  Called from the webhook resource's destroy, and from the parent notification's
+  destroy for each of its children: without it, a removed webhook keeps
   receiving whatever was already queued. A no-op when the worker infrastructure
   is not running at all (e.g. webhooks globally disabled, or in tests that do
   not start this supervisor).
   """
-  def stop_worker(map_id) do
+  def stop_worker(webhook_id) do
     case Process.whereis(@registry) do
       nil ->
         :ok
 
       _ ->
-        case Registry.lookup(@registry, map_id) do
+        case Registry.lookup(@registry, webhook_id) do
           # The worker may have idled out or crashed between the lookup and the
           # stop; either way the post-condition (no worker running) holds.
           [{pid, _}] -> try_stop(pid)
@@ -99,30 +109,30 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
     :exit, _ -> :ok
   end
 
-  defp ensure_worker(map_id) do
+  defp ensure_worker(webhook_id) do
     # Guard exactly as stop_worker/1 does: Registry.lookup on an unregistered
     # name raises ArgumentError, which would crash the dispatcher whenever
     # webhooks are globally disabled and this supervisor was never started.
     case Process.whereis(@registry) do
       nil -> {:error, :not_running}
-      _ -> lookup_or_start(map_id)
+      _ -> lookup_or_start(webhook_id)
     end
   end
 
-  defp lookup_or_start(map_id) do
-    case Registry.lookup(@registry, map_id) do
+  defp lookup_or_start(webhook_id) do
+    case Registry.lookup(@registry, webhook_id) do
       # Registry releases a dead owner's key asynchronously, so a lookup can
       # still return a pid that has just exited (idle shutdown or stop_worker).
       [{pid, _}] when is_pid(pid) ->
-        if Process.alive?(pid), do: {:ok, pid}, else: start_worker(map_id)
+        if Process.alive?(pid), do: {:ok, pid}, else: start_worker(webhook_id)
 
       [] ->
-        start_worker(map_id)
+        start_worker(webhook_id)
     end
   end
 
-  defp start_worker(map_id) do
-    spec = {Worker, map_id: map_id, registry: @registry}
+  defp start_worker(webhook_id) do
+    spec = {Worker, webhook_id: webhook_id, registry: @registry}
 
     case DynamicSupervisor.start_child(@dyn_sup, spec) do
       {:ok, pid} -> {:ok, pid}

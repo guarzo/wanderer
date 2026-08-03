@@ -137,12 +137,12 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
 
     # Register one worker per webhook id — the key `stash_webhook_ids/2` reads
     # and `after_destroy/3` stops by. Started directly against the real
-    # `Worker`/`Registry` (rather than through `WorkerSupervisor.deliver/3`,
-    # which is still map-id-keyed pending Task 3's rekey), so this proves the
-    # actual registry entries this destroy path is responsible for clearing.
+    # `Worker`/`Registry` (rather than through `WorkerSupervisor.deliver/2`) so
+    # this proves the actual registry entries this destroy path is responsible
+    # for clearing.
     for webhook <- [system_hook, character_hook] do
       start_supervised!(
-        {Worker, map_id: webhook.id, registry: registry, idle_timeout: :infinity},
+        {Worker, webhook_id: webhook.id, registry: registry, idle_timeout: :infinity},
         id: webhook.id,
         restart: :temporary
       )
