@@ -177,15 +177,18 @@ defmodule WandererApp.Kills.MessageHandler do
   @type killmail :: map()
   @type adapter_result :: {:ok, killmail()} | {:error, term()}
 
+  @doc false
+  # Public only so the flattening logic can be tested directly; production
+  # callers go through `process_killmail_update/1`.
   @spec adapt_kill_data(any()) :: adapter_result()
   # Pattern match on zkillboard format - not supported
-  defp adapt_kill_data(%{"killID" => kill_id}) do
+  def adapt_kill_data(%{"killID" => kill_id}) do
     Logger.warning("[MessageHandler] Zkillboard format not supported: killID=#{kill_id}")
     {:error, :zkillboard_format_not_supported}
   end
 
   # Pattern match on flat format - already adapted
-  defp adapt_kill_data(%{"victim_char_id" => _} = kill) do
+  def adapt_kill_data(%{"victim_char_id" => _} = kill) do
     validated_kill = validate_flat_format_kill(kill)
 
     if map_size(validated_kill) > 0 do
@@ -197,7 +200,7 @@ defmodule WandererApp.Kills.MessageHandler do
   end
 
   # Pattern match on nested format with valid structure
-  defp adapt_kill_data(
+  def adapt_kill_data(
          %{
            "killmail_id" => killmail_id,
            "kill_time" => _kill_time,
@@ -232,7 +235,7 @@ defmodule WandererApp.Kills.MessageHandler do
   end
 
   # Invalid data type
-  defp adapt_kill_data(invalid_data) do
+  def adapt_kill_data(invalid_data) do
     data_type = if(is_nil(invalid_data), do: "nil", else: "#{inspect(invalid_data)}")
     Logger.warning("[MessageHandler] Invalid data type: #{data_type}")
     {:error, :invalid_format}
