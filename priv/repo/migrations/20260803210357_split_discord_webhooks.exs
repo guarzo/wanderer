@@ -44,21 +44,52 @@ defmodule WandererApp.Repo.Migrations.SplitDiscordWebhooks do
     # has a `:system` child — a partially-applied deploy, a hand-repaired row,
     # or simply re-running this migration — aborts the whole statement on the
     # first collision instead of skipping the rows already split.
+    #
+    # Wrapped in a DO block (rather than a bare `execute`) so a notification
+    # excluded by the guard can be *named* instead of silently losing its
+    # `encrypted_webhook_url` when the column is dropped below. `up/0` runs
+    # unattended during a deploy, so it must not abort here — skipping is the
+    # correct, safe behavior, exactly as the guard already does — but it must
+    # leave evidence in the deploy log. The skipped set is computed BEFORE the
+    # INSERT (capturing exactly the rows the guard is about to exclude) and
+    # reported via `RAISE WARNING` AFTER the INSERT has run, so what's printed
+    # reflects the final, settled state rather than a snapshot that a
+    # concurrent write could have invalidated. `RAISE WARNING` does not abort
+    # the enclosing transaction — only `RAISE EXCEPTION` does.
     execute("""
-    INSERT INTO map_discord_webhooks_v1 (
-      id, notification_id, role, encrypted_webhook_url, "enabled?",
-      last_delivery_at, last_error, last_error_at, consecutive_failures,
-      inserted_at, updated_at
-    )
-    SELECT
-      gen_random_uuid(), n.id, 'system', n.encrypted_webhook_url, n."enabled?",
-      n.last_delivery_at, n.last_error, n.last_error_at, n.consecutive_failures,
-      (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc')
-    FROM map_discord_notifications_v1 n
-    WHERE NOT EXISTS (
-      SELECT 1 FROM map_discord_webhooks_v1 w
-      WHERE w.notification_id = n.id AND w.role = 'system'
-    )
+    DO $$
+    DECLARE
+      already_split_ids text;
+      already_split_count int;
+    BEGIN
+      SELECT string_agg(n.id::text, ', '), count(*)
+      INTO already_split_ids, already_split_count
+      FROM map_discord_notifications_v1 n
+      WHERE n.encrypted_webhook_url IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM map_discord_webhooks_v1 w
+          WHERE w.notification_id = n.id AND w.role = 'system'
+        );
+
+      INSERT INTO map_discord_webhooks_v1 (
+        id, notification_id, role, encrypted_webhook_url, "enabled?",
+        last_delivery_at, last_error, last_error_at, consecutive_failures,
+        inserted_at, updated_at
+      )
+      SELECT
+        gen_random_uuid(), n.id, 'system', n.encrypted_webhook_url, n."enabled?",
+        n.last_delivery_at, n.last_error, n.last_error_at, n.consecutive_failures,
+        (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc')
+      FROM map_discord_notifications_v1 n
+      WHERE NOT EXISTS (
+        SELECT 1 FROM map_discord_webhooks_v1 w
+        WHERE w.notification_id = n.id AND w.role = 'system'
+      );
+
+      IF already_split_count > 0 THEN
+        RAISE WARNING 'split_discord_webhooks: % notification(s) already had a :system webhook; their parent encrypted_webhook_url was NOT migrated and is about to be dropped (ids: %)', already_split_count, already_split_ids;
+      END IF;
+    END $$;
     """)
 
     alter table(:map_discord_notifications_v1) do
@@ -117,7 +148,28 @@ defmodule WandererApp.Repo.Migrations.SplitDiscordWebhooks do
     # 4. Only now can the original constraint be reinstated. A notification with
     #    no :system child would fail here — which is correct: it has no URL to
     #    roll back to, and silently leaving the column nullable would diverge
-    #    from the pre-migration schema.
+    #    from the pre-migration schema. Without the preflight below, that
+    #    failure surfaces as Postgres' generic "column ... contains null
+    #    values" error, which names neither the offending rows nor the fix.
+    #    `down/0` is run by hand by an operator, so aborting here is correct —
+    #    unlike `up/0` above, there is no unattended deploy to keep moving —
+    #    but the abort must explain itself instead of leaving the operator to
+    #    go spelunking.
+    execute("""
+    DO $$
+    DECLARE
+      unrestorable_ids text;
+    BEGIN
+      SELECT string_agg(id::text, ', ') INTO unrestorable_ids
+      FROM map_discord_notifications_v1
+      WHERE encrypted_webhook_url IS NULL;
+
+      IF unrestorable_ids IS NOT NULL THEN
+        RAISE EXCEPTION 'split_discord_webhooks rollback: notification(s) have no :system webhook to restore a webhook_url from (ids: %). Re-create a :system webhook for each, or delete these notification rows, then retry the rollback.', unrestorable_ids;
+      END IF;
+    END $$;
+    """)
+
     execute(
       "ALTER TABLE map_discord_notifications_v1 ALTER COLUMN encrypted_webhook_url SET NOT NULL"
     )
