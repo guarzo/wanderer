@@ -112,7 +112,19 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   end
 
   def handle_event("send-test", _params, socket) do
-    case WandererApp.ExternalEvents.DiscordDispatcher.send_test_message(socket.assigns.map_id) do
+    # Task 14 gives this component a per-webhook test button. Until then it
+    # tests the system webhook, which is the only destination the dispatcher
+    # uses in Phase A.
+    result =
+      with %{} = rec <- socket.assigns.notification,
+           {:ok, webhooks} <- WandererApp.Api.MapDiscordWebhook.by_notification(rec.id),
+           %{} = webhook <- Enum.find(webhooks, &(&1.role == :system)) do
+        WandererApp.ExternalEvents.DiscordDispatcher.send_test_message(webhook.id)
+      else
+        _ -> {:error, :not_configured}
+      end
+
+    case result do
       # `:ok` means the message was ENQUEUED — the last hop is an async cast, so
       # this must not claim Discord accepted it.
       :ok ->
