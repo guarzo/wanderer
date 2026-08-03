@@ -9,7 +9,10 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
 
   setup do
     map = Factory.insert(:map, %{})
-    {:ok, notification} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    {:ok, notification} =
+      MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
     %{map: map, notification: notification}
   end
 
