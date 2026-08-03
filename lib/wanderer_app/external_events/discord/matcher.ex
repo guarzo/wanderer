@@ -117,4 +117,71 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   defp parse_eve_id(_), do: nil
 
   defp cache_key(map_id), do: "map:#{map_id}:tracked_eve_ids"
+
+  @type verdict :: {:involved, :victim} | {:involved, :attacker} | :not_involved
+
+  @doc """
+  Decides whether a killmail involves this map's own pilots.
+
+  Order is load-bearing (spec section 3): victim checks precede attacker checks,
+  so a kill where both sides are tracked renders as a *loss*. Losses are the
+  more urgent signal.
+
+  `focus_corp_ids` widens "tracked" rather than acting as a separate routing
+  concept, so corporation focus earns the same colouring and the same routing
+  carve-outs as character tracking.
+  """
+  @spec involvement(map(), MapSet.t(integer()), [integer()]) :: verdict()
+  def involvement(kill, tracked_eve_ids, focus_corp_ids) do
+    cond do
+      MapSet.member?(tracked_eve_ids, parse_eve_id(kill["victim_char_id"])) ->
+        {:involved, :victim}
+
+      parse_eve_id(kill["victim_corp_id"]) in focus_corp_ids ->
+        {:involved, :victim}
+
+      attacker_match?(kill, tracked_eve_ids, focus_corp_ids) ->
+        {:involved, :attacker}
+
+      true ->
+        :not_involved
+    end
+  end
+
+  # ABSENT is not EMPTY. Nested-format payloads always carry the attacker keys
+  # (possibly as empty lists); flat-format payloads omit them entirely. Treating
+  # a missing key as `[]` would assert "there were no tracked attackers", which
+  # we do not know. This is a compatibility behaviour for a payload shape we
+  # cannot enrich, not a normalization: admitting the data is unknown is better
+  # than pretending it is empty.
+  #
+  # Victim matching still runs normally either way — `victim_char_id` and
+  # `victim_corp_id` exist in both shapes. When the victim does not match and
+  # the attacker data is unknown, the verdict is `:not_involved`, which routes
+  # to the system webhook: the same conservative destination a matching-cache
+  # failure produces.
+  #
+  # `attacker_char_ids` / `attacker_corp_ids` are already normalized to
+  # integers by `collect_ids/2` (message_handler.ex) at flatten time, so no
+  # coercion happens here — unlike the single-id victim fields above, which are
+  # pure pass-throughs on the flat-payload branch and may still be binaries.
+  defp attacker_match?(kill, tracked_eve_ids, focus_corp_ids) do
+    if Map.has_key?(kill, "attacker_char_ids") or Map.has_key?(kill, "attacker_corp_ids") do
+      Enum.any?(kill["attacker_char_ids"] || [], &MapSet.member?(tracked_eve_ids, &1)) or
+        Enum.any?(kill["attacker_corp_ids"] || [], &(&1 in focus_corp_ids))
+    else
+      log_attacker_divergence(kill)
+      false
+    end
+  end
+
+  # Logged once per occurrence, at debug, with the killmail id. If flat-format
+  # payloads turn out to be common in production this is visible in the logs
+  # rather than inferred from notifications that never arrived.
+  defp log_attacker_divergence(kill) do
+    Logger.debug(fn ->
+      "[Discord] killmail #{kill["killmail_id"]}: attacker data absent from payload; " <>
+        "involvement decided on the victim alone"
+    end)
+  end
 end
