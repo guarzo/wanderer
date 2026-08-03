@@ -3,9 +3,30 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
 
   alias WandererApp.Api.MapDiscordNotification
   alias WandererApp.Api.MapDiscordWebhook
+  alias WandererApp.ExternalEvents.Discord.{Worker, WorkerSupervisor}
   alias WandererAppWeb.Factory
 
   defp valid_url, do: "https://discord.com/api/webhooks/123456789/abcdefTOKEN"
+
+  defp await_condition(fun, timeout \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_await_condition(fun, deadline)
+  end
+
+  defp do_await_condition(fun, deadline) do
+    case fun.() do
+      {:ok, value} ->
+        value
+
+      :retry ->
+        if System.monotonic_time(:millisecond) > deadline do
+          flunk("condition not met before deadline")
+        else
+          Process.sleep(25)
+          do_await_condition(fun, deadline)
+        end
+    end
+  end
 
   setup do
     map = Factory.insert(:map, %{})
@@ -102,8 +123,55 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
   test "destroy invalidates the cache and stops each webhook's worker", %{map: map} do
     {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
 
-    # Neither the cache nor the worker registry is running in this test; the
-    # custom destroy must tolerate that rather than crash.
+    {:ok, [system_hook]} = MapDiscordWebhook.by_notification(rec.id)
+
+    {:ok, character_hook} =
+      MapDiscordWebhook.create(%{
+        notification_id: rec.id,
+        role: :character,
+        webhook_url: "https://discord.com/api/webhooks/222/othertok"
+      })
+
+    start_supervised!(WorkerSupervisor)
+    registry = WorkerSupervisor.registry()
+
+    # Register one worker per webhook id — the key `stash_webhook_ids/2` reads
+    # and `after_destroy/3` stops by. Started directly against the real
+    # `Worker`/`Registry` (rather than through `WorkerSupervisor.deliver/3`,
+    # which is still map-id-keyed pending Task 3's rekey), so this proves the
+    # actual registry entries this destroy path is responsible for clearing.
+    for webhook <- [system_hook, character_hook] do
+      start_supervised!(
+        {Worker, map_id: webhook.id, registry: registry, idle_timeout: :infinity},
+        id: webhook.id,
+        restart: :temporary
+      )
+    end
+
+    assert [{_pid, _}] = Registry.lookup(registry, system_hook.id)
+    assert [{_pid, _}] = Registry.lookup(registry, character_hook.id)
+
+    assert :ok = MapDiscordNotification.destroy(rec)
+    assert {:error, _} = MapDiscordNotification.by_map(map.id)
+
+    # Registry release on process exit is asynchronous, so poll rather than
+    # asserting immediately.
+    await_condition(fn ->
+      if Registry.lookup(registry, system_hook.id) == [] and
+           Registry.lookup(registry, character_hook.id) == [] do
+        {:ok, :done}
+      else
+        :retry
+      end
+    end)
+  end
+
+  test "destroy tolerates the worker registry not running at all", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    # No WorkerSupervisor started in this test — the custom destroy must not
+    # crash just because the delivery infrastructure is down (e.g. webhooks
+    # globally disabled).
     assert :ok = MapDiscordNotification.destroy(rec)
     assert {:error, _} = MapDiscordNotification.by_map(map.id)
   end

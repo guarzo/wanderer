@@ -38,6 +38,12 @@ defmodule WandererApp.Repo.Migrations.SplitDiscordWebhooks do
     # unquoted identifier (the column is declared as `enabled?` because Ash
     # attribute names may end in `?`, but the underlying SQL identifier still
     # needs quoting outside of Ecto/Ash-generated DDL).
+    # Guarded by `NOT EXISTS` against the child's real unique index
+    # (`map_discord_webhooks_v1_unique_notification_role_index` on
+    # `(notification_id, role)`): without it, any notification that already
+    # has a `:system` child — a partially-applied deploy, a hand-repaired row,
+    # or simply re-running this migration — aborts the whole statement on the
+    # first collision instead of skipping the rows already split.
     execute("""
     INSERT INTO map_discord_webhooks_v1 (
       id, notification_id, role, encrypted_webhook_url, "enabled?",
@@ -49,6 +55,10 @@ defmodule WandererApp.Repo.Migrations.SplitDiscordWebhooks do
       n.last_delivery_at, n.last_error, n.last_error_at, n.consecutive_failures,
       (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc')
     FROM map_discord_notifications_v1 n
+    WHERE NOT EXISTS (
+      SELECT 1 FROM map_discord_webhooks_v1 w
+      WHERE w.notification_id = n.id AND w.role = 'system'
+    )
     """)
 
     alter table(:map_discord_notifications_v1) do
@@ -95,7 +105,14 @@ defmodule WandererApp.Repo.Migrations.SplitDiscordWebhooks do
     #    old :system row is still there, so the INSERT in `up/0` collides with
     #    it. `:character` rows are untouched — they were never derived from the
     #    parent and have nowhere to roll back to.
-    execute("DELETE FROM map_discord_webhooks_v1 WHERE role = 'system'")
+    #    Scoped with a join to the parent table (rather than a bare
+    #    `WHERE role = 'system'`) to match exactly the rows the UPDATE above
+    #    just restored, not every `:system` row in the database.
+    execute("""
+    DELETE FROM map_discord_webhooks_v1 w
+    USING map_discord_notifications_v1 n
+    WHERE w.notification_id = n.id AND w.role = 'system'
+    """)
 
     # 4. Only now can the original constraint be reinstated. A notification with
     #    no :system child would fail here — which is correct: it has no URL to
