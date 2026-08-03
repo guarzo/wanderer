@@ -278,7 +278,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
 
     DiscordDispatcher.dispatch_event(map.id, event)
 
-    refute_delivery(nil)
+    refute_delivery(w.id)
     assert Process.alive?(Process.whereis(DiscordDispatcher))
   end
 
