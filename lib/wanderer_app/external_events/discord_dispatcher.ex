@@ -19,6 +19,10 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   ## Deduplication is at-most-once, by choice
 
+  The dedup key is `"\#{map_id}:\#{killmail_id}"` and is deliberately NOT scoped by
+  webhook role. A kill posts once per map, to one destination — routing chooses
+  which. Scoping the key by role would double-post any kill eligible for both.
+
   Killmails are marked as *attempted* before delivery is confirmed, so an event
   lost to a delivery failure is never re-sent. This is deliberate. Marking only
   after success would require holding the batch across an async worker
@@ -43,7 +47,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   require Logger
 
-  alias WandererApp.Api.MapDiscordNotification
+  alias WandererApp.Api.{MapDiscordNotification, MapDiscordWebhook}
   alias WandererApp.ExternalEvents.Discord.{EmbedFormatter, WorkerSupervisor}
   alias WandererApp.SystemClass
 
@@ -69,34 +73,36 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   end
 
   @doc """
-  Posts a fixed sample message so a user can confirm their webhook works.
+  Posts a fixed sample message to ONE webhook so a user can confirm it works.
   Routed through the same worker so it cannot jump the queue.
 
+  Takes a webhook id, not a map id: a map can have two destinations and the
+  user tests them separately.
+
   Reports *configuration* errors synchronously: the global kill-switch being
-  off (`:notifications_disabled`) and the map having no Discord config
+  off (`:notifications_disabled`) and the webhook being missing or disabled
   (`:not_configured`) are both resolved before returning.
 
-  Delivery success is **not** awaited. The final hop is `Worker.enqueue/3`, a
+  Delivery success is **not** awaited. The final hop is `Worker.enqueue/2`, a
   cast, so `:ok` means "accepted for delivery", not "Discord accepted it" — a
   dead or revoked webhook URL still returns `:ok` here and surfaces later as a
-  failure recorded on the notification record (`last_error`,
-  `consecutive_failures`). UI built on this must not promise the user that the
-  message arrived.
+  failure recorded on the webhook record (`last_error`, `consecutive_failures`).
+  UI built on this must not promise the user that the message arrived.
   """
-  @spec send_test_message(map_id :: String.t()) ::
+  @spec send_test_message(webhook_id :: String.t()) ::
           :ok | {:error, :notifications_disabled | :not_configured | term()}
-  def send_test_message(map_id) do
+  def send_test_message(webhook_id) do
     # Checked here rather than inside the worker: when the gate is off the
     # worker supervisor and its Registry are not running at all, so calling
     # into them would crash the caller (the LiveView).
     if enabled_globally?() do
-      case fetch_config(map_id) do
-        {:ok, notification} ->
+      case MapDiscordWebhook.by_id(webhook_id) do
+        {:ok, %{enabled?: true} = webhook} ->
           message = %{
             "content" => "Wanderer test message — Discord kill notifications are configured."
           }
 
-          case WorkerSupervisor.deliver(map_id, notification.id, [message]) do
+          case WorkerSupervisor.deliver(webhook.id, [message]) do
             :ok ->
               :ok
 
@@ -110,8 +116,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
               {:error, reason}
           end
 
-        error ->
-          error
+        _ ->
+          {:error, :not_configured}
       end
     else
       {:error, :notifications_disabled}
@@ -149,6 +155,10 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
+         # Phase A resolves ONE destination. Routing between the system and
+         # character webhooks arrives with the Router; until then the system
+         # webhook is the only destination, exactly as before the split.
+         {:ok, webhook} <- system_webhook(notification),
          {:ok, system_id, killmails} <- extract_kills(payload),
          true <- system_allowed?(notification, system_id),
          [_ | _] = fresh <- reject_duplicates(map_id, killmails) do
@@ -170,7 +180,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
       fresh
       |> EmbedFormatter.format_batch(system_name)
-      |> then(&WorkerSupervisor.deliver(map_id, notification.id, &1))
+      |> then(&WorkerSupervisor.deliver(webhook.id, &1))
       |> handle_delivery_result(map_id, formatted)
 
       :ok
@@ -180,6 +190,18 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   end
 
   defp do_dispatch(_map_id, _event), do: :ok
+
+  # A notification always has a `:system` child (the create action makes both in
+  # one transaction), but the list can still be empty if the row was removed out
+  # of band — return an error rather than raising on the dispatch path.
+  # A disabled destination is dropped HERE, before `mark_attempted/2`: the worker
+  # would drop it too, but only after the kill had been burned for the dedup TTL.
+  defp system_webhook(notification) do
+    case Enum.find(notification.webhooks, &(&1.role == :system and &1.enabled?)) do
+      nil -> {:error, :not_configured}
+      webhook -> {:ok, webhook}
+    end
+  end
 
   defp handle_delivery_result(:ok, map_id, fresh) do
     :telemetry.execute(
@@ -235,11 +257,17 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   end
 
   defp load_and_cache(map_id) do
-    case MapDiscordNotification.by_map(map_id) do
-      {:ok, notification} when not is_nil(notification) ->
-        Cachex.put(@cache, map_id, notification)
-        {:ok, notification}
-
+    # `:webhooks` is loaded here, once, and rides along in the cached struct: the
+    # dispatch path must not query the destination table per killmail. Every
+    # child create/update/destroy invalidates this entry (Task 1), so a newly
+    # added or removed webhook is picked up immediately rather than after the
+    # 5-minute TTL.
+    with {:ok, notification} when not is_nil(notification) <-
+           MapDiscordNotification.by_map(map_id),
+         {:ok, notification} <- Ash.load(notification, :webhooks) do
+      Cachex.put(@cache, map_id, notification)
+      {:ok, notification}
+    else
       _ ->
         # Cache the negative result too, so busy unconfigured maps do not
         # hit the database on every killmail.
