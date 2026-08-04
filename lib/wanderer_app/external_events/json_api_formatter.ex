@@ -12,14 +12,9 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
   Formats an event into JSON:API structure.
 
   Converts internal events to JSON:API format:
-  - `data`: Resource object with type, id, attributes, relationships, OR a list
-    of resource objects for events that carry a collection
+  - `data`: Resource object with type, id, attributes, relationships
   - `meta`: Event metadata (type, timestamp, etc.)
   - `links`: Related resource links where applicable
-
-  `data` is a list for `:map_kill`, which is a batch of killmails and emits one
-  resource per kill (JSON:API allows a document's primary data to be an array).
-  Every other event type emits a single resource object.
   """
   @spec format_event(Event.t()) :: map()
   def format_event(%Event{} = event) do
@@ -366,66 +361,22 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # A `:map_kill` event is a BATCH, not a single kill: `broadcast_killmails/3`
-  # sends one event per upstream message, carrying every killmail for that
-  # system under `"killmails"` alongside a top-level `"solar_system_id"`
-  # (lib/wanderer_app/kills/message_handler.ex:126-131). The per-kill keys
-  # (`killmail_id`, `victim_char_name`, `victim_ship_name`, `kill_time`) live on
-  # the individual killmails, produced by `add_core_kill_data/3` and
-  # `add_victim_data/2` (same file, lines 298-322).
-  #
-  # This clause used to read those keys off the BATCH, where none of them
-  # exist, so every kill event serialised as one resource with a nil id and
-  # nil attributes regardless of how many kills it carried. One JSON:API
-  # resource per killmail is the honest shape, and it makes `data` an array —
-  # a BREAKING change to the public payload, recorded in the CHANGELOG.
   defp format_resource_data(%Event{type: :map_kill, payload: payload} = event) do
-    case fetch_killmails(payload) do
-      {:ok, killmails} ->
-        killmails
-        |> Enum.filter(&(kill_value(&1, :killmail_id) != nil))
-        |> Enum.map(&kill_resource(&1, payload, event))
-
-      :absent ->
-        # Not a killmail batch. `MessageHandler.broadcast_kill_count/2` reuses
-        # this event type for kill-count updates, which carry a system id and a
-        # `"count"` and no `"killmails"` key at all. Formatting those as an
-        # empty collection would throw the count away, so they keep the generic
-        # event shape. Absent is not the same as empty: an empty batch really
-        # does mean "no kills" and formats as `[]` above.
-        generic_resource_data(event, payload)
-    end
-  end
-
-  # The attribute NAMES below are the public JSON:API shape and are deliberately
-  # unchanged; only the values they are read from moved to the individual kill.
-  defp kill_resource(kill, payload, %Event{} = event) do
     %{
       "type" => "kills",
-      "id" => kill_value(kill, :killmail_id),
+      "id" => payload["killmail_id"] || payload[:killmail_id],
       "attributes" => %{
-        "killmail_id" => kill_value(kill, :killmail_id),
-        "victim_character_name" => kill_value(kill, :victim_char_name),
-        "victim_ship_type" => kill_value(kill, :victim_ship_name),
-        # Per kill, and falling back to the broadcast time only when this kill's
-        # own time is genuinely absent.
-        "occurred_at" => kill_value(kill, :kill_time) || event.timestamp
+        "killmail_id" => payload["killmail_id"] || payload[:killmail_id],
+        "victim_character_name" =>
+          payload["victim_character_name"] || payload[:victim_character_name],
+        "victim_ship_type" => payload["victim_ship_type"] || payload[:victim_ship_type],
+        "occurred_at" => payload["killmail_time"] || payload[:killmail_time] || event.timestamp
       },
       "relationships" => %{
         "system" => %{
           "data" => %{
             "type" => "map_systems",
-            # The BATCH's system id, not the kill's own, and deliberately so.
-            # The two are the same in practice — `add_core_kill_data/3` copies
-            # the kill's system from the same subscription the batch is keyed
-            # on — but only the batch's id is guaranteed to be a system this map
-            # actually contains: it is what `SystemMapIndex` matched to route
-            # the event here in the first place
-            # (lib/wanderer_app/kills/subscription/map_integration.ex:159-172).
-            # Using a kill's own id would let a mismatched upstream payload
-            # point the relationship at a `map_systems` resource the client
-            # cannot fetch.
-            "id" => batch_system_id(payload)
+            "id" => payload["system_id"] || payload[:system_id]
           }
         },
         "map" => %{
@@ -434,36 +385,6 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
       }
     }
   end
-
-  # `Map.has_key?` rather than `Map.get(_, [])`: a batch with an empty kill list
-  # and a payload that is not a batch at all are different events and format
-  # differently. A present-but-not-a-list value is malformed and is treated as
-  # "not a batch" rather than crashed on.
-  defp fetch_killmails(payload) when is_map(payload) do
-    cond do
-      is_list(payload["killmails"]) -> {:ok, payload["killmails"]}
-      is_list(payload[:killmails]) -> {:ok, payload[:killmails]}
-      true -> :absent
-    end
-  end
-
-  defp fetch_killmails(_payload), do: :absent
-
-  # Kills arrive string-keyed from the upstream websocket; atom keys are
-  # accepted for hand-built payloads. A non-map entry yields nil, which drops it
-  # in the `killmail_id` filter above rather than raising mid-batch.
-  defp kill_value(kill, key) when is_map(kill) do
-    Map.get(kill, Atom.to_string(key)) || Map.get(kill, key)
-  end
-
-  defp kill_value(_kill, _key), do: nil
-
-  defp batch_system_id(payload) when is_map(payload) do
-    payload["solar_system_id"] || payload[:solar_system_id] || payload["system_id"] ||
-      payload[:system_id]
-  end
-
-  defp batch_system_id(_payload), do: nil
 
   defp format_resource_data(%Event{type: :rally_point_added, payload: payload} = event) do
     %{
@@ -506,10 +427,6 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
 
   # Generic fallback for unknown event types
   defp format_resource_data(%Event{payload: payload} = event) do
-    generic_resource_data(event, payload)
-  end
-
-  defp generic_resource_data(%Event{} = event, payload) do
     %{
       "type" => "events",
       "id" => event.id,
