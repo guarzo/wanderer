@@ -3,11 +3,18 @@ defmodule WandererAppWeb.MapSystemsEventHandlerCorporationSearchTest do
 
   alias WandererAppWeb.MapSystemsEventHandler
 
-  # Guards the Task 13 rewiring: the "get_corporation_names" UI event must go
-  # through WandererApp.Esi.CorporationSearch.search/2. A caller that still
-  # points at the deleted private implementation, or that passes the wrong
-  # argument order, would fail these assertions rather than the module's own
-  # tests (which know nothing about this call site).
+  # Guards the Task 13 rewiring: the "get_corporation_names" UI event must reach
+  # WandererApp.Esi.CorporationSearch instead of the deleted private
+  # implementation, and must answer in the `{:reply, %{results: [...]}, socket}`
+  # shape the frontend expects. Both cases stay inside the shared no-characters
+  # and minimum-length gates, so they also pin that the call site defers to those
+  # rules rather than carrying a bespoke copy.
+  #
+  # What they do NOT catch — verified, not assumed — is a swapped argument order:
+  # calling `CorporationSearch.search(search, user_chars)` still leaves these two
+  # tests green, because `search/2`'s deliberate `{:ok, []}` catch-all absorbs
+  # any argument shape it does not recognise. Pinning the order would take a test
+  # that gets as far as a stubbed ESI client.
   describe "get_corporation_names UI event" do
     test "replies with no results when the user has no characters" do
       socket = %Phoenix.LiveView.Socket{assigns: %{current_user: %{characters: []}}}

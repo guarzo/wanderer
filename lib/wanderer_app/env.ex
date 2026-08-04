@@ -109,7 +109,7 @@ defmodule WandererApp.Env do
   The declared contract is `pos_integer()`. A non-positive configured value is
   a misconfiguration, not a valid setting: `0` would silently drop every
   killmail and a negative number would silently let every killmail through
-  (see `WandererApp.ExternalEvents.DiscordDispatcher.kill_fresh?/2`), and
+  (see `WandererApp.ExternalEvents.DiscordDispatcher.kill_fresh?/3`), and
   either failure mode is otherwise invisible. Both fall back to the default
   with a loud warning rather than being honoured, so the two non-positive
   cases behave the same way instead of one silently suppressing all
