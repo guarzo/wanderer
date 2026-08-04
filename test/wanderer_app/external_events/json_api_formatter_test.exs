@@ -437,4 +437,84 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
                "0198f0a1-eeee-7000-8000-00000000000e"
     end
   end
+
+  describe "map_kill" do
+    # Fixture: kills/message_handler.ex:126 (batch) and :296-346 (kill element)
+    defp killmail(id) do
+      %{
+        "killmail_id" => id,
+        "kill_time" => "2026-08-04T11:59:00Z",
+        "solar_system_id" => 31_000_199,
+        "victim_char_id" => 2_112_625_428,
+        "victim_char_name" => "Victim #{id}",
+        "victim_corp_ticker" => "TEST",
+        "victim_corp_name" => "Test Corp",
+        "victim_alliance_ticker" => "TSTA",
+        "victim_alliance_name" => "Test Alliance",
+        "victim_ship_type_id" => 587,
+        "victim_ship_name" => "Rifter",
+        "final_blow_char_name" => "Killer",
+        "attacker_count" => 3,
+        "total_value" => 12_500_000.0,
+        "npc" => false
+      }
+    end
+
+    test "a batch of three kills yields three distinct resources" do
+      d =
+        data(:map_kill, %{
+          "solar_system_id" => 31_000_199,
+          "killmails" => [killmail(1), killmail(2), killmail(3)],
+          "timestamp" => "2026-08-04T12:00:00Z",
+          "type" => :killmail_update
+        })
+
+      assert is_list(d)
+      assert length(d) == 3
+      assert Enum.map(d, & &1["id"]) == ["1", "2", "3"]
+      # Each resource carries its own kill, not the first kill repeated.
+      assert Enum.map(d, & &1["attributes"]["victim_char_name"]) == [
+               "Victim 1",
+               "Victim 2",
+               "Victim 3"
+             ]
+
+      first = hd(d)
+      assert first["type"] == "kills"
+      assert first["attributes"]["victim_ship_type_id"] == 587
+      assert first["attributes"]["attacker_count"] == 3
+      assert first["attributes"]["total_value"] == 12_500_000.0
+      # Regression: `npc || nil` turned false into nil.
+      assert first["attributes"]["npc"] == false
+      # The batch's solar_system_id is authoritative - it routed the event here.
+      assert first["attributes"]["solar_system_id"] == 31_000_199
+    end
+
+    test "an empty batch yields an empty array" do
+      assert data(:map_kill, %{"solar_system_id" => 31_000_199, "killmails" => []}) == []
+    end
+
+    # Dispatch is on key presence, not value: a malformed batch is still a
+    # batch, not a kill count.
+    test "a present-but-nil killmails key is an empty batch, not a count" do
+      d = data(:map_kill, %{"solar_system_id" => 31_000_199, "killmails" => nil, "count" => 7})
+      assert d == []
+    end
+
+    # Fixture: kills/message_handler.ex:111 - no killmails key at all
+    test "the kill_count variant keeps the count instead of being discarded" do
+      d =
+        data(:map_kill, %{
+          "solar_system_id" => 31_000_199,
+          "count" => 7,
+          "type" => :kill_count
+        })
+
+      refute is_list(d)
+      assert d["type"] == "kill_counts"
+      assert d["id"] == "01JQXYZ0000000000000000000"
+      assert d["attributes"]["count"] == 7
+      assert d["attributes"]["solar_system_id"] == 31_000_199
+    end
+  end
 end

@@ -369,29 +369,50 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
+  # Producer: kills/message_handler.ex:126. The payload is a BATCH -
+  # %{"solar_system_id", "killmails", "timestamp", "type"} - and every
+  # per-kill field lives on the elements of "killmails" (built at :296-346).
+  #
+  # Guard on presence of the key, not on its value: a batch that legitimately
+  # carries no kills must render as [], and a present-but-nil "killmails" is a
+  # malformed batch rather than a kill count. fetch/2 cannot tell absent from
+  # present-nil, so dispatch on has_key?/2.
   defp format_resource_data(%Event{type: :map_kill, payload: payload} = event) do
-    %{
-      "type" => "kills",
-      "id" => payload["killmail_id"] || payload[:killmail_id],
-      "attributes" => %{
-        "killmail_id" => payload["killmail_id"] || payload[:killmail_id],
-        "victim_character_name" =>
-          payload["victim_character_name"] || payload[:victim_character_name],
-        "victim_ship_type" => payload["victim_ship_type"] || payload[:victim_ship_type],
-        "occurred_at" => payload["killmail_time"] || payload[:killmail_time] || event.timestamp
-      },
-      "relationships" => %{
-        "system" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
+    if has_key?(payload, :killmails) do
+      solar_system_id = fetch(payload, :solar_system_id)
+
+      payload
+      |> fetch(:killmails)
+      |> List.wrap()
+      |> Enum.map(fn kill ->
+        %{
+          "type" => "kills",
+          "id" => rid(fetch(kill, :killmail_id)),
+          "attributes" => %{
+            # The batch's solar_system_id, not the kill's: only the batch id
+            # is guaranteed to name a system this map contains, since it is
+            # what routed the event here.
+            "solar_system_id" => solar_system_id,
+            "kill_time" => fetch(kill, :kill_time),
+            "victim_char_id" => fetch(kill, :victim_char_id),
+            "victim_char_name" => fetch(kill, :victim_char_name),
+            "victim_corp_ticker" => fetch(kill, :victim_corp_ticker),
+            "victim_corp_name" => fetch(kill, :victim_corp_name),
+            "victim_alliance_ticker" => fetch(kill, :victim_alliance_ticker),
+            "victim_alliance_name" => fetch(kill, :victim_alliance_name),
+            "victim_ship_type_id" => fetch(kill, :victim_ship_type_id),
+            "victim_ship_name" => fetch(kill, :victim_ship_name),
+            "final_blow_char_name" => fetch(kill, :final_blow_char_name),
+            "attacker_count" => fetch(kill, :attacker_count),
+            "total_value" => fetch(kill, :total_value),
+            "npc" => fetch(kill, :npc)
+          },
+          "relationships" => %{"map" => map_relationship(event)}
         }
-      }
-    }
+      end)
+    else
+      format_kill_count(event, payload)
+    end
   end
 
   # Producer: map_server_pings_impl.ex:41. This producer does send the
@@ -496,6 +517,22 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
 
   defp map_relationship(%Event{map_id: map_id}) do
     relationship("maps", map_id)
+  end
+
+  # Producer: kills/message_handler.ex:111. Kill-count updates reuse :map_kill
+  # with a count and no "killmails" key. A summary names no single kill, so the
+  # event ULID is the identity.
+  defp format_kill_count(%Event{} = event, payload) do
+    %{
+      "type" => "kill_counts",
+      "id" => event.id,
+      "attributes" => %{
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "count" => fetch(payload, :count),
+        "updated_at" => event.timestamp
+      },
+      "relationships" => %{"map" => map_relationship(event)}
+    }
   end
 
   # An empty to-one relationship is represented as "data": null. Emitting
