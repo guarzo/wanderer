@@ -383,6 +383,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
           # For consistency, include basic fields even for deleted systems
           WandererApp.ExternalEvents.broadcast(map_id, :deleted_system, %{
+            system_id: system_id,
             solar_system_id: solar_system_id,
             # System is deleted, name not available
             name: nil,
@@ -670,6 +671,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
             # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
             WandererApp.ExternalEvents.broadcast(map_id, :add_system, %{
+              system_id: updated_system.id,
               solar_system_id: updated_system.solar_system_id,
               name: updated_system.name,
               position_x: updated_system.position_x,
@@ -725,6 +727,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
                     # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
                     WandererApp.ExternalEvents.broadcast(map_id, :add_system, %{
+                      system_id: system.id,
                       solar_system_id: system.solar_system_id,
                       name: system.name,
                       position_x: system.position_x,
@@ -938,6 +941,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
           end)
 
           WandererApp.ExternalEvents.broadcast(map_id, :add_system, %{
+            system_id: system.id,
             solar_system_id: system.solar_system_id,
             position_x: system.position_x,
             position_y: system.position_y

@@ -13,8 +13,11 @@ defmodule WandererApp.ExternalEvents do
 
       # From event producers, call this in ADDITION to existing broadcasts
       WandererApp.ExternalEvents.broadcast("map_123", :add_system, %{
+        system_id: "0198f0a1-2222-7000-8000-000000000002",
         solar_system_id: 31000199,
-        name: "J123456"
+        name: "J123456",
+        position_x: 100,
+        position_y: 200
       })
 
   This is additive-only and does not replace any existing functionality.
@@ -40,16 +43,22 @@ defmodule WandererApp.ExternalEvents do
 
   ## Examples
 
-      # System events
+      # System events - see map_server_systems_impl.ex
       WandererApp.ExternalEvents.broadcast("map_123", :add_system, %{
+        system_id: "0198f0a1-2222-7000-8000-000000000002",
         solar_system_id: 31000199,
-        name: "J123456"
+        name: "J123456",
+        position_x: 100,
+        position_y: 200
       })
 
-      # Kill events
+      # Kill events carry a BATCH of killmails, not a single kill -
+      # see kills/message_handler.ex:126
       WandererApp.ExternalEvents.broadcast("map_123", :map_kill, %{
-        killmail_id: 98765,
-        victim_ship_type: "Rifter"
+        "solar_system_id" => 31000199,
+        "killmails" => [%{"killmail_id" => 98765, "victim_ship_name" => "Rifter"}],
+        "timestamp" => "2026-08-04T12:00:00Z",
+        "type" => :killmail_update
       })
   """
   @spec broadcast(String.t(), Event.event_type(), map()) :: :ok
