@@ -811,13 +811,16 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           </li>
         </ul>
 
+        <%!-- `compact` makes the field wrapper exactly as tall as its input, so
+              stretching the row gives the Add button the field's exact box
+              rather than relying on the two having equal natural heights. --%>
         <.form
           :let={ef}
           for={@excluded_form}
           id="excluded-system-form"
           phx-submit="add-excluded"
           phx-target={@myself}
-          class="grid items-start gap-2"
+          class="grid items-stretch gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -825,7 +828,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@excluded_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
-            label_row={false}
+            compact={true}
             debounce={250}
             update_min_len={@min_search_length}
             mode={:single}
@@ -875,7 +878,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           id="focus-corp-form"
           phx-submit="add-focus-corp"
           phx-target={@myself}
-          class="grid items-start gap-2"
+          class="grid items-stretch gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -883,7 +886,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@focus_corp_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
-            label_row={false}
+            compact={true}
             debounce={250}
             update_min_len={@corp_min_search_length}
             mode={:single}
