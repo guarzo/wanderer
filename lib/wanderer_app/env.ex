@@ -94,6 +94,19 @@ defmodule WandererApp.Env do
     |> Keyword.get(:webhooks_enabled, false)
   end
 
+  @doc """
+  Killmails older than this are dropped at the Discord dispatcher.
+
+  Guards against an upstream replay burst on reconnect posting hours of history
+  into a chat channel. Deliberately not cached: it is read once per killmail
+  batch, and `Application.get_env/3` on a keyword list is cheaper than the cache
+  round trip.
+  """
+  def discord_max_killmail_age_seconds() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:discord_max_killmail_age_seconds, 3600)
+  end
+
   @decorate cacheable(
               cache: WandererApp.Cache,
               key: "map-connection-auto-expire-hours"
