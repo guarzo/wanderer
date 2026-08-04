@@ -811,27 +811,16 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           </li>
         </ul>
 
-        <%!-- Two separate problems, two separate fixes. `compact` makes the
-              field wrapper exactly as tall as its input, so the columns start
-              at the same y. The button's own box is then matched to the input's
-              term by term, because every height term has to agree:
-              font-size (`!text-base` = the input's 1rem), vertical padding
-              (`!py-2` = its 0.5rem), border (1px on both already), and
-              line-height. That last one is the one that actually bit: nothing
-              in the theme sets it, so button and input inherit it differently —
-              measured, the button's content box came out 31px for 14px text
-              against the input's 22px for 16px. Pinning both to
-              `leading-normal` removes the asymmetry. The `!`s are for
-              `.p-button.p-button-sm`, a two-class selector a bare utility
-              loses to; line-height needs none, since any specified value beats
-              an inherited one. --%>
+        <%!-- `compact` makes the field wrapper exactly as tall as its input, so
+              stretching the row gives the Add button the field's exact box
+              rather than relying on the two having equal natural heights. --%>
         <.form
           :let={ef}
           for={@excluded_form}
           id="excluded-system-form"
           phx-submit="add-excluded"
           phx-target={@myself}
-          class="grid items-start gap-2"
+          class="grid items-stretch gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -839,7 +828,6 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@excluded_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
-            input_class="leading-normal"
             compact={true}
             debounce={250}
             update_min_len={@min_search_length}
@@ -847,7 +835,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             options={@system_options}
             placeholder="Search a system by name"
           />
-          <.button type="submit" class="!py-2 !text-base leading-normal">Add</.button>
+          <.button type="submit">Add</.button>
         </.form>
 
         <p :if={@system_search_error} class="text-sm text-amber-400">{@system_search_error}</p>
@@ -890,7 +878,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           id="focus-corp-form"
           phx-submit="add-focus-corp"
           phx-target={@myself}
-          class="grid items-start gap-2"
+          class="grid items-stretch gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -898,7 +886,6 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@focus_corp_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
-            input_class="leading-normal"
             compact={true}
             debounce={250}
             update_min_len={@corp_min_search_length}
@@ -906,7 +893,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             options={@corp_options}
             placeholder="Search a corporation by name"
           />
-          <.button type="submit" class="!py-2 !text-base leading-normal">Add</.button>
+          <.button type="submit">Add</.button>
         </.form>
 
         <p :if={@corp_search_error} class="text-sm text-amber-400">{@corp_search_error}</p>
