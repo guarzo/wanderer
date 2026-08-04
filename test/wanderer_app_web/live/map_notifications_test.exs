@@ -678,6 +678,14 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # contents would let it pass vacuously the moment the keystroke stopped
     # reaching the search at all, which is the exact regression it guards.
     assert render(view) =~ "Corporation search is unavailable right now."
+
+    # The reason has to reach the page, not just the log. The generic sentence
+    # alone cannot distinguish "re-authorise this character" from "ESI is
+    # rate-limiting us", and reading it off a screenshot is the only diagnostic
+    # available for a deployment whose logs we cannot see. Asserting on the
+    # parenthesised suffix rather than a specific atom keeps this independent of
+    # whichever failure the test host produces.
+    assert render(view) =~ ~r/Corporation search is unavailable right now\..*\(.+\)/s
   end
 
   test "send test message reports the global kill-switch", %{conn: conn, map: map} do
