@@ -5,8 +5,8 @@ on:
     branches:
       - guarzo/release
 
-# Default token is read-only; the tag-build-deploy job below scopes up to
-# contents: write only for the step that needs to push a tag.
+# Default token is read-only. The tag-build-deploy job scopes itself up to
+# contents: write because it pushes a tag; permissions cannot be set per step.
 permissions:
   contents: read
 

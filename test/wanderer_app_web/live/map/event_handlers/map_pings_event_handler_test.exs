@@ -15,9 +15,10 @@ defmodule WandererAppWeb.MapPingsEventHandlerTest do
   end
 
   test "a cancel_ping the working clause cannot match is logged, not absorbed" do
-    # update_system: false misses the clause at :145. The debug catch-all
-    # returned {:noreply, socket} for it, so a permission-rejected cancel was
-    # indistinguishable from a successful one - in the logs and to the caller.
+    # update_system: false misses the real "cancel_ping" clause. The debug
+    # catch-all returned {:noreply, socket} for it, so a permission-rejected
+    # cancel was indistinguishable from a successful one - in the logs and to
+    # the caller.
     socket = %{
       assigns: %{
         map_id: "map-1",
