@@ -8,6 +8,10 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
 
   defp valid_url, do: "https://discord.com/api/webhooks/123456789/abcdefTOKEN"
 
+  # The dispatcher's per-map config cache, seeded and read directly so these
+  # tests do not depend on the dispatcher GenServer running.
+  @cache :discord_notification_cache
+
   defp await_condition(fun, timeout \\ 2_000) do
     deadline = System.monotonic_time(:millisecond) + timeout
     do_await_condition(fun, deadline)
@@ -174,5 +178,59 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
     # globally disabled).
     assert :ok = MapDiscordNotification.destroy(rec)
     assert {:error, _} = MapDiscordNotification.by_map(map.id)
+  end
+
+  # `after_action` hooks run inside the action's transaction, in the order they
+  # were added. This one is appended after the resource's own hooks, so it
+  # stands in for a killmail that arrives *just after* an `after_action`
+  # invalidation would have run: `DiscordDispatcher.load_and_cache/1` reads
+  # pre-commit state, finds no config, and stores the negative `:none` marker.
+  #
+  # Only an invalidation that runs after the transaction clears that marker.
+  # Under `after_action` it survives for the cache's 5-minute default TTL, and
+  # the map the user just configured posts nothing for five minutes.
+  defp cache_none_inside_transaction(changeset, map_id) do
+    Ash.Changeset.after_action(changeset, fn _changeset, record ->
+      Cachex.put(@cache, map_id, :none)
+      {:ok, record}
+    end)
+  end
+
+  test "create invalidates the cache after the transaction, not inside it", %{map: map} do
+    assert {:ok, _rec} =
+             MapDiscordNotification
+             |> Ash.Changeset.for_create(:create, %{map_id: map.id, webhook_url: valid_url()})
+             |> cache_none_inside_transaction(map.id)
+             |> Ash.create()
+
+    assert Cachex.get(@cache, map.id) == {:ok, nil}
+  end
+
+  test "update invalidates the cache after the transaction, not inside it", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    assert {:ok, _rec} =
+             rec
+             |> Ash.Changeset.for_update(:update, %{wh_only: false})
+             |> cache_none_inside_transaction(map.id)
+             |> Ash.update()
+
+    assert Cachex.get(@cache, map.id) == {:ok, nil}
+  end
+
+  test "a rolled-back create leaves the cached config alone", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+    Cachex.put(@cache, map.id, rec)
+
+    # Rejected by the child's URL validation, so the whole transaction rolls
+    # back. The after_transaction hook still runs, with an `{:error, _}` result:
+    # nothing was written, so nothing may be evicted.
+    assert {:error, _} =
+             MapDiscordNotification.create(%{
+               map_id: map.id,
+               webhook_url: "https://evil.example.com/x"
+             })
+
+    assert {:ok, ^rec} = Cachex.get(@cache, map.id)
   end
 end
