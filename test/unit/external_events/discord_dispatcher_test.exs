@@ -5,7 +5,14 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
 
   alias WandererApp.Api.{MapDiscordNotification, MapDiscordWebhook}
   alias WandererApp.ExternalEvents.{DiscordDispatcher, Event}
-  alias WandererApp.ExternalEvents.Discord.{EmbedFormatter, HttpStub, WorkerSupervisor}
+
+  alias WandererApp.ExternalEvents.Discord.{
+    EmbedFormatter,
+    HttpStub,
+    Matcher,
+    WorkerSupervisor
+  }
+
   alias WandererAppWeb.Factory
 
   # A real wormhole system id (J-space) and a real known-space id (Jita).
@@ -13,6 +20,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
   @ks_system 30_000_142
 
   @system_url "https://discord.com/api/webhooks/123/tok"
+  @character_url "https://discord.com/api/webhooks/456/chr"
 
   setup do
     # `wh_only` filtering resolves the system class through
@@ -54,6 +62,57 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     {:ok, webhooks} = MapDiscordWebhook.by_notification(notification.id)
     Enum.find(webhooks, &(&1.role == :system))
   end
+
+  defp character_webhook(notification, url \\ @character_url) do
+    {:ok, wh} =
+      MapDiscordWebhook.create(%{
+        notification_id: notification.id,
+        role: :character,
+        webhook_url: url
+      })
+
+    wh
+  end
+
+  # `tracked_eve_ids/1` reads a cache keyed by map (Task 6). Seed it directly:
+  # this file is about routing and batching, not about how the set is built.
+  # The cache name MUST match the Matcher's — it reads
+  # `:discord_notification_cache` under a namespaced key. Seeding a different
+  # cache here would leave the tracked set empty, every kill would take the
+  # `:not_involved` branch, and the routing tests would pass for the wrong
+  # reason while asserting nothing.
+  defp track(map_id, eve_ids) do
+    Cachex.put(
+      :discord_notification_cache,
+      "map:#{map_id}:tracked_eve_ids",
+      MapSet.new(eve_ids)
+    )
+
+    on_exit(fn -> Matcher.invalidate_tracked(map_id) end)
+    :ok
+  end
+
+  defp killmail(id, overrides \\ %{}) do
+    Factory.build(
+      :killmail,
+      Map.merge(
+        %{
+          "solar_system_id" => @wh_system,
+          "killmail_id" => id,
+          "victim_char_id" => 8000,
+          "victim_corp_id" => 800_000,
+          "attacker_char_ids" => [],
+          "attacker_corp_ids" => []
+        },
+        overrides
+      )
+    )
+  end
+
+  # The formatter takes `{kill, verdict}` pairs. Tests that call it directly to
+  # derive an expected message count pair every kill with `:not_involved`, which
+  # only affects colour and author line, not the chunking they measure.
+  defp entries(kills), do: Enum.map(kills, &{&1, :not_involved})
 
   # C3 for the J-space id, high-sec (class 0) for Jita, matching the shape
   # `MapTestHelpers.default_test_systems/0` stores.
@@ -407,7 +466,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     # The capped event spans several chunks, and the worker deliberately spaces
     # them. Derive how many messages to expect from the formatter itself rather
     # than assuming the first `wait_for_requests/1` catches all of them.
-    first_batch_size = length(EmbedFormatter.format_batch(kills, "X"))
+    first_batch_size = length(EmbedFormatter.format_batch(entries(kills), "X"))
     assert first_batch_size > 1
 
     DiscordDispatcher.dispatch_event(
@@ -431,6 +490,378 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     later = wait_for_requests(first_batch_size + 1)
     [{_url, body} | _] = Enum.drop(later, first_batch_size)
     assert length(body["embeds"]) == 5
+  end
+
+  describe "per-destination routing" do
+    # The core assertion: one batch, three fates.
+    test "a mixed batch splits across destinations and drops the rest", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      track(map.id, [1001])
+
+      {:ok, _} =
+        MapDiscordNotification.update(n, %{wh_only: false, excluded_systems: [@ks_system]})
+
+      DiscordDispatcher.invalidate_cache(map.id)
+
+      # Involved (tracked victim) in an EXCLUDED system: the carve-out applies,
+      # so it still goes to the character channel.
+      involved = killmail(700_001, %{"solar_system_id" => @ks_system, "victim_char_id" => 1001})
+
+      # Uninvolved, allowed system: system channel.
+      uninvolved = killmail(700_002, %{"solar_system_id" => @wh_system})
+
+      # Uninvolved, excluded system: dropped.
+      dropped = killmail(700_003, %{"solar_system_id" => @ks_system})
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: [involved, uninvolved, dropped]
+          })
+        )
+      )
+
+      settle(system_wh.id)
+      settle(character_wh.id)
+
+      requests = wait_for_requests(2)
+      by_url = Enum.group_by(requests, &elem(&1, 0), &elem(&1, 1))
+
+      assert [system_body] = by_url[@system_url]
+      assert [character_body] = by_url[@character_url]
+
+      assert length(system_body["embeds"]) == 1
+      assert length(character_body["embeds"]) == 1
+
+      # Exactly two messages: the third kill went nowhere.
+      assert length(HttpStub.requests()) == 2
+    end
+
+    # The exact bug the whole-partition rule prevents. If `deliver_to/5` passed
+    # the pre-truncated list to `format_batch/2`, the overflow line disappears
+    # and this fails with `contents == []`.
+    test "the overflow line counts kills beyond the per-destination cap", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [])
+
+      cap = EmbedFormatter.max_kills_per_event()
+      kills = for i <- 1..(cap + 5), do: killmail(710_000 + i)
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system, killmails: kills}))
+      )
+
+      settle(system_wh.id)
+
+      expected = length(EmbedFormatter.format_batch(entries(kills), "X"))
+      requests = wait_for_requests(expected)
+
+      contents =
+        requests |> Enum.map(fn {_url, body} -> body["content"] end) |> Enum.reject(&is_nil/1)
+
+      assert ["…and 5 more kills not shown."] == contents
+    end
+
+    test "two destinations each get their own cap budget", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      track(map.id, [1001])
+
+      {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+
+      cap = EmbedFormatter.max_kills_per_event()
+
+      system_kills = for i <- 1..(cap + 5), do: killmail(720_000 + i)
+
+      character_kills =
+        for i <- 1..(cap + 5), do: killmail(730_000 + i, %{"victim_char_id" => 1001})
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: system_kills ++ character_kills
+          })
+        )
+      )
+
+      settle(system_wh.id)
+      settle(character_wh.id)
+
+      per_destination = length(EmbedFormatter.format_batch(entries(system_kills), "X"))
+      requests = wait_for_requests(per_destination * 2)
+      by_url = Enum.group_by(requests, &elem(&1, 0), &elem(&1, 1))
+
+      system_bodies = by_url[@system_url]
+      character_bodies = by_url[@character_url]
+
+      # Each destination renders a FULL cap of kills. A shared budget would give
+      # one of them 30 and the other 0.
+      assert Enum.sum(Enum.map(system_bodies, &length(&1["embeds"]))) == cap
+      assert Enum.sum(Enum.map(character_bodies, &length(&1["embeds"]))) == cap
+
+      # And each counts only its own overflow.
+      assert Enum.any?(system_bodies, &(&1["content"] == "…and 5 more kills not shown."))
+      assert Enum.any?(character_bodies, &(&1["content"] == "…and 5 more kills not shown."))
+    end
+
+    # A kill the router drops belongs to no partition, so it is never marked. If
+    # it becomes routable later — the user removes the exclusion, or one of their
+    # pilots turns up in it — it must still be deliverable.
+    test "kills dropped by the router are not marked attempted", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      # Bind the updated record: Ash diffs against the struct it is given, so a
+      # second update from the stale `n` would see `excluded_systems` already
+      # `[]` and change nothing.
+      {:ok, excluded} =
+        MapDiscordNotification.update(n, %{wh_only: false, excluded_systems: [@ks_system]})
+
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [])
+
+      kill = killmail(740_001, %{"solar_system_id" => @ks_system})
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(Factory.build(:kill_event, %{solar_system_id: @ks_system, killmails: [kill]}))
+      )
+
+      refute_delivery(system_wh.id)
+
+      # Lift the exclusion; the same killmail must now be delivered.
+      {:ok, _} = MapDiscordNotification.update(excluded, %{excluded_systems: []})
+      DiscordDispatcher.invalidate_cache(map.id)
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(Factory.build(:kill_event, %{solar_system_id: @ks_system, killmails: [kill]}))
+      )
+
+      settle(system_wh.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert length(body["embeds"]) == 1
+    end
+
+    # DROP, NOT REROUTE. The Router unit test covers the decision; this covers
+    # the wiring end to end, because a reroute would show up here as a message
+    # on the system URL.
+    test "a disabled character webhook drops rather than rerouting", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      {:ok, _} = MapDiscordWebhook.set_enabled(character_wh, %{enabled?: false})
+
+      {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [1001])
+
+      involved = killmail(750_001, %{"victim_char_id" => 1001})
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{solar_system_id: @wh_system, killmails: [involved]})
+        )
+      )
+
+      # Nothing anywhere — in particular, nothing on the system webhook.
+      refute_delivery(system_wh.id)
+    end
+
+    # The mirror image, with BOTH roles configured: a disabled `:system`
+    # destination must not spill its uninvolved kills into the character
+    # channel.
+    test "a disabled system webhook does not fall back to the character webhook", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      {:ok, _} = MapDiscordWebhook.set_enabled(system_wh, %{enabled?: false})
+
+      {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [1001])
+
+      uninvolved = killmail(755_001, %{"victim_char_id" => 4242})
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{solar_system_id: @wh_system, killmails: [uninvolved]})
+        )
+      )
+
+      refute_delivery(character_wh.id)
+    end
+
+    # Partition results are independent. Stopping the worker tree makes BOTH
+    # partitions report `:not_running`, so both sets of marks must be released
+    # and both kills must still be deliverable on the replay.
+    test "not_running releases the marks of every failing partition", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [1001])
+
+      system_kill = killmail(760_001)
+      character_kill = killmail(760_002, %{"victim_char_id" => 1001})
+
+      :ok = stop_supervised(WorkerSupervisor)
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: [system_kill, character_kill]
+          })
+        )
+      )
+
+      :sys.get_state(DiscordDispatcher)
+      assert HttpStub.requests() == []
+      assert Process.alive?(Process.whereis(DiscordDispatcher))
+
+      start_supervised!(WorkerSupervisor)
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: [system_kill, character_kill]
+          })
+        )
+      )
+
+      settle(system_wh.id)
+      settle(character_wh.id)
+
+      requests = wait_for_requests(2)
+      by_url = Enum.group_by(requests, &elem(&1, 0), &elem(&1, 1))
+
+      assert [system_body] = by_url[@system_url]
+      assert [character_body] = by_url[@character_url]
+      assert length(system_body["embeds"]) == 1
+      assert length(character_body["embeds"]) == 1
+    end
+
+    test "telemetry is emitted per destination with the role", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [1001])
+
+      test_pid = self()
+      handler_id = "discord-role-telemetry-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:wanderer_app, :discord_dispatcher, :dispatched],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:dispatched, metadata[:role], measurements[:count]})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: [killmail(770_001), killmail(770_002, %{"victim_char_id" => 1001})]
+          })
+        )
+      )
+
+      settle(system_wh.id)
+      settle(character_wh.id)
+
+      assert_receive {:dispatched, :system, 1}
+      assert_receive {:dispatched, :character, 1}
+    end
+
+    # The privacy boundary, end to end. The map-local name is visible on the
+    # system channel and MUST NOT appear on the character channel, which is
+    # commonly public. A caller passing `:system` where it meant `:character`
+    # is the leak path `SystemName` cannot defend against on its own.
+    test "map-local system names reach the system channel only", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+
+      {:ok, _} =
+        WandererApp.Api.MapSystem.create(%{
+          map_id: map.id,
+          solar_system_id: @wh_system,
+          name: "J115405",
+          temporary_name: "HOME",
+          position_x: 0,
+          position_y: 0
+        })
+
+      {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [1001])
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: [killmail(780_001), killmail(780_002, %{"victim_char_id" => 1001})]
+          })
+        )
+      )
+
+      settle(system_wh.id)
+      settle(character_wh.id)
+
+      by_url = wait_for_requests(2) |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+      assert [system_body] = by_url[@system_url]
+      assert [character_body] = by_url[@character_url]
+
+      assert hd(system_body["embeds"])["title"] =~ "HOME"
+      refute hd(character_body["embeds"])["title"] =~ "HOME"
+      assert hd(character_body["embeds"])["title"] =~ "J115405"
+    end
   end
 
   test "send_test_message reports the global gate being off", %{system: w} do
@@ -484,14 +915,11 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       refute_delivery(w.id)
     end
 
-    # A full "later fresh arrival still delivers" round trip would need a
-    # second successful delivery through `EmbedFormatter.format_batch/2`, which
-    # currently crashes on ANY non-empty kill list — a pre-existing baseline
-    # failure (`format_batch/2` was reshaped to `[{kill, verdict}]` tuples by
-    # Task 9; Task 8 rewires this call site to match). Asserting the dedup
-    # cache directly proves the guard's actual job — a stale kill leaves no
-    # mark behind — without depending on that unrelated, already-tracked fix.
-    test "a stale killmail is not marked, so it remains eligible for a later arrival",
+    # The full round trip, now that the dispatcher formats and delivers again:
+    # the stale kill leaves no dedup mark, so the SAME killmail arriving later
+    # with a fresh timestamp is still delivered. This is the guard's actual job
+    # — suppress the replay, not the killmail.
+    test "a stale killmail is not marked, so a later fresh arrival still delivers",
          %{map: map, system: w} do
       stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
 
@@ -499,14 +927,21 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
 
       refute_delivery(w.id)
       assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9002") == {:ok, false}
+
+      fresh = DateTime.utc_now() |> DateTime.to_iso8601()
+      DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, [kill(9_002, fresh)]))
+
+      settle(w.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert length(body["embeds"]) == 1
+      assert hd(body["embeds"])["footer"]["text"] == "Killmail ID: 9002"
     end
 
-    # Same reasoning as above: a mixed batch's fresh kill reaches
-    # `mark_attempted/2` before the pre-existing `format_batch/2` crash, so the
-    # dedup cache still proves the guard filtered the stale kill out ahead of
-    # marking, without waiting on the (separately tracked) delivery fix.
-    test "a mixed batch marks only the fresh kill as attempted, not the stale one",
-         %{map: map} do
+    # A mixed batch is where dropping the `kill_fresh?/3` call site is most
+    # easily missed: the fresh kill delivers either way, so the assertion that
+    # bites is the embed COUNT and the id it carries.
+    test "a mixed batch delivers only the fresh kill", %{map: map, system: w} do
       stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
       recent = DateTime.utc_now() |> DateTime.to_iso8601()
 
@@ -515,11 +950,59 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
         kill_event(@wh_system, [kill(9_003, stale), kill(9_004, recent)])
       )
 
-      deadline = System.monotonic_time(:millisecond) + 2_000
-      await_dedup_mark("#{map.id}:9004", true, deadline)
+      settle(w.id)
 
+      assert [{_url, body}] = wait_for_requests(1)
+      assert length(body["embeds"]) == 1
+      assert hd(body["embeds"])["footer"]["text"] == "Killmail ID: 9004"
+
+      # And the stale one was never burned, unlike the delivered one.
       assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9004") == {:ok, true}
       assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9003") == {:ok, false}
+    end
+
+    # The guard must run ONCE, upstream of partitioning — never inside a
+    # per-destination loop, and never after `mark_attempted/2`. With both roles
+    # configured, the stale kill in EACH partition must be filtered out and left
+    # unmarked while that partition's fresh kill still goes out.
+    test "the age guard runs before marking in every partition", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      DiscordDispatcher.invalidate_cache(map.id)
+      track(map.id, [1001])
+
+      stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
+      recent = DateTime.utc_now() |> DateTime.to_iso8601()
+
+      kills = [
+        killmail(9_201, %{"kill_time" => stale}),
+        killmail(9_202, %{"kill_time" => recent}),
+        killmail(9_203, %{"kill_time" => stale, "victim_char_id" => 1001}),
+        killmail(9_204, %{"kill_time" => recent, "victim_char_id" => 1001})
+      ]
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system, killmails: kills}))
+      )
+
+      settle(system_wh.id)
+      settle(character_wh.id)
+
+      by_url = wait_for_requests(2) |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+      assert [system_body] = by_url[@system_url]
+      assert [character_body] = by_url[@character_url]
+      assert length(system_body["embeds"]) == 1
+      assert length(character_body["embeds"]) == 1
+      assert hd(system_body["embeds"])["footer"]["text"] == "Killmail ID: 9202"
+      assert hd(character_body["embeds"])["footer"]["text"] == "Killmail ID: 9204"
+
+      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9201") == {:ok, false}
+      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9203") == {:ok, false}
     end
 
     # Pins the fix for the exact regression the reviewer caught: `kill_fresh?/3`
@@ -530,9 +1013,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     #
     # All three kills are stale regardless of whether `0` or its validated
     # fallback (3600) ends up in effect, so the whole batch is filtered before
-    # `mark_attempted/2`/`format_batch/2` — safe to synchronize with
-    # `:sys.get_state/1` without risking the pre-existing `format_batch/2`
-    # crash (see the tests above).
+    # partitioning and nothing is formatted or delivered.
     test "a misconfigured max age warns once per batch, not once per kill", %{map: map} do
       original = Application.get_env(:wanderer_app, :external_events, [])
 
@@ -563,27 +1044,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     end
   end
 
-  # `mark_attempted/2` runs before the (unrelated) delivery attempt, so polling
-  # for the mark is a safe synchronization point even on a dispatch that goes
-  # on to crash the dispatcher process afterward — unlike `:sys.get_state/1`,
-  # which would raise against an already-dead process.
-  defp await_dedup_mark(key, expected, deadline) do
-    case Cachex.exists?(:discord_dedup_cache, key) do
-      {:ok, ^expected} ->
-        :ok
-
-      _ ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          flunk("timed out waiting for dedup mark #{key} to be #{expected}")
-        else
-          Process.sleep(10)
-          await_dedup_mark(key, expected, deadline)
-        end
-    end
-  end
-
-  # Minimal killmail and event builders matching what `extract_kills/1` expects
-  # (`discord_dispatcher.ex:253-258`).
+  # Minimal killmail and event builders matching what `extract_kills/1` expects.
   defp kill(id, kill_time) do
     %{
       "killmail_id" => id,
