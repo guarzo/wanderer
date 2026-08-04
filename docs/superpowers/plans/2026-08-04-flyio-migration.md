@@ -45,7 +45,7 @@ Resolved during planning, recorded here because they shape task ordering:
 | `lib/wanderer_app/env.ex` | Add `wanderer_kills_ipv6?/0`. | 2 |
 | `config/runtime.exs` (kills block) | Read `WANDERER_KILLS_IPV6`, default `"false"`. | 2 |
 | `mix.exs:80` | Pin `phoenix_gen_socket_client` to `== 4.0.0` — the shim couples to a private contract. | 2 |
-| `lib/wanderer_app_web/controllers/health_controller.ex` | New. Liveness plus a database round-trip. No dependencies on product configuration. | 3 |
+| `lib/wanderer_app_web/controllers/health_controller.ex` | New. Liveness, always 200 while the app is serving; database state reported in the body, never in the status code. No dependencies on product configuration. | 3 |
 | `lib/wanderer_app_web/router.ex` | New `:health` pipeline and route. | 3 |
 | `test/wanderer_app_web/controllers/health_controller_test.exs` | New. Includes the regression test that the route survives `public_api_disabled`. | 3 |
 | `fly.toml` | Production-shaped rewrite. | 4 |
@@ -588,7 +588,16 @@ The failure is latent, not immediate: `WANDERER_PUBLIC_API_DISABLED` defaults to
 
 **Interfaces:**
 - Consumes: `WandererApp.Env.vsn/0` (`lib/wanderer_app/env.ex:14`).
-- Produces: `GET /health` returning `200` with `%{"status" => "ok", "version" => String.t()}`, or `503` with `%{"status" => "error", "database" => "unreachable"}`.
+- Produces: `GET /health` returning `200` with `%{"status" => "ok", "version" => String.t(), "database" => "ok" | "unreachable"}`.
+
+**Why the database does not gate the status code.** An earlier draft returned
+`503` when Postgres was unreachable. Under `min_machines_running = 1` that hands
+Fly a kill signal for a fault Fly cannot repair: restarting the app does nothing
+about an external Postgres outage, so a transient blip — a partition, pool
+exhaustion, a slow migration — buys a window with zero machines serving traffic
+while the database problem continues. The check answers "is this machine
+serving?", which it is. Database state is still reported, in the body, where a
+human or a dashboard can read it without it being wired to a restart.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -600,11 +609,14 @@ defmodule WandererAppWeb.HealthControllerTest do
 
   import WandererApp.EnvHelper
 
-  test "GET /health returns 200 with status and version", %{conn: conn} do
+  test "GET /health returns 200 with status, version and database state", %{conn: conn} do
     conn = get(conn, "/health")
 
-    assert %{"status" => "ok", "version" => version} = json_response(conn, 200)
+    assert %{"status" => "ok", "version" => version, "database" => database} =
+             json_response(conn, 200)
+
     assert is_binary(version)
+    assert database == "ok"
   end
 
   # The reason this route does not live in the :api scope. Fly kills an
@@ -622,7 +634,7 @@ end
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `mix test test/wanderer_app_web/controllers/health_controller_test.exs`
-Expected: FAIL — `Phoenix.Router.NoRouteError` for `GET /health`.
+Expected: FAIL. Not with `Phoenix.Router.NoRouteError` — `GET /health` currently matches the `live "/:slug", MapLive, :index` wildcard and returns a 302 to `/welcome`, so the failure is `json_response/2` receiving a 302 where it expected 200.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -633,34 +645,48 @@ defmodule WandererAppWeb.HealthController do
   @moduledoc """
   Machine liveness for Fly health checks.
 
-  Deliberately depends on nothing but the endpoint and the database. A TCP
-  check would only prove the listener is up; this proves the app can reach
-  Postgres. It must never gain an authentication, rate-limiting, or feature-flag
-  plug — see the `:health` pipeline in the router.
+  Answers one question: is this machine serving? It must never gain an
+  authentication, rate-limiting, or feature-flag plug — see the `:health`
+  pipeline in the router.
+
+  Database reachability is reported in the body but deliberately does not change
+  the status code. Fly kills a machine that fails its check, and under
+  `min_machines_running = 1` that is the only machine; a restart cannot repair an
+  external Postgres outage, so letting the database drive the status code would
+  turn a transient blip into a self-inflicted outage.
   """
   use WandererAppWeb, :controller
 
-  def index(conn, _params) do
-    version = to_string(WandererApp.Env.vsn())
+  # Short on purpose. This endpoint is polled every few seconds; the Repo default
+  # of 15s would let a saturated database hold each request open long enough for
+  # polls to pile up on top of the problem.
+  @db_check_timeout_ms 2_000
 
-    if database_reachable?() do
-      json(conn, %{status: "ok", version: version})
-    else
-      conn
-      |> put_status(:service_unavailable)
-      |> json(%{status: "error", version: version, database: "unreachable"})
-    end
+  def index(conn, _params) do
+    json(conn, %{
+      status: "ok",
+      version: to_string(WandererApp.Env.vsn()),
+      database: if(database_reachable?(), do: "ok", else: "unreachable")
+    })
   end
 
   defp database_reachable? do
-    case Ecto.Adapters.SQL.query(WandererApp.Repo, "SELECT 1", []) do
+    case Ecto.Adapters.SQL.query(WandererApp.Repo, "SELECT 1", [],
+           timeout: @db_check_timeout_ms
+         ) do
       {:ok, _} -> true
       _ -> false
     end
   rescue
-    # A pool checkout timeout or a down connection raises rather than returning
-    # an error tuple; either way the answer is "not reachable".
+    # Most query-level failures come back as an error tuple and are handled
+    # above; this catches the ones that raise instead.
     _ -> false
+  catch
+    # `rescue` does not cover exits. If the connection pool is not alive, the
+    # GenServer.call inside DBConnection exits with :noproc or :timeout, which
+    # would otherwise crash the request into a 500 — the exact status this
+    # endpoint exists to avoid returning for a database fault.
+    :exit, _ -> false
   end
 end
 ```
@@ -685,6 +711,10 @@ Then replace the empty scope at lines 374-379 with:
   # Health Check Endpoints
   # Used for monitoring, load balancer health checks, and deployment validation
   #
+  # This scope's POSITION IN THE FILE IS LOAD-BEARING. It must stay above the
+  # `live "/:slug", MapLive, :index` wildcard further down. Phoenix matches
+  # routes in definition order, so below that line `/health` is swallowed by the
+  # wildcard and answers 302 to /welcome instead of 200.
   scope "/", WandererAppWeb do
     pipe_through [:health]
 
@@ -692,7 +722,9 @@ Then replace the empty scope at lines 374-379 with:
   end
 ```
 
-Note this drops the `/api` prefix along with the `:api` pipeline. `/health` does not collide with any existing route — the two root scopes are at lines 399 and 535, and neither defines it.
+Note this drops the `/api` prefix along with the `:api` pipeline.
+
+`/health` **does** collide with the root LiveView wildcard `live "/:slug", MapLive, :index`, which currently serves `GET /health` as a 302 to `/welcome`. Phoenix matches routes in definition order — there is no rule preferring literal segments over dynamic ones — so this new scope wins only because it is defined earlier in the file. That is why the comment above is there. The two existing tests do double duty as the regression guard: both assert a 200, so either would fail if someone moved this scope below the wildcard.
 
 - [ ] **Step 5: Run test to verify it passes**
 
