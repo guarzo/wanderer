@@ -331,9 +331,12 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     # `send_test_message/1` answers `:not_configured` for a disabled webhook,
     # whose stock copy is "Save a webhook URL first." — false here, and it sends
-    # the user looking for a missing URL that is in fact saved.
+    # the user looking for a missing URL that is in fact saved. Assert the
+    # specific remedy sentence, not the word "disabled": the row's own status
+    # line already says "This destination is disabled and is not delivering.",
+    # so a looser match would pass without the error copy changing at all.
     refute html =~ "Save a webhook URL first."
-    assert html =~ "This destination is disabled"
+    assert html =~ "Enable it and save before sending a test message."
   end
 
   test "the excluded-systems picker searches by system name", %{conn: conn, map: map} do
@@ -527,6 +530,14 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     assert has_element?(view, "#excluded_system_live_select_component")
     assert has_element?(view, "#focus_corp_live_select_component")
+
+    # Open the corporation dropdown first. LiveSelect renders nothing until the
+    # user has typed, so without this the assertion below is vacuous: options
+    # would sit in component state, unrendered, and the refute would pass even
+    # if the handler answered the corporation box with solar systems.
+    view
+    |> with_target("#focus_corp_live_select_component")
+    |> render_change("change", %{"text" => "Jita"})
 
     # A corporation-box keystroke must not be answered with solar systems.
     view
