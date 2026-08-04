@@ -124,8 +124,19 @@ export const Characters = ({ data }: CharactersProps) => {
           // A broadcast that never matches — the server clamped or rejected the
           // list — must not pin the optimistic view forever. Fall back to
           // whatever the server actually has after a bounded wait.
+          //
+          // Only when nothing is in flight. This timer belongs to the toggle
+          // that armed it; a newer toggle issued just before it fires has
+          // already read `pendingReadyRef` but has not yet resolved to re-arm.
+          // Clearing there would send the toggle after it back to `data`, which
+          // does not yet reflect the in-flight update — the exact stale-snapshot
+          // compose this ref exists to prevent. The in-flight request re-arms on
+          // resolve and clears outright on failure, so the fallback is deferred,
+          // never lost.
           if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
-          settleTimerRef.current = setTimeout(clearPendingReady, 5000);
+          settleTimerRef.current = setTimeout(() => {
+            if (inFlightRef.current === 0) clearPendingReady();
+          }, 5000);
         } catch (err) {
           console.error('Failed to update ready characters:', err);
           // Drop the optimistic list so the next toggle re-derives from

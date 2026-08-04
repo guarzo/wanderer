@@ -125,6 +125,15 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
     required: ["data"]
   }
 
+  # Every error body these three actions return has the same shape. Declared
+  # once so the `responses:` lists below stay readable — they now have to
+  # enumerate four statuses each, all of which `with_membership/4` or the
+  # mutation branches can actually produce.
+  @error_response_schema %OpenApiSpex.Schema{
+    type: :object,
+    properties: %{error: %OpenApiSpex.Schema{type: :string}}
+  }
+
   # ------------------------------------------------------------------------
   # ENDPOINTS
   # ------------------------------------------------------------------------
@@ -162,10 +171,17 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
       not_found: {
         "Member not found",
         "application/json",
-        %OpenApiSpex.Schema{
-          type: :object,
-          properties: %{error: %OpenApiSpex.Schema{type: :string}}
-        }
+        @error_response_schema
+      },
+      conflict: {
+        "More than one membership matches the given ACL and external id",
+        "application/json",
+        @error_response_schema
+      },
+      internal_server_error: {
+        "Membership lookup failed",
+        "application/json",
+        @error_response_schema
       }
     ]
   )
@@ -332,6 +348,26 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
         "Updated ACL Member",
         "application/json",
         @acl_member_update_response_schema
+      },
+      bad_request: {
+        "Role rejected for this member type, or the update failed",
+        "application/json",
+        @error_response_schema
+      },
+      not_found: {
+        "Member not found",
+        "application/json",
+        @error_response_schema
+      },
+      conflict: {
+        "More than one membership matches the given ACL and external id",
+        "application/json",
+        @error_response_schema
+      },
+      internal_server_error: {
+        "Membership lookup failed",
+        "application/json",
+        @error_response_schema
       }
     ]
   )
@@ -384,9 +420,14 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
             end
 
           {:error, error} ->
+            # Same reason `with_membership/4` sanitizes its lookup errors: an
+            # Ash error serialized to the caller exposes resource and adapter
+            # internals. The detail belongs in the log, not the response.
+            Logger.warning("[AccessListMemberAPI] role update failed: #{inspect(error)}")
+
             conn
             |> put_status(:bad_request)
-            |> json(%{error: inspect(error)})
+            |> json(%{error: "Failed to update membership"})
         end
       end
     end)
@@ -420,6 +461,26 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
         "ACL Member deletion confirmation",
         "application/json",
         @acl_member_delete_response_schema
+      },
+      bad_request: {
+        "Deletion failed",
+        "application/json",
+        @error_response_schema
+      },
+      not_found: {
+        "Member not found",
+        "application/json",
+        @error_response_schema
+      },
+      conflict: {
+        "More than one membership matches the given ACL and external id",
+        "application/json",
+        @error_response_schema
+      },
+      internal_server_error: {
+        "Membership lookup failed",
+        "application/json",
+        @error_response_schema
       }
     ]
   )
@@ -451,9 +512,11 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
           end
 
         {:error, error} ->
+          Logger.warning("[AccessListMemberAPI] membership deletion failed: #{inspect(error)}")
+
           conn
           |> put_status(:bad_request)
-          |> json(%{error: inspect(error)})
+          |> json(%{error: "Failed to delete membership"})
       end
     end)
   end
