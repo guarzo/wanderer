@@ -1,10 +1,17 @@
-# fly.toml app configuration file generated for wanderer-test on 2024-05-31T22:56:48+04:00
+# fly.toml — wanderer
 #
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+# EXACTLY ONE MACHINE. This is an architectural constraint, not a preference.
+# Map state lives in node-local Cachex tables and character trackers register in
+# a node-local Registry (WandererApp.Character.TrackerRegistry); PubSub uses the
+# PG2 adapter with no clustering configured. Two machines would produce two
+# independent halves of the same map — trackers updating on one node, LiveView
+# sessions subscribed on the other, and updates that never meet.
 #
+# Do not add autoscaling, do not raise min/max machines, and do not set
+# DNS_CLUSTER_QUERY without first making map state cluster-aware.
 
-app = 'wanderer-test'
-primary_region = 'ams'
+app = '<WANDERER_APP_NAME>'
+primary_region = 'iad'
 kill_signal = 'SIGTERM'
 swap_size_mb = 512
 
@@ -14,16 +21,22 @@ swap_size_mb = 512
   release_command = '/app/bin/migrate.sh'
 
 [env]
-  PHX_HOST = 'wanderer-test.fly.dev'
   PHX_SERVER = 'true'
   PORT = '8080'
+  # PHX_HOST and WEB_APP_URL are set as secrets, not here: they change at
+  # cutover when the staging subdomain is replaced by the production hostname.
+  # WANDERER_KILLS_IPV6 must be "true": the wanderer-kills service is reached
+  # over Fly's 6PN private network, which is IPv6-only. The default is
+  # "false", so omitting this line means the connection silently fails and
+  # retries forever.
+  WANDERER_KILLS_IPV6 = 'true'
 
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'off'
   auto_start_machines = false
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
   [http_service.concurrency]
@@ -31,10 +44,14 @@ swap_size_mb = 512
     hard_limit = 1000
     soft_limit = 1000
 
-[[vm]]
-  size = 'shared-cpu-1x'
+  [[http_service.checks]]
+    grace_period = '30s'
+    interval = '15s'
+    method = 'GET'
+    path = '/health'
+    protocol = 'http'
+    timeout = '5s'
 
-[[metrics]]
-  port = 4021
-  path = '/metrics'
-  https = false
+[[vm]]
+  size = 'shared-cpu-2x'
+  memory = '2gb'
