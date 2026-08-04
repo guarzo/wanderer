@@ -90,6 +90,22 @@ defmodule WandererApp.Esi.CorporationSearch do
   end
 
   @doc """
+  The character a search would run as, or `:error` if there is none.
+
+  `search/3` uses the first of `characters` unconditionally, so on a multi-character
+  account exactly one character's token decides whether the feature works. Callers
+  need to name that character in a failure message: "re-authorise a character" is
+  unactionable when the user has several and cannot tell which one is being used —
+  re-authorising any of the others changes nothing.
+
+  Exposed so the message and the request cannot disagree about which character
+  that is; both go through here rather than each reaching for the head of the list.
+  """
+  @spec search_character(any()) :: {:ok, map()} | :error
+  def search_character([first_char | _]), do: {:ok, first_char}
+  def search_character(_characters), do: :error
+
+  @doc """
   Human-readable label for a stored corporation id.
 
   Falls back to `to_string(corp_id)` whenever ESI cannot answer: a saved focus

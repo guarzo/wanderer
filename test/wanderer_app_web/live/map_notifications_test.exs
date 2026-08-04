@@ -641,7 +641,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
   test "a corporation keystroke reports a failed lookup instead of an empty dropdown", %{
     conn: conn,
-    map: map
+    map: map,
+    character: character
   } do
     notification_with_webhooks(map, [:system])
 
@@ -686,6 +687,12 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # parenthesised suffix rather than a specific atom keeps this independent of
     # whichever failure the test host produces.
     assert render(view) =~ ~r/Corporation search is unavailable right now\..*\(.+\)/s
+
+    # The search runs as ONE character. On a multi-character account the generic
+    # advice to "re-authorise a character" sends the user to re-authorise the
+    # wrong one and conclude the feature is simply broken, so the message has to
+    # name the character whose token was actually used.
+    assert render(view) =~ character.name
   end
 
   test "send test message reports the global kill-switch", %{conn: conn, map: map} do
