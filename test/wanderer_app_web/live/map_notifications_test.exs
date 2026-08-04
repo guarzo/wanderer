@@ -392,6 +392,40 @@ defmodule WandererAppWeb.MapNotificationsTest do
     assert html =~ "Enable it and save before sending a test message."
   end
 
+  # The test above runs with the global kill-switch OFF, so the dispatcher
+  # short-circuits and the component's own `send_test/2` produces the copy. This
+  # one turns the switch ON so the request reaches `send_test_message/1` and the
+  # component's mapping of the dispatcher's answers is what gets exercised —
+  # without it, the `:webhook_not_found` / `:webhook_url_missing` clause is
+  # unreachable in this file and could be deleted with everything still green.
+  test "a destination deleted in another session is told to save a url", %{conn: conn, map: map} do
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.put(original, :webhooks_enabled, true)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
+    rec = notification_with_webhooks(map, [:system])
+    webhook = system_webhook(rec)
+
+    view = open_notifications(conn, map)
+
+    # Destroyed AFTER render, so the button still carries the now-dead id —
+    # the stale-page case `:webhook_not_found` exists for.
+    :ok = MapDiscordWebhook.destroy(webhook)
+
+    html = view |> element("button[phx-click='send-test']") |> render_click()
+
+    assert html =~ "Save a webhook URL first."
+    # Not the raw atom: `{:error, other}` renders `inspect/1`, so a missing
+    # clause would still put the word "webhook" on the page.
+    refute html =~ "webhook_not_found"
+  end
+
   test "the excluded-systems picker searches by system name", %{conn: conn, map: map} do
     Factory.insert(:solar_system, %{
       solar_system_id: 30_000_142,

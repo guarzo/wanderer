@@ -879,18 +879,59 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     assert body["content"] =~ "test message"
   end
 
-  # send_test_message now takes a WEBHOOK id, so "not configured" means "no such
-  # webhook row" rather than "no config for this map".
-  test "send_test_message reports an unknown webhook" do
-    assert {:error, :not_configured} =
+  # `send_test_message/1` answers with THREE distinct atoms where it used to
+  # answer `:not_configured` for all of them. These four tests exist to keep
+  # them distinct: collapsing any one branch into another turns at least one of
+  # them red, which a single "some error came back" assertion would not.
+  test "send_test_message distinguishes an unknown webhook" do
+    assert {:error, :webhook_not_found} =
              DiscordDispatcher.send_test_message(Ash.UUID.generate())
   end
 
-  test "send_test_message reports a disabled webhook", %{system: w} do
+  test "send_test_message distinguishes a saved but disabled webhook", %{system: w} do
     {:ok, _} = MapDiscordWebhook.set_enabled(w, %{enabled?: false})
 
-    assert {:error, :not_configured} = DiscordDispatcher.send_test_message(w.id)
+    assert {:error, :webhook_disabled} = DiscordDispatcher.send_test_message(w.id)
     assert HttpStub.requests() == []
+  end
+
+  test "send_test_message distinguishes a row that decrypts to no URL", %{system: w} do
+    blank_the_url!(w.id)
+
+    assert {:error, :webhook_url_missing} = DiscordDispatcher.send_test_message(w.id)
+    assert HttpStub.requests() == []
+  end
+
+  # Clause order, pinned: "disabled" wins over "no URL". This is what the
+  # component used to decide for itself by checking its own assigns, and the
+  # copy a user sees depends on it — swap the two clauses and this goes red
+  # while the three tests above stay green.
+  test "send_test_message reports a disabled URL-less webhook as disabled", %{system: w} do
+    blank_the_url!(w.id)
+    {:ok, _} = MapDiscordWebhook.set_enabled(w, %{enabled?: false})
+
+    assert {:error, :webhook_disabled} = DiscordDispatcher.send_test_message(w.id)
+  end
+
+  # `webhook_url` is `allow_nil? false` and validated on write, so a URL-less row
+  # cannot be created through Ash. It is still reachable in production through a
+  # hand-repaired row or a half-finished migration, so build it the only way the
+  # storage format allows: AshCloak stores `Base.encode64(encrypt(term_to_binary(value)))`,
+  # so encrypting `nil` yields a row that reads back with `webhook_url: nil`.
+  defp blank_the_url!(webhook_id) do
+    {:ok, ciphertext} = WandererApp.Vault.encrypt(:erlang.term_to_binary(nil))
+
+    {:ok, _} =
+      WandererApp.Repo.query(
+        "update map_discord_webhooks_v1 set encrypted_webhook_url = $1 where id = $2",
+        [Base.encode64(ciphertext), Ecto.UUID.dump!(webhook_id)]
+      )
+
+    # Fail loudly here rather than letting the caller's assertion pass for the
+    # wrong reason if the storage format ever changes.
+    {:ok, reread} = MapDiscordWebhook.by_id(webhook_id)
+    assert is_nil(reread.webhook_url)
+    :ok
   end
 
   describe "maximum killmail age" do

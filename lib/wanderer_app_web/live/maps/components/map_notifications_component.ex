@@ -228,7 +228,11 @@ defmodule WandererAppWeb.MapNotificationsComponent do
          )
          |> assign(:flash_message, nil)}
 
-      {:error, :not_configured} ->
+      # Two distinct dispatcher answers, one message on purpose: "no such row"
+      # and "row with no usable URL" are worth telling apart in a log or a test,
+      # but a user can do nothing about either except save a URL, and this
+      # wording is brief-mandated verbatim.
+      {:error, reason} when reason in [:webhook_not_found, :webhook_url_missing] ->
         {:noreply,
          socket |> assign(:error, "Save a webhook URL first.") |> assign(:flash_message, nil)}
 
@@ -263,11 +267,13 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     end
   end
 
-  # `send_test_message/1` collapses "no such webhook", "no URL" and "this
-  # destination is disabled" into a single `:not_configured`, whose copy ("Save
-  # a webhook URL first.") is a lie for a saved-but-disabled destination. The
-  # component already knows which webhook the button belongs to, so it separates
-  # the disabled case here rather than widening the dispatcher's return type.
+  # `send_test_message/1` now reports the disabled case itself, but this local
+  # check STAYS, and the ordering is the reason. The dispatcher checks the
+  # global kill-switch first, so with webhooks disabled server-wide it answers
+  # `:notifications_disabled` and never looks at the row — a user who unticked
+  # one destination would be told the whole server is off. Checking here keeps
+  # the more specific message. `map_notifications_test.exs:367` fails if this
+  # is removed.
   defp send_test(socket, webhook_id) do
     disabled? =
       socket.assigns.webhooks
