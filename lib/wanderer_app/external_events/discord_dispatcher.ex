@@ -81,9 +81,21 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   Takes a webhook id, not a map id: a map can have two destinations and the
   user tests them separately.
 
-  Reports *configuration* errors synchronously: the global kill-switch being
-  off (`:notifications_disabled`) and the webhook being missing or disabled
-  (`:not_configured`) are both resolved before returning.
+  Reports *configuration* errors synchronously, each as its own atom, because
+  they ask the user for different things:
+
+    * `:notifications_disabled` — the global kill-switch is off. Only an
+      administrator can change it.
+    * `:webhook_not_found` — no row with that id, in practice a stale page whose
+      destination was deleted in another session.
+    * `:webhook_url_missing` — the row exists but carries no usable URL.
+    * `:webhook_disabled` — the row exists and has a URL; `enabled?` is false.
+      Nothing is wrong with the configuration, it is switched off.
+
+  These were one `:not_configured` until the Task 16 gate. Telling a user to
+  save a webhook URL when they had already saved one and merely unticked the
+  box is why they were split; `map_notifications_component.ex` had to
+  re-derive the disabled case from its own assigns to avoid printing that.
 
   Delivery success is **not** awaited. The final hop is `Worker.enqueue/2`, a
   cast, so `:ok` means "accepted for delivery", not "Discord accepted it" — a
@@ -92,37 +104,67 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   UI built on this must not promise the user that the message arrived.
   """
   @spec send_test_message(webhook_id :: String.t()) ::
-          :ok | {:error, :notifications_disabled | :not_configured | term()}
+          :ok
+          | {:error,
+             :notifications_disabled
+             | :webhook_not_found
+             | :webhook_url_missing
+             | :webhook_disabled
+             | term()}
   def send_test_message(webhook_id) do
     # Checked here rather than inside the worker: when the gate is off the
     # worker supervisor and its Registry are not running at all, so calling
     # into them would crash the caller (the LiveView).
     if enabled_globally?() do
-      case MapDiscordWebhook.by_id(webhook_id) do
-        {:ok, %{enabled?: true} = webhook} ->
-          message = %{
-            "content" => "Wanderer test message — Discord kill notifications are configured."
-          }
+      with {:ok, webhook} <- resolve_test_webhook(webhook_id) do
+        message = %{
+          "content" => "Wanderer test message — Discord kill notifications are configured."
+        }
 
-          case WorkerSupervisor.deliver(webhook.id, [message]) do
-            :ok ->
-              :ok
+        case WorkerSupervisor.deliver(webhook.id, [message]) do
+          :ok ->
+            :ok
 
-            # The gate read as on, but the worker tree is not up (e.g. the app
-            # was started with webhooks disabled and the config flipped since).
-            # Report it rather than claiming the test message was sent.
-            {:error, :not_running} ->
-              {:error, :notifications_disabled}
+          # The gate read as on, but the worker tree is not up (e.g. the app
+          # was started with webhooks disabled and the config flipped since).
+          # Report it rather than claiming the test message was sent.
+          {:error, :not_running} ->
+            {:error, :notifications_disabled}
 
-            {:error, reason} ->
-              {:error, reason}
-          end
-
-        _ ->
-          {:error, :not_configured}
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     else
       {:error, :notifications_disabled}
+    end
+  end
+
+  # Clause order is the user-facing precedence and is load-bearing: a row that
+  # is BOTH disabled and URL-less reports `:webhook_disabled`. That preserves
+  # what the component rendered before this split, where its local `enabled?`
+  # check ran ahead of any call into the dispatcher.
+  defp resolve_test_webhook(webhook_id) do
+    case MapDiscordWebhook.by_id(webhook_id) do
+      {:ok, %{enabled?: false}} ->
+        {:error, :webhook_disabled}
+
+      {:ok, %{webhook_url: url} = webhook} when is_binary(url) and url != "" ->
+        {:ok, webhook}
+
+      {:ok, _webhook} ->
+        # `webhook_url` is `allow_nil? false` and validated on write, so this is
+        # not reachable through the UI. It is reachable through a hand-repaired
+        # row or a vault key that no longer decrypts the stored ciphertext —
+        # exactly the cases where "save a URL first" is the right advice and
+        # "no such destination" would send the operator looking in the wrong
+        # place. Deliberately NOT `valid_webhook_url?/1`: re-running the
+        # stricter write-time validator here would reclassify rows that were
+        # accepted when they were saved.
+        {:error, :webhook_url_missing}
+
+      _ ->
+        {:error, :webhook_not_found}
     end
   end
 
