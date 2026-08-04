@@ -376,9 +376,10 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
   # Guard on presence of the key, not on its value: a batch that legitimately
   # carries no kills must render as [], and a present-but-nil "killmails" is a
   # malformed batch rather than a kill count. fetch/2 cannot tell absent from
-  # present-nil, so dispatch on has_key?/2.
+  # present-nil, so dispatch on key presence - in both key styles, since the
+  # producer sends string keys.
   defp format_resource_data(%Event{type: :map_kill, payload: payload} = event) do
-    if has_key?(payload, :killmails) do
+    if Map.has_key?(payload, :killmails) or Map.has_key?(payload, "killmails") do
       solar_system_id = fetch(payload, :solar_system_id)
 
       payload
@@ -492,13 +493,6 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
       {:ok, value} -> value
       :error -> Map.get(payload, Atom.to_string(key))
     end
-  end
-
-  # Presence check that tolerates both key styles. Needed where an absent key
-  # and a present nil mean different things - see the :map_kill clause, whose
-  # two variants are distinguished by whether "killmails" was sent at all.
-  defp has_key?(payload, key) when is_atom(key) do
-    Map.has_key?(payload, key) or Map.has_key?(payload, Atom.to_string(key))
   end
 
   # JSON:API requires a string id on every resource object.

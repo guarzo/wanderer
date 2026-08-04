@@ -732,7 +732,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
 
     # Timestamps the formatter injects itself from event.timestamp rather than
     # reading them from the payload, so they are never nil. Left in, they would
-    # single-handedly satisfy the refute below for the 14 fixtures whose clause
+    # single-handedly satisfy the refute below for every fixture whose clause
     # injects one - defeating the invariant exactly where it is most needed.
     @formatter_injected_timestamps ~w(created_at updated_at added_at deleted_at removed_at)
 
