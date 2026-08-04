@@ -811,13 +811,21 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           </li>
         </ul>
 
+        <%!-- Height matching, without predicting either box: `compact` makes the
+              field wrapper exactly as tall as its input, `!py-0` drops the
+              button's vertical padding so its intrinsic height (one line of
+              text) is always shorter than the input's, and the grid row is
+              therefore sized by the field. `items-stretch` then gives the
+              button that exact height. Nothing here depends on the button and
+              the input agreeing on font size, padding or line-height, which
+              they do not. --%>
         <.form
           :let={ef}
           for={@excluded_form}
           id="excluded-system-form"
           phx-submit="add-excluded"
           phx-target={@myself}
-          class="grid items-start gap-2"
+          class="grid items-stretch gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -825,14 +833,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@excluded_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
-            label_row={false}
+            compact={true}
             debounce={250}
             update_min_len={@min_search_length}
             mode={:single}
             options={@system_options}
             placeholder="Search a system by name"
           />
-          <.button type="submit">Add</.button>
+          <.button type="submit" class="!py-0 inline-flex items-center justify-center">Add</.button>
         </.form>
 
         <p :if={@system_search_error} class="text-sm text-amber-400">{@system_search_error}</p>
@@ -875,7 +883,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           id="focus-corp-form"
           phx-submit="add-focus-corp"
           phx-target={@myself}
-          class="grid items-start gap-2"
+          class="grid items-stretch gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -883,14 +891,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@focus_corp_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
-            label_row={false}
+            compact={true}
             debounce={250}
             update_min_len={@corp_min_search_length}
             mode={:single}
             options={@corp_options}
             placeholder="Search a corporation by name"
           />
-          <.button type="submit">Add</.button>
+          <.button type="submit" class="!py-0 inline-flex items-center justify-center">Add</.button>
         </.form>
 
         <p :if={@corp_search_error} class="text-sm text-amber-400">{@corp_search_error}</p>
