@@ -88,7 +88,9 @@ defmodule WandererApp.MixProject do
       {:finch, "~> 0.13"},
       {:telemetry_metrics, "~> 1.0", override: true},
       {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 0.20"},
+      # 0.26 is the floor: WandererAppWeb.Gettext uses `Gettext.Backend`, which
+      # does not exist before it.
+      {:gettext, "~> 0.26"},
       {:jason, "~> 1.4"},
       {:dns_cluster, "~> 0.1.1"},
       {:plug_cowboy, "~> 2.5"},
