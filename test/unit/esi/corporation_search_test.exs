@@ -119,6 +119,23 @@ defmodule WandererApp.Esi.CorporationSearchTest do
     end
   end
 
+  describe "search_character/1" do
+    # The message naming the character and the request using it must not be able
+    # to disagree, so both go through this function rather than each taking the
+    # head of the list independently.
+    test "names the character search/3 actually runs as" do
+      first = %{id: Ecto.UUID.generate(), name: "Alpha"}
+      second = %{id: Ecto.UUID.generate(), name: "Beta"}
+
+      assert {:ok, ^first} = CorporationSearch.search_character([first, second])
+    end
+
+    test "reports no character for an empty or unusable list" do
+      assert :error = CorporationSearch.search_character([])
+      assert :error = CorporationSearch.search_character(%Ash.NotLoaded{})
+    end
+  end
+
   describe "label_for/2" do
     test "renders ticker and name when ESI answers" do
       fetch = fn 98_000_001 -> {:ok, %{"name" => "Karmafleet", "ticker" => "KARMA"}} end
