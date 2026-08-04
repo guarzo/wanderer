@@ -727,6 +727,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
                     # ADDITIVE: Also broadcast to external event system (webhooks/WebSocket)
                     WandererApp.ExternalEvents.broadcast(map_id, :add_system, %{
+                      system_id: system.id,
                       solar_system_id: system.solar_system_id,
                       name: system.name,
                       position_x: system.position_x,
