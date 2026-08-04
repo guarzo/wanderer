@@ -320,7 +320,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   # Format a float to avoid scientific notation (e.g., 1.0e3 -> "1000.0")
   defp format_float(float) when is_float(float) do
-    # Use format/2 to avoid scientific notation, keeping 1 decimal place
+    # `:decimals` avoids scientific notation, keeping 1 decimal place
     :erlang.float_to_list(float, [{:decimals, 1}])
     |> List.to_string()
   end

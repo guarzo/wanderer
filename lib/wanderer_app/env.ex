@@ -107,13 +107,14 @@ defmodule WandererApp.Env do
   round trip.
 
   The declared contract is `pos_integer()`. A non-positive configured value is
-  a misconfiguration, not a valid setting: `0` would silently drop every
-  killmail and a negative number would silently let every killmail through
-  (see `WandererApp.ExternalEvents.DiscordDispatcher.kill_fresh?/3`), and
-  either failure mode is otherwise invisible. Both fall back to the default
-  with a loud warning rather than being honoured, so the two non-positive
-  cases behave the same way instead of one silently suppressing all
-  notifications and the other silently disabling the guard.
+  a misconfiguration, not a valid setting. `kill_fresh?/3` keeps a kill when
+  `age <= max_age_seconds`, and a kill that has already happened always has a
+  non-negative age, so `0` drops every real killmail and a negative value is
+  stricter still — it would keep only kills timestamped in the future (see
+  `WandererApp.ExternalEvents.DiscordDispatcher.kill_fresh?/3`). Both fail in
+  the same direction, silently suppressing every notification, and both are
+  otherwise invisible. So both fall back to the default with a loud warning
+  rather than being honoured.
   """
   def discord_max_killmail_age_seconds() do
     Application.get_env(@app, :external_events, [])
