@@ -2,6 +2,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
   use WandererAppWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import ExUnit.CaptureLog
 
   alias WandererApp.Api.MapDiscordNotification
   alias WandererApp.Api.MapDiscordWebhook
@@ -693,5 +694,66 @@ defmodule WandererAppWeb.MapNotificationsTest do
     other_map = Factory.insert(:map, %{owner_id: other_character.id})
 
     assert {:error, _} = live(conn, ~p"/maps/#{other_map.slug}/settings")
+  end
+
+  test "send-test refuses a webhook id belonging to another map", %{conn: conn, map: map} do
+    notification_with_webhooks(map, [:system])
+
+    # A second map, with its own Discord destination, that this user does not
+    # own. `send_test_message/1` resolves a webhook by id ALONE, so nothing but
+    # the component's own membership check stands between a hand-crafted
+    # `phx-value-webhook_id` and someone else's Discord channel.
+    other_user = Factory.insert(:user, %{})
+    other_character = Factory.insert(:character, %{user_id: other_user.id})
+    other_map = Factory.insert(:map, %{owner_id: other_character.id})
+    other_webhook = system_webhook(notification_with_webhooks(other_map, [:system]))
+
+    view = open_notifications(conn, map)
+
+    html =
+      view
+      |> element("button[phx-click='send-test']")
+      |> render_click(%{"webhook_id" => other_webhook.id})
+
+    # The id is not one of this map's destinations, so the component answers
+    # `:webhook_not_found` without ever calling the dispatcher.
+    assert html =~ "Save a webhook URL first."
+    # Both of the replies the dispatcher could have produced for a foreign id
+    # that does exist: "queued" if the worker tree is up, and the global
+    # kill-switch message (this environment) if it is not. Either one means the
+    # request reached the dispatcher, which is the bug.
+    refute html =~ "Test message queued."
+    refute html =~ "disabled on this server"
+  end
+
+  test "an unrecognised error shape is logged by type, never inspected", %{
+    conn: conn,
+    map: map
+  } do
+    rec = notification_with_webhooks(map, [:system])
+
+    view = open_notifications(conn, map)
+
+    # Same trigger as "a failed removal is reported instead of raising": the
+    # row is deleted under the mounted view, so the destroy fails with a
+    # `StaleRecord`, which carries no message and reaches `fallback_message/1`.
+    :ok = Ash.destroy(rec)
+
+    log =
+      capture_log(fn ->
+        html = view |> element("button[phx-click='delete']") |> render_click()
+        assert html =~ "Something went wrong. Please try again."
+      end)
+
+    assert log =~ "unrecognised error shape: Ash.Error.Changes.StaleRecord"
+
+    # `inspect/1` of the error would print every field it carries. On a create
+    # those fields include `InvalidAttribute.value` — the submitted webhook URL,
+    # verbatim, which `sensitive? true` does NOT redact (empirically confirmed).
+    # A credential must not be reachable from a log line, so nothing beyond the
+    # struct's own name may be logged.
+    refute log =~ "%Ash.Error.Changes.StaleRecord{"
+    refute log =~ "resource:"
+    refute log =~ "bread_crumbs:"
   end
 end

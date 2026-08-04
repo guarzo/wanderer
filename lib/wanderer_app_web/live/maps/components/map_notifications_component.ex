@@ -267,23 +267,27 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     end
   end
 
-  # `send_test_message/1` now reports the disabled case itself, but this local
-  # check STAYS, and the ordering is the reason. The dispatcher checks the
-  # global kill-switch first, so with webhooks disabled server-wide it answers
-  # `:notifications_disabled` and never looks at the row — a user who unticked
-  # one destination would be told the whole server is off. Checking here keeps
-  # the more specific message. `map_notifications_test.exs:367` fails if this
-  # is removed.
+  # `webhook_id` arrives from the client as `phx-value-webhook_id`, and
+  # `send_test_message/1` resolves it by id alone — across every map in the
+  # installation. So the id MUST be matched against this map's own destinations
+  # before it is dispatched; without that, anyone who can open a settings tab
+  # can post the test message into any other map's Discord channel.
+  #
+  # The `enabled?` check that rides along STAYS even though `send_test_message/1`
+  # now reports the disabled case itself, and the ordering is the reason. The
+  # dispatcher checks the global kill-switch first, so with webhooks disabled
+  # server-wide it answers `:notifications_disabled` and never looks at the row —
+  # a user who unticked one destination would be told the whole server is off.
+  # Checking here keeps the more specific message. `map_notifications_test.exs`
+  # fails if either half of this is removed.
   defp send_test(socket, webhook_id) do
-    disabled? =
-      socket.assigns.webhooks
-      |> Map.values()
-      |> Enum.any?(&match?(%{id: ^webhook_id, enabled?: false}, &1))
-
-    if disabled? do
-      {:error, :webhook_disabled}
-    else
-      WandererApp.ExternalEvents.DiscordDispatcher.send_test_message(webhook_id)
+    socket.assigns.webhooks
+    |> Map.values()
+    |> Enum.find(&match?(%{id: ^webhook_id}, &1))
+    |> case do
+      nil -> {:error, :webhook_not_found}
+      %{enabled?: false} -> {:error, :webhook_disabled}
+      _webhook -> WandererApp.ExternalEvents.DiscordDispatcher.send_test_message(webhook_id)
     end
   end
 
@@ -525,13 +529,27 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp error_sentence(other), do: fallback_message(other)
 
   # Anything without a message is an error shape we did not anticipate. Its
-  # fields are not user-facing copy and may carry the submitted URL, so it is
-  # logged rather than rendered — the credential invariant must not depend on
-  # `sensitive?` happening to redact whatever struct turns up here.
+  # fields are not user-facing copy, so it is logged rather than rendered — but
+  # only its TYPE. The struct itself must never be inspected into the log: an
+  # `Ash.Error.Invalid` raised by a create carries the submitted value in
+  # `InvalidArgument`/`InvalidAttribute`'s `value:` field, and `sensitive? true`
+  # on the attribute does NOT redact that — so `inspect/1` here would write the
+  # webhook URL, a credential, into the log in full. The type is enough to
+  # identify the shape and add a clause for it.
   defp fallback_message(error) do
-    Logger.warning("[MapNotifications] unrecognised error shape: #{inspect(error)}")
+    Logger.warning("[MapNotifications] unrecognised error shape: #{error_summary(error)}")
     "Something went wrong. Please try again."
   end
+
+  # Struct name for structs, the atom itself for atom reasons (those are code
+  # constants, never user input), and the bare kind for anything else. None of
+  # these can carry a submitted value.
+  defp error_summary(%module{}), do: inspect(module)
+  defp error_summary(error) when is_atom(error), do: inspect(error)
+  defp error_summary(error) when is_tuple(error), do: "#{tuple_size(error)}-tuple"
+  defp error_summary(error) when is_list(error), do: "#{length(error)}-element list"
+  defp error_summary(error) when is_map(error), do: "plain map"
+  defp error_summary(_error), do: "unrecognised term"
 
   defp var_string(value) when is_binary(value), do: value
   defp var_string(value) when is_number(value) or is_atom(value), do: to_string(value)
