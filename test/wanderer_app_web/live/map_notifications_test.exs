@@ -215,8 +215,12 @@ defmodule WandererAppWeb.MapNotificationsTest do
     assert has_element?(view, "#webhook-form-character")
     # The character destination is unset, so its form must be in add mode: a
     # URL field, and no test/remove buttons for a webhook that does not exist.
+    # Both refutes are scoped to `#webhook-row-character`, not to the form:
+    # those buttons live in a sibling <div> of the <form>, so a form-descendant
+    # selector never matches them and the refute would pass unconditionally.
     assert has_element?(view, "#webhook-form-character input[type='password']")
-    refute has_element?(view, "#webhook-form-character button[phx-click='remove-webhook']")
+    refute has_element?(view, "#webhook-row-character button[phx-click='remove-webhook']")
+    refute has_element?(view, "#webhook-row-character button[phx-click='send-test']")
   end
 
   test "with both webhooks, each row has its own test and status controls", %{
@@ -318,6 +322,48 @@ defmodule WandererAppWeb.MapNotificationsTest do
     refute has_element?(view, "#webhook-row-character button[phx-click='remove-webhook']")
   end
 
+  test "a plain-string error renders as a sentence, not an inspected term", %{
+    conn: conn,
+    map: map
+  } do
+    notification_with_webhooks(map, [:system])
+
+    view = open_notifications(conn, map)
+
+    # The component's own guard returns a bare binary. Passing that through
+    # `inspect/1` would show the user literal quote marks around the sentence.
+    html =
+      view
+      |> form("#webhook-form-character", %{"webhook" => %{"webhook_url" => ""}})
+      |> render_submit()
+
+    assert html =~ "Enter a webhook URL first."
+    refute html =~ "&quot;Enter a webhook URL first.&quot;"
+  end
+
+  test "an ash validation message is rendered with its variables substituted", %{
+    conn: conn,
+    map: map
+  } do
+    notification_with_webhooks(map, [:system])
+
+    view = open_notifications(conn, map)
+
+    # Well-formed enough to clear the Discord-host validation, long enough to
+    # trip `max_length: 2000` on the attribute.
+    long_url = "https://discord.com/api/webhooks/123/" <> String.duplicate("t", 2000)
+
+    html =
+      view
+      |> form("#webhook-form-character", %{"webhook" => %{"webhook_url" => long_url}})
+      |> render_submit()
+
+    # Ash stores the copy as a template plus a `vars` bag; rendering `message`
+    # raw would show the user the placeholder itself.
+    refute html =~ "%{max}"
+    assert html =~ "length must be less than or equal to 2000"
+  end
+
   test "a disabled destination is not told to save a webhook url it already has", %{
     conn: conn,
     map: map
@@ -329,12 +375,19 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     html = view |> element("button[phx-click='send-test']") |> render_click()
 
-    # `send_test_message/1` answers `:not_configured` for a disabled webhook,
-    # whose stock copy is "Save a webhook URL first." — false here, and it sends
-    # the user looking for a missing URL that is in fact saved. Assert the
-    # specific remedy sentence, not the word "disabled": the row's own status
-    # line already says "This destination is disabled and is not delivering.",
-    # so a looser match would pass without the error copy changing at all.
+    # What this proves: a saved-but-disabled destination gets the remedy that
+    # matches its actual state. The assert is the whole test — assert the
+    # specific remedy sentence, not the word "disabled", because the row's own
+    # status line already says "This destination is disabled and is not
+    # delivering." and a looser match would pass without the error copy
+    # changing at all.
+    #
+    # The refute below is a belt-and-braces guard against the production
+    # wording bug it names, but it does NOT demonstrate coverage of it here:
+    # `send_test_message/1` checks the global kill switch first
+    # (`discord_dispatcher.ex:100`) and `config/test.exs` leaves webhooks off,
+    # so `:not_configured` — whose stock copy is "Save a webhook URL first." —
+    # is unreachable in this environment.
     refute html =~ "Save a webhook URL first."
     assert html =~ "Enable it and save before sending a test message."
   end
@@ -592,6 +645,12 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     refute html =~ "Removed."
     assert render(view) =~ "class=\"text-sm text-red-400\""
+    # `StaleRecord` carries no message, so it reaches `humanize_error/1`'s
+    # catch-all. That branch must not render the term: an unanticipated error
+    # shape can carry the submitted URL, and the credential invariant must not
+    # rest on `sensitive?` happening to redact whatever turns up there.
+    refute html =~ "StaleRecord"
+    assert html =~ "Something went wrong. Please try again."
   end
 
   test "a non-owner cannot reach map settings", %{conn: conn} do

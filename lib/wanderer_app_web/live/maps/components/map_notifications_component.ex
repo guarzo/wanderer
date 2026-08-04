@@ -495,14 +495,41 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp checked?(true), do: true
   defp checked?(_), do: false
 
+  defp humanize_error(message) when is_binary(message), do: message
+
   defp humanize_error(%Ash.Error.Invalid{errors: errors}) do
-    Enum.map_join(errors, ", ", fn
-      %{message: message} when is_binary(message) -> message
-      other -> inspect(other)
+    Enum.map_join(errors, ", ", &error_sentence/1)
+  end
+
+  defp humanize_error(other), do: fallback_message(other)
+
+  # Ash carries validation copy as a template plus a `vars` bag — a max-length
+  # violation's `message` is the literal `length must be less than or equal to
+  # %{max}`. Rendering the raw field shows the user the placeholder, so
+  # substitute before display.
+  defp error_sentence(%{message: message} = error) when is_binary(message) do
+    error
+    |> Map.get(:vars)
+    |> List.wrap()
+    |> Enum.reduce(message, fn {key, value}, acc ->
+      String.replace(acc, "%{#{key}}", var_string(value))
     end)
   end
 
-  defp humanize_error(other), do: inspect(other)
+  defp error_sentence(other), do: fallback_message(other)
+
+  # Anything without a message is an error shape we did not anticipate. Its
+  # fields are not user-facing copy and may carry the submitted URL, so it is
+  # logged rather than rendered — the credential invariant must not depend on
+  # `sensitive?` happening to redact whatever struct turns up here.
+  defp fallback_message(error) do
+    Logger.warning("[MapNotifications] unrecognised error shape: #{inspect(error)}")
+    "Something went wrong. Please try again."
+  end
+
+  defp var_string(value) when is_binary(value), do: value
+  defp var_string(value) when is_number(value) or is_atom(value), do: to_string(value)
+  defp var_string(value), do: inspect(value)
 
   defp masked_url(nil), do: ""
 
