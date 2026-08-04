@@ -724,7 +724,20 @@ defmodule WandererApp.Esi.ApiClient do
             pool
           )
 
-        {:error, _error} ->
+        {:error, reason} ->
+          # The reason is deliberately logged rather than returned. It is the
+          # actionable half of the failure — `:invalid_grant` means "re-authorise
+          # this character", which is exactly what the corporation-search message
+          # tells the user — but `tracker.ex` and `transactions_tracker_impl.ex`
+          # branch on `{:error, :forbidden}` (see the
+          # `error in [:forbidden, :not_found, :timeout]` guards), so widening
+          # what this returns would silently change character-tracking behaviour.
+          # Surfacing it to callers needs those guards revisited first.
+          Logger.warning(
+            "TOKEN_REFRESH_FAILED: reporting #{inspect(status)} to caller, refresh reason was #{inspect(reason)}",
+            character_id: character_id
+          )
+
           {:error, status}
       end
     end
@@ -751,6 +764,31 @@ defmodule WandererApp.Esi.ApiClient do
     handle_refresh_token_result(refresh_token_result, character, character_id, expires_at, scopes)
   end
 
+  # Seconds since the access token expired, for logs and telemetry only.
+  #
+  # `expires_at` is a nullable `:integer` on `WandererApp.Api.Character`, so a
+  # character that has never completed an OAuth exchange carries `nil` — and
+  # since `is_access_token_expired?/1` reports exactly those characters as
+  # expired, they are routed straight into the refresh-and-retry path below.
+  # `DateTime.from_unix!(nil)` raises `FunctionClauseError`, which took down
+  # every authenticated ESI call for such a character (the corporation typeahead
+  # in map settings just swallowed it into an empty dropdown).
+  #
+  # Diagnostic timing must never be the thing that fails a request, so an
+  # unusable `expires_at` degrades to `nil` rather than raising.
+  #
+  # Public (like `is_access_token_expired?/1`) only so the regression test can
+  # reach it; it is not part of the module's API.
+  @doc false
+  def time_since_expiry(expires_at) when is_integer(expires_at) do
+    case DateTime.from_unix(expires_at) do
+      {:ok, datetime} -> DateTime.diff(DateTime.utc_now(), datetime, :second)
+      {:error, _reason} -> nil
+    end
+  end
+
+  def time_since_expiry(_expires_at), do: nil
+
   defp handle_refresh_token_result(
          {:ok, %OAuth2.AccessToken{} = token},
          character,
@@ -759,8 +797,7 @@ defmodule WandererApp.Esi.ApiClient do
          scopes
        ) do
     # Log token refresh success with timing info
-    expires_at_datetime = DateTime.from_unix!(expires_at)
-    time_since_expiry = DateTime.diff(DateTime.utc_now(), expires_at_datetime, :second)
+    time_since_expiry = time_since_expiry(expires_at)
 
     Logger.debug(
       fn ->
@@ -803,8 +840,7 @@ defmodule WandererApp.Esi.ApiClient do
          expires_at,
          scopes
        ) do
-    expires_at_datetime = DateTime.from_unix!(expires_at)
-    time_since_expiry = DateTime.diff(DateTime.utc_now(), expires_at_datetime, :second)
+    time_since_expiry = time_since_expiry(expires_at)
 
     # Track consecutive invalid_grant failures before permanently invalidating tokens.
     # EVE SSO can return invalid_grant for transient server issues, so we require
@@ -852,8 +888,7 @@ defmodule WandererApp.Esi.ApiClient do
          expires_at,
          _scopes
        ) do
-    expires_at_datetime = DateTime.from_unix!(expires_at)
-    time_since_expiry = DateTime.diff(DateTime.utc_now(), expires_at_datetime, :second)
+    time_since_expiry = time_since_expiry(expires_at)
 
     Logger.warning("TOKEN_REFRESH_FAILED: Connection refused during token refresh",
       character_id: character_id,
@@ -879,8 +914,7 @@ defmodule WandererApp.Esi.ApiClient do
          expires_at,
          _scopes
        ) do
-    time_since_expiry =
-      DateTime.diff(DateTime.utc_now(), DateTime.from_unix!(expires_at), :second)
+    time_since_expiry = time_since_expiry(expires_at)
 
     Logger.warning("TOKEN_REFRESH_FAILED: Transient OAuth2 error during token refresh",
       character_id: character_id,
@@ -898,8 +932,7 @@ defmodule WandererApp.Esi.ApiClient do
   end
 
   defp handle_refresh_token_result(error, _character, character_id, expires_at, _scopes) do
-    time_since_expiry =
-      DateTime.diff(DateTime.utc_now(), DateTime.from_unix!(expires_at), :second)
+    time_since_expiry = time_since_expiry(expires_at)
 
     Logger.warning("TOKEN_REFRESH_FAILED: Unexpected error during token refresh",
       character_id: character_id,
