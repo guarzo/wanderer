@@ -143,9 +143,14 @@ defmodule WandererApp.ConfigHelpersTest do
     test "falls back to http://host:port when WEB_APP_URL is unset" do
       assert ConfigHelpers.resolve_web_app_url(nil, "localhost", 8000, "NOT_FLY_APP") ==
                "http://localhost:8000"
+    end
 
-      assert ConfigHelpers.resolve_web_app_url("", "localhost", 8000, "NOT_FLY_APP") ==
-               "http://localhost:8000"
+    test "passes an explicitly-empty WEB_APP_URL through so the scheme check still raises" do
+      # `WEB_APP_URL=` in a .env file yields "" rather than nil. Today that reaches
+      # URI.parse/1, produces a nil scheme, and raises at boot with the variable named.
+      # Treating "" as unset would replace that loud failure with a silently wrong
+      # OAuth callback URL, so "" must pass through unchanged.
+      assert ConfigHelpers.resolve_web_app_url("", "localhost", 8000, "NOT_FLY_APP") == ""
     end
   end
 
@@ -195,6 +200,12 @@ Append to `lib/wanderer_app/helpers/config.ex`, inside the module:
   domain — and therefore a working EVE OAuth callback — possible. When
   `PHX_HOST` is unset the behaviour is unchanged from before this function
   existed.
+
+  An explicitly-empty `PHX_HOST` is treated as unset. Before this function
+  existed it produced `http://:8000`, which is not a usable URL for anyone;
+  `localhost` is the same value an unset variable gives. Contrast
+  `resolve_web_app_url/4`, where an empty string must pass through so the
+  caller's scheme check still raises.
   """
   def resolve_host(phx_host, fly_app_name)
 
@@ -212,11 +223,17 @@ Append to `lib/wanderer_app/helpers/config.ex`, inside the module:
 
   Same rule as `resolve_host/2`: an explicit `WEB_APP_URL` always wins. On Fly
   without one, https is assumed because the Fly edge terminates TLS.
+
+  Note the first clause matches **any** binary, including `""`. That is
+  deliberate and differs from `resolve_host/2`. `WEB_APP_URL=` in a `.env` file
+  yields `""`, not nil, and the caller parses the result and raises when the
+  scheme is missing. Treating `""` as unset here would swap that named,
+  at-boot error for an app that starts with a silently wrong OAuth callback.
   """
   def resolve_web_app_url(web_app_url, host, port, fly_app_name)
 
   def resolve_web_app_url(web_app_url, _host, _port, _fly_app_name)
-      when is_binary(web_app_url) and web_app_url != "",
+      when is_binary(web_app_url),
       do: web_app_url
 
   def resolve_web_app_url(_web_app_url, host, _port, fly_app_name)
