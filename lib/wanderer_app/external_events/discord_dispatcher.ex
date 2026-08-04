@@ -39,8 +39,9 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   request can possibly have gone out and therefore no duplicate is possible.
 
   The rationale covers losses to *delivery failure* only. Kills past the
-  formatter's per-event cap are never rendered into a message, so they are not
-  marked at all and stay eligible if they arrive again.
+  formatter's per-destination cap are never rendered into a message, so they are
+  not marked at all and stay eligible if they arrive again. The same holds for
+  kills the router drops: they belong to no partition and are never marked.
   """
 
   use GenServer
@@ -49,8 +50,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   alias WandererApp.Api.{MapDiscordNotification, MapDiscordWebhook}
   alias WandererApp.Env
-  alias WandererApp.ExternalEvents.Discord.{EmbedFormatter, WorkerSupervisor}
-  alias WandererApp.SystemClass
+  alias WandererApp.ExternalEvents.Discord.{EmbedFormatter, Matcher, Router, SystemName}
+  alias WandererApp.ExternalEvents.Discord.WorkerSupervisor
 
   @cache :discord_notification_cache
   @dedup_cache :discord_dedup_cache
@@ -158,46 +159,32 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
-         # Phase A resolves ONE destination. Routing between the system and
-         # character webhooks arrives with the Router; until then the system
-         # webhook is the only destination, exactly as before the split.
-         {:ok, webhook} <- system_webhook(notification),
          {:ok, system_id, killmails} <- extract_kills(payload),
-         true <- system_allowed?(notification, system_id),
          # Resolved ONCE per batch, not per kill: `kill_fresh?/3` runs once per
          # killmail below, and re-reading (and re-validating) config on every
          # one of potentially dozens of kills would turn a single misconfigured
-         # deployment into a warning-per-kill log flood. Task 8: this binding,
-         # and the explicit third argument to `kill_fresh?/3` below, must
-         # survive any rewrite of this `with` chain — dropping it silently
-         # reopens that flood.
+         # deployment into a warning-per-kill log flood. This binding, and the
+         # explicit third argument to `kill_fresh?/3` below, must survive any
+         # rewrite of this `with` chain — dropping either silently reopens that
+         # flood. Filtering for age happens HERE, once, before partitioning:
+         # moving it inside the per-destination loop reintroduces the flood.
          max_killmail_age_seconds = Env.discord_max_killmail_age_seconds(),
          # Stale kills (an upstream replay burst on reconnect) are filtered
          # BEFORE dedup: a kill dropped here for age was never marked attempted,
          # so it stays eligible if it arrives again inside the freshness window.
+         # It is also upstream of every partition, so no partition can mark a
+         # stale kill.
          [_ | _] = recent <-
            Enum.filter(killmails, &kill_fresh?(&1, now, max_killmail_age_seconds)),
          [_ | _] = fresh <- reject_duplicates(map_id, recent) do
-      system_name = system_name(system_id)
-
-      # Only the kills the formatter will actually render are marked. Kills past
-      # its per-event cap are never turned into a message, so marking them would
-      # burn them for the full dedup TTL without ever sending them — a loss to a
-      # formatting cap, which the at-most-once rationale does not cover. Derived
-      # from the formatter's own constant so the two cannot drift apart.
-      #
-      # `fresh` (not `formatted`) is still handed to format_batch/2 so it can
-      # count the overflow and append its "…and N more kills not shown." line.
-      formatted = Enum.take(fresh, EmbedFormatter.max_kills_per_event())
-
-      # Marked before delivery: see the moduledoc — this is at-most-once by
-      # choice, not an oversight.
-      mark_attempted(map_id, formatted)
-
+      # System-level filtering used to happen here for the whole batch. It now
+      # lives in `Router.route/3`, because `excluded_systems` and `wh_only` have
+      # per-kill carve-outs for kills involving this map's own pilots.
       fresh
-      |> EmbedFormatter.format_batch(system_name)
-      |> then(&WorkerSupervisor.deliver(webhook.id, &1))
-      |> handle_delivery_result(map_id, formatted)
+      |> partition(map_id, notification)
+      |> Enum.each(fn {webhook, entries} ->
+        deliver_partition(map_id, system_id, webhook, entries)
+      end)
 
       :ok
     else
@@ -207,50 +194,119 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   defp do_dispatch(_map_id, _event), do: :ok
 
-  # A notification always has a `:system` child (the create action makes both in
-  # one transaction), but the list can still be empty if the row was removed out
-  # of band — return an error rather than raising on the dispatch path.
-  # A disabled destination is dropped HERE, before `mark_attempted/2`: the worker
-  # would drop it too, but only after the kill had been burned for the dedup TTL.
-  defp system_webhook(notification) do
-    case Enum.find(notification.webhooks, &(&1.role == :system and &1.enabled?)) do
-      nil -> {:error, :not_configured}
-      webhook -> {:ok, webhook}
-    end
+  # Routing is per kill, so a single `:map_kill` batch can now contain kills
+  # bound for different destinations, or for none. Kills that drop belong to no
+  # partition and are NEVER MARKED, so they stay eligible if they arrive again.
+  #
+  # Each entry keeps its verdict alongside the kill: the formatter needs it for
+  # colouring and title (loss vs kill).
+  defp partition(kills, map_id, notification) do
+    tracked = Matcher.tracked_eve_ids(map_id)
+    focus = notification.focus_corp_ids || []
+
+    kills
+    |> Enum.reduce(%{}, fn kill, acc ->
+      verdict = Matcher.involvement(kill, tracked, focus)
+
+      case Router.route(kill, notification, verdict) do
+        {:ok, webhook} -> Map.update(acc, webhook, [{kill, verdict}], &[{kill, verdict} | &1])
+        :drop -> acc
+      end
+    end)
+    # Reduce prepends; restore the batch's original order per destination.
+    |> Map.new(fn {webhook, entries} -> {webhook, Enum.reverse(entries)} end)
   end
 
-  defp handle_delivery_result(:ok, map_id, fresh) do
-    :telemetry.execute(
-      [:wanderer_app, :discord_dispatcher, :dispatched],
-      %{count: length(fresh)},
-      %{map_id: map_id}
+  # The role reaching `SystemName.display_name/3` is a LITERAL atom matched out
+  # of the destination itself, one clause per role — never `webhook.role`
+  # threaded through as a variable. That resolver is the privacy boundary
+  # (map-local chain names on the `:system` webhook only, because the character
+  # channel is commonly public), and it can only enforce that boundary if the
+  # role it receives is genuinely this destination's own. A variable reused
+  # across partitions is the one remaining leak path, and a Discord post cannot
+  # be recalled. An unknown role raises here instead of guessing — correct.
+  defp deliver_partition(map_id, system_id, %{role: :system} = webhook, entries) do
+    deliver_to(
+      map_id,
+      webhook,
+      :system,
+      SystemName.display_name(map_id, system_id, :system),
+      entries
     )
   end
 
-  # Nothing was enqueued, so no duplicate is possible: release the dedup marks
-  # so a later event carrying these kills can still be delivered once the
-  # worker tree is up. Not logged at warning level — the kill-switch being off
-  # is a normal configuration, not a failure.
-  defp handle_delivery_result({:error, :not_running}, map_id, fresh) do
-    unmark(map_id, fresh)
+  defp deliver_partition(map_id, system_id, %{role: :character} = webhook, entries) do
+    deliver_to(
+      map_id,
+      webhook,
+      :character,
+      SystemName.display_name(map_id, system_id, :character),
+      entries
+    )
+  end
+
+  # Each non-empty partition is formatted and delivered independently.
+  defp deliver_to(map_id, webhook, role, system_name, entries) do
+    # THE CAP IS PER DESTINATION, NOT PER EVENT. It is a Discord message-size
+    # concern, so two destinations do not compete for one 30-kill budget.
+    rendered = Enum.take(entries, EmbedFormatter.max_kills_per_event())
+    marked = Enum.map(rendered, fn {kill, _verdict} -> kill end)
+
+    # Marked before delivery: see the moduledoc — this is at-most-once by
+    # choice, not an oversight. Only the kills the formatter will actually
+    # render are marked; kills past the cap are never turned into a message, so
+    # marking them would burn them for the full dedup TTL without ever sending
+    # them.
+    mark_attempted(map_id, marked)
+
+    # PASS THE WHOLE PARTITION, NOT `rendered`. The formatter applies the cap
+    # itself and counts the remainder into its "…and N more kills not shown."
+    # line. Handing it the pre-truncated list compiles, passes most tests, and
+    # silently deletes the overflow line.
+    entries
+    |> EmbedFormatter.format_batch(system_name)
+    |> then(&WorkerSupervisor.deliver(webhook.id, &1))
+    |> handle_delivery_result(map_id, role, marked)
+  end
+
+  defp handle_delivery_result(:ok, map_id, role, kills) do
+    :telemetry.execute(
+      [:wanderer_app, :discord_dispatcher, :dispatched],
+      %{count: length(kills)},
+      %{map_id: map_id, role: role}
+    )
+  end
+
+  # Nothing was enqueued, so no duplicate is possible: release this partition's
+  # dedup marks so a later event carrying these kills can still be delivered
+  # once the worker tree is up. Other partitions in the same event are
+  # unaffected — their marks stand or fall on their own delivery result. Not
+  # logged at warning level — the kill-switch being off is a normal
+  # configuration, not a failure.
+  defp handle_delivery_result({:error, :not_running}, map_id, role, kills) do
+    unmark(map_id, kills)
 
     Logger.debug(fn ->
-      "[Discord] worker infrastructure not running; dropped #{length(fresh)} kills for map #{map_id}"
+      "[Discord] worker infrastructure not running; dropped #{length(kills)} " <>
+        "#{role} kills for map #{map_id}"
     end)
 
-    emit_not_delivered(map_id, fresh, :not_running)
+    emit_not_delivered(map_id, role, kills, :not_running)
   end
 
-  defp handle_delivery_result({:error, reason}, map_id, fresh) do
-    Logger.warning("[Discord] delivery enqueue failed for map #{map_id}: #{inspect(reason)}")
-    emit_not_delivered(map_id, fresh, reason)
+  defp handle_delivery_result({:error, reason}, map_id, role, kills) do
+    Logger.warning(
+      "[Discord] #{role} delivery enqueue failed for map #{map_id}: #{inspect(reason)}"
+    )
+
+    emit_not_delivered(map_id, role, kills, reason)
   end
 
-  defp emit_not_delivered(map_id, fresh, reason) do
+  defp emit_not_delivered(map_id, role, kills, reason) do
     :telemetry.execute(
       [:wanderer_app, :discord_dispatcher, :not_delivered],
-      %{count: length(fresh)},
-      %{map_id: map_id, reason: reason}
+      %{count: length(kills)},
+      %{map_id: map_id, role: role, reason: reason}
     )
   end
 
@@ -303,14 +359,6 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   defp extract_kills(_), do: :skip
 
-  defp system_allowed?(notification, system_id) do
-    cond do
-      system_id in (notification.excluded_systems || []) -> false
-      notification.wh_only -> SystemClass.wormhole_system?(system_id)
-      true -> true
-    end
-  end
-
   defp reject_duplicates(map_id, killmails) do
     Enum.reject(killmails, fn kill ->
       case Cachex.exists?(@dedup_cache, dedup_key(map_id, kill)) do
@@ -332,14 +380,11 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     Enum.each(killmails, fn kill -> Cachex.del(@dedup_cache, dedup_key(map_id, kill)) end)
   end
 
+  # NOT role-scoped, deliberately: exactly one destination is chosen per kill,
+  # so one key per (map, killmail) is exactly right. Should a future change ever
+  # post one kill to BOTH channels, this key must gain the role — otherwise the
+  # first post marks the kill and the second is silently suppressed.
   defp dedup_key(map_id, kill), do: "#{map_id}:#{kill["killmail_id"]}"
-
-  defp system_name(system_id) do
-    case WandererApp.CachedInfo.get_system_static_info(system_id) do
-      {:ok, %{solar_system_name: name}} -> name
-      _ -> nil
-    end
-  end
 
   @doc """
   Whether a killmail is recent enough to post.

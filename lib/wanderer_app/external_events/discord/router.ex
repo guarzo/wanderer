@@ -63,11 +63,15 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
     end
   end
 
-  defp webhook(notification, role) do
-    notification.webhooks
-    |> List.wrap()
-    |> Enum.find(&(&1.role == role))
+  # Guarded on `is_list`: `:webhooks` is a relationship, so an unloaded
+  # notification carries `%Ash.NotLoaded{}` here. Reading `.role` off that would
+  # raise on the dispatch path; treating it as "no destination" drops instead,
+  # which is the conservative direction.
+  defp webhook(%{webhooks: webhooks}, role) when is_list(webhooks) do
+    Enum.find(webhooks, &(&1.role == role))
   end
+
+  defp webhook(_notification, _role), do: nil
 
   defp usable(nil), do: :drop
   defp usable(%{enabled?: false}), do: :drop
