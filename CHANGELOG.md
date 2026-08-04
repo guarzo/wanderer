@@ -2,6 +2,28 @@
 
 <!-- changelog -->
 
+## Unreleased
+
+### Bug Fixes:
+
+* api: populate `victim_character_name`, `victim_ship_type` and the `system`
+  relationship id on `:map_kill` JSON:API events. These three attributes were read
+  from payload keys the killmail flattener never produced and had been emitting
+  `null` to every external subscriber.
+
+* api: `occurred_at` on `:map_kill` JSON:API events is now the time of the kill.
+  It previously fell back to the time the event was broadcast, so its value
+  changes for existing consumers rather than merely filling in a null.
+
+### Behaviour Changes:
+
+* discord: a map with Discord kill notifications configured now posts **more**
+  kills than before. Kills involving characters tracked on the map are delivered
+  even when they fall outside wormhole space or occur in an excluded system, so a
+  channel tuned to the previous volume will get busier without anyone changing a
+  setting. Narrow it with the wormhole-only filter, the excluded-systems list, or
+  by routing character kills to a separate channel with the new character webhook.
+
 ## [v1.101.7](https://github.com/wanderer-industries/wanderer/compare/v1.101.6...v1.101.7) (2026-07-17)
 
 
