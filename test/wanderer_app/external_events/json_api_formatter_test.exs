@@ -18,7 +18,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   defp data(type, payload), do: JsonApiFormatter.format_event(event(type, payload))["data"]
 
   describe "add_system" do
-    # Fixture: map_server_systems_impl.ex:636 (post-Task-1 shape)
+    # Fixture: map_server_systems_impl.ex:673 (post-Task-1 shape)
     test "uses the MapSystem UUID as identity and keeps EVE id as an attribute" do
       d =
         data(:add_system, %{
@@ -41,7 +41,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       refute d["attributes"]["type"]
     end
 
-    # Fixture: map_server_systems_impl.ex:902 - this call site omits :name
+    # Fixture: map_server_systems_impl.ex:943 - this call site omits :name
     test "handles the producer variant that omits name" do
       d =
         data(:add_system, %{
@@ -80,7 +80,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   end
 
   describe "deleted_system" do
-    # Fixture: map_server_systems_impl.ex:348 - name/position are deliberately nil
+    # Fixture: map_server_systems_impl.ex:385 - name/position are deliberately nil
     test "marks deletion and preserves the producer's intentional nils" do
       d =
         data(:deleted_system, %{
@@ -100,7 +100,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   end
 
   describe "system_metadata_changed" do
-    # Fixture: map_server_systems_impl.ex:1119
+    # Fixture: map_server_systems_impl.ex:1187
     test "renders every metadata attribute the producer sends" do
       d =
         data(:system_metadata_changed, %{
@@ -184,7 +184,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   end
 
   describe "connection events" do
-    # Fixture: map_server_connections_impl.ex:748
+    # Fixture: map_server_connections_impl.ex:779
     test "connection_added reads solar_system_source_id, not solar_system_source" do
       d =
         data(:connection_added, %{
@@ -209,7 +209,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["relationships"] == %{"map" => %{"data" => %{"type" => "maps", "id" => @map_id}}}
     end
 
-    # Fixture: map_server_connections_impl.ex:1140
+    # Fixture: map_server_connections_impl.ex:1161
     test "connection_updated preserves locked: false" do
       d =
         data(:connection_updated, %{
@@ -230,7 +230,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["attributes"]["mass_status"] == 1
     end
 
-    # Fixture: map_server_connections_impl.ex:1083 - three keys only
+    # Fixture: map_server_connections_impl.ex:1104 - three keys only
     test "connection_removed marks deletion and keeps both endpoints" do
       d =
         data(:connection_removed, %{
@@ -247,7 +247,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   end
 
   describe "character events" do
-    # Fixture: map_server_characters_impl.ex:1030 broadcasts an Api.Character
+    # Fixture: map_server_characters_impl.ex:1037 broadcasts an Api.Character
     # struct, which carries OAuth tokens.
     defp character_struct do
       %WandererApp.Api.Character{
@@ -282,7 +282,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       refute Map.has_key?(d["attributes"], "type")
     end
 
-    # Fixture: map_server_characters_impl.ex:485 sends a list of structs
+    # Fixture: map_server_characters_impl.ex:486 sends a list of structs
     test "characters_updated emits one resource per character" do
       a = character_struct()
       b = %{character_struct() | id: "0198f0a1-aaaa-7000-8000-00000000000a", name: "Second"}
@@ -442,7 +442,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   end
 
   describe "map_kill" do
-    # Fixture: kills/message_handler.ex:126 (batch) and :296-346 (kill element)
+    # Fixture: kills/message_handler.ex:126 (batch) and :298-350 (kill element)
     defp killmail(id) do
       %{
         "killmail_id" => id,
@@ -504,8 +504,9 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d == []
     end
 
-    # validate_flat_format_kill/1 checks required fields with Map.has_key?/2
-    # (message_handler.ex:366), so a present-but-nil "killmail_id" is
+    # validate_flat_format_kill/1 (message_handler.ex:247) checks required
+    # fields via validate_required_fields/2, which tests presence with
+    # Map.has_key?/2 (:444), so a present-but-nil "killmail_id" is
     # broadcast. A kills resource has no identity other than that id, and
     # fabricating one - event.id, say - would collide across the batch, so
     # the element is dropped rather than emitted with a null id.

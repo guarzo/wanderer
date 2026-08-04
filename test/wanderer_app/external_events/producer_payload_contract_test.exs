@@ -24,15 +24,15 @@ defmodule WandererApp.ExternalEvents.ProducerPayloadContractTest do
   # SSE/webhook path forwards payloads verbatim.
   @expected_payload_keys %{
     add_system: [
-      # :636 - do_add_system_from_location, existing-system branch
+      # :673 - do_add_system_from_location, existing-system branch
       [:system_id, :solar_system_id, :name, :position_x, :position_y],
-      # :690 - do_add_system_from_location, MapSystemRepo.upsert/1 branch
+      # :729 - do_add_system_from_location, MapSystemRepo.upsert/1 branch
       [:system_id, :solar_system_id, :name, :position_x, :position_y],
-      # :902 - do_add_system
+      # :943 - do_add_system
       [:system_id, :solar_system_id, :position_x, :position_y]
     ],
     deleted_system: [
-      # :348 - delete_systems
+      # :385 - delete_systems
       [:system_id, :solar_system_id, :name, :position_x, :position_y]
     ]
   }

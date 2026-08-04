@@ -58,7 +58,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
 
   # Event-specific resource data formatting
   #
-  # Producer: map_server_systems_impl.ex:636, :690 and :902. The :902 variant
+  # Producer: map_server_systems_impl.ex:673, :729 and :943. The :943 variant
   # omits :name, so that attribute is legitimately nil there.
   defp format_resource_data(%Event{type: :add_system, payload: payload} = event) do
     {type, id} = system_identity(event, payload)
@@ -77,7 +77,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_systems_impl.ex:348. name/position_x/position_y are
+  # Producer: map_server_systems_impl.ex:385. name/position_x/position_y are
   # deliberately sent as nil and are omitted here rather than echoed as nulls.
   defp format_resource_data(%Event{type: :deleted_system, payload: payload} = event) do
     {type, id} = system_identity(event, payload)
@@ -113,7 +113,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_systems_impl.ex:1119
+  # Producer: map_server_systems_impl.ex:1187
   defp format_resource_data(%Event{type: :system_metadata_changed, payload: payload} = event) do
     {type, id} = system_identity(event, payload)
 
@@ -197,7 +197,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_connections_impl.ex:748. Endpoints are EVE solar
+  # Producer: map_server_connections_impl.ex:779. Endpoints are EVE solar
   # system ids, so they are attributes: no map_systems UUID is available.
   defp format_resource_data(%Event{type: :connection_added, payload: payload} = event) do
     %{
@@ -218,7 +218,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_connections_impl.ex:1083
+  # Producer: map_server_connections_impl.ex:1104
   defp format_resource_data(%Event{type: :connection_removed, payload: payload} = event) do
     %{
       "type" => "map_connections",
@@ -235,7 +235,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_connections_impl.ex:1140
+  # Producer: map_server_connections_impl.ex:1161
   defp format_resource_data(%Event{type: :connection_updated, payload: payload} = event) do
     %{
       "type" => "map_connections",
@@ -256,7 +256,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_characters_impl.ex:1030 and :1041. The payload is a
+  # Producer: map_server_characters_impl.ex:1037 and :1048. The payload is a
   # WandererApp.Api.Character struct - fields are projected through
   # @character_attribute_keys so tokens can never reach the wire.
   defp format_resource_data(%Event{type: :character_added, payload: payload} = event) do
@@ -293,7 +293,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_characters_impl.ex:485. Sends %{characters: [...]},
+  # Producer: map_server_characters_impl.ex:486. Sends %{characters: [...]},
   # a list of Api.Character structs, so `data` is an array.
   defp format_resource_data(%Event{type: :characters_updated, payload: payload} = event) do
     payload
@@ -371,7 +371,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
 
   # Producer: kills/message_handler.ex:126. The payload is a BATCH -
   # %{"solar_system_id", "killmails", "timestamp", "type"} - and every
-  # per-kill field lives on the elements of "killmails" (built at :296-346).
+  # per-kill field lives on the elements of "killmails" (built at :298-350).
   #
   # Guard on presence of the key, not on its value: a batch that legitimately
   # carries no kills must render as [], and a present-but-nil "killmails" is a
