@@ -6,14 +6,26 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
 
   | # | Condition                                          | Destination       |
   |---|----------------------------------------------------|-------------------|
-  | 1 | System in `excluded_systems`, **not** involved     | drop              |
-  | 2 | `wh_only` on, system not a wormhole, not involved  | drop              |
-  | 3 | Involved                                           | character webhook |
-  | 4 | Otherwise                                          | system webhook    |
+  | 1 | System in `excluded_systems`, verdict `:not_involved` | drop            |
+  | 2 | `wh_only` on, system not a wormhole, `:not_involved`  | drop            |
+  | 3 | `{:involved, _}`                                   | character webhook |
+  | 4 | Otherwise (`:not_involved` past 1-2, or `:unknown`) | system webhook   |
 
-  Rules 1 and 2 are carve-outs: a kill involving your own pilots is always
-  interesting, wherever it happened, so the exclusion and wormhole-only filters
-  do not apply to it.
+  Rules 1 and 2 are carve-outs: a kill involving the pilots or corporations the
+  character channel is for is always interesting, wherever it happened, so the
+  exclusion and wormhole-only filters do not apply to it.
+
+  ## `:unknown` is not `:not_involved`
+
+  Only `:not_involved` — a positive finding that this kill is not ours — enables
+  rules 1 and 2. `:unknown` means `Matcher` could not determine involvement
+  (the tracked-character set was unavailable, or the payload carried no attacker
+  data). It bypasses rules 1 and 2 and lands on the **system** webhook.
+
+  This distinction is the whole point. Folding `:unknown` into `:not_involved`
+  would mean a cache outage silently drops every k-space kill on a map with the
+  default `wh_only`, and the only trace is one log line. Delivering a kill to
+  the system channel that a filter might have excluded is the cheaper error.
 
   ## Fallback
 
@@ -43,13 +55,16 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
   @spec route(map(), struct(), verdict()) :: {:ok, struct()} | :drop
   def route(kill, notification, verdict) do
     involved? = match?({:involved, _}, verdict)
+    # Only a positive "this kill is not ours" opens the filters. `:unknown` must
+    # not, or an undetermined verdict is indistinguishable from an excluded one.
+    filterable? = verdict == :not_involved
     system_id = kill["solar_system_id"]
 
     cond do
-      not involved? and system_id in (notification.excluded_systems || []) ->
+      filterable? and system_id in (notification.excluded_systems || []) ->
         :drop
 
-      not involved? and notification.wh_only and not SystemClass.wormhole_system?(system_id) ->
+      filterable? and notification.wh_only and not SystemClass.wormhole_system?(system_id) ->
         :drop
 
       involved? ->
