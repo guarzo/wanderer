@@ -15,6 +15,11 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   # invalidation to five minutes rather than the lifetime of the node.
   @ttl :timer.minutes(5)
 
+  # Throttle for the flat-payload warning below. Shares `@cache` because the
+  # entry is the same kind of thing: derived, per-node, and safe to lose.
+  @divergence_log_key "discord:attacker-divergence-warned"
+  @divergence_log_interval :timer.minutes(5)
+
   @doc """
   The EVE character ids tracked on `map_id`, as **integers**.
 
@@ -25,11 +30,18 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   integers. The conversion happens here, once per cache build, so that no
   comparison site anywhere else has to think about it.
 
-  Returns an empty `MapSet` if the map cannot be read (e.g. its server is not
-  running). Callers must treat that as "no tracked pilots" and fall back to
-  their conservative destination — this function never raises.
+  Returns `:unavailable` — never an empty `MapSet` — if the map cannot be read
+  (e.g. its server is not running, or the cache is down). An empty set is a
+  factual claim that nobody is tracked, and `involvement/3` acts on it: every
+  kill would be `:not_involved`, which is what *enables* the `excluded_systems`
+  and `wh_only` filters. With `wh_only` defaulting to true, a moment of cache
+  unavailability would therefore drop every k-space kill on the map silently.
+  `:unavailable` is propagated into an `:unknown` verdict instead, which
+  bypasses those filters and delivers to the system webhook.
+
+  This function never raises.
   """
-  @spec tracked_eve_ids(String.t()) :: MapSet.t(integer())
+  @spec tracked_eve_ids(String.t()) :: MapSet.t(integer()) | :unavailable
   def tracked_eve_ids(map_id) do
     case Cachex.get(@cache, cache_key(map_id)) do
       {:ok, %MapSet{} = ids} ->
@@ -45,13 +57,13 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
     # its caller is `DiscordDispatcher.partition/3`: letting the raise through
     # would lose the entire killmail batch, not just this map's tracked set.
     # The documented "never raises" contract above is what makes the
-    # conservative empty-MapSet fallback safe for every caller.
+    # `:unavailable` fallback safe for every caller.
     error ->
       Logger.warning(
         "[Discord.Matcher] tracked-set cache unavailable for map #{map_id}: #{inspect(error)}"
       )
 
-      MapSet.new()
+      :unavailable
   end
 
   @doc """
@@ -106,7 +118,8 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
       :error ->
         # Deliberately NOT cached: a transient failure must not be pinned for
         # the TTL, or every kill on this map is misrouted for five minutes.
-        MapSet.new()
+        # `:unavailable`, not an empty set — see `tracked_eve_ids/1`.
+        :unavailable
     end
   end
 
@@ -214,48 +227,77 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   # compare equal to the reset counter and be written back.
   defp version_key(map_id), do: "map:#{map_id}:tracked_eve_ids:version"
 
-  @type verdict :: {:involved, :victim} | {:involved, :attacker} | :not_involved
+  @type verdict ::
+          {:involved, :victim} | {:involved, :attacker} | :not_involved | :unknown
 
   @doc """
-  Decides whether a killmail involves this map's own pilots.
+  Decides whether a killmail is one the character channel is for.
 
-  Order is load-bearing (spec section 3): victim checks precede attacker checks,
-  so a kill where both sides are tracked renders as a *loss*. Losses are the
-  more urgent signal.
+  ## Which criterion applies
 
-  `focus_corp_ids` widens "tracked" rather than acting as a separate routing
-  concept, so corporation focus earns the same colouring and the same routing
-  carve-outs as character tracking.
+  `focus_corp_ids` **replaces** the tracked-character check rather than widening
+  it. When it is non-empty, membership of one of those corporations is the only
+  thing that sends a kill to the character channel; the map's tracked pilots are
+  not consulted at all, and their kills follow the ordinary system rules. When
+  it is empty, the map's tracked characters decide, which is the original
+  behaviour and the default.
+
+  It is deliberately one criterion or the other. A union would mean that turning
+  the corporation filter on could only ever *add* notifications, so an admin who
+  wants "the character channel is for my corp, not for whoever happens to be on
+  the map" would have no way to express it.
+
+  ## Ordering
+
+  Victim checks precede attacker checks, so a kill where both sides match
+  renders as a *loss*. Losses are the more urgent signal.
+
+  ## Verdicts
+
+  `:not_involved` is a positive finding — we looked and this kill is not ours.
+  It is what *enables* the `excluded_systems` and `wh_only` filters in
+  `Router`, so it must never be used to mean "could not tell". That case is
+  `:unknown`, which bypasses those filters and delivers to the system webhook.
   """
-  @spec involvement(map(), MapSet.t(integer()), [integer()]) :: verdict()
+  @spec involvement(map(), MapSet.t(integer()) | :unavailable, [integer()]) :: verdict()
   def involvement(kill, tracked_eve_ids, focus_corp_ids) when is_list(focus_corp_ids) do
-    cond do
-      MapSet.member?(tracked_eve_ids, parse_eve_id(kill["victim_char_id"])) ->
-        {:involved, :victim}
+    if focus_corp_ids == [] do
+      character_involvement(kill, tracked_eve_ids)
+    else
+      corporation_involvement(kill, focus_corp_ids)
+    end
+  end
 
-      parse_eve_id(kill["victim_corp_id"]) in focus_corp_ids ->
-        {:involved, :victim}
+  # No tracked set to compare against. Answering `:not_involved` here would
+  # assert that none of the map's pilots were in this fight, which is exactly
+  # what we failed to determine — and under the default `wh_only` that assertion
+  # drops the kill. Note the corporation-filter path above never reaches this:
+  # it does not need the tracked set, so a cache outage does not degrade it.
+  defp character_involvement(_kill, :unavailable), do: :unknown
 
-      attacker_match?(kill, tracked_eve_ids, focus_corp_ids) ->
-        {:involved, :attacker}
+  defp character_involvement(kill, tracked_eve_ids) do
+    if MapSet.member?(tracked_eve_ids, parse_eve_id(kill["victim_char_id"])) do
+      {:involved, :victim}
+    else
+      match_attackers(kill, "attacker_char_ids", &MapSet.member?(tracked_eve_ids, &1))
+    end
+  end
 
-      true ->
-        :not_involved
+  defp corporation_involvement(kill, focus_corp_ids) do
+    if parse_eve_id(kill["victim_corp_id"]) in focus_corp_ids do
+      {:involved, :victim}
+    else
+      match_attackers(kill, "attacker_corp_ids", &(&1 in focus_corp_ids))
     end
   end
 
   # ABSENT is not EMPTY. Nested-format payloads always carry the attacker keys
   # (possibly as empty lists); flat-format payloads omit them entirely. Treating
-  # a missing key as `[]` would assert "there were no tracked attackers", which
-  # we do not know. This is a compatibility behaviour for a payload shape we
-  # cannot enrich, not a normalization: admitting the data is unknown is better
-  # than pretending it is empty.
-  #
-  # Victim matching still runs normally either way — `victim_char_id` and
-  # `victim_corp_id` exist in both shapes. When the victim does not match and
-  # the attacker data is unknown, the verdict is `:not_involved`, which routes
-  # to the system webhook: the same conservative destination a matching-cache
-  # failure produces.
+  # a missing key as `[]` would assert "there were no attackers of ours", which
+  # we do not know — and the assertion is not free: it means a flat-format
+  # payload can only ever produce a loss, so *kills* by tracked pilots in
+  # k-space were dropped outright under the default `wh_only`. Reporting
+  # `:unknown` costs a kill in the system channel instead of no kill at all.
   #
   # `attacker_char_ids` / `attacker_corp_ids` are normalized to integers by
   # `collect_ids/2` (message_handler.ex) at flatten time — but only on the
@@ -265,26 +307,54 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   # (nothing today enforces that it can't), `parse_eve_id/1` is the backstop.
   # It passes integers straight through, so this costs nothing on the
   # already-normalized nested path.
-  defp attacker_match?(kill, tracked_eve_ids, focus_corp_ids) do
+  defp match_attackers(kill, key, match_fun) do
     if Map.has_key?(kill, "attacker_char_ids") or Map.has_key?(kill, "attacker_corp_ids") do
-      Enum.any?(
-        kill["attacker_char_ids"] || [],
-        &MapSet.member?(tracked_eve_ids, parse_eve_id(&1))
-      ) or
-        Enum.any?(kill["attacker_corp_ids"] || [], &(parse_eve_id(&1) in focus_corp_ids))
+      if Enum.any?(kill[key] || [], &match_fun.(parse_eve_id(&1))),
+        do: {:involved, :attacker},
+        else: :not_involved
     else
       log_attacker_divergence(kill)
-      false
+      :unknown
     end
   end
 
-  # Logged once per occurrence, at debug, with the killmail id. If flat-format
-  # payloads turn out to be common in production this is visible in the logs
-  # rather than inferred from notifications that never arrived.
+  # At warning, not debug: this is now the reason a kill lands in the system
+  # channel instead of the character channel, which is user-visible and worth
+  # explaining. Throttled to one line per interval because it fires per kill,
+  # and if flat payloads are the norm on some feed it would otherwise be the
+  # only thing in the log.
   defp log_attacker_divergence(kill) do
-    Logger.debug(fn ->
-      "[Discord] killmail #{kill["killmail_id"]}: attacker data absent from payload; " <>
-        "involvement decided on the victim alone"
-    end)
+    if divergence_log_allowed?() do
+      Logger.warning(
+        "[Discord] killmail #{kill["killmail_id"]}: attacker data absent from payload; " <>
+          "involvement decided on the victim alone, so kills by tracked pilots are " <>
+          "reported as :unknown and delivered to the system webhook. " <>
+          "(throttled to one line per #{div(@divergence_log_interval, 60_000)}m)"
+      )
+    end
+
+    :ok
+  end
+
+  @doc false
+  # Exposed only so tests can clear the throttle between cases. A warning
+  # suppressed by a previous test would make these assertions depend on run
+  # order, which is exactly the kind of flake that gets a real assertion deleted.
+  def divergence_log_key, do: @divergence_log_key
+
+  defp divergence_log_allowed?() do
+    case Cachex.get(@cache, @divergence_log_key) do
+      {:ok, nil} ->
+        Cachex.put(@cache, @divergence_log_key, true, ttl: @divergence_log_interval)
+        true
+
+      _ ->
+        false
+    end
+  rescue
+    # The cache is the throttle, not the signal. If it is unavailable, log —
+    # suppressing a warning because the suppression mechanism broke is the
+    # wrong direction, and a cache that is down is itself already warning here.
+    _ -> true
   end
 end

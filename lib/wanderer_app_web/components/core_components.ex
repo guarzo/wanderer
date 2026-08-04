@@ -723,6 +723,14 @@ defmodule WandererAppWeb.CoreComponents do
   # LiveSelect's own defaults (it derives an id from the field name).
   attr(:id, :string, default: nil)
   attr(:"phx-target", :any, default: nil)
+  # The `.label` row above the input is an empty spacer — it renders a blank
+  # `label-text` regardless of `@label`, so it exists purely to line this field
+  # up with sibling fields that do carry a label. In a two-column
+  # "input + button" row it is the opposite of helpful: the wrapper ends up
+  # taller than the input it contains, and any cross-axis alignment on the row
+  # lines the button up with the wrapper rather than with the input. Defaults to
+  # true so every existing call site keeps its current spacing.
+  attr(:label_row, :boolean, default: true)
   slot(:inner_block)
   slot(:option)
 
@@ -746,6 +754,7 @@ defmodule WandererAppWeb.CoreComponents do
           :input_class,
           :dropdown_extra_class,
           :option_extra_class,
+          :label_row,
           :id,
           :"phx-target"
         ]) ++ optional_opts
@@ -759,7 +768,7 @@ defmodule WandererAppWeb.CoreComponents do
         @label_class
       ]}
     >
-      <div for="form_description" class="label">
+      <div :if={@label_row} for="form_description" class="label">
         <span class="label-text"></span>
       </div>
       <LiveSelect.live_select
