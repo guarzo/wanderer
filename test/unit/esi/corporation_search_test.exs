@@ -20,6 +20,20 @@ defmodule WandererApp.Esi.CorporationSearchTest do
       assert {:ok, []} = CorporationSearch.search([%{id: Ecto.UUID.generate()}], nil)
     end
 
+    test "reports unusable characters as an error rather than as no results" do
+      # `MapSystemsEventHandler` passes `current_user.characters` straight
+      # through, so an unloaded association reaches here as `%Ash.NotLoaded{}`.
+      # Answering `{:ok, []}` rendered a permanently empty dropdown that looked
+      # exactly like "no corporation by that name", with nothing in the logs.
+      assert {:error, :invalid_characters} =
+               CorporationSearch.search(%Ash.NotLoaded{}, "Karmafleet")
+    end
+
+    test "reports swapped arguments as an error rather than as no results" do
+      assert {:error, :invalid_characters} =
+               CorporationSearch.search("Karmafleet", [%{id: Ecto.UUID.generate()}])
+    end
+
     test "min_search_length is three, matching the pre-extraction behaviour" do
       assert CorporationSearch.min_search_length() == 3
     end
