@@ -252,7 +252,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       rec ->
         # The resource's custom destroy invalidates the config cache and stops
         # the delivery workers; the webhook children cascade with the parent.
-        case Ash.destroy(rec) do
+        case WandererApp.Api.MapDiscordNotification.destroy(rec) do
           :ok ->
             {:noreply,
              socket

@@ -48,6 +48,13 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   def invalidate_tracked(map_id) do
     Cachex.del(@cache, cache_key(map_id))
     :ok
+  rescue
+    # Same contract as `DiscordDispatcher.invalidate_cache/1`, which drops the
+    # same cache: `Cachex.del/2` RAISES against an unstarted cache rather than
+    # returning an error tuple. Both are called from core map writes
+    # (`WandererApp.Map`'s three writers of `characters:`), so a context without
+    # the cache must not turn adding a character into a crash.
+    _ -> :ok
   end
 
   defp build_and_cache(map_id) do
