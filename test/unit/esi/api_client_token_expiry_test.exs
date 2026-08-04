@@ -64,4 +64,40 @@ defmodule WandererApp.Esi.ApiClientTokenExpiryTest do
     # "row absent".
     assert ApiClient.is_access_token_expired?(Ecto.UUID.generate())
   end
+
+  describe "time_since_expiry/1" do
+    # `is_access_token_expired?/1` reports a nil `expires_at` as expired, which
+    # sends exactly those characters down the refresh-and-retry path. Every
+    # `handle_refresh_token_result/5` clause there logs how long ago the token
+    # expired, and computing that with `DateTime.from_unix!/1` raised
+    # `FunctionClauseError` on the same nil the predicate above tolerates.
+    #
+    # The visible symptom was the corporation typeahead in map settings: the
+    # LiveView rescued the raise and rendered an empty dropdown, so the search
+    # looked like it returned no matches instead of like it had crashed.
+
+    test "returns elapsed seconds for a timestamp in the past" do
+      assert ApiClient.time_since_expiry(unix_now() - 60) in 59..61
+    end
+
+    test "returns a negative value for a timestamp in the future" do
+      assert ApiClient.time_since_expiry(unix_now() + 60) in -61..-59
+    end
+
+    test "returns nil for a nil expires_at rather than raising" do
+      assert ApiClient.time_since_expiry(nil) == nil
+    end
+
+    test "returns nil for a non-integer expires_at rather than raising" do
+      # Belt-and-braces for shapes the cache could hold after a schema change:
+      # this value is only ever used as log/telemetry metadata, so no shape of it
+      # is worth failing an ESI call over.
+      assert ApiClient.time_since_expiry(DateTime.utc_now()) == nil
+      assert ApiClient.time_since_expiry("1700000000") == nil
+    end
+
+    test "returns nil for an out-of-range unix timestamp rather than raising" do
+      assert ApiClient.time_since_expiry(1_000_000_000_000_000_000_000) == nil
+    end
+  end
 end

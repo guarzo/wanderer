@@ -503,8 +503,15 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
     response =
       case WandererApp.Esi.CorporationSearch.search(user_chars, search) do
-        {:ok, results} -> %{results: results}
-        _ -> %{results: []}
+        {:ok, results} ->
+          %{results: results}
+
+        other ->
+          # The reply shape stays `%{results: []}` because the JS consumers only
+          # read `.results`, but a failed ESI lookup must not be indistinguishable
+          # from "no such corporation" in the logs as well as in the dropdown.
+          Logger.warning("get_corporation_names failed: #{inspect(other)}")
+          %{results: []}
       end
 
     {:reply, response, socket}
@@ -516,8 +523,12 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
     response =
       case search_alliance_names(user_chars, search) do
-        {:ok, results} -> %{results: results}
-        _ -> %{results: []}
+        {:ok, results} ->
+          %{results: results}
+
+        other ->
+          Logger.warning("get_alliance_names failed: #{inspect(other)}")
+          %{results: []}
       end
 
     {:reply, response, socket}

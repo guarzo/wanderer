@@ -28,6 +28,15 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   @roles [:system, :character]
 
+  # Shown under the corporation box when the lookup itself failed, as opposed to
+  # succeeding with no matches.
+  @corp_search_error "Corporation search is unavailable right now. This lookup runs as one of your characters — if it keeps failing, re-authorise a character and try again."
+
+  # Shown under the excluded-systems box when the lookup itself failed. Unlike the
+  # corporation search this one never leaves the app, so a failure here means the
+  # database or the Ash read is unhealthy rather than anything the user can fix.
+  @system_search_error "System search is unavailable right now. Try again in a moment."
+
   @impl true
   def update(%{map_id: map_id} = assigns, socket) do
     notification =
@@ -44,7 +53,9 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      |> assign(:min_search_length, @min_search_length)
      |> assign(:corp_min_search_length, CorporationSearch.min_search_length())
      |> assign_new(:system_options, fn -> [] end)
+     |> assign_new(:system_search_error, fn -> nil end)
      |> assign_new(:corp_options, fn -> [] end)
+     |> assign_new(:corp_search_error, fn -> nil end)
      |> assign_new(:error, fn -> nil end)
      |> assign_new(:flash_message, fn -> nil end)
      |> assign_notification(notification)}
@@ -144,19 +155,25 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # fired. Answering unconditionally with system options would fill the
   # corporation dropdown with solar systems.
   def handle_event("live_select_change", %{"id" => @focus_corp_select_id, "text" => text}, socket) do
-    options = search_corporations(socket.assigns[:current_user], text)
+    {options, corp_search_error} = search_corporations(socket.assigns[:current_user], text)
 
     send_update(LiveSelect.Component, id: @focus_corp_select_id, options: options)
 
-    {:noreply, assign(socket, :corp_options, options)}
+    {:noreply,
+     socket
+     |> assign(:corp_options, options)
+     |> assign(:corp_search_error, corp_search_error)}
   end
 
   def handle_event("live_select_change", %{"id" => id, "text" => text}, socket) do
-    options = search_systems(text)
+    {options, system_search_error} = search_systems(text)
 
     send_update(LiveSelect.Component, id: id, options: options)
 
-    {:noreply, assign(socket, :system_options, options)}
+    {:noreply,
+     socket
+     |> assign(:system_options, options)
+     |> assign(:system_search_error, system_search_error)}
   end
 
   def handle_event("add-excluded", %{"excluded" => %{"excluded_system" => raw}}, socket) do
@@ -435,45 +452,58 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   # Mirrors the ACL live_select pattern in maps_live: search server-side, feed
   # `{label, value}` options back into the component.
+  #
+  # Returns `{options, error_message_or_nil}` for the same reason
+  # `search_corporations/2` does: this is a database lookup that can fail, and an
+  # empty dropdown reads as "there is no system by that name".
   defp search_systems(text) when is_binary(text) and byte_size(text) >= @min_search_length do
     case MapSolarSystem.find_by_name(%{name: text}) do
       {:ok, systems} ->
-        systems
-        |> Enum.take(@max_search_results)
-        |> Enum.map(&{"#{&1.solar_system_name} (#{&1.region_name})", &1.solar_system_id})
+        {systems
+         |> Enum.take(@max_search_results)
+         |> Enum.map(&{"#{&1.solar_system_name} (#{&1.region_name})", &1.solar_system_id}), nil}
 
-      _ ->
-        []
+      other ->
+        Logger.warning("[MapNotifications] system search failed: #{inspect(other)}")
+        {[], @system_search_error}
     end
   end
 
-  defp search_systems(_), do: []
+  defp search_systems(_), do: {[], nil}
 
-  # `CorporationSearch.search/2` enforces its own minimum length and returns
+  # `CorporationSearch.search/3` enforces its own minimum length and returns
   # `{:ok, []}` for a user with no characters, so no length guard is needed here.
   #
+  # Returns `{options, error_message_or_nil}`. The distinction matters: this
+  # lookup leaves the app and can fail for reasons the user can act on (an ESI
+  # outage, a character whose token needs re-authorising), and an empty dropdown
+  # is indistinguishable from "that corporation does not exist". Reporting only
+  # into the log is what made a crash in the token-refresh path present as a
+  # typeahead that silently did nothing.
+  #
   # The rescue is not belt-and-braces: the search runs as one of the user's
-  # characters, and a character whose ESI token has never been refreshed makes
-  # `Character.search/2` raise. Unrescued that kills the LiveView on a keystroke
-  # in the corporation box, taking the whole settings tab with it. An empty
-  # dropdown is the right degradation for a lookup this component cannot fix.
+  # characters, and `Character.search/2` reaches ESI's token-refresh path.
+  # Unrescued, a raise there kills the LiveView on a keystroke in the
+  # corporation box, taking the whole settings tab with it.
   defp search_corporations(%{characters: characters}, text) when is_list(characters) do
     case CorporationSearch.search(characters, text) do
       {:ok, results} ->
-        results
-        |> Enum.take(@max_search_results)
-        |> Enum.map(&{&1.formatted, &1.id})
+        {results |> Enum.take(@max_search_results) |> Enum.map(&{&1.formatted, &1.id}), nil}
 
-      _ ->
-        []
+      {:error, reason} ->
+        Logger.warning("[MapNotifications] corporation search failed: #{inspect(reason)}")
+        {[], @corp_search_error}
     end
   rescue
     error ->
-      Logger.warning("[MapNotifications] corporation search failed: #{inspect(error)}")
-      []
+      Logger.warning(
+        "[MapNotifications] corporation search crashed: #{Exception.format(:error, error, __STACKTRACE__)}"
+      )
+
+      {[], @corp_search_error}
   end
 
-  defp search_corporations(_current_user, _text), do: []
+  defp search_corporations(_current_user, _text), do: {[], nil}
 
   # One query for every excluded system, not one per system. Falls back to the
   # bare id for anything the lookup did not return, and keeps the stored order.
@@ -616,7 +646,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
         <.input :if={@webhook} field={wf[:enabled]} type="checkbox" label="Enabled" />
 
-        <.button type="submit">{if @webhook, do: "Save", else: "Add"}</.button>
+        <.button type="submit" class="self-start">{if @webhook, do: "Save", else: "Add"}</.button>
       </.form>
 
       <div :if={@webhook} class="flex items-center gap-2">
@@ -631,7 +661,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         <.button
           :if={@removable?}
           type="button"
-          class="btn-error"
+          class="p-button-danger self-start"
           phx-click="remove-webhook"
           phx-value-role={@role}
           phx-target={@myself}
@@ -666,7 +696,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div id={@id} class="flex flex-col gap-4">
+    <div id={@id} class="flex max-w-3xl flex-col gap-4">
       <p class="text-sm opacity-70">
         Posts kills to Discord. These filters are separate from the Kills widget's
         own filters, which are per-user and only affect what you see in the map UI.
@@ -681,7 +711,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         id="discord-notification-form"
         phx-submit="save"
         phx-target={@myself}
-        class="flex flex-col gap-3"
+        class="flex flex-col gap-3 rounded border border-white/10 p-3"
       >
         <.input
           :if={is_nil(@notification)}
@@ -695,7 +725,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         <.input field={f[:wh_only]} type="checkbox" label="Only wormhole kills" />
         <.input field={f[:enabled]} type="checkbox" label="Enabled for this map" />
 
-        <.button type="submit">Save</.button>
+        <.button type="submit" class="self-start">Save</.button>
       </.form>
 
       <.webhook_row
@@ -725,7 +755,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         myself={@myself}
       />
 
-      <div :if={@notification} class="flex flex-col gap-2">
+      <div :if={@notification} class="flex flex-col gap-2 rounded border border-white/10 p-3">
         <h4 class="text-sm font-semibold">Excluded systems</h4>
 
         <ul class="flex flex-col gap-1">
@@ -749,7 +779,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           phx-submit="add-excluded"
           phx-target={@myself}
           class="grid items-end gap-2"
-          style="grid-template-columns: 1fr auto"
+          style="grid-template-columns: minmax(0, 24rem) auto"
         >
           <.live_select
             field={ef[:excluded_system]}
@@ -764,9 +794,11 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           />
           <.button type="submit">Add</.button>
         </.form>
+
+        <p :if={@system_search_error} class="text-sm text-amber-400">{@system_search_error}</p>
       </div>
 
-      <div :if={@notification} class="flex flex-col gap-2">
+      <div :if={@notification} class="flex flex-col gap-2 rounded border border-white/10 p-3">
         <h4 class="text-sm font-semibold">Focus corporations</h4>
         <p class="text-xs opacity-70">
           Kills involving these corporations are treated as relevant even when the
@@ -802,7 +834,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           phx-submit="add-focus-corp"
           phx-target={@myself}
           class="grid items-end gap-2"
-          style="grid-template-columns: 1fr auto"
+          style="grid-template-columns: minmax(0, 24rem) auto"
         >
           <.live_select
             field={cf[:focus_corp]}
@@ -817,12 +849,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           />
           <.button type="submit">Add</.button>
         </.form>
+
+        <p :if={@corp_search_error} class="text-sm text-amber-400">{@corp_search_error}</p>
       </div>
 
       <div :if={@notification} class="flex items-center gap-2">
         <.button
           type="button"
-          class="btn-error"
+          class="p-button-danger self-start"
           phx-click="delete"
           phx-target={@myself}
           data-confirm="Remove Discord notifications for this map?"
