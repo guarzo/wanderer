@@ -39,7 +39,26 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # and "ESI is rate-limiting us", which is the difference between a user-fixable
   # problem and one they should wait out — and it makes the failure diagnosable
   # from a screenshot instead of requiring server log access.
-  defp corp_search_error(reason), do: "#{@corp_search_error} (#{inspect(reason)})"
+  #
+  # The character is named for the same reason. `CorporationSearch.search/3` runs
+  # as the FIRST of the user's characters and only that one, so on a
+  # multi-character account a single stale token breaks the feature while every
+  # other character is fine. Telling the user to "re-authorise a character" is
+  # then actively misleading: re-authorising any of the others changes nothing.
+  # Naming it also distinguishes the two failures that look identical from the
+  # outside — a character-specific token problem versus ESI being down for
+  # everything.
+  defp corp_search_error(reason, characters) do
+    case CorporationSearch.search_character(characters) do
+      {:ok, %{name: name}} when is_binary(name) and name != "" ->
+        "Corporation search is unavailable right now. It runs as #{name}, so re-authorise" <>
+          " that character specifically — re-authorising a different one will not help." <>
+          " (#{inspect(reason)})"
+
+      _ ->
+        "#{@corp_search_error} (#{inspect(reason)})"
+    end
+  end
 
   # Shown under the excluded-systems box when the lookup itself failed. Unlike the
   # corporation search this one never leaves the app, so a failure here means the
@@ -500,8 +519,11 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         {results |> Enum.take(@max_search_results) |> Enum.map(&{&1.formatted, &1.id}), nil}
 
       {:error, reason} ->
-        Logger.warning("[MapNotifications] corporation search failed: #{inspect(reason)}")
-        {[], corp_search_error(reason)}
+        Logger.warning(
+          "[MapNotifications] corporation search failed as #{inspect(search_character_name(characters))}: #{inspect(reason)}"
+        )
+
+        {[], corp_search_error(reason, characters)}
     end
   rescue
     error ->
@@ -509,10 +531,18 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         "[MapNotifications] corporation search crashed: #{Exception.format(:error, error, __STACKTRACE__)}"
       )
 
-      {[], corp_search_error(error.__struct__)}
+      {[], corp_search_error(error.__struct__, characters)}
   end
 
   defp search_corporations(_current_user, _text), do: {[], nil}
+
+  # Log-only; the rendered message goes through `corp_search_error/2`.
+  defp search_character_name(characters) do
+    case CorporationSearch.search_character(characters) do
+      {:ok, %{name: name}} -> name
+      _ -> nil
+    end
+  end
 
   # One query for every excluded system, not one per system. Falls back to the
   # bare id for anything the lookup did not return, and keeps the stored order.
