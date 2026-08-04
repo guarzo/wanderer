@@ -104,6 +104,12 @@ defmodule WandererApp.ExternalEvents.Discord.SystemNameTest do
     # the `nil` branch, not `present("")`. Bypass Ash's write-side casting with
     # a raw Ecto update straight against the table so the row genuinely holds
     # `""`, then confirm the read path treats it as unset.
+    #
+    # No production write path can currently produce this state — every writer
+    # goes through an Ash action, and Ash normalizes `""` to `nil` at the
+    # boundary. This test is a drift guard, not a description of current
+    # behavior: it protects `present("")` against someone later flipping
+    # `allow_empty?: true`, or a raw-write importer/migration bypassing Ash.
     test "an empty-string map-local name is treated as unset", %{map: map} do
       system =
         Factory.insert(:map_system, %{
