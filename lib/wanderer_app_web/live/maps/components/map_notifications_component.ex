@@ -811,9 +811,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           </li>
         </ul>
 
-        <%!-- `compact` makes the field wrapper exactly as tall as its input, so
-              stretching the row gives the Add button the field's exact box
-              rather than relying on the two having equal natural heights. --%>
+        <%!-- Height matching, without predicting either box: `compact` makes the
+              field wrapper exactly as tall as its input, `!py-0` drops the
+              button's vertical padding so its intrinsic height (one line of
+              text) is always shorter than the input's, and the grid row is
+              therefore sized by the field. `items-stretch` then gives the
+              button that exact height. Nothing here depends on the button and
+              the input agreeing on font size, padding or line-height, which
+              they do not. --%>
         <.form
           :let={ef}
           for={@excluded_form}
@@ -835,7 +840,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             options={@system_options}
             placeholder="Search a system by name"
           />
-          <.button type="submit">Add</.button>
+          <.button type="submit" class="!py-0 inline-flex items-center justify-center">Add</.button>
         </.form>
 
         <p :if={@system_search_error} class="text-sm text-amber-400">{@system_search_error}</p>
@@ -893,7 +898,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             options={@corp_options}
             placeholder="Search a corporation by name"
           />
-          <.button type="submit">Add</.button>
+          <.button type="submit" class="!py-0 inline-flex items-center justify-center">Add</.button>
         </.form>
 
         <p :if={@corp_search_error} class="text-sm text-amber-400">{@corp_search_error}</p>
