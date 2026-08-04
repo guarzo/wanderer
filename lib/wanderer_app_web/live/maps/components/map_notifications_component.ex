@@ -817,7 +817,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           id="excluded-system-form"
           phx-submit="add-excluded"
           phx-target={@myself}
-          class="grid items-end gap-2"
+          class="grid items-start gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -825,6 +825,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@excluded_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
+            label_row={false}
             debounce={250}
             update_min_len={@min_search_length}
             mode={:single}
@@ -838,10 +839,12 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       </div>
 
       <div :if={@notification} class="flex flex-col gap-2 rounded border border-white/10 p-3">
-        <h4 class="text-sm font-semibold">Focus corporations</h4>
+        <h4 class="text-sm font-semibold">Corporation filter</h4>
         <p class="text-xs opacity-70">
-          Kills involving these corporations are treated as relevant even when the
-          system or wormhole-only filters would otherwise drop them.
+          When set, only kills involving these corporations go to the character
+          channel, instead of your map-tracked characters. Everything else follows
+          the normal system rules. Leave empty to use map-tracked characters.
+          These kills ignore the excluded-system and wormhole-only filters.
         </p>
 
         <ul class="flex flex-wrap gap-2">
@@ -872,7 +875,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           id="focus-corp-form"
           phx-submit="add-focus-corp"
           phx-target={@myself}
-          class="grid items-end gap-2"
+          class="grid items-start gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -880,6 +883,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             id={@focus_corp_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
+            label_row={false}
             debounce={250}
             update_min_len={@corp_min_search_length}
             mode={:single}
