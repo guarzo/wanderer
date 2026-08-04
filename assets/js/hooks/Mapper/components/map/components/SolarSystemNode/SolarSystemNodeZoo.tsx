@@ -1,6 +1,6 @@
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
 import { MapSolarSystemType } from '../../map.types';
-import { Handle, Position, NodeProps, useEdges } from 'reactflow';
+import { Handle, Position, NodeProps, ReactFlowState, useStore } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
@@ -35,12 +35,23 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const { killsCount: localKillsCount, killsActivityType: localKillsActivityType } = useNodeKillsCount(
     nodeVars.solarSystemId,
   );
-  // `useEdges` rather than `useReactFlow().getEdges()`: the latter is a
-  // snapshot read that does not subscribe, so `connectionCount` went stale
-  // whenever a connection was added or removed without the node re-rendering
-  // for some other reason.
-  const edges = useEdges();
-  const connectionCount = edges.filter(edge => edge.source === props.id || edge.target === props.id).length;
+  // A store selector rather than `useEdges()`. Both subscribe, so both keep
+  // `connectionCount` fresh - `useReactFlow().getEdges()` does not, which is
+  // why it was replaced. The difference is what re-renders: `useEdges()`
+  // returns a new array identity on every edge-store change, so dragging one
+  // connection re-rendered every node on the map and each one re-ran this
+  // filter plus its whole hook chain. Returning a number instead means zustand
+  // only re-renders this node when its own count actually changes.
+  const connectionCount = useStore(
+    useCallback(
+      (state: ReactFlowState) =>
+        state.edges.reduce(
+          (count, edge) => (edge.source === props.id || edge.target === props.id ? count + 1 : count),
+          0,
+        ),
+      [props.id],
+    ),
+  );
 
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
   const dropHandler = nodeVars.isConnecting ? 'all' : 'none';

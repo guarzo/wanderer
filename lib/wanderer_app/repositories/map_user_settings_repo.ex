@@ -117,6 +117,70 @@ defmodule WandererApp.MapUserSettingsRepo do
   end
 
   @doc """
+  The de-duplicated set of `ready_characters` eve ids across every user of a map.
+
+  Cached, because this is read on the hot path. Every `characters_updated`
+  broadcast is enriched with a `:ready` flag by each connected LiveView
+  independently (`MapCharactersEventHandler.map_ui_characters_with_ready/2`),
+  so on a map with N viewers one broadcast used to mean N identical
+  `map_user_settings_v1` reads returning the same rows.
+
+  Invalidated by `Api.MapUserSettings`'s `:update_ready_characters` action
+  rather than by its callers, so a new write path cannot forget to.
+  The TTL is a backstop for anything that ever writes the column outside that
+  action, not the primary freshness mechanism.
+  """
+  @ready_ids_ttl :timer.minutes(5)
+
+  def ready_character_eve_ids(map_id) when is_binary(map_id) and map_id != "" do
+    case WandererApp.Cache.lookup!(ready_ids_cache_key(map_id)) do
+      nil ->
+        # A failed read yields `[]` for this call but is deliberately not
+        # cached: caching it would pin every viewer's ready flags off for the
+        # full TTL because of one transient database error.
+        case load_ready_character_eve_ids(map_id) do
+          {:ok, ids} ->
+            WandererApp.Cache.insert(ready_ids_cache_key(map_id), ids, ttl: @ready_ids_ttl)
+            ids
+
+          :error ->
+            []
+        end
+
+      ids ->
+        ids
+    end
+  end
+
+  def ready_character_eve_ids(_map_id), do: []
+
+  @doc """
+  Drops the cached ready-character set for a map. Safe to call for a map that
+  was never cached.
+  """
+  def invalidate_ready_character_eve_ids(map_id) when is_binary(map_id) and map_id != "" do
+    WandererApp.Cache.delete(ready_ids_cache_key(map_id))
+    :ok
+  end
+
+  def invalidate_ready_character_eve_ids(_map_id), do: :ok
+
+  defp ready_ids_cache_key(map_id), do: "map:#{map_id}:ready_character_eve_ids"
+
+  defp load_ready_character_eve_ids(map_id) do
+    case get_by_map(map_id) do
+      {:ok, settings_list} ->
+        {:ok,
+         settings_list
+         |> Enum.flat_map(fn setting -> setting.ready_characters || [] end)
+         |> Enum.uniq()}
+
+      {:error, _reason} ->
+        :error
+    end
+  end
+
+  @doc """
   Gets all map user settings where the specified character_eve_id is marked as ready.
   Returns {:ok, [settings]} or {:error, reason}
   """
