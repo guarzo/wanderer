@@ -461,4 +461,109 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     assert {:error, :not_configured} = DiscordDispatcher.send_test_message(w.id)
     assert HttpStub.requests() == []
   end
+
+  describe "maximum killmail age" do
+    setup do
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :discord_max_killmail_age_seconds, 3600)
+      )
+
+      on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+      :ok
+    end
+
+    test "a stale killmail is not delivered", %{map: map} do
+      stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
+
+      DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, [kill(9_001, stale)]))
+      _ = :sys.get_state(DiscordDispatcher)
+
+      assert HttpStub.requests() == []
+    end
+
+    # A full "later fresh arrival still delivers" round trip would need a
+    # second successful delivery through `EmbedFormatter.format_batch/2`, which
+    # currently crashes on ANY non-empty kill list — a pre-existing baseline
+    # failure (`format_batch/2` was reshaped to `[{kill, verdict}]` tuples by
+    # Task 9; Task 8 rewires this call site to match). Asserting the dedup
+    # cache directly proves the guard's actual job — a stale kill leaves no
+    # mark behind — without depending on that unrelated, already-tracked fix.
+    test "a stale killmail is not marked, so it remains eligible for a later arrival",
+         %{map: map} do
+      stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
+
+      DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, [kill(9_002, stale)]))
+      _ = :sys.get_state(DiscordDispatcher)
+
+      assert HttpStub.requests() == []
+      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9002") == {:ok, false}
+    end
+
+    # Same reasoning as above: a mixed batch's fresh kill reaches
+    # `mark_attempted/2` before the pre-existing `format_batch/2` crash, so the
+    # dedup cache still proves the guard filtered the stale kill out ahead of
+    # marking, without waiting on the (separately tracked) delivery fix.
+    test "a mixed batch marks only the fresh kill as attempted, not the stale one",
+         %{map: map} do
+      stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
+      recent = DateTime.utc_now() |> DateTime.to_iso8601()
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(@wh_system, [kill(9_003, stale), kill(9_004, recent)])
+      )
+
+      deadline = System.monotonic_time(:millisecond) + 2_000
+      await_dedup_mark("#{map.id}:9004", true, deadline)
+
+      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9004") == {:ok, true}
+      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9003") == {:ok, false}
+    end
+  end
+
+  # `mark_attempted/2` runs before the (unrelated) delivery attempt, so polling
+  # for the mark is a safe synchronization point even on a dispatch that goes
+  # on to crash the dispatcher process afterward — unlike `:sys.get_state/1`,
+  # which would raise against an already-dead process.
+  defp await_dedup_mark(key, expected, deadline) do
+    case Cachex.exists?(:discord_dedup_cache, key) do
+      {:ok, ^expected} ->
+        :ok
+
+      _ ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          flunk("timed out waiting for dedup mark #{key} to be #{expected}")
+        else
+          Process.sleep(10)
+          await_dedup_mark(key, expected, deadline)
+        end
+    end
+  end
+
+  # Minimal killmail and event builders matching what `extract_kills/1` expects
+  # (`discord_dispatcher.ex:253-258`).
+  defp kill(id, kill_time) do
+    %{
+      "killmail_id" => id,
+      "kill_time" => kill_time,
+      "solar_system_id" => @wh_system,
+      "victim_char_name" => "Pilot #{id}",
+      "victim_ship_name" => "Rifter"
+    }
+  end
+
+  defp kill_event(system_id, killmails) do
+    %Event{
+      type: :map_kill,
+      payload: %{
+        "type" => :killmail_update,
+        "solar_system_id" => system_id,
+        "killmails" => killmails
+      }
+    }
+  end
 end
