@@ -300,16 +300,25 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
                   json(conn, %{data: member_to_json(new_member)})
               end
 
-            {:error, error} ->
+            {:error, %Ash.Error.Invalid{} = error} ->
               conn
               |> put_status(:bad_request)
-              |> json(%{error: "Creation failed: #{inspect(error)}"})
+              |> json(%{error: "Validation failed", details: validation_messages(error)})
+
+            {:error, error} ->
+              Logger.error("[AccessListMemberAPI] member create failed: #{inspect(error)}")
+
+              conn
+              |> put_status(:internal_server_error)
+              |> json(%{error: "Failed to create member"})
           end
         else
           error ->
+            Logger.warning("[AccessListMemberAPI] #{type} lookup failed: #{inspect(error)}")
+
             conn
             |> put_status(:bad_request)
-            |> json(%{error: "Entity lookup failed: #{inspect(error)}"})
+            |> json(%{error: "Entity lookup failed"})
         end
       end
     end
@@ -573,6 +582,36 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
         |> put_status(:internal_server_error)
         |> json(%{error: "Failed to look up membership"})
     end
+  end
+
+  # Validation errors are the one class of Ash error a client legitimately needs
+  # back — "role is invalid" is actionable, and swallowing it would make the
+  # endpoint unusable. Everything else is logged server-side and answered
+  # generically: `inspect(error)` on an arbitrary Ash error serializes the
+  # changeset, which carries internal field names, resource modules and the
+  # submitted attributes (CWE-209).
+  #
+  # There is deliberately no `inspect/1` fallback here. An error struct this
+  # does not recognise yields a fixed string rather than its contents.
+  #
+  # Public only so it can be unit tested: `WandererApp.Esi` hard-delegates to
+  # `Esi.ApiClient` (esi.ex:9), so the create path cannot be driven end-to-end
+  # without network access.
+  @doc false
+  def validation_messages(%Ash.Error.Invalid{errors: errors}) do
+    Enum.map(errors, fn
+      %{field: field, message: message} when not is_nil(field) and is_binary(message) ->
+        "#{field}: #{message}"
+
+      %{message: message} when is_binary(message) ->
+        message
+
+      %Ash.Error.Changes.NoSuchAttribute{attribute: attribute} ->
+        "Invalid attribute: #{attribute}"
+
+      _ ->
+        "Invalid value"
+    end)
   end
 
   defp broadcast_acl_updated(acl_id) do

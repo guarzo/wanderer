@@ -545,20 +545,8 @@ defmodule WandererApp.Character.TrackingUtils do
       payload: %{
         user_id: user_id,
         cleared_character_eve_id: character_eve_id,
-        ready_character_eve_ids: all_ready_character_eve_ids(map_id)
+        ready_character_eve_ids: WandererApp.MapUserSettingsRepo.ready_character_eve_ids(map_id)
       }
     })
-  end
-
-  defp all_ready_character_eve_ids(map_id) do
-    case WandererApp.MapUserSettingsRepo.get_by_map(map_id) do
-      {:ok, settings_list} ->
-        settings_list
-        |> Enum.flat_map(fn setting -> setting.ready_characters || [] end)
-        |> Enum.uniq()
-
-      {:error, _reason} ->
-        []
-    end
   end
 end
