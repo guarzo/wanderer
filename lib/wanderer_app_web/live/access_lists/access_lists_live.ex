@@ -378,9 +378,19 @@ defmodule WandererAppWeb.AccessListsLive do
     uniq_search_req_id = UUID.uuid4(:default)
 
     Task.async(fn ->
-      {:ok, options} = search(active_character_id, text)
+      # `search/2` reports an unusable ESI lookup as `{:error, reason}`. This task
+      # is linked to the LiveView, so hard-matching `{:ok, options}` here would
+      # turn a transient ESI failure into a crashed ACL session. Carry the failure
+      # back as data instead: the dropdown still empties, but the caller can tell
+      # "lookup failed" from "no such member" and say so.
+      case search(active_character_id, text) do
+        {:ok, options} ->
+          {:search_results, uniq_search_req_id, options, nil}
 
-      {:search_results, uniq_search_req_id, options}
+        {:error, reason} ->
+          Logger.warning("ACL member search failed: #{inspect(reason)}")
+          {:search_results, uniq_search_req_id, [], reason}
+      end
     end)
 
     {:noreply, socket |> assign(uniq_search_req_id: uniq_search_req_id)}
@@ -395,9 +405,23 @@ defmodule WandererAppWeb.AccessListsLive do
     Process.demonitor(ref, [:flush])
 
     case result do
-      {:search_results, ^uniq_search_req_id, options} ->
+      {:search_results, ^uniq_search_req_id, options, nil} ->
         send_update(LiveSelect.Component, options: options, id: member_search_id)
         {:noreply, socket |> assign(member_search_options: options)}
+
+      {:search_results, ^uniq_search_req_id, options, _reason} ->
+        # The dropdown is emptied either way, but without a flash an ESI outage
+        # is indistinguishable from "there is no such character or corporation",
+        # so the user retypes a name they know is correct.
+        send_update(LiveSelect.Component, options: options, id: member_search_id)
+
+        {:noreply,
+         socket
+         |> assign(member_search_options: options)
+         |> put_flash(
+           :error,
+           "Member search is unavailable right now. This lookup runs as one of your characters — if it keeps failing, re-authorise a character and try again."
+         )}
 
       _ ->
         {:noreply, socket}
