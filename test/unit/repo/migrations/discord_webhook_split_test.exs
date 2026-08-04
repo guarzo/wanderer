@@ -95,8 +95,15 @@ defmodule WandererApp.Repo.Migrations.DiscordWebhookSplitTest do
       nil
     )
 
-    return_value = fun.()
-    :telemetry.detach(handler_id)
+    # try/after: a raise inside fun.() would otherwise leave the handler
+    # attached for the rest of the suite, sending {:pg_notice_messages, _} to a
+    # finished test process on every repo query.
+    return_value =
+      try do
+        fun.()
+      after
+        :telemetry.detach(handler_id)
+      end
 
     notices =
       Stream.unfold(:start, fn _ ->

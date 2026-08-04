@@ -12,9 +12,15 @@ defmodule WandererApp.ExternalEvents.Discord.HttpStub do
   @agent __MODULE__.Agent
 
   def start do
-    case Agent.start_link(fn -> new_state() end, name: @agent) do
+    # `Agent.start`, not `start_link`: linking would tie the shared Agent to
+    # whichever test process happened to call `start/0` first, so it would die
+    # with that test. A worker Task still in flight afterwards would then hit a
+    # dead Agent, exit `:noproc`, and record a spurious delivery failure instead
+    # of the scripted response.
+    case Agent.start(fn -> new_state() end, name: @agent) do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> reset() && {:ok, pid}
+      {:error, reason} -> raise "could not start #{inspect(@agent)}: #{inspect(reason)}"
     end
   end
 

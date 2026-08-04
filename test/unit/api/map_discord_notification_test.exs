@@ -139,6 +139,11 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
     start_supervised!(WorkerSupervisor)
     registry = WorkerSupervisor.registry()
 
+    # Seed the routing cache so the destroy has something to evict — without
+    # this the test asserts only the worker teardown, and a regression in the
+    # destroy-side invalidation passes silently despite the test's name.
+    Cachex.put(@cache, map.id, rec)
+
     # Register one worker per webhook id — the key `stash_webhook_ids/2` reads
     # and `after_destroy/3` stops by. Started directly against the real
     # `Worker`/`Registry` (rather than through `WorkerSupervisor.deliver/2`) so
@@ -157,6 +162,7 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
 
     assert :ok = MapDiscordNotification.destroy(rec)
     assert {:error, _} = MapDiscordNotification.by_map(map.id)
+    assert Cachex.get(@cache, map.id) == {:ok, nil}
 
     # Registry release on process exit is asynchronous, so poll rather than
     # asserting immediately.

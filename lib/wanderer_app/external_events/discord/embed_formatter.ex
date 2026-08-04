@@ -16,6 +16,19 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   @max_embeds_per_message 10
   @max_kills_per_event 30
 
+  # Discord's documented embed limits. Exceeding any of them is a 400, not a
+  # truncation, and a 400 counts as a delivery failure — so ten kills in a
+  # system whose map-local name is long enough would trip
+  # `@max_consecutive_failures` and auto-disable the destination. `custom_name`
+  # and `temporary_name` carry no length constraint on `MapSystem`, so the
+  # title bound is reachable from ordinary user input, not just malice.
+  @max_title_length 256
+  @max_description_length 4096
+  # The per-message ceiling counts the text of every embed in the message
+  # together, so it can be breached by a batch that satisfies each field bound
+  # individually.
+  @max_message_text 6000
+
   @color_loss 0xE74C3C
   @color_kill 0x2ECC71
 
@@ -68,10 +81,48 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
     messages =
       shown
       |> Enum.map(fn {kill, verdict} -> format_kill(kill, verdict, system_name) end)
-      |> Enum.chunk_every(@max_embeds_per_message)
+      |> chunk_messages()
       |> Enum.map(&%{"embeds" => &1})
 
     append_overflow(messages, overflow)
+  end
+
+  # Two bounds at once: at most @max_embeds_per_message embeds, and at most
+  # @max_message_text characters of embed text across them. Each embed is
+  # already within the per-field limits by construction, so a single embed can
+  # never exceed the message total on its own and this always terminates.
+  defp chunk_messages(embeds) do
+    embeds
+    |> Enum.reduce([], fn embed, acc ->
+      size = embed_text_length(embed)
+
+      case acc do
+        [{chunk, chunk_size} | rest]
+        when length(chunk) < @max_embeds_per_message and chunk_size + size <= @max_message_text ->
+          [{[embed | chunk], chunk_size + size} | rest]
+
+        _ ->
+          [{[embed], size} | acc]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.map(fn {chunk, _size} -> Enum.reverse(chunk) end)
+  end
+
+  # Discord counts title, description, field names and values, footer text and
+  # author name toward the per-message total. URLs and colours do not count.
+  defp embed_text_length(embed) do
+    fields =
+      embed
+      |> Map.get("fields", [])
+      |> Enum.map(&(String.length(&1["name"] || "") + String.length(&1["value"] || "")))
+      |> Enum.sum()
+
+    String.length(embed["title"] || "") +
+      String.length(embed["description"] || "") +
+      String.length(get_in(embed, ["footer", "text"]) || "") +
+      String.length(get_in(embed, ["author", "name"]) || "") +
+      fields
   end
 
   defp append_overflow(messages, overflow) when overflow <= 0, do: messages
@@ -84,16 +135,28 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   @spec format_kill(map(), verdict(), String.t() | nil) :: map()
   def format_kill(kill, verdict, system_name) do
     %{
-      "title" => title(kill, system_name),
+      "title" => truncate(title(kill, system_name), @max_title_length),
       "url" => zkill_url(kill["killmail_id"]),
       "color" => color(verdict, kill["total_value"]),
-      "description" => description(kill),
+      "description" => truncate(description(kill), @max_description_length),
       "fields" => fields(kill)
     }
     |> maybe_put("author", author(kill, verdict))
     |> maybe_put("thumbnail", thumbnail(kill))
     |> maybe_put("footer", footer(kill))
     |> drop_nils()
+  end
+
+  # Ellipsis rather than a hard cut, so a clipped name reads as clipped instead
+  # of as a differently-named system. Measured in graphemes, matching how
+  # Discord counts: a name of emoji or non-Latin script would otherwise pass a
+  # byte-based check and still be rejected.
+  defp truncate(nil, _limit), do: nil
+
+  defp truncate(text, limit) when is_binary(text) do
+    if String.length(text) <= limit,
+      do: text,
+      else: String.slice(text, 0, limit - 1) <> "…"
   end
 
   defp title(kill, system_name) do
@@ -180,11 +243,16 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   end
 
   # Ids are authoritative when both are present; names are the fallback for
-  # payloads that carry one without the other.
+  # payloads that carry one without the other. Compared as strings because the
+  # two ids do not have to arrive as the same type: `collect_ids/2` normalizes
+  # to integers on the nested branch only, so a flat payload can pair an
+  # integer with a binary. Matching only `is_integer/1` on both would drop such
+  # a pair to the name comparison, which is exactly the case the ids exist to
+  # settle.
   defp distinct_from_final_blow?(kill) do
     case {kill["final_blow_char_id"], kill["top_damage_char_id"]} do
-      {fb, td} when is_integer(fb) and is_integer(td) ->
-        fb != td
+      {fb, td} when (is_integer(fb) or is_binary(fb)) and (is_integer(td) or is_binary(td)) ->
+        to_string(fb) != to_string(td)
 
       _ ->
         present(kill["final_blow_char_name"]) != present(kill["top_damage_char_name"])

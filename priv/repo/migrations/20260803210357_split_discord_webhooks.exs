@@ -104,6 +104,12 @@ defmodule WandererApp.Repo.Migrations.SplitDiscordWebhooks do
 
   def down do
     alter table(:map_discord_notifications_v1) do
+      # Dropping this DISCARDS every configured focus corporation: the column
+      # did not exist before this migration, so there is nowhere to roll it
+      # back to. A later re-run of up/0 recreates it with the default `[]`.
+      # Expected and accepted — focus corporations must be reconfigured after a
+      # rollback and re-apply. Unlike the webhook URL below, this is a
+      # preference, not a credential.
       remove :focus_corp_ids
       add :last_delivery_at, :utc_datetime
       add :last_error, :text

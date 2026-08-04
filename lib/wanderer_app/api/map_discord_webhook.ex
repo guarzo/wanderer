@@ -16,6 +16,8 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshCloak]
 
+  require Logger
+
   @discord_hosts ["discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"]
 
   # Mirrors `WebhookDispatcher`'s threshold (webhook_dispatcher.ex:32): a run of
@@ -67,6 +69,15 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     update :update do
       primary? true
       require_atomic? false
+      # NOT `default_accept`: that would let a caller re-parent a webhook by
+      # passing `notification_id`, moving the credential onto another map. It
+      # would also defeat `do_invalidate/1`, which resolves the notification
+      # from the record *after* the write and so would evict only the new map's
+      # cache — the old map would keep routing to a destination it no longer
+      # owns for the rest of the TTL. `role` is immutable for the same reason:
+      # the unique (notification_id, role) identity is what makes "the system
+      # destination" addressable.
+      accept [:webhook_url, :enabled?]
       validate {__MODULE__.ValidateWebhookUrl, []}
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
@@ -75,11 +86,19 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     # `WandererApp.Api.MapDiscordNotification`. The default
     # destroy would leave a stale cache entry AND leave this destination's
     # delivery worker draining its queue into a webhook the user just removed.
+    #
+    # after_transaction for the same reason `invalidate_cache/3` uses it (see
+    # the comment above that function), plus one specific to destroy: an
+    # after_action hook would stop the delivery worker *before* the commit, so
+    # a rolled-back destroy would leave the row alive with its worker killed.
+    # Unlike the PARENT resource's destroy — which must stash its children's
+    # ids before PostgreSQL runs the FK cascade inside the DELETE — this hook
+    # needs nothing but the record it is handed.
     destroy :destroy do
       primary? true
       require_atomic? false
 
-      change after_action(&__MODULE__.after_destroy/3)
+      change after_transaction(&__MODULE__.after_destroy/3)
     end
 
     read :by_notification do
@@ -191,7 +210,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     attribute :enabled?, :boolean, default: true, allow_nil?: false
 
     attribute :last_delivery_at, :utc_datetime
-    attribute :last_error, :string, constraints: [max_length: 500]
+    attribute :last_error, :string, constraints: [max_length: @max_error_length]
     attribute :last_error_at, :utc_datetime
     attribute :consecutive_failures, :integer, default: 0, allow_nil?: false
 
@@ -217,7 +236,10 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   def valid_webhook_url?(url) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: "https", host: host, path: path} when is_binary(host) and is_binary(path) ->
-        host in @discord_hosts and valid_webhook_path?(path)
+        # Hostnames are case-insensitive and `URI.parse/1` returns the host
+        # exactly as typed, so a pasted "https://Discord.com/..." would
+        # otherwise be rejected as not-a-Discord-URL.
+        String.downcase(host) in @discord_hosts and valid_webhook_path?(path)
 
       _ ->
         false
@@ -283,7 +305,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   def invalidate_cache(_changeset, other, _context), do: other
 
   @doc false
-  def after_destroy(_changeset, record, _context) do
+  def after_destroy(_changeset, {:ok, record}, _context) do
     do_invalidate(record)
     # Stop this destination's delivery worker too: without this, anything already
     # queued keeps posting to a webhook the user has just removed.
@@ -291,15 +313,32 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     {:ok, record}
   end
 
+  def after_destroy(_changeset, other, _context), do: other
+
   defp do_invalidate(record) do
     case Ash.get(WandererApp.Api.MapDiscordNotification, record.notification_id) do
       {:ok, notification} ->
         WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(notification.map_id)
 
-      _ ->
+      error ->
+        # Swallowed rather than raised — a failed eviction must not fail the
+        # write that already committed — but logged, because the consequence is
+        # a routing cache that serves the previous destination for the rest of
+        # the TTL, which is otherwise indistinguishable from "the user's change
+        # did nothing".
+        Logger.warning(
+          "[MapDiscordWebhook] cache not invalidated for webhook #{record.id}: #{inspect(error)}"
+        )
+
         :ok
     end
   rescue
-    _ -> :ok
+    exception ->
+      Logger.warning(
+        "[MapDiscordWebhook] cache invalidation raised for webhook #{record.id}: " <>
+          Exception.message(exception)
+      )
+
+      :ok
   end
 end

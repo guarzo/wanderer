@@ -425,7 +425,7 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerTest do
 
   test "a 429 on one webhook does not delay the other", %{notification: n, system: sys} do
     char = character_webhook(n)
-    # 2s is far longer than the 500ms budget asserted below, and is clamped to
+    # 2s is far longer than the 1s budget asserted below, and is clamped to
     # @max_retry_after_ms (10s) so it stays a real wait.
     HttpStub.set_responses_for(@character_url, [{:ok, 429, [{"retry-after", "2"}]}])
 
@@ -444,7 +444,11 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerTest do
     end)
 
     elapsed = System.monotonic_time(:millisecond) - started
-    assert elapsed < 500, "system kill waited #{elapsed}ms behind the rate-limited webhook"
+    # 1s, not the 500ms this first used: `await_condition/2` polls every 25ms
+    # and a loaded CI runner adds scheduler and DB latency, so the tighter
+    # budget failed on jitter while the two webhooks were in fact independent.
+    # Still far below the 2s retry-after, so a genuinely shared queue fails.
+    assert elapsed < 1_000, "system kill waited #{elapsed}ms behind the rate-limited webhook"
 
     # And the character webhook is still mid-retry, not failed.
     assert length(HttpStub.requests_for(@character_url)) == 1

@@ -510,5 +510,81 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
     test "max_kills_per_event/0 is still 30" do
       assert EmbedFormatter.max_kills_per_event() == 30
     end
+
+    # Discord rejects an over-long embed with a 400, which the worker records as
+    # a delivery failure — so without these bounds a single long map-local
+    # system name would burn through @max_consecutive_failures and auto-disable
+    # the destination. `custom_name`/`temporary_name` carry no length
+    # constraint on MapSystem, so this is reachable from ordinary user input.
+    test "a system name longer than the title limit is truncated, not passed through" do
+      long_name = String.duplicate("あ", 400)
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_batch(entries(1), long_name)
+
+      assert String.length(embed["title"]) == 256
+      assert String.ends_with?(embed["title"], "…")
+    end
+
+    test "a system name at exactly the title limit is left alone" do
+      # "X destroyed in " + name == exactly 256 graphemes.
+      {kill, verdict} = hd(entries(1))
+      ship = kill["victim_ship_name"]
+      name = String.duplicate("a", 256 - String.length("#{ship} destroyed in "))
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_batch([{kill, verdict}], name)
+
+      assert String.length(embed["title"]) == 256
+      refute String.ends_with?(embed["title"], "…")
+      assert embed["title"] =~ name
+    end
+
+    test "a batch is split so no message exceeds the 6000-character text total" do
+      # Long pilot names, not a long system name: once the title is bounded at
+      # 256 the ten-embed message tops out well under 6000, so the description
+      # is the only way left to breach the total. ~2400 characters each means
+      # three embeds already exceed it.
+      long = String.duplicate("n", 2_400)
+
+      batch =
+        for _ <- 1..12 do
+          {Factory.build(:killmail, %{"victim_char_name" => long}), :not_involved}
+        end
+
+      messages = EmbedFormatter.format_batch(batch, "J123456")
+
+      for %{"embeds" => embeds} <- messages do
+        assert embed_text_total(embeds) <= 6000,
+               "message carried #{embed_text_total(embeds)} characters of embed text"
+
+        assert length(embeds) <= 10
+      end
+
+      # Every kill still delivered, just spread across more messages than the
+      # ten-embeds-per-message bound alone would produce.
+      assert messages |> Enum.map(&length(&1["embeds"])) |> Enum.sum() == 12
+      assert length(messages) > 2
+    end
+
+    test "a realistic batch is still bounded by the embed count, not the text total" do
+      messages = EmbedFormatter.format_batch(entries(30), String.duplicate("b", 240))
+
+      assert Enum.all?(messages, &(embed_text_total(&1["embeds"]) <= 6000))
+      assert messages |> Enum.map(&length(&1["embeds"])) |> Enum.sum() == 30
+      assert length(messages) == 3
+    end
+
+    defp embed_text_total(embeds) do
+      Enum.reduce(embeds, 0, fn e, acc ->
+        fields =
+          e
+          |> Map.get("fields", [])
+          |> Enum.map(&(String.length(&1["name"]) + String.length(&1["value"])))
+          |> Enum.sum()
+
+        acc + String.length(e["title"] || "") + String.length(e["description"] || "") +
+          String.length(get_in(e, ["footer", "text"]) || "") +
+          String.length(get_in(e, ["author", "name"]) || "") + fields
+      end)
+    end
   end
 end

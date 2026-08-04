@@ -411,4 +411,54 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
     # result: nothing was written, so nothing may be evicted.
     assert {:ok, ^notification} = Cachex.get(@cache, map.id)
   end
+
+  describe "valid_webhook_url?/1" do
+    test "accepts a Discord host regardless of case" do
+      # URI.parse/1 returns the host as typed, and users paste URLs, so a
+      # capitalised host must not be mistaken for a non-Discord one.
+      for host <- ~w(discord.com Discord.com DISCORD.COM ptb.Discord.com CANARY.discord.com) do
+        url = "https://#{host}/api/webhooks/123456789/abcdefTOKEN"
+        assert MapDiscordWebhook.valid_webhook_url?(url), "rejected #{url}"
+      end
+    end
+
+    test "still rejects a lookalike host" do
+      refute MapDiscordWebhook.valid_webhook_url?(
+               "https://discord.com.evil.example/api/webhooks/1/t"
+             )
+
+      refute MapDiscordWebhook.valid_webhook_url?("https://Evil.example/api/webhooks/1/t")
+    end
+  end
+
+  test "update cannot re-parent a webhook onto another notification", %{
+    map: map,
+    notification: notification
+  } do
+    hook = character_hook(notification)
+
+    {:ok, other_map} = other_map_with_notification()
+
+    # `notification_id` is outside the update action's accept list: moving a
+    # webhook would carry the credential onto another map, and `do_invalidate/1`
+    # resolves the notification *after* the write, so the original map would
+    # keep routing to a destination it no longer owns for the rest of the TTL.
+    assert {:error, error} =
+             MapDiscordWebhook.update(hook, %{notification_id: other_map.id})
+
+    assert Exception.message(error) =~ "notification_id"
+
+    {:ok, reloaded} = MapDiscordWebhook.by_id(hook.id)
+    assert reloaded.notification_id == notification.id
+    assert map.id
+  end
+
+  defp other_map_with_notification do
+    other_map = Factory.insert(:map, %{})
+
+    WandererApp.Api.MapDiscordNotification.create(%{
+      map_id: other_map.id,
+      webhook_url: "https://discord.com/api/webhooks/999/othertok"
+    })
+  end
 end

@@ -38,6 +38,20 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
       _ ->
         build_and_cache(map_id)
     end
+  rescue
+    # `Cachex.get/2` and the `Cachex.put/4` in `build_and_cache/1` RAISE against
+    # an unstarted cache rather than returning an error tuple — the same Cachex
+    # contract `invalidate_tracked/1` below rescues. This is the read side, and
+    # its caller is `DiscordDispatcher.partition/3`: letting the raise through
+    # would lose the entire killmail batch, not just this map's tracked set.
+    # The documented "never raises" contract above is what makes the
+    # conservative empty-MapSet fallback safe for every caller.
+    error ->
+      Logger.warning(
+        "[Discord.Matcher] tracked-set cache unavailable for map #{map_id}: #{inspect(error)}"
+      )
+
+      MapSet.new()
   end
 
   @doc """
@@ -60,7 +74,7 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   defp build_and_cache(map_id) do
     case build(map_id) do
       {:ok, ids} ->
-        Cachex.put(@cache, cache_key(map_id), ids, ttl: @ttl)
+        cache_put(map_id, ids)
         ids
 
       :error ->
@@ -68,6 +82,17 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
         # the TTL, or every kill on this map is misrouted for five minutes.
         MapSet.new()
     end
+  end
+
+  # Rescued separately from `tracked_eve_ids/1` rather than under its rescue:
+  # the set has already been built at this point, so a cache that cannot store
+  # it must still not cost us the answer. Failing to cache is a performance
+  # problem; returning an empty set would be a routing error.
+  defp cache_put(map_id, ids) do
+    Cachex.put(@cache, cache_key(map_id), ids, ttl: @ttl)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp build(map_id) do
@@ -96,7 +121,15 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
         {:ok, ids}
 
       {:error, _reason} ->
-        Logger.warning("[Discord.Matcher] Map #{map_id} is not running; no tracked pilots")
+        # :debug, not :warning. The failure is deliberately not cached (see
+        # `build_and_cache/1`), so this line runs once per killmail — a busy map
+        # that is briefly absent from `:map_cache` would flood the log at
+        # warning level and bury real problems. The routing consequence is
+        # already conservative and visible in the notifications themselves.
+        Logger.debug(fn ->
+          "[Discord.Matcher] Map #{map_id} is not running; no tracked pilots"
+        end)
+
         :error
     end
   rescue
