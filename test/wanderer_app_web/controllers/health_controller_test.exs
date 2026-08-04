@@ -3,11 +3,14 @@ defmodule WandererAppWeb.HealthControllerTest do
 
   import WandererApp.EnvHelper
 
-  test "GET /health returns 200 with status and version", %{conn: conn} do
+  test "GET /health returns 200 with status, version and database state", %{conn: conn} do
     conn = get(conn, "/health")
 
-    assert %{"status" => "ok", "version" => version} = json_response(conn, 200)
+    assert %{"status" => "ok", "version" => version, "database" => database} =
+             json_response(conn, 200)
+
     assert is_binary(version)
+    assert database == "ok"
   end
 
   # The reason this route does not live in the :api scope. Fly kills an
