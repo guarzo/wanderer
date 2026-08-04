@@ -94,6 +94,11 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
+    # Deliberately the ONE health action with no cache invalidation: it fires on
+    # every successful delivery, so evicting here would drop the routing cache on
+    # the hot path and defeat it. None of the four attributes below feeds a
+    # routing decision — routing reads `enabled?`, which this never touches. The
+    # cost is a `last_delivery_at` in the settings UI that can lag by one TTL.
     update :record_success do
       require_atomic? false
       accept []
