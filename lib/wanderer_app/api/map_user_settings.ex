@@ -100,6 +100,21 @@ defmodule WandererApp.Api.MapUserSettings do
 
     update :update_ready_characters do
       accept [:ready_characters]
+
+      # `MapUserSettingsRepo.ready_character_eve_ids/1` caches the map-wide
+      # ready set that every connected LiveView reads on each
+      # `characters_updated` broadcast. Invalidating here rather than at the
+      # four call sites means a new write path cannot forget to.
+      #
+      # `after_transaction`, not `after_action`: an after_action hook fires
+      # while the UPDATE is still uncommitted, so a broadcast arriving in that
+      # window reloads the pre-commit rows and re-caches the stale set for the
+      # full TTL — the ready flag the user just toggled would appear to revert
+      # for five minutes. On rollback the error passes through untouched, so a
+      # failed write cannot evict a still-correct entry.
+      require_atomic? false
+
+      change after_transaction(&__MODULE__.invalidate_ready_cache/3)
     end
 
     update :update_hubs do
@@ -146,4 +161,12 @@ defmodule WandererApp.Api.MapUserSettings do
   identities do
     identity :uniq_map_user, [:map_id, :user_id]
   end
+
+  @doc false
+  def invalidate_ready_cache(_changeset, {:ok, record}, _context) do
+    WandererApp.MapUserSettingsRepo.invalidate_ready_character_eve_ids(record.map_id)
+    {:ok, record}
+  end
+
+  def invalidate_ready_cache(_changeset, other, _context), do: other
 end
