@@ -723,21 +723,38 @@ defmodule WandererAppWeb.CoreComponents do
   # LiveSelect's own defaults (it derives an id from the field name).
   attr(:id, :string, default: nil)
   attr(:"phx-target", :any, default: nil)
-  # The `.label` row above the input is an empty spacer — it renders a blank
-  # `label-text` regardless of `@label`, so it exists purely to line this field
-  # up with sibling fields that do carry a label. In a two-column
-  # "input + button" row it is the opposite of helpful: the wrapper ends up
-  # taller than the input it contains, and any cross-axis alignment on the row
-  # lines the button up with the wrapper rather than with the input. Defaults to
-  # true so every existing call site keeps its current spacing.
-  attr(:label_row, :boolean, default: true)
+  # Drops the three pieces of chrome that make this wrapper taller than the
+  # input it contains, for callers that need the two to be the same height —
+  # typically a two-column "field + Add button" row, where any cross-axis
+  # alignment otherwise lines the button up with the wrapper rather than with
+  # the field, leaving the button visibly high.
+  #
+  #   1. The `.label` row above the input. It renders a blank `label-text`
+  #      regardless of `@label`, so it is pure spacer: it exists to line this
+  #      field up with sibling fields that do carry a label.
+  #   2. LiveSelect's `tags_container`. Its template emits it unconditionally,
+  #      including in `:single` mode where it can never hold a tag, and its
+  #      default class carries `p-1` — so an always-empty element contributes
+  #      8px directly above the input. Only suppressed in `:single` mode;
+  #      in the tag modes that element holds the selection.
+  #   3. The error `.label` row below, unless there are errors to show.
+  #
+  # Defaults to false so every existing call site keeps its current spacing.
+  attr(:compact, :boolean, default: false)
   slot(:inner_block)
   slot(:option)
 
   def live_select(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     optional_opts =
       Enum.reject(
-        [id: assigns[:id], "phx-target": assigns[:"phx-target"]],
+        [
+          id: assigns[:id],
+          "phx-target": assigns[:"phx-target"],
+          # `_class` (override) rather than `_extra_class` (append): appending
+          # `hidden` to the default `flex` leaves the winner to Tailwind's
+          # stylesheet ordering, which is not something this should depend on.
+          tags_container_class: if(assigns[:compact] && assigns[:mode] == :single, do: "hidden")
+        ],
         fn {_key, value} -> is_nil(value) end
       )
 
@@ -754,7 +771,7 @@ defmodule WandererAppWeb.CoreComponents do
           :input_class,
           :dropdown_extra_class,
           :option_extra_class,
-          :label_row,
+          :compact,
           :id,
           :"phx-target"
         ]) ++ optional_opts
@@ -768,7 +785,7 @@ defmodule WandererAppWeb.CoreComponents do
         @label_class
       ]}
     >
-      <div :if={@label_row} for="form_description" class="label">
+      <div :if={not @compact} for="form_description" class="label">
         <span class="label-text"></span>
       </div>
       <LiveSelect.live_select
@@ -790,7 +807,7 @@ defmodule WandererAppWeb.CoreComponents do
       >
         {render_slot(@inner_block)}
       </LiveSelect.live_select>
-      <div for="form_description" class="label">
+      <div :if={not @compact or @errors != []} for="form_description" class="label">
         <.error :for={msg <- @errors}>{msg}</.error>
       </div>
     </div>
