@@ -56,7 +56,13 @@ swap_size_mb = 512
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'off'
-  auto_start_machines = false
+  # Deliberate deviation from the brief, human-approved: 'true' only starts a
+  # machine that already exists, it cannot create one, so it doesn't weaken
+  # the one-machine guarantee above. It restores automatic recovery when the
+  # machine ends up stopped rather than crashed (interrupted deploy, manual
+  # `fly machine stop`, host maintenance) — with 'false' the app stays down
+  # until a human intervenes.
+  auto_start_machines = true
   # auto_stop_machines = 'off' is what actually delivers always-on; Fly only
   # applies min_machines_running when auto_stop_machines is 'stop' or
   # 'suspend', so this line is inert today. It stands as documented intent —
