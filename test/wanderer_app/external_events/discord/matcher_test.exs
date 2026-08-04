@@ -38,16 +38,20 @@ defmodule WandererApp.ExternalEvents.Discord.MatcherTest do
       assert MapSet.member?(Matcher.tracked_eve_ids(map.id), 2_117_994_022)
     end
 
-    test "returns an empty MapSet for a map that is not running" do
+    # NOT an empty MapSet. An empty set is a claim that nobody is tracked, and
+    # `involvement/3` acts on that claim: every kill becomes `:not_involved`,
+    # which is what enables the wormhole-only filter — so a map that is briefly
+    # not running would silently drop all of its k-space kills.
+    test "reports :unavailable for a map that is not running" do
       unknown_map_id = Ecto.UUID.generate()
 
-      assert Matcher.tracked_eve_ids(unknown_map_id) == MapSet.new()
+      assert Matcher.tracked_eve_ids(unknown_map_id) == :unavailable
     end
 
-    test "does not cache the empty result of a failed lookup" do
+    test "does not cache the result of a failed lookup" do
       unknown_map_id = Ecto.UUID.generate()
 
-      assert Matcher.tracked_eve_ids(unknown_map_id) == MapSet.new()
+      assert Matcher.tracked_eve_ids(unknown_map_id) == :unavailable
 
       assert {:ok, nil} =
                Cachex.get(:discord_notification_cache, "map:#{unknown_map_id}:tracked_eve_ids")
