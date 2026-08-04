@@ -197,70 +197,62 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
+  # Producer: map_server_connections_impl.ex:748. Endpoints are EVE solar
+  # system ids, so they are attributes: no map_systems UUID is available.
   defp format_resource_data(%Event{type: :connection_added, payload: payload} = event) do
     %{
       "type" => "map_connections",
-      "id" => payload["connection_id"] || payload[:connection_id],
+      "id" => rid(fetch(payload, :connection_id)),
       "attributes" => %{
-        "type" => payload["type"] || payload[:type],
-        "time_status" => payload["time_status"] || payload[:time_status],
-        "mass_status" => payload["mass_status"] || payload[:mass_status],
-        "ship_size_type" => payload["ship_size_type"] || payload[:ship_size_type],
+        "solar_system_source_id" => fetch(payload, :solar_system_source_id),
+        "solar_system_target_id" => fetch(payload, :solar_system_target_id),
+        # The producer key is :type; renamed on the wire because JSON:API
+        # forbids an attribute named "type".
+        "connection_type" => fetch(payload, :type),
+        "ship_size_type" => fetch(payload, :ship_size_type),
+        "mass_status" => fetch(payload, :mass_status),
+        "time_status" => fetch(payload, :time_status),
         "created_at" => event.timestamp
       },
-      "relationships" => %{
-        "solar_system_source" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["solar_system_source"] || payload[:solar_system_source]
-          }
-        },
-        "solar_system_target" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["solar_system_target"] || payload[:solar_system_target]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # Producer: map_server_connections_impl.ex:1083
   defp format_resource_data(%Event{type: :connection_removed, payload: payload} = event) do
     %{
       "type" => "map_connections",
-      "id" => payload["connection_id"] || payload[:connection_id],
+      "id" => rid(fetch(payload, :connection_id)),
+      "attributes" => %{
+        "solar_system_source_id" => fetch(payload, :solar_system_source_id),
+        "solar_system_target_id" => fetch(payload, :solar_system_target_id)
+      },
       "meta" => %{
         "deleted" => true,
         "deleted_at" => event.timestamp
       },
-      "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # Producer: map_server_connections_impl.ex:1140
   defp format_resource_data(%Event{type: :connection_updated, payload: payload} = event) do
     %{
       "type" => "map_connections",
-      "id" => payload["connection_id"] || payload[:connection_id],
+      "id" => rid(fetch(payload, :connection_id)),
       "attributes" => %{
-        "type" => payload["type"] || payload[:type],
-        "time_status" => payload["time_status"] || payload[:time_status],
-        "mass_status" => payload["mass_status"] || payload[:mass_status],
-        "ship_size_type" => payload["ship_size_type"] || payload[:ship_size_type],
-        "locked" => payload["locked"] || payload[:locked],
+        "solar_system_source_id" => fetch(payload, :solar_system_source_id),
+        "solar_system_target_id" => fetch(payload, :solar_system_target_id),
+        # Renamed from the producer's :type - JSON:API reserves "type".
+        "connection_type" => fetch(payload, :type),
+        "ship_size_type" => fetch(payload, :ship_size_type),
+        "mass_status" => fetch(payload, :mass_status),
+        "time_status" => fetch(payload, :time_status),
+        "locked" => fetch(payload, :locked),
+        "custom_info" => fetch(payload, :custom_info),
         "updated_at" => event.timestamp
       },
-      "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 

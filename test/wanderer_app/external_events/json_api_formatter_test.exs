@@ -182,4 +182,67 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["attributes"]["solar_system_id"] == 31_000_199
     end
   end
+
+  describe "connection events" do
+    # Fixture: map_server_connections_impl.ex:748
+    test "connection_added reads solar_system_source_id, not solar_system_source" do
+      d =
+        data(:connection_added, %{
+          connection_id: "0198f0a1-6666-7000-8000-000000000006",
+          solar_system_source_id: 31_000_199,
+          solar_system_target_id: 31_000_200,
+          type: 0,
+          ship_size_type: 2,
+          mass_status: 0,
+          time_status: 0
+        })
+
+      assert d["type"] == "map_connections"
+      assert d["id"] == "0198f0a1-6666-7000-8000-000000000006"
+      assert d["attributes"]["solar_system_source_id"] == 31_000_199
+      assert d["attributes"]["solar_system_target_id"] == 31_000_200
+      assert d["attributes"]["ship_size_type"] == 2
+      # Producer key :type, renamed because JSON:API reserves "type".
+      assert d["attributes"]["connection_type"] == 0
+      refute Map.has_key?(d["attributes"], "type")
+      # EVE system ids are attributes; they must not become relationship ids.
+      assert d["relationships"] == %{"map" => %{"data" => %{"type" => "maps", "id" => @map_id}}}
+    end
+
+    # Fixture: map_server_connections_impl.ex:1140
+    test "connection_updated preserves locked: false" do
+      d =
+        data(:connection_updated, %{
+          connection_id: "0198f0a1-7777-7000-8000-000000000007",
+          solar_system_source_id: 31_000_199,
+          solar_system_target_id: 31_000_200,
+          type: 0,
+          ship_size_type: 2,
+          mass_status: 1,
+          time_status: 0,
+          locked: false,
+          custom_info: "eol"
+        })
+
+      assert d["id"] == "0198f0a1-7777-7000-8000-000000000007"
+      assert d["attributes"]["locked"] == false
+      assert d["attributes"]["custom_info"] == "eol"
+      assert d["attributes"]["mass_status"] == 1
+    end
+
+    # Fixture: map_server_connections_impl.ex:1083 - three keys only
+    test "connection_removed marks deletion and keeps both endpoints" do
+      d =
+        data(:connection_removed, %{
+          connection_id: "0198f0a1-8888-7000-8000-000000000008",
+          solar_system_source_id: 31_000_199,
+          solar_system_target_id: 31_000_200
+        })
+
+      assert d["type"] == "map_connections"
+      assert d["id"] == "0198f0a1-8888-7000-8000-000000000008"
+      assert d["attributes"]["solar_system_source_id"] == 31_000_199
+      assert d["meta"]["deleted"] == true
+    end
+  end
 end
