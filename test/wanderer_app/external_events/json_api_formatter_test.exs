@@ -337,4 +337,104 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["meta"]["removed"] == true
     end
   end
+
+  describe "acl member events" do
+    # Fixture: acl_event_broadcaster.ex:52
+    defp acl_payload do
+      %{
+        acl_id: "0198f0a1-bbbb-7000-8000-00000000000b",
+        member_id: "0198f0a1-cccc-7000-8000-00000000000c",
+        member_name: "Test Pilot",
+        member_type: "character",
+        eve_id: "2112625428",
+        role: "member"
+      }
+    end
+
+    test "acl_member_added reads member_name and eve_id, not character_*" do
+      d = data(:acl_member_added, acl_payload())
+
+      assert d["type"] == "access_list_members"
+      assert d["id"] == "0198f0a1-cccc-7000-8000-00000000000c"
+      assert d["attributes"]["member_name"] == "Test Pilot"
+      assert d["attributes"]["eve_id"] == "2112625428"
+      assert d["attributes"]["member_type"] == "character"
+      assert d["attributes"]["role"] == "member"
+
+      assert d["relationships"]["access_list"]["data"] == %{
+               "type" => "access_lists",
+               "id" => "0198f0a1-bbbb-7000-8000-00000000000b"
+             }
+    end
+
+    test "acl_member_updated reads acl_id for the access_list relationship" do
+      d = data(:acl_member_updated, acl_payload())
+
+      assert d["attributes"]["role"] == "member"
+
+      assert d["relationships"]["access_list"]["data"]["id"] ==
+               "0198f0a1-bbbb-7000-8000-00000000000b"
+    end
+
+    test "acl_member_removed marks deletion" do
+      d = data(:acl_member_removed, acl_payload())
+
+      assert d["id"] == "0198f0a1-cccc-7000-8000-00000000000c"
+      assert d["meta"]["deleted"] == true
+
+      assert d["relationships"]["access_list"]["data"]["id"] ==
+               "0198f0a1-bbbb-7000-8000-00000000000b"
+    end
+  end
+
+  describe "rally point events" do
+    # Fixture: map_server_pings_impl.ex:41
+    test "rally_point_added keeps the real system UUID relationship" do
+      d =
+        data(:rally_point_added, %{
+          rally_point_id: "0198f0a1-dddd-7000-8000-00000000000d",
+          solar_system_id: 31_000_199,
+          system_id: "0198f0a1-eeee-7000-8000-00000000000e",
+          character_id: "0198f0a1-ffff-7000-8000-00000000000f",
+          character_name: "Test Pilot",
+          character_eve_id: "2112625428",
+          system_name: "J123456",
+          message: "form up",
+          created_at: ~U[2026-08-04 11:00:00Z]
+        })
+
+      assert d["type"] == "rally_points"
+      assert d["id"] == "0198f0a1-dddd-7000-8000-00000000000d"
+      assert d["attributes"]["message"] == "form up"
+      assert d["attributes"]["character_name"] == "Test Pilot"
+      assert d["attributes"]["system_name"] == "J123456"
+      assert d["attributes"]["solar_system_id"] == 31_000_199
+
+      assert d["relationships"]["system"]["data"] == %{
+               "type" => "map_systems",
+               "id" => "0198f0a1-eeee-7000-8000-00000000000e"
+             }
+    end
+
+    # Fixture: map_server_pings_impl.ex:94 - the id key is :id, not :rally_point_id
+    test "rally_point_removed reads :id" do
+      d =
+        data(:rally_point_removed, %{
+          id: "0198f0a1-dddd-7000-8000-00000000000d",
+          solar_system_id: 31_000_199,
+          system_id: "0198f0a1-eeee-7000-8000-00000000000e",
+          character_id: "0198f0a1-ffff-7000-8000-00000000000f",
+          character_name: "Test Pilot",
+          character_eve_id: "2112625428",
+          system_name: "J123456"
+        })
+
+      assert d["type"] == "rally_points"
+      assert d["id"] == "0198f0a1-dddd-7000-8000-00000000000d"
+      assert d["meta"]["deleted"] == true
+
+      assert d["relationships"]["system"]["data"]["id"] ==
+               "0198f0a1-eeee-7000-8000-00000000000e"
+    end
+  end
 end

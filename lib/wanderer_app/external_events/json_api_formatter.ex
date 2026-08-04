@@ -309,70 +309,62 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     end)
   end
 
+  # Producer: acl_event_broadcaster.ex:52. member_id is a real
+  # access_list_members UUID and acl_id a real access_lists UUID.
   defp format_resource_data(%Event{type: :acl_member_added, payload: payload} = event) do
     %{
       "type" => "access_list_members",
-      "id" => payload["member_id"] || payload[:member_id],
+      "id" => rid(fetch(payload, :member_id)),
       "attributes" => %{
-        "character_eve_id" => payload["character_eve_id"] || payload[:character_eve_id],
-        "character_name" => payload["character_name"] || payload[:character_name],
-        "role" => payload["role"] || payload[:role],
+        "member_name" => fetch(payload, :member_name),
+        "member_type" => fetch(payload, :member_type),
+        "eve_id" => fetch(payload, :eve_id),
+        "role" => fetch(payload, :role),
         "added_at" => event.timestamp
       },
       "relationships" => %{
-        "access_list" => %{
-          "data" => %{
-            "type" => "access_lists",
-            "id" => payload["access_list_id"] || payload[:access_list_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
+        "access_list" => relationship("access_lists", fetch(payload, :acl_id)),
+        "map" => map_relationship(event)
       }
     }
   end
 
+  # Producer: acl_event_broadcaster.ex:52
   defp format_resource_data(%Event{type: :acl_member_removed, payload: payload} = event) do
     %{
       "type" => "access_list_members",
-      "id" => payload["member_id"] || payload[:member_id],
+      "id" => rid(fetch(payload, :member_id)),
+      "attributes" => %{
+        "member_name" => fetch(payload, :member_name),
+        "member_type" => fetch(payload, :member_type),
+        "eve_id" => fetch(payload, :eve_id)
+      },
       "meta" => %{
         "deleted" => true,
         "deleted_at" => event.timestamp
       },
       "relationships" => %{
-        "access_list" => %{
-          "data" => %{
-            "type" => "access_lists",
-            "id" => payload["access_list_id"] || payload[:access_list_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
+        "access_list" => relationship("access_lists", fetch(payload, :acl_id)),
+        "map" => map_relationship(event)
       }
     }
   end
 
+  # Producer: acl_event_broadcaster.ex:52
   defp format_resource_data(%Event{type: :acl_member_updated, payload: payload} = event) do
     %{
       "type" => "access_list_members",
-      "id" => payload["member_id"] || payload[:member_id],
+      "id" => rid(fetch(payload, :member_id)),
       "attributes" => %{
-        "role" => payload["role"] || payload[:role],
+        "member_name" => fetch(payload, :member_name),
+        "member_type" => fetch(payload, :member_type),
+        "eve_id" => fetch(payload, :eve_id),
+        "role" => fetch(payload, :role),
         "updated_at" => event.timestamp
       },
       "relationships" => %{
-        "access_list" => %{
-          "data" => %{
-            "type" => "access_lists",
-            "id" => payload["access_list_id"] || payload[:access_list_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
+        "access_list" => relationship("access_lists", fetch(payload, :acl_id)),
+        "map" => map_relationship(event)
       }
     }
   end
@@ -402,41 +394,46 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
+  # Producer: map_server_pings_impl.ex:41. This producer does send the
+  # MapSystem UUID as :system_id, so the system relationship is real here.
   defp format_resource_data(%Event{type: :rally_point_added, payload: payload} = event) do
     %{
       "type" => "rally_points",
-      "id" => payload["rally_point_id"] || payload[:rally_point_id],
+      "id" => rid(fetch(payload, :rally_point_id)),
       "attributes" => %{
-        "name" => payload["name"] || payload[:name],
-        "description" => payload["description"] || payload[:description],
-        "created_at" => event.timestamp
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "system_name" => fetch(payload, :system_name),
+        "character_name" => fetch(payload, :character_name),
+        "character_eve_id" => fetch(payload, :character_eve_id),
+        "message" => fetch(payload, :message),
+        "created_at" => fetch(payload, :created_at) || event.timestamp
       },
       "relationships" => %{
-        "system" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
+        "system" => relationship("map_systems", fetch(payload, :system_id)),
+        "map" => map_relationship(event)
       }
     }
   end
 
+  # Producer: map_server_pings_impl.ex:94. Note the id key is :id here, not
+  # :rally_point_id as on the added event.
   defp format_resource_data(%Event{type: :rally_point_removed, payload: payload} = event) do
     %{
       "type" => "rally_points",
-      "id" => payload["rally_point_id"] || payload[:rally_point_id],
+      "id" => rid(fetch(payload, :id)),
+      "attributes" => %{
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "system_name" => fetch(payload, :system_name),
+        "character_name" => fetch(payload, :character_name),
+        "character_eve_id" => fetch(payload, :character_eve_id)
+      },
       "meta" => %{
         "deleted" => true,
         "deleted_at" => event.timestamp
       },
       "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
+        "system" => relationship("map_systems", fetch(payload, :system_id)),
+        "map" => map_relationship(event)
       }
     }
   end
