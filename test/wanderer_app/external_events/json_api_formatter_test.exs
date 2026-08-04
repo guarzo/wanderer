@@ -18,7 +18,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   defp data(type, payload), do: JsonApiFormatter.format_event(event(type, payload))["data"]
 
   describe "add_system" do
-    # Fixture: map_server_systems_impl.ex:635 (post-Task-1 shape)
+    # Fixture: map_server_systems_impl.ex:636 (post-Task-1 shape)
     test "uses the MapSystem UUID as identity and keeps EVE id as an attribute" do
       d =
         data(:add_system, %{
@@ -41,7 +41,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       refute d["attributes"]["type"]
     end
 
-    # Fixture: map_server_systems_impl.ex:899 - this call site omits :name
+    # Fixture: map_server_systems_impl.ex:901 - this call site omits :name
     test "handles the producer variant that omits name" do
       d =
         data(:add_system, %{
@@ -100,7 +100,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   end
 
   describe "system_metadata_changed" do
-    # Fixture: map_server_systems_impl.ex:1115
+    # Fixture: map_server_systems_impl.ex:1118
     test "renders every metadata attribute the producer sends" do
       d =
         data(:system_metadata_changed, %{
@@ -327,6 +327,9 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       refute rendered =~ "SECRET-ACCESS-TOKEN"
       refute rendered =~ "SECRET-REFRESH-TOKEN"
       refute rendered =~ "SECRET-OWNER-HASH"
+      refute rendered =~ "access_token"
+      refute rendered =~ "refresh_token"
+      refute rendered =~ "character_owner_hash"
     end
 
     test "character_removed marks removal" do
@@ -515,6 +518,180 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["id"] == "01JQXYZ0000000000000000000"
       assert d["attributes"]["count"] == 7
       assert d["attributes"]["solar_system_id"] == 31_000_199
+    end
+  end
+
+  describe "module-wide invariants" do
+    # Every event type declared by Event.event_type/0, with a representative
+    # producer-shaped payload.
+    defp all_event_fixtures do
+      char = %WandererApp.Api.Character{
+        id: "0198f0a1-9999-7000-8000-000000000009",
+        eve_id: "2112625428",
+        name: "Test Pilot",
+        online: false,
+        access_token: "SECRET-ACCESS-TOKEN"
+      }
+
+      [
+        {:add_system, %{system_id: "u1", solar_system_id: 31_000_199}},
+        # Replayed pre-Task-1 payload: no system_id, must still be compliant.
+        {:add_system, %{solar_system_id: 31_000_199}},
+        {:deleted_system, %{system_id: "u1", solar_system_id: 31_000_199}},
+        {:system_renamed, %{system_id: "u1", name: "J1"}},
+        {:system_metadata_changed, %{system_id: "u1", solar_system_id: 31_000_199}},
+        {:signature_added, %{solar_system_id: 31_000_199, signature_id: "ABC-123"}},
+        {:signature_removed, %{solar_system_id: 31_000_199, signature_id: "ABC-123"}},
+        {:signatures_updated,
+         %{solar_system_id: 31_000_199, added_count: 1, updated_count: 0, removed_count: 0}},
+        {:connection_added,
+         %{connection_id: "u2", solar_system_source_id: 1, solar_system_target_id: 2}},
+        {:connection_removed,
+         %{connection_id: "u2", solar_system_source_id: 1, solar_system_target_id: 2}},
+        {:connection_updated,
+         %{connection_id: "u2", solar_system_source_id: 1, solar_system_target_id: 2}},
+        {:character_added, char},
+        {:character_removed, char},
+        {:character_updated, char},
+        {:characters_updated, %{characters: [char], timestamp: nil}},
+        {:map_kill, %{"solar_system_id" => 31_000_199, "killmails" => [killmail(1)]}},
+        # acl_event_broadcaster.ex:52 sends the same payload shape - acl_id,
+        # member_id, member_name, member_type, eve_id, role - for all three
+        # ACL event types, so all three fixtures carry it.
+        {:acl_member_added,
+         %{
+           member_id: "u3",
+           acl_id: "u4",
+           member_name: "Test Pilot",
+           member_type: "character",
+           eve_id: "2112625428"
+         }},
+        {:acl_member_removed,
+         %{
+           member_id: "u3",
+           acl_id: "u4",
+           member_name: "Test Pilot",
+           member_type: "character",
+           eve_id: "2112625428"
+         }},
+        {:acl_member_updated,
+         %{
+           member_id: "u3",
+           acl_id: "u4",
+           member_name: "Test Pilot",
+           member_type: "character",
+           eve_id: "2112625428",
+           role: "member"
+         }},
+        # solar_system_id matches the EVE-id sentinel used below so the
+        # "no EVE id as a relationship identifier" invariant has something to
+        # bite on for the rally-point "system" relationship.
+        {:rally_point_added,
+         %{rally_point_id: "u5", system_id: "u6", solar_system_id: 31_000_199}},
+        {:rally_point_removed, %{id: "u5", system_id: "u6", solar_system_id: 31_000_199}}
+      ]
+    end
+
+    defp resources(d) when is_list(d), do: d
+    defp resources(d), do: [d]
+
+    test "every event type is handled without raising" do
+      for {type, payload} <- all_event_fixtures() do
+        assert %{"data" => _, "meta" => _, "links" => _} =
+                 JsonApiFormatter.format_event(event(type, payload)),
+               "#{type} failed to format"
+      end
+    end
+
+    test "no event type falls through to the generic events fallback" do
+      for {type, payload} <- all_event_fixtures() do
+        for resource <- resources(data(type, payload)) do
+          refute resource["type"] == "events",
+                 "#{type} fell through to the generic fallback"
+        end
+      end
+    end
+
+    test "every resource id is a string" do
+      for {type, payload} <- all_event_fixtures() do
+        for resource <- resources(data(type, payload)) do
+          assert is_binary(resource["id"]), "#{type} emitted a non-string id"
+        end
+      end
+    end
+
+    test "every relationship is a valid identifier object or an explicit null" do
+      for {type, payload} <- all_event_fixtures() do
+        for resource <- resources(data(type, payload)),
+            {name, rel} <- resource["relationships"] || %{} do
+          assert Map.has_key?(rel, "data"), "#{type} relationship #{name} has no data member"
+
+          case rel["data"] do
+            nil ->
+              :ok
+
+            %{"type" => rel_type, "id" => id} ->
+              assert is_binary(rel_type) and is_binary(id),
+                     "#{type} relationship #{name} emitted a non-string type or id"
+
+            other ->
+              flunk("#{type} relationship #{name} emitted #{inspect(other)}")
+          end
+        end
+      end
+    end
+
+    # None of the fixtures above ever supply a nil to-one relationship id -
+    # acl_id and system_id are always present in the real producer payloads -
+    # so the null branch of the previous test never executes against them.
+    # This exercises it directly against the shared `relationship/2` helper.
+    test "an absent to-one relationship id emits an explicit null, not a null-id identifier" do
+      d = data(:acl_member_added, %{member_id: "u3", acl_id: nil, eve_id: "2112625428"})
+      assert d["relationships"]["access_list"] == %{"data" => nil}
+    end
+
+    test "no resource uses a reserved attribute name" do
+      for {type, payload} <- all_event_fixtures() do
+        for resource <- resources(data(type, payload)) do
+          attrs = resource["attributes"] || %{}
+
+          refute Map.has_key?(attrs, "id"), "#{type} has a reserved \"id\" attribute"
+          refute Map.has_key?(attrs, "type"), "#{type} has a reserved \"type\" attribute"
+        end
+      end
+    end
+
+    test "no EVE solar system id is used as a relationship identifier" do
+      for {type, payload} <- all_event_fixtures() do
+        for resource <- resources(data(type, payload)),
+            {name, rel} <- resource["relationships"] || %{} do
+          refute rel["data"]["id"] == "31000199",
+                 "#{type} relationship #{name} used an EVE id as an identifier"
+        end
+      end
+    end
+
+    test "no event type leaks an OAuth token" do
+      for {type, payload} <- all_event_fixtures() do
+        rendered = inspect(data(type, payload), limit: :infinity)
+        refute rendered =~ "SECRET-ACCESS-TOKEN", "#{type} leaked an access token"
+      end
+    end
+
+    # This is the original bug's signature: a clause reading payload keys its
+    # producer never sends renders every attribute as null while still
+    # returning a well-formed-looking resource object. None of the invariants
+    # above would catch it - a resource can have a string id, no reserved
+    # names, and no bad relationships while still being empty of information.
+    test "no resource has an attributes map that is entirely null-valued" do
+      for {type, payload} <- all_event_fixtures() do
+        for resource <- resources(data(type, payload)) do
+          attrs = resource["attributes"] || %{}
+
+          refute attrs != %{} and Enum.all?(Map.values(attrs), &is_nil/1),
+                 "#{type} emitted an attributes map with every value nil"
+        end
+      end
     end
   end
 end
