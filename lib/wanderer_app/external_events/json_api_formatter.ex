@@ -8,6 +8,23 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
 
   alias WandererApp.ExternalEvents.Event
 
+  # Explicit allowlist for character payloads. Character events broadcast a
+  # WandererApp.Api.Character struct, which also carries the OAuth token fields
+  # and the owner hash - those must never be read.
+  #
+  # :id is deliberately absent: it is the resource identity, and JSON:API
+  # forbids an attribute named "id".
+  @character_attribute_keys [
+    :eve_id,
+    :name,
+    :corporation_id,
+    :corporation_ticker,
+    :alliance_id,
+    :ship_name,
+    :solar_system_id,
+    :online
+  ]
+
   @doc """
   Formats an event into JSON:API structure.
 
@@ -40,73 +57,82 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
   end
 
   # Event-specific resource data formatting
+  #
+  # Producer: map_server_systems_impl.ex:635 and :899. The :899 variant omits
+  # :name, so that attribute is legitimately nil there.
   defp format_resource_data(%Event{type: :add_system, payload: payload} = event) do
+    {type, id} = system_identity(event, payload)
+
     %{
-      "type" => "map_systems",
-      "id" => payload["system_id"] || payload[:system_id],
+      "type" => type,
+      "id" => id,
       "attributes" => %{
-        "solar_system_id" => payload["solar_system_id"] || payload[:solar_system_id],
-        "name" => payload["name"] || payload[:name],
-        "locked" => payload["locked"] || payload[:locked],
-        "x" => payload["x"] || payload[:x],
-        "y" => payload["y"] || payload[:y],
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "name" => fetch(payload, :name),
+        "position_x" => fetch(payload, :position_x),
+        "position_y" => fetch(payload, :position_y),
         "created_at" => event.timestamp
       },
-      "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # Producer: map_server_systems_impl.ex:348. name/position_x/position_y are
+  # deliberately sent as nil and are omitted here rather than echoed as nulls.
   defp format_resource_data(%Event{type: :deleted_system, payload: payload} = event) do
+    {type, id} = system_identity(event, payload)
+
     %{
-      "type" => "map_systems",
-      "id" => payload["system_id"] || payload[:system_id],
+      "type" => type,
+      "id" => id,
+      "attributes" => %{
+        "solar_system_id" => fetch(payload, :solar_system_id)
+      },
       "meta" => %{
         "deleted" => true,
         "deleted_at" => event.timestamp
       },
-      "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # No producer for :system_renamed exists in lib/. This clause bounds the
+  # output shape; its attribute names are unverified against a real payload.
   defp format_resource_data(%Event{type: :system_renamed, payload: payload} = event) do
+    {type, id} = system_identity(event, payload)
+
     %{
-      "type" => "map_systems",
-      "id" => payload["system_id"] || payload[:system_id],
+      "type" => type,
+      "id" => id,
       "attributes" => %{
-        "name" => payload["name"] || payload[:name],
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "name" => fetch(payload, :name),
         "updated_at" => event.timestamp
       },
-      "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # Producer: map_server_systems_impl.ex:1115
   defp format_resource_data(%Event{type: :system_metadata_changed, payload: payload} = event) do
+    {type, id} = system_identity(event, payload)
+
     %{
-      "type" => "map_systems",
-      "id" => payload["system_id"] || payload[:system_id],
+      "type" => type,
+      "id" => id,
       "attributes" => %{
-        "locked" => payload["locked"] || payload[:locked],
-        "position_x" => payload["position_x"] || payload[:position_x],
-        "position_y" => payload["position_y"] || payload[:position_y],
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "name" => fetch(payload, :name),
+        "temporary_name" => fetch(payload, :temporary_name),
+        "labels" => fetch(payload, :labels),
+        "description" => fetch(payload, :description),
+        "status" => fetch(payload, :status),
+        "locked" => fetch(payload, :locked),
+        "position_x" => fetch(payload, :position_x),
+        "position_y" => fetch(payload, :position_y),
         "updated_at" => event.timestamp
       },
-      "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
@@ -437,6 +463,69 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
         }
       }
     }
+  end
+
+  # --- Payload helpers -------------------------------------------------------
+  #
+  # These live after the last format_resource_data/1 clause on purpose:
+  # interleaving them triggers "clauses with the same name and arity should be
+  # grouped together", which `mix compile` reports and `credo` does not.
+
+  # Reads a key from a payload that may be atom-keyed, string-keyed, or a
+  # struct. Structs do not implement Access, so `payload[key]` raises for the
+  # Api.Character structs that character events broadcast. Using Map.fetch/2
+  # rather than `a || b` also preserves `false`, which the previous idiom
+  # silently converted to nil.
+  defp fetch(payload, key) when is_atom(key) do
+    case Map.fetch(payload, key) do
+      {:ok, value} -> value
+      :error -> Map.get(payload, Atom.to_string(key))
+    end
+  end
+
+  # Presence check that tolerates both key styles. Needed where an absent key
+  # and a present nil mean different things - see the :map_kill clause, whose
+  # two variants are distinguished by whether "killmails" was sent at all.
+  defp has_key?(payload, key) when is_atom(key) do
+    Map.has_key?(payload, key) or Map.has_key?(payload, Atom.to_string(key))
+  end
+
+  # JSON:API requires a string id on every resource object.
+  defp rid(nil), do: nil
+  defp rid(value) when is_binary(value), do: value
+  defp rid(value), do: to_string(value)
+
+  # System events identify a map_systems record when the producer sent its
+  # UUID. Events broadcast before that producer change - replayed from a
+  # queue, say - have no UUID, and a null id is not valid JSON:API. Those fall
+  # back to the aggregate shape used by the signature events: the event ULID as
+  # identity, under a type that makes no claim to be a UUID-keyed resource.
+  defp system_identity(%Event{} = event, payload) do
+    case rid(fetch(payload, :system_id)) do
+      nil -> {"system_events", event.id}
+      system_id -> {"map_systems", system_id}
+    end
+  end
+
+  defp map_relationship(%Event{map_id: map_id}) do
+    relationship("maps", map_id)
+  end
+
+  # An empty to-one relationship is represented as "data": null. Emitting
+  # %{"type" => t, "id" => nil} instead would be an invalid identifier object.
+  defp relationship(type, id) do
+    case rid(id) do
+      nil -> %{"data" => nil}
+      id -> %{"data" => %{"type" => type, "id" => id}}
+    end
+  end
+
+  # Projects a character payload through @character_attribute_keys. Never pass
+  # a character payload through wholesale - it carries OAuth credentials.
+  defp character_attrs(payload) do
+    Map.new(@character_attribute_keys, fn key ->
+      {Atom.to_string(key), fetch(payload, key)}
+    end)
   end
 
   # Legacy event formatting (for events already in map format)
