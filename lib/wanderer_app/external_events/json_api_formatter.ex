@@ -362,21 +362,30 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
   end
 
   defp format_resource_data(%Event{type: :map_kill, payload: payload} = event) do
+    # These attribute names are the PUBLIC JSON:API shape and are deliberately
+    # not renamed. What changes here is the payload keys they read: the
+    # flattener in `MessageHandler` emits `victim_char_name`,
+    # `victim_ship_name`, `solar_system_id` and `kill_time`
+    # (lib/wanderer_app/kills/message_handler.ex:298-322), so the previous
+    # keys never matched.
     %{
       "type" => "kills",
       "id" => payload["killmail_id"] || payload[:killmail_id],
       "attributes" => %{
         "killmail_id" => payload["killmail_id"] || payload[:killmail_id],
-        "victim_character_name" =>
-          payload["victim_character_name"] || payload[:victim_character_name],
-        "victim_ship_type" => payload["victim_ship_type"] || payload[:victim_ship_type],
-        "occurred_at" => payload["killmail_time"] || payload[:killmail_time] || event.timestamp
+        "victim_character_name" => payload["victim_char_name"] || payload[:victim_char_name],
+        "victim_ship_type" => payload["victim_ship_name"] || payload[:victim_ship_name],
+        # Falls back to the broadcast time only when the kill time is genuinely
+        # absent; previously the fallback fired on every event.
+        "occurred_at" => payload["kill_time"] || payload[:kill_time] || event.timestamp
       },
       "relationships" => %{
         "system" => %{
           "data" => %{
             "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
+            "id" =>
+              payload["solar_system_id"] || payload[:solar_system_id] || payload["system_id"] ||
+                payload[:system_id]
           }
         },
         "map" => %{
