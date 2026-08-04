@@ -8,27 +8,48 @@
 # sessions subscribed on the other, and updates that never meet.
 #
 # Do not add autoscaling, do not raise min/max machines, and do not set
-# DNS_CLUSTER_QUERY without first making map state cluster-aware.
+# DNS_CLUSTER_QUERY without first making map state cluster-aware. For the same
+# reason, [deploy].strategy must stay 'rolling': 'bluegreen' and 'canary' both
+# boot a second machine alongside the one still running, which is the same
+# split-brain this file forbids everywhere else.
 
+# <WANDERER_APP_NAME> is a placeholder — substitute the real Fly app name
+# before any `fly` command against this file will work.
 app = '<WANDERER_APP_NAME>'
+# Placeholder for the operator's chosen region. Unlike `app`, a stale value
+# here fails silently (Fly just deploys to the wrong region) rather than
+# rejecting the command, so double check it before deploying.
 primary_region = 'iad'
 kill_signal = 'SIGTERM'
+# Default kill_timeout is 5s, too tight for this supervision tree to shut
+# down cleanly; every deploy is a full restart of the single machine.
+kill_timeout = 30
 swap_size_mb = 512
 
 [build]
 
 [deploy]
   release_command = '/app/bin/migrate.sh'
+  strategy = 'rolling'
 
 [env]
   PHX_SERVER = 'true'
   PORT = '8080'
   # PHX_HOST and WEB_APP_URL are set as secrets, not here: they change at
   # cutover when the staging subdomain is replaced by the production hostname.
-  # WANDERER_KILLS_IPV6 must be "true": the wanderer-kills service is reached
-  # over Fly's 6PN private network, which is IPv6-only. The default is
-  # "false", so omitting this line means the connection silently fails and
-  # retries forever.
+  # TLS terminates at Fly's proxy, so this must stay 'http'. Setting it to
+  # 'https' rebinds the endpoint to HTTP_PORT (default 80, so nothing listens
+  # on internal_port), turns on force_ssl which 301s the plain-HTTP health
+  # check forever, and points at /certs files that don't exist in this image
+  # (config/runtime.exs:430-444).
+  WEB_EXTERNAL_SCHEME = 'http'
+  # Safe to commit: this flag is operator-agnostic and always true on Fly
+  # (the wanderer-kills service is only reachable over Fly's IPv6-only 6PN
+  # network). Its default is "false", so omitting this line means the
+  # connection silently fails and retries forever. Its companion variables,
+  # WANDERER_KILLS_SERVICE_ENABLED and WANDERER_KILLS_BASE_URL, are set as
+  # secrets at deploy time instead, because they embed the kills app name and
+  # differ between the ws://<KILLS_APP_NAME>.internal and .flycast options.
   WANDERER_KILLS_IPV6 = 'true'
 
 [http_service]
@@ -36,6 +57,10 @@ swap_size_mb = 512
   force_https = true
   auto_stop_machines = 'off'
   auto_start_machines = false
+  # auto_stop_machines = 'off' is what actually delivers always-on; Fly only
+  # applies min_machines_running when auto_stop_machines is 'stop' or
+  # 'suspend', so this line is inert today. It stands as documented intent —
+  # if auto_stop_machines is ever changed, this is what keeps one machine up.
   min_machines_running = 1
   processes = ['app']
 
@@ -52,6 +77,9 @@ swap_size_mb = 512
     protocol = 'http'
     timeout = '5s'
 
+# Sized for the fifteen Cachex tables and five Finch pools started in
+# lib/wanderer_app/application.ex. Revisit against observed RSS once the app
+# has run under real traffic.
 [[vm]]
   size = 'shared-cpu-2x'
   memory = '2gb'
