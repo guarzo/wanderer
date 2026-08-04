@@ -171,8 +171,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   @doc """
   Drops the cached config for a map after its record changes.
 
-  A plain function, not a GenServer call: it is invoked from Ash after_action
-  hooks that may run before this process exists.
+  A plain function, not a GenServer call: it is invoked from Ash
+  after_transaction hooks that may run before this process exists.
   """
   def invalidate_cache(map_id) do
     Cachex.del(@cache, map_id)

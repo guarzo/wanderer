@@ -61,14 +61,14 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     create :create do
       primary? true
       validate {__MODULE__.ValidateWebhookUrl, []}
-      change after_action(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
     update :update do
       primary? true
       require_atomic? false
       validate {__MODULE__.ValidateWebhookUrl, []}
-      change after_action(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
     # Custom destroy, following map_discord_notification.ex:59-64. The default
@@ -90,7 +90,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       require_atomic? false
       accept [:enabled?]
 
-      change after_action(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
     update :record_success do
@@ -143,7 +143,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
         end
       end
 
-      change after_action(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
     # Immediate disable, used only for a 404 (webhook deleted upstream, will
@@ -164,7 +164,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
         )
       end
 
-      change after_action(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.invalidate_cache/3)
     end
   end
 
@@ -261,11 +261,20 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     end
   end
 
+  # after_transaction, not after_action: an after_action hook evicts the cached
+  # config while this row is still uncommitted, so a killmail arriving in that
+  # window reloads pre-commit state and re-caches it — the old URL on an update,
+  # or the negative `:none` marker if the parent was created in the same
+  # transaction. Either sticks for the cache's 5-minute TTL. On rollback the
+  # error result passes straight through: there is nothing to invalidate, and
+  # evicting anyway would only discard a still-correct entry.
   @doc false
-  def invalidate_cache(_changeset, record, _context) do
+  def invalidate_cache(_changeset, {:ok, record}, _context) do
     do_invalidate(record)
     {:ok, record}
   end
+
+  def invalidate_cache(_changeset, other, _context), do: other
 
   @doc false
   def after_destroy(_changeset, record, _context) do

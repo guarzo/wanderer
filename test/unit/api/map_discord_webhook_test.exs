@@ -7,6 +7,10 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
 
   defp valid_url, do: "https://discord.com/api/webhooks/123456789/abcdefTOKEN"
 
+  # The dispatcher's per-map config cache, seeded and read directly so these
+  # tests do not depend on the dispatcher GenServer running.
+  @cache :discord_notification_cache
+
   setup do
     map = Factory.insert(:map, %{})
 
@@ -333,5 +337,78 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
     assert hook.enabled? == false
     assert hook.last_error == "404 Not Found"
     assert hook.last_error_at != nil
+  end
+
+  # `after_action` hooks run inside the action's transaction, in the order they
+  # were added. This one is appended after the resource's own hooks, so it
+  # stands in for a killmail that arrives *just after* an `after_action`
+  # invalidation would have run: `DiscordDispatcher.load_and_cache/1` reads
+  # pre-commit state and re-caches it — the pre-update URL, or the negative
+  # `:none` marker. Only an invalidation that runs after the transaction clears
+  # that; under `after_action` the stale entry survives the cache's 5-minute
+  # default TTL, so the destination the user just changed keeps posting nowhere
+  # (or to the old channel).
+  defp cache_none_inside_transaction(changeset, map_id) do
+    Ash.Changeset.after_action(changeset, fn _changeset, record ->
+      Cachex.put(@cache, map_id, :none)
+      {:ok, record}
+    end)
+  end
+
+  test "create invalidates the cache after the transaction, not inside it", %{
+    map: map,
+    notification: notification
+  } do
+    assert {:ok, _hook} =
+             MapDiscordWebhook
+             |> Ash.Changeset.for_create(:create, %{
+               notification_id: notification.id,
+               role: :character,
+               webhook_url: valid_url()
+             })
+             |> cache_none_inside_transaction(map.id)
+             |> Ash.create()
+
+    assert Cachex.get(@cache, map.id) == {:ok, nil}
+  end
+
+  test "every health-updating action invalidates the cache after the transaction", %{
+    map: map,
+    notification: notification
+  } do
+    hook_id = character_hook(notification).id
+
+    for {action, params} <- [
+          {:update, %{webhook_url: "https://canary.discord.com/api/v10/webhooks/999/newtok"}},
+          {:set_enabled, %{enabled?: false}},
+          {:record_failure, %{error: "boom"}},
+          {:disable, %{error: "404 Not Found"}}
+        ] do
+      {:ok, hook} = MapDiscordWebhook.by_id(hook_id)
+
+      assert {:ok, _} =
+               hook
+               |> Ash.Changeset.for_update(action, params)
+               |> cache_none_inside_transaction(map.id)
+               |> Ash.update()
+
+      assert Cachex.get(@cache, map.id) == {:ok, nil},
+             "#{action} left the pre-commit cache entry in place"
+    end
+  end
+
+  test "a rejected update leaves the cached config alone", %{
+    map: map,
+    notification: notification
+  } do
+    hook = character_hook(notification)
+    Cachex.put(@cache, map.id, notification)
+
+    assert {:error, _} =
+             MapDiscordWebhook.update(hook, %{webhook_url: "https://evil.example.com/x"})
+
+    # The after_transaction hook runs on failure too, with an `{:error, _}`
+    # result: nothing was written, so nothing may be evicted.
+    assert {:ok, ^notification} = Cachex.get(@cache, map.id)
   end
 end

@@ -72,14 +72,14 @@ defmodule WandererApp.Api.MapDiscordNotification do
         )
       end
 
-      change after_action(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
     update :update do
       primary? true
       require_atomic? false
 
-      change after_action(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
     read :by_map do
@@ -133,11 +133,24 @@ defmodule WandererApp.Api.MapDiscordNotification do
     identity :unique_map_id, [:map_id]
   end
 
+  # Invalidation MUST run after the transaction, not after the action. `create`
+  # writes the parent and its :system child in one transaction, so an
+  # after_action hook drops the cache entry while both rows are still
+  # uncommitted. A killmail arriving in that window reloads the config, reads
+  # pre-commit state, finds nothing and caches the NEGATIVE `:none` marker,
+  # which then sticks for the cache's 5-minute TTL — a map the user just
+  # configured posts nothing for five minutes, with no error anywhere. The same
+  # window on an update re-caches the old value.
+  #
+  # On rollback there is nothing to invalidate: the error result passes through
+  # untouched so a failed write cannot evict a still-correct cache entry.
   @doc false
-  def invalidate_cache(_changeset, record, _context) do
+  def invalidate_cache(_changeset, {:ok, record}, _context) do
     WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(record.map_id)
     {:ok, record}
   end
+
+  def invalidate_cache(_changeset, other, _context), do: other
 
   @doc false
   def stash_webhook_ids(changeset, _context) do
