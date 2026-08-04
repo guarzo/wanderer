@@ -270,7 +270,14 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     refute_delivery(w.id)
   end
 
+  # `track/2` with no ids is load-bearing, not decoration: the filters below
+  # only apply to a verdict of `:not_involved`, and that requires a tracked set
+  # we could actually read. Without the seed the map reads as `:unavailable`,
+  # the verdict is `:unknown`, and the kill is deliberately delivered — which
+  # would look like the filter is broken when it is the fixture that is.
   test "skips non-wormhole systems when wh_only is set", %{map: map, system: w} do
+    track(map.id, [])
+
     event = kill_event(Factory.build(:kill_event, %{solar_system_id: @ks_system}))
 
     DiscordDispatcher.dispatch_event(map.id, event)
@@ -291,6 +298,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
   end
 
   test "skips excluded systems", %{map: map, notification: n, system: w} do
+    track(map.id, [])
     {:ok, _} = MapDiscordNotification.update(n, %{excluded_systems: [@wh_system]})
     DiscordDispatcher.invalidate_cache(map.id)
 
@@ -553,6 +561,74 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       # assertion, so `settle/1` alone is not enough — a third request could
       # still be in flight in an async task. Wait until BOTH workers are
       # genuinely idle, or the count passes for the wrong reason.
+      deadline = System.monotonic_time(:millisecond) + 2_000
+      assert await_worker_idle(system_wh.id, deadline) in [:idle, :no_worker]
+      assert await_worker_idle(character_wh.id, deadline) in [:idle, :no_worker]
+
+      assert length(HttpStub.requests()) == 2
+    end
+
+    # End-to-end proof of the corporation filter's REPLACEMENT semantic, which
+    # only shows up when all three pieces (Matcher, Router, dispatcher) agree.
+    # One batch, three kills, three different answers:
+    #
+    #   * a filtered corporation in an EXCLUDED system  -> character channel
+    #     (the carve-out follows the filter, not the tracked characters)
+    #   * a TRACKED character in an allowed system      -> system channel
+    #     (the filter took them out of the character channel)
+    #   * a TRACKED character in an EXCLUDED system     -> dropped
+    #     (no carve-out either, for the same reason)
+    #
+    # If the filter ever reverts to widening the tracked set, the last two land
+    # in the character channel and this test fails on both counts.
+    test "a corporation filter replaces tracked characters for character routing", %{
+      map: map,
+      notification: n,
+      system: system_wh
+    } do
+      character_wh = character_webhook(n)
+      track(map.id, [1001])
+
+      {:ok, _} =
+        MapDiscordNotification.update(n, %{
+          wh_only: false,
+          excluded_systems: [@ks_system],
+          focus_corp_ids: [500_001]
+        })
+
+      DiscordDispatcher.invalidate_cache(map.id)
+
+      filtered_corp =
+        killmail(710_001, %{"solar_system_id" => @ks_system, "victim_corp_id" => 500_001})
+
+      tracked_char =
+        killmail(710_002, %{"solar_system_id" => @wh_system, "victim_char_id" => 1001})
+
+      tracked_char_excluded =
+        killmail(710_003, %{"solar_system_id" => @ks_system, "victim_char_id" => 1001})
+
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: [filtered_corp, tracked_char, tracked_char_excluded]
+          })
+        )
+      )
+
+      settle(system_wh.id)
+      settle(character_wh.id)
+
+      requests = wait_for_requests(2)
+      by_url = Enum.group_by(requests, &elem(&1, 0), &elem(&1, 1))
+
+      assert [character_body] = by_url[@character_url]
+      assert [%{"footer" => %{"text" => "Killmail ID: 710001"}}] = character_body["embeds"]
+
+      assert [system_body] = by_url[@system_url]
+      assert [%{"footer" => %{"text" => "Killmail ID: 710002"}}] = system_body["embeds"]
+
       deadline = System.monotonic_time(:millisecond) + 2_000
       assert await_worker_idle(system_wh.id, deadline) in [:idle, :no_worker]
       assert await_worker_idle(character_wh.id, deadline) in [:idle, :no_worker]

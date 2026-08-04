@@ -31,13 +31,12 @@ owner and anyone granted admin rights over it.
 2. **Paste the URL** into the *Discord webhook URL (system channel)* field on
    the Notifications tab and hit **Save**.
 3. **Optionally add a character channel.** The *Character channel (optional)*
-   section takes a second webhook. Kills involving the map's tracked characters
-   go there instead, so you can keep them out of the chain-intel channel. You
-   can also list **focus corporations** there: a kill involving a character
-   from one of those corps counts as "yours" even if that character is not
-   tracked on the map, so the whole corp's kills land in the character channel
-   rather than the chain-intel one. If no character channel is configured,
-   these kills simply stay in the system channel — the split is opt-in.
+   section takes a second webhook. Kills involving your own pilots go there
+   instead, so you can keep them out of the chain-intel channel. By default
+   "your own pilots" means the map's tracked characters; the **Corporation
+   filter** below the field changes that. If no character channel is
+   configured, these kills simply stay in the system channel — the split is
+   opt-in.
 4. **Send a test message** to confirm the wiring before you rely on it. The
    button is right there under the form.
 
@@ -79,19 +78,69 @@ There is also an **Enabled** checkbox, so you can mute the feed without
 throwing away the webhook and its filter list.
 
 **Both filters have a deliberate carve-out:** they do not apply to a kill that
-involves one of your own pilots — a tracked character on the map, or a member
-of a focus corporation. A kill involving your people is interesting wherever it
-happened, so it is still delivered even from an excluded system, and even from
-k-space with *Only wormhole kills* left on. Those kills go to the character
-channel when one is configured, and to the system channel otherwise. If you
-want a system genuinely silent, the **Enabled** checkbox is the control that
-covers everything.
+involves one of your own pilots. A kill involving your people is interesting
+wherever it happened, so it is still delivered even from an excluded system, and
+even from k-space with *Only wormhole kills* left on. Those kills go to the
+character channel when one is configured, and to the system channel otherwise.
+If you want a system genuinely silent, the **Enabled** checkbox is the control
+that covers everything.
 
 **One thing worth being clear about:** these filters are *not* the same as the
 Kills widget filters. The widget's filters are per-user and only change what
 *you* see in the map UI. The Discord filters are per-map and server-side — they
 apply to everyone in the channel. The two look similar and are deliberately
 kept separate.
+
+## Corporation filter
+
+Under the character channel there is a **Corporation filter**. It answers one
+question: *who is the character channel for?*
+
+- **Leave it empty** and the answer is "the characters tracked on this map."
+  That is the default and it is what the feature did before this setting
+  existed.
+- **Add one or more corporations** and the answer becomes "members of these
+  corporations" — *instead of* the map's tracked characters, not in addition to
+  them.
+
+That replacement is the point. If your map tracks a mixed group of scouts and
+alts but the channel is meant to be your corp's kill feed, setting the filter
+takes the untracked-corp pilots' kills out of it. Those kills are not lost —
+they fall through to the normal system rules and land in the system channel if
+they pass the filters there.
+
+The carve-out above follows whichever criterion is active: with a corporation
+filter set, kills involving those corporations bypass the excluded-system and
+wormhole-only filters, and kills involving map-tracked characters no longer do.
+
+Matching looks at the victim first, then the attackers, and at *corporation*
+membership on both sides — so a corp member on either end of a killmail counts,
+whether or not that character is on the map.
+
+## Where a kill goes
+
+The full routing table, in order. "Ours" means the kill matched the active
+criterion — a map-tracked character, or a filtered corporation if the
+Corporation filter is set.
+
+1. Not ours, and the system is on the **excluded systems** list → dropped.
+2. Not ours, *Only wormhole kills* is on, and the system is k-space → dropped.
+3. Ours → the **character channel**, falling back to the system channel if no
+   character webhook is configured.
+4. Anything else → the **system channel**.
+
+There is a third possibility besides "ours" and "not ours": *undetermined*. A
+killmail can arrive without attacker information, or the map's tracked-character
+list can be briefly unreadable after a restart. In that case the map genuinely
+does not know whether the kill is yours.
+
+Undetermined kills are treated as neither. They do **not** get dropped by rules
+1 and 2 — those filters are only earned by a positive "this kill is not ours",
+and treating a missing answer as a "no" would mean a brief hiccup silently
+swallowed every k-space kill with the default settings. And they do **not** go
+to the character channel either, because that channel is supposed to mean "these
+are ours". They go to the system channel, and the server logs a warning so the
+cause is visible rather than inferred from a quiet channel.
 
 ## About the webhook URL
 

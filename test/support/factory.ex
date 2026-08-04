@@ -923,6 +923,14 @@ defmodule WandererAppWeb.Factory do
       "final_blow_ship_type_id" => 621,
       "final_blow_ship_name" => "Caracal",
       "attacker_count" => 3,
+      # `add_attacker_identity_data/2` attaches these to every nested payload
+      # that carried an "attackers" list, so a faithful fixture has them.
+      # Their ABSENCE is meaningful — it is what tells `Discord.Matcher` that
+      # involvement could not be determined — so a fixture that omitted them
+      # made every routing test exercise the `:unknown` path by accident.
+      # Tests that want the unknown path must drop these keys explicitly.
+      "attacker_char_ids" => [],
+      "attacker_corp_ids" => [],
       "total_value" => 84_000_000,
       "npc" => false
     }
