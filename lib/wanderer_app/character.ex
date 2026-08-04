@@ -193,7 +193,7 @@ defmodule WandererApp.Character do
   """
   def search(character_id, opts \\ []) do
     case get_character(character_id) do
-      {:ok, %{access_token: access_token, eve_id: eve_id} = _character} ->
+      {:ok, %{access_token: access_token, eve_id: eve_id} = character} ->
         WandererApp.Esi.search(eve_id |> String.to_integer(),
           access_token: access_token,
           character_id: character_id,
@@ -205,11 +205,20 @@ defmodule WandererApp.Character do
             {:ok, prepare_search_results(result)}
 
           {:error, reason} ->
-            Logger.warning("#{__MODULE__} failed search: #{inspect(reason)}")
+            # The character is named because the caller ran this as one specific
+            # character out of possibly several, and the reason alone cannot tell
+            # an operator which token is the stale one.
+            Logger.warning(
+              "#{__MODULE__} failed search as #{Map.get(character, :name)} (#{eve_id}): #{inspect(reason)}"
+            )
+
             {:error, reason}
 
           other ->
-            Logger.warning("#{__MODULE__} failed search: #{inspect(other)}")
+            Logger.warning(
+              "#{__MODULE__} failed search as #{Map.get(character, :name)} (#{eve_id}): #{inspect(other)}"
+            )
+
             {:error, other}
         end
 
