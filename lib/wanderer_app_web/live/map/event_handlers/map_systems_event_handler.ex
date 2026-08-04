@@ -483,7 +483,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     user_chars = socket.assigns.current_user.characters
 
     response =
-      case search_corporation_names(user_chars, search) do
+      case WandererApp.Esi.CorporationSearch.search(user_chars, search) do
         {:ok, results} -> %{results: results}
         _ -> %{results: []}
       end
@@ -632,49 +632,6 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
          })
 
   defp update_system_position(_map_id, _position), do: :ok
-
-  defp search_corporation_names([], _search), do: {:ok, []}
-
-  defp search_corporation_names([first_char | _], search) when is_binary(search) do
-    if String.length(search) < 3 do
-      {:ok, []}
-    else
-      result =
-        Character.search(first_char.id, params: [search: search, categories: "corporation"])
-
-      case result do
-        {:ok, results} ->
-          formatted_results =
-            Enum.map(results, fn item ->
-              name = Map.get(item, :label, "")
-              corp_id = Map.get(item, :value, "")
-
-              ticker =
-                case WandererApp.Esi.get_corporation_info(corp_id) do
-                  {:ok, %{"ticker" => ticker}} -> ticker
-                  _ -> ""
-                end
-
-              formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
-
-              Map.merge(item, %{
-                formatted: formatted_label,
-                name: name,
-                ticker: ticker,
-                id: item.value,
-                type: "corp"
-              })
-            end)
-
-          {:ok, formatted_results}
-
-        other ->
-          other
-      end
-    end
-  end
-
-  defp search_corporation_names(_user_chars, _search), do: {:ok, []}
 
   defp search_alliance_names([], _search), do: {:ok, []}
 
