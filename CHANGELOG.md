@@ -4,30 +4,6 @@
 
 ## Unreleased
 
-### Breaking Changes:
-
-* api: `data` on a `:map_kill` JSON:API event is now an **array of `kills`
-  resources, one per killmail**, where it was previously a single resource
-  object. A `:map_kill` event has always been a batch of every killmail for a
-  system, but the formatter read the per-kill fields off the batch, where they do
-  not exist: each event emitted exactly one resource with a `null` `id` and
-  `null` `killmail_id`, `victim_character_name` and `victim_ship_type`, no matter
-  how many kills it carried. Consumers reading `data` as an object must handle a
-  list; the attribute names themselves are unchanged. Kill-count updates, which
-  share the `:map_kill` type but carry no killmails, still emit a single generic
-  `events` resource.
-
-* api: `occurred_at` on a `:map_kill` JSON:API resource is now that kill's own
-  time. It previously fell back to the time the event was broadcast on every
-  event, so its value changes for existing consumers rather than merely filling
-  in a null.
-
-### Bug Fixes:
-
-* api: the `system` relationship on a `:map_kill` JSON:API resource now carries
-  the solar system id. It was read from a `system_id` key the kill broadcast
-  never sets, so it had been `null` for every external subscriber.
-
 ### Behaviour Changes:
 
 * discord: a map with Discord kill notifications configured now posts **more**
