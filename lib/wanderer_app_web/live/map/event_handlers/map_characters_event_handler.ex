@@ -599,7 +599,8 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
   # flag on the client until the next full refresh.
   defp map_ui_characters_with_ready(characters, map_id) do
     # MapSet, not a list: this is a membership test per character.
-    ready_eve_ids = map_id |> get_all_ready_characters_for_map() |> MapSet.new()
+    ready_eve_ids =
+      map_id |> WandererApp.MapUserSettingsRepo.ready_character_eve_ids() |> MapSet.new()
 
     Enum.map(characters, fn character ->
       character
@@ -667,20 +668,6 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       structure_id: Map.get(character, :structure_id),
       station_id: Map.get(character, :station_id)
     }
-
-  # Gets all ready characters for a map from all users' settings.
-  # Returns a list of character EVE IDs that are marked as ready.
-  defp get_all_ready_characters_for_map(map_id) do
-    case WandererApp.MapUserSettingsRepo.get_by_map(map_id) do
-      {:ok, settings_list} ->
-        settings_list
-        |> Enum.flat_map(fn setting -> setting.ready_characters || [] end)
-        |> Enum.uniq()
-
-      {:error, _reason} ->
-        []
-    end
-  end
 
   def needs_tracking_setup?(
         only_tracked_characters,
@@ -810,7 +797,8 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
           payload: %{
             user_id: current_user_id,
             user_name: current_user.name,
-            ready_character_eve_ids: get_all_ready_characters_for_map(map_id)
+            ready_character_eve_ids:
+              WandererApp.MapUserSettingsRepo.ready_character_eve_ids(map_id)
           }
         })
 
