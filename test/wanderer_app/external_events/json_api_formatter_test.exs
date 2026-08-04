@@ -245,4 +245,96 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["meta"]["deleted"] == true
     end
   end
+
+  describe "character events" do
+    # Fixture: map_server_characters_impl.ex:1030 broadcasts an Api.Character
+    # struct, which carries OAuth tokens.
+    defp character_struct do
+      %WandererApp.Api.Character{
+        id: "0198f0a1-9999-7000-8000-000000000009",
+        eve_id: "2112625428",
+        name: "Test Pilot",
+        corporation_id: 98_000_001,
+        corporation_ticker: "TEST",
+        alliance_id: 99_000_001,
+        ship_name: "Astero",
+        solar_system_id: 31_000_199,
+        online: false,
+        access_token: "SECRET-ACCESS-TOKEN",
+        refresh_token: "SECRET-REFRESH-TOKEN",
+        character_owner_hash: "SECRET-OWNER-HASH"
+      }
+    end
+
+    test "character_added does not raise on a struct payload" do
+      d = data(:character_added, character_struct())
+
+      assert d["type"] == "characters"
+      assert d["id"] == "0198f0a1-9999-7000-8000-000000000009"
+      assert d["attributes"]["eve_id"] == "2112625428"
+      assert d["attributes"]["name"] == "Test Pilot"
+      assert d["attributes"]["corporation_ticker"] == "TEST"
+      assert d["attributes"]["solar_system_id"] == 31_000_199
+      # Regression: `payload["online"] || payload[:online]` turned false into nil.
+      assert d["attributes"]["online"] == false
+      # JSON:API forbids reserved attribute names; the UUID is the identity.
+      refute Map.has_key?(d["attributes"], "id")
+      refute Map.has_key?(d["attributes"], "type")
+    end
+
+    # Fixture: map_server_characters_impl.ex:485 sends a list of structs
+    test "characters_updated emits one resource per character" do
+      a = character_struct()
+      b = %{character_struct() | id: "0198f0a1-aaaa-7000-8000-00000000000a", name: "Second"}
+
+      d = data(:characters_updated, %{characters: [a, b], timestamp: ~U[2026-08-04 12:00:00Z]})
+
+      assert is_list(d)
+      assert length(d) == 2
+
+      assert Enum.map(d, & &1["id"]) == [
+               "0198f0a1-9999-7000-8000-000000000009",
+               "0198f0a1-aaaa-7000-8000-00000000000a"
+             ]
+
+      assert Enum.map(d, & &1["attributes"]["name"]) == ["Test Pilot", "Second"]
+      assert Enum.all?(d, &(&1["type"] == "characters"))
+    end
+
+    test "characters_updated handles an empty list" do
+      assert data(:characters_updated, %{characters: [], timestamp: nil}) == []
+    end
+
+    for event_type <- [:character_added, :character_removed, :character_updated] do
+      test "#{event_type} never leaks OAuth tokens" do
+        rendered = inspect(data(unquote(event_type), character_struct()), limit: :infinity)
+
+        refute rendered =~ "SECRET-ACCESS-TOKEN"
+        refute rendered =~ "SECRET-REFRESH-TOKEN"
+        refute rendered =~ "SECRET-OWNER-HASH"
+        refute rendered =~ "access_token"
+        refute rendered =~ "refresh_token"
+        refute rendered =~ "character_owner_hash"
+      end
+    end
+
+    test "characters_updated never leaks OAuth tokens" do
+      rendered =
+        inspect(data(:characters_updated, %{characters: [character_struct()], timestamp: nil}),
+          limit: :infinity
+        )
+
+      refute rendered =~ "SECRET-ACCESS-TOKEN"
+      refute rendered =~ "SECRET-REFRESH-TOKEN"
+      refute rendered =~ "SECRET-OWNER-HASH"
+    end
+
+    test "character_removed marks removal" do
+      d = data(:character_removed, character_struct())
+
+      assert d["type"] == "characters"
+      assert d["id"] == "0198f0a1-9999-7000-8000-000000000009"
+      assert d["meta"]["removed"] == true
+    end
+  end
 end

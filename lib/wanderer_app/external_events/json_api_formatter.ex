@@ -256,74 +256,57 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
+  # Producer: map_server_characters_impl.ex:1030 and :1041. The payload is a
+  # WandererApp.Api.Character struct - fields are projected through
+  # @character_attribute_keys so tokens can never reach the wire.
   defp format_resource_data(%Event{type: :character_added, payload: payload} = event) do
     %{
       "type" => "characters",
-      "id" => payload["character_id"] || payload[:character_id],
-      "attributes" => %{
-        "eve_id" => payload["eve_id"] || payload[:eve_id],
-        "name" => payload["name"] || payload[:name],
-        "corporation_name" => payload["corporation_name"] || payload[:corporation_name],
-        "corporation_ticker" => payload["corporation_ticker"] || payload[:corporation_ticker],
-        "added_at" => event.timestamp
-      },
-      "relationships" => %{
-        "system" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "id" => rid(fetch(payload, :id)),
+      "attributes" => Map.put(character_attrs(payload), "added_at", event.timestamp),
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # Producer: map_server_characters_impl.ex:301. Also an Api.Character struct.
   defp format_resource_data(%Event{type: :character_removed, payload: payload} = event) do
     %{
       "type" => "characters",
-      "id" => payload["character_id"] || payload[:character_id],
+      "id" => rid(fetch(payload, :id)),
+      "attributes" => character_attrs(payload),
       "meta" => %{
-        "removed_from_system" => true,
+        "removed" => true,
         "removed_at" => event.timestamp
       },
-      "relationships" => %{
-        "system" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # No producer for :character_updated exists in lib/. Field-enumerated anyway
+  # so that a future producer cannot leak a raw struct through this clause.
   defp format_resource_data(%Event{type: :character_updated, payload: payload} = event) do
     %{
       "type" => "characters",
-      "id" => payload["character_id"] || payload[:character_id],
-      "attributes" => %{
-        "ship_type_id" => payload["ship_type_id"] || payload[:ship_type_id],
-        "ship_name" => payload["ship_name"] || payload[:ship_name],
-        "updated_at" => event.timestamp
-      },
-      "relationships" => %{
-        "system" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "id" => rid(fetch(payload, :id)),
+      "attributes" => Map.put(character_attrs(payload), "updated_at", event.timestamp),
+      "relationships" => %{"map" => map_relationship(event)}
     }
+  end
+
+  # Producer: map_server_characters_impl.ex:485. Sends %{characters: [...]},
+  # a list of Api.Character structs, so `data` is an array.
+  defp format_resource_data(%Event{type: :characters_updated, payload: payload} = event) do
+    payload
+    |> fetch(:characters)
+    |> List.wrap()
+    |> Enum.map(fn character ->
+      %{
+        "type" => "characters",
+        "id" => rid(fetch(character, :id)),
+        "attributes" => Map.put(character_attrs(character), "updated_at", event.timestamp),
+        "relationships" => %{"map" => map_relationship(event)}
+      }
+    end)
   end
 
   defp format_resource_data(%Event{type: :acl_member_added, payload: payload} = event) do
