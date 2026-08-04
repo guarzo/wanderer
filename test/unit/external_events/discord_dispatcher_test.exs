@@ -521,6 +521,46 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9004") == {:ok, true}
       assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9003") == {:ok, false}
     end
+
+    # Pins the fix for the exact regression the reviewer caught: `kill_fresh?/3`
+    # takes `max_age_seconds` as an argument rather than calling
+    # `Env.discord_max_killmail_age_seconds/0` internally, so `do_dispatch/2`
+    # resolves (and, on a misconfigured value, warns) ONCE per batch — not once
+    # per kill. Before that fix this test fails with 3 warnings, one per kill.
+    #
+    # All three kills are stale regardless of whether `0` or its validated
+    # fallback (3600) ends up in effect, so the whole batch is filtered before
+    # `mark_attempted/2`/`format_batch/2` — safe to synchronize with
+    # `:sys.get_state/1` without risking the pre-existing `format_batch/2`
+    # crash (see the tests above).
+    test "a misconfigured max age warns once per batch, not once per kill", %{map: map} do
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :discord_max_killmail_age_seconds, 0)
+      )
+
+      on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
+      stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
+
+      kills = [kill(9_101, stale), kill(9_102, stale), kill(9_103, stale)]
+
+      log =
+        capture_log(fn ->
+          DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, kills))
+          :sys.get_state(DiscordDispatcher)
+        end)
+
+      warning_count =
+        log
+        |> String.split("\n")
+        |> Enum.count(&(&1 =~ "discord_max_killmail_age_seconds"))
+
+      assert warning_count == 1
+    end
   end
 
   # `mark_attempted/2` runs before the (unrelated) delivery attempt, so polling

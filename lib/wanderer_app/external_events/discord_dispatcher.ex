@@ -164,10 +164,19 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
          {:ok, webhook} <- system_webhook(notification),
          {:ok, system_id, killmails} <- extract_kills(payload),
          true <- system_allowed?(notification, system_id),
+         # Resolved ONCE per batch, not per kill: `kill_fresh?/3` runs once per
+         # killmail below, and re-reading (and re-validating) config on every
+         # one of potentially dozens of kills would turn a single misconfigured
+         # deployment into a warning-per-kill log flood. Task 8: this binding,
+         # and the explicit third argument to `kill_fresh?/3` below, must
+         # survive any rewrite of this `with` chain — dropping it silently
+         # reopens that flood.
+         max_killmail_age_seconds = Env.discord_max_killmail_age_seconds(),
          # Stale kills (an upstream replay burst on reconnect) are filtered
          # BEFORE dedup: a kill dropped here for age was never marked attempted,
          # so it stays eligible if it arrives again inside the freshness window.
-         [_ | _] = recent <- Enum.filter(killmails, &kill_fresh?(&1, now)),
+         [_ | _] = recent <-
+           Enum.filter(killmails, &kill_fresh?(&1, now, max_killmail_age_seconds)),
          [_ | _] = fresh <- reject_duplicates(map_id, recent) do
       system_name = system_name(system_id)
 
@@ -346,22 +355,34 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   `now` is an argument rather than an internal `DateTime.utc_now/0` call so the
   boundary cases are testable without sleeping or freezing the clock.
-  """
-  @spec kill_fresh?(map(), DateTime.t()) :: boolean()
-  def kill_fresh?(kill, now \\ DateTime.utc_now())
 
-  def kill_fresh?(%{"kill_time" => kill_time}, now) when is_binary(kill_time) do
+  `max_age_seconds` is likewise an argument, not read from `Env` here: this
+  runs once per killmail, and `do_dispatch/2` resolves it ONCE per batch and
+  passes it down explicitly. Reading `Env.discord_max_killmail_age_seconds/0`
+  per kill would mean a misconfigured value (see `Env`'s own validation)
+  re-logs its warning once per kill instead of once per batch. The default
+  here exists only so this function stays directly callable with two
+  arguments in tests; `do_dispatch/2` always supplies the third explicitly.
+  """
+  @spec kill_fresh?(map(), DateTime.t(), pos_integer()) :: boolean()
+  def kill_fresh?(
+        kill,
+        now \\ DateTime.utc_now(),
+        max_age_seconds \\ Env.discord_max_killmail_age_seconds()
+      )
+
+  def kill_fresh?(%{"kill_time" => kill_time}, now, max_age_seconds) when is_binary(kill_time) do
     case DateTime.from_iso8601(kill_time) do
       {:ok, killed_at, _utc_offset} ->
         # Positive when the kill is in the past. A future-dated kill_time gives a
         # negative age and passes, which is the intent: this guard is about
         # staleness only.
-        DateTime.diff(now, killed_at, :second) <= Env.discord_max_killmail_age_seconds()
+        DateTime.diff(now, killed_at, :second) <= max_age_seconds
 
       {:error, _reason} ->
         true
     end
   end
 
-  def kill_fresh?(_kill, _now), do: true
+  def kill_fresh?(_kill, _now, _max_age_seconds), do: true
 end
