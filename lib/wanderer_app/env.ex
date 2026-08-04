@@ -2,6 +2,8 @@ defmodule WandererApp.Env do
   @moduledoc false
   use Nebulex.Caching
 
+  require Logger
+
   @app :wanderer_app
 
   @decorate cacheable(
@@ -94,6 +96,8 @@ defmodule WandererApp.Env do
     |> Keyword.get(:webhooks_enabled, false)
   end
 
+  @default_discord_max_killmail_age_seconds 3600
+
   @doc """
   Killmails older than this are dropped at the Discord dispatcher.
 
@@ -101,10 +105,31 @@ defmodule WandererApp.Env do
   into a chat channel. Deliberately not cached: it is read once per killmail
   batch, and `Application.get_env/3` on a keyword list is cheaper than the cache
   round trip.
+
+  The declared contract is `pos_integer()`. A non-positive configured value is
+  a misconfiguration, not a valid setting: `0` would silently drop every
+  killmail and a negative number would silently let every killmail through
+  (see `WandererApp.ExternalEvents.DiscordDispatcher.kill_fresh?/2`), and
+  either failure mode is otherwise invisible. Both fall back to the default
+  with a loud warning rather than being honoured, so the two non-positive
+  cases behave the same way instead of one silently suppressing all
+  notifications and the other silently disabling the guard.
   """
   def discord_max_killmail_age_seconds() do
     Application.get_env(@app, :external_events, [])
-    |> Keyword.get(:discord_max_killmail_age_seconds, 3600)
+    |> Keyword.get(:discord_max_killmail_age_seconds, @default_discord_max_killmail_age_seconds)
+    |> validate_max_killmail_age()
+  end
+
+  defp validate_max_killmail_age(seconds) when is_integer(seconds) and seconds > 0, do: seconds
+
+  defp validate_max_killmail_age(seconds) do
+    Logger.warning(
+      "[Discord] discord_max_killmail_age_seconds must be a positive integer, " <>
+        "got #{inspect(seconds)}; falling back to #{@default_discord_max_killmail_age_seconds}"
+    )
+
+    @default_discord_max_killmail_age_seconds
   end
 
   @decorate cacheable(

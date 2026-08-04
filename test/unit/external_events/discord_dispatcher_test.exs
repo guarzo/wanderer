@@ -476,13 +476,12 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       :ok
     end
 
-    test "a stale killmail is not delivered", %{map: map} do
+    test "a stale killmail is not delivered", %{map: map, system: w} do
       stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
 
       DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, [kill(9_001, stale)]))
-      _ = :sys.get_state(DiscordDispatcher)
 
-      assert HttpStub.requests() == []
+      refute_delivery(w.id)
     end
 
     # A full "later fresh arrival still delivers" round trip would need a
@@ -493,13 +492,12 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     # cache directly proves the guard's actual job — a stale kill leaves no
     # mark behind — without depending on that unrelated, already-tracked fix.
     test "a stale killmail is not marked, so it remains eligible for a later arrival",
-         %{map: map} do
+         %{map: map, system: w} do
       stale = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.to_iso8601()
 
       DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, [kill(9_002, stale)]))
-      _ = :sys.get_state(DiscordDispatcher)
 
-      assert HttpStub.requests() == []
+      refute_delivery(w.id)
       assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9002") == {:ok, false}
     end
 
