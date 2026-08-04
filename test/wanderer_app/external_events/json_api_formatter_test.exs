@@ -41,7 +41,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       refute d["attributes"]["type"]
     end
 
-    # Fixture: map_server_systems_impl.ex:901 - this call site omits :name
+    # Fixture: map_server_systems_impl.ex:902 - this call site omits :name
     test "handles the producer variant that omits name" do
       d =
         data(:add_system, %{
@@ -100,7 +100,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
   end
 
   describe "system_metadata_changed" do
-    # Fixture: map_server_systems_impl.ex:1118
+    # Fixture: map_server_systems_impl.ex:1119
     test "renders every metadata attribute the producer sends" do
       d =
         data(:system_metadata_changed, %{
@@ -504,6 +504,34 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d == []
     end
 
+    # validate_flat_format_kill/1 checks required fields with Map.has_key?/2
+    # (message_handler.ex:366), so a present-but-nil "killmail_id" is
+    # broadcast. A kills resource has no identity other than that id, and
+    # fabricating one - event.id, say - would collide across the batch, so
+    # the element is dropped rather than emitted with a null id.
+    test "a killmail with a nil id is skipped rather than emitted with a null id" do
+      d =
+        data(:map_kill, %{
+          "solar_system_id" => 31_000_199,
+          "killmails" => [killmail(1), %{killmail(2) | "killmail_id" => nil}]
+        })
+
+      assert length(d) == 1
+      assert hd(d)["id"] == "1"
+      assert hd(d)["attributes"]["victim_char_name"] == "Victim 1"
+      refute Enum.any?(d, &is_nil(&1["id"]))
+    end
+
+    test "a batch whose killmails all lack ids yields an empty array" do
+      d =
+        data(:map_kill, %{
+          "solar_system_id" => 31_000_199,
+          "killmails" => [%{killmail(1) | "killmail_id" => nil}]
+        })
+
+      assert d == []
+    end
+
     # Fixture: kills/message_handler.ex:111 - no killmails key at all
     test "the kill_count variant keeps the count instead of being discarded" do
       d =
@@ -518,6 +546,19 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["id"] == "01JQXYZ0000000000000000000"
       assert d["attributes"]["count"] == 7
       assert d["attributes"]["solar_system_id"] == 31_000_199
+    end
+  end
+
+  describe "event meta" do
+    # Both bulk event types summarise many records under one event, so they
+    # share an action vocabulary rather than one of them being "unknown".
+    test "the bulk event types report bulk_updated" do
+      meta = fn type, payload ->
+        JsonApiFormatter.format_event(event(type, payload))["meta"]["event_action"]
+      end
+
+      assert meta.(:signatures_updated, %{solar_system_id: 31_000_199}) == "bulk_updated"
+      assert meta.(:characters_updated, %{characters: [], timestamp: nil}) == "bulk_updated"
     end
   end
 
@@ -555,6 +596,10 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
         {:character_updated, char},
         {:characters_updated, %{characters: [char], timestamp: nil}},
         {:map_kill, %{"solar_system_id" => 31_000_199, "killmails" => [killmail(1)]}},
+        # The same event type also carries a count-only payload with no
+        # "killmails" key, which renders as a different resource. Without
+        # this fixture no invariant below ever runs over that shape.
+        {:map_kill, %{"solar_system_id" => 31_000_199, "count" => 7, "type" => :kill_count}},
         # acl_event_broadcaster.ex:52 sends the same payload shape - acl_id,
         # member_id, member_name, member_type, eve_id, role - for all three
         # ACL event types, so all three fixtures carry it.
@@ -594,6 +639,13 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
 
     defp resources(d) when is_list(d), do: d
     defp resources(d), do: [d]
+
+    # Every invariant below is a loop over all_event_fixtures/0, so a new
+    # event type with no fixture would be silently exempt from all of them.
+    test "the fixture list covers every supported event type" do
+      assert MapSet.new(all_event_fixtures(), &elem(&1, 0)) ==
+               MapSet.new(Event.supported_event_types())
+    end
 
     test "every event type is handled without raising" do
       for {type, payload} <- all_event_fixtures() do
@@ -678,6 +730,12 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       end
     end
 
+    # Timestamps the formatter injects itself from event.timestamp rather than
+    # reading them from the payload, so they are never nil. Left in, they would
+    # single-handedly satisfy the refute below for the 14 fixtures whose clause
+    # injects one - defeating the invariant exactly where it is most needed.
+    @formatter_injected_timestamps ~w(created_at updated_at added_at deleted_at removed_at)
+
     # This is the original bug's signature: a clause reading payload keys its
     # producer never sends renders every attribute as null while still
     # returning a well-formed-looking resource object. None of the invariants
@@ -686,7 +744,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
     test "no resource has an attributes map that is entirely null-valued" do
       for {type, payload} <- all_event_fixtures() do
         for resource <- resources(data(type, payload)) do
-          attrs = resource["attributes"] || %{}
+          attrs = Map.drop(resource["attributes"] || %{}, @formatter_injected_timestamps)
 
           refute attrs != %{} and Enum.all?(Map.values(attrs), &is_nil/1),
                  "#{type} emitted an attributes map with every value nil"

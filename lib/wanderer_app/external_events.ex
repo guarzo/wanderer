@@ -13,8 +13,11 @@ defmodule WandererApp.ExternalEvents do
 
       # From event producers, call this in ADDITION to existing broadcasts
       WandererApp.ExternalEvents.broadcast("map_123", :add_system, %{
+        system_id: "0198f0a1-2222-7000-8000-000000000002",
         solar_system_id: 31000199,
-        name: "J123456"
+        name: "J123456",
+        position_x: 100,
+        position_y: 200
       })
 
   This is additive-only and does not replace any existing functionality.

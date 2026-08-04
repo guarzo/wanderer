@@ -58,8 +58,8 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
 
   # Event-specific resource data formatting
   #
-  # Producer: map_server_systems_impl.ex:635 and :899. The :899 variant omits
-  # :name, so that attribute is legitimately nil there.
+  # Producer: map_server_systems_impl.ex:636, :690 and :902. The :902 variant
+  # omits :name, so that attribute is legitimately nil there.
   defp format_resource_data(%Event{type: :add_system, payload: payload} = event) do
     {type, id} = system_identity(event, payload)
 
@@ -113,7 +113,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_systems_impl.ex:1115
+  # Producer: map_server_systems_impl.ex:1119
   defp format_resource_data(%Event{type: :system_metadata_changed, payload: payload} = event) do
     {type, id} = system_identity(event, payload)
 
@@ -136,7 +136,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
-  # Producer: map_server_signatures_impl.ex:148 and :159.
+  # Producer: map_server_signatures_impl.ex:148 - the only :signature_added site.
   #
   # The producer sends sig.eve_id - the in-game signature code, not the record
   # UUID. api/map_system_signature.ex is uuid_primary_key with eve_id unique
@@ -384,6 +384,13 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
       payload
       |> fetch(:killmails)
       |> List.wrap()
+      # A kills resource has no identity but its killmail_id, and the
+      # producer does not guarantee one: validate_flat_format_kill/1 checks
+      # required fields with Map.has_key?/2, so a present-but-nil id is
+      # broadcast. Dropping the element is the only honest option - a null
+      # id is invalid JSON:API, and any fabricated id (the event ULID, say)
+      # would collide across the rest of the batch.
+      |> Enum.reject(&is_nil(fetch(&1, :killmail_id)))
       |> Enum.map(fn kill ->
         %{
           "type" => "kills",
@@ -465,11 +472,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
       "type" => "events",
       "id" => event.id,
       "attributes" => payload,
-      "relationships" => %{
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
@@ -663,7 +666,8 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
            ] ->
         "updated"
 
-      :signatures_updated ->
+      # Both bulk types summarise many records under one event.
+      type when type in [:signatures_updated, :characters_updated] ->
         "bulk_updated"
 
       :map_kill ->
