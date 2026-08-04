@@ -440,7 +440,21 @@ defmodule WandererApp.Kills.Client do
 
       {:error, reason} ->
         Logger.error("[Client] Connection failed: #{inspect(reason)}")
-        schedule_retry(%{state | connecting: false, last_error: reason})
+        state = %{state | connecting: false, last_error: reason}
+
+        # Gated on `should_retry?/1` for the same reason the async failure path
+        # at `handle_info({:socket_error, ...})` is: scheduling unconditionally
+        # means an exhausted retry budget still queues another reconnect, so the
+        # 15-minute retry-cycle cooldown in `check_health/1` never gets to run.
+        if should_retry?(state) do
+          schedule_retry(state)
+        else
+          Logger.error(
+            "[Client] Max retry attempts (#{@max_retries}) reached. Will not retry automatically."
+          )
+
+          state
+        end
     end
   end
 

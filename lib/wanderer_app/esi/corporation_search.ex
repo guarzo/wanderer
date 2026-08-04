@@ -15,31 +15,54 @@ defmodule WandererApp.Esi.CorporationSearch do
 
   @min_search_length 3
 
+  # ESI returns every corporation whose name matches the prefix, and `decorate/1`
+  # issues one sequential `get_corporation_info/1` per hit — inside the calling
+  # LiveView process, on every debounced keystroke. A broad term like "corp"
+  # would otherwise block the settings tab for the sum of hundreds of lookups
+  # whose results the caller then truncates anyway. Cap first, enrich after.
+  @max_results 20
+
   @doc "Minimum number of characters before a search is sent to ESI."
   @spec min_search_length() :: pos_integer()
   def min_search_length, do: @min_search_length
 
+  @doc "Maximum number of hits enriched and returned by `search/3`."
+  @spec max_results() :: pos_integer()
+  def max_results, do: @max_results
+
   @doc """
   Searches corporations by name as the first of `characters`.
 
-  Returns `{:ok, []}` — never an error tuple — when the user has no characters
-  or the term is too short, so callers can render "no matches" without
-  distinguishing those cases from a genuinely empty result.
+  Returns `{:ok, []}` when the user has no characters or the term is too short,
+  so callers can render "no matches" without distinguishing those cases from a
+  genuinely empty result. An ESI failure is passed through as `{:error, reason}`
+  — both callers degrade that to an empty dropdown, but the tuple is not
+  swallowed here.
+
+  At most `max_results/0` hits are returned.
 
   Each hit keeps the keys `Character.search/2` produced (`:label`, `:value`,
   `:corporation`) and adds `:formatted`, `:name`, `:ticker`, `:id`, `:type`.
   `:value` and `:id` are **strings**; callers that persist integers must convert.
-  """
-  @spec search(list(), any()) :: {:ok, list(map())}
-  def search([], _search), do: {:ok, []}
 
-  def search([first_char | _], search) when is_binary(search) do
+  `opts` exists for tests: `:search_fun` replaces `Character.search/2` and
+  `:fetch_fun` replaces the ticker lookup.
+  """
+  @spec search(list(), any(), keyword()) :: {:ok, list(map())} | {:error, term()}
+  def search(characters, search, opts \\ [])
+
+  def search([], _search, _opts), do: {:ok, []}
+
+  def search([first_char | _], search, opts) when is_binary(search) do
     if String.length(search) < @min_search_length do
       {:ok, []}
     else
-      case Character.search(first_char.id, params: [search: search, categories: "corporation"]) do
+      search_fun = Keyword.get(opts, :search_fun, &Character.search/2)
+      fetch_fun = Keyword.get(opts, :fetch_fun, &WandererApp.Esi.get_corporation_info/1)
+
+      case search_fun.(first_char.id, params: [search: search, categories: "corporation"]) do
         {:ok, results} ->
-          {:ok, Enum.map(results, &decorate/1)}
+          {:ok, results |> Enum.take(@max_results) |> Enum.map(&decorate(&1, fetch_fun))}
 
         other ->
           other
@@ -47,7 +70,7 @@ defmodule WandererApp.Esi.CorporationSearch do
     end
   end
 
-  def search(_characters, _search), do: {:ok, []}
+  def search(_characters, _search, _opts), do: {:ok, []}
 
   @doc """
   Human-readable label for a stored corporation id.
@@ -67,12 +90,12 @@ defmodule WandererApp.Esi.CorporationSearch do
     end
   end
 
-  defp decorate(item) do
+  defp decorate(item, fetch_fun) do
     name = Map.get(item, :label, "")
     corp_id = Map.get(item, :value, "")
 
     ticker =
-      case safe_fetch(&WandererApp.Esi.get_corporation_info/1, corp_id) do
+      case safe_fetch(fetch_fun, corp_id) do
         {:ok, %{"ticker" => ticker}} -> ticker
         _ -> ""
       end

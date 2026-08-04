@@ -118,10 +118,15 @@ defmodule WandererApp.ExternalEvents.Discord.SystemNameTest do
           name: "Jita"
         })
 
-      Repo.update_all(
-        from(s in "map_system_v1", where: s.id == type(^system.id, Ecto.UUID)),
-        set: [temporary_name: "", custom_name: ""]
-      )
+      # Assert the row was actually hit. A `where` that matched nothing would
+      # leave the seeded system untouched, and the assertion below would then
+      # pass on the ordinary "no map-local name" path without ever exercising
+      # the empty-string case this test exists for.
+      assert {1, _} =
+               Repo.update_all(
+                 from(s in "map_system_v1", where: s.id == type(^system.id, Ecto.UUID)),
+                 set: [temporary_name: "", custom_name: ""]
+               )
 
       assert SystemName.display_name(map.id, @ks_system, :system) == "Jita"
     end

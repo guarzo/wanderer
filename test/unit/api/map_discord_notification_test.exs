@@ -228,15 +228,22 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
     {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
     Cachex.put(@cache, map.id, rec)
 
+    # A map with no notification of its own, so the create below can only fail
+    # on the child's URL validation. Reusing `map` would trip the one-per-map
+    # identity first and never exercise the rollback path this test is about.
+    fresh_map = Factory.insert(:map, %{})
+    Cachex.put(@cache, fresh_map.id, rec)
+
     # Rejected by the child's URL validation, so the whole transaction rolls
     # back. The after_transaction hook still runs, with an `{:error, _}` result:
     # nothing was written, so nothing may be evicted.
     assert {:error, _} =
              MapDiscordNotification.create(%{
-               map_id: map.id,
+               map_id: fresh_map.id,
                webhook_url: "https://evil.example.com/x"
              })
 
+    assert {:ok, ^rec} = Cachex.get(@cache, fresh_map.id)
     assert {:ok, ^rec} = Cachex.get(@cache, map.id)
   end
 end

@@ -172,4 +172,23 @@ defmodule WandererApp.ExternalEvents.Discord.RouterTest do
     assert result == :drop
     refute match?({:ok, %{id: ^character_id}}, result)
   end
+
+  # `:webhooks` is a relationship, so a notification that reached the router
+  # without `Ash.load!/2` carries `%Ash.NotLoaded{}` here. Reading `.role` off
+  # that would raise on the dispatch path; the `is_list` guard in `webhook/2`
+  # turns it into "no destination" and drops, which is the conservative
+  # direction. Nothing else covers that clause — without this test, deleting
+  # the guard leaves the whole suite green.
+  test "an unloaded :webhooks relationship drops instead of raising", %{notification: n} do
+    {:ok, _} = MapDiscordNotification.update(n, %{wh_only: false})
+
+    # Re-read rather than reusing the update's return value: `update/2` carries
+    # the loaded relationship through, and this test is about the record a
+    # caller gets when it never loaded one.
+    {:ok, unloaded} = MapDiscordNotification.by_id(n.id)
+    assert %Ash.NotLoaded{} = unloaded.webhooks
+
+    assert Router.route(kill(@ks_system), unloaded, :not_involved) == :drop
+    assert Router.route(kill(@wh_system), unloaded, {:involved, :kill}) == :drop
+  end
 end

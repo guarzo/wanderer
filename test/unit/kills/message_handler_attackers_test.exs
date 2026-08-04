@@ -287,6 +287,11 @@ defmodule WandererApp.Kills.MessageHandlerAttackersTest do
       refute Map.has_key?(kill, "attacker_corp_ids")
       refute Map.has_key?(kill, "top_damage_char_id")
       refute Map.has_key?(kill, "top_damage_corp_id")
+      # The name/ticker keys come from the same merge and are just as much
+      # part of "we never captured attacker data" — asserting only the ids
+      # would leave a partial merge undetected.
+      refute Map.has_key?(kill, "top_damage_char_name")
+      refute Map.has_key?(kill, "top_damage_corp_ticker")
 
       # Statistics are still populated from the coerced empty list — that
       # part is unaffected by this task.
@@ -302,6 +307,8 @@ defmodule WandererApp.Kills.MessageHandlerAttackersTest do
       refute Map.has_key?(kill, "attacker_corp_ids")
       refute Map.has_key?(kill, "top_damage_char_id")
       refute Map.has_key?(kill, "top_damage_corp_id")
+      refute Map.has_key?(kill, "top_damage_char_name")
+      refute Map.has_key?(kill, "top_damage_corp_ticker")
     end
 
     test "a genuinely empty attackers list produces present, empty identity data" do
@@ -342,6 +349,8 @@ defmodule WandererApp.Kills.MessageHandlerAttackersTest do
       refute Map.has_key?(kill, "attacker_corp_ids")
       refute Map.has_key?(kill, "top_damage_char_id")
       refute Map.has_key?(kill, "top_damage_corp_id")
+      refute Map.has_key?(kill, "top_damage_char_name")
+      refute Map.has_key?(kill, "top_damage_corp_ticker")
     end
 
     test "a flat payload that already carries the new keys keeps them" do

@@ -139,6 +139,13 @@ export function useNodeOwnerTicker(ownerId?: string | null, ownerType?: string |
         }
       };
 
+      // Clear BEFORE the lookup, not only on rejection. The owner changed the
+      // moment this effect ran; leaving the previous ticker and zKillboard URL
+      // on screen until the response lands means the user can click through to
+      // the wrong corporation. A response with no ticker also has to leave the
+      // display empty rather than reverting to the stale value.
+      clearOwner();
+
       if (ownerType === 'corp') {
         outCommand({
           type: OutCommand.getCorporationTicker,

@@ -4,7 +4,7 @@ import { CharacterTypeRaw } from '@/hooks/Mapper/types';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import clsx from 'clsx';
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   TooltipPosition,
   WdEveEntityPortrait,
@@ -59,12 +59,42 @@ export const Characters = ({ data }: CharactersProps) => {
   // fired inside one round-trip would both derive their replacement list from
   // the same rendered `data` and the second would undo the first. Chain the
   // requests and keep the list we last sent, so each toggle composes onto the
-  // previous one instead of onto a stale snapshot. The optimistic list is held
-  // only while requests are in flight — the window in which `data` is stale —
-  // and dropped once the queue drains and the broadcast has landed.
+  // previous one instead of onto a stale snapshot.
+  //
+  // The optimistic list is held until `data` actually reflects it. Dropping it
+  // when the queue drains is too early: `outCommand` resolving does not mean
+  // the map-state broadcast has landed, so the next toggle would re-derive from
+  // `data` that still shows the pre-toggle set and repeat the toggle instead of
+  // reversing it.
   const pendingReadyRef = useRef<string[] | null>(null);
   const inFlightRef = useRef(0);
   const readyQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const submittedReadyRef = useRef<string[] | null>(null);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPendingReady = useCallback(() => {
+    pendingReadyRef.current = null;
+    submittedReadyRef.current = null;
+
+    if (settleTimerRef.current !== null) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+  }, []);
+
+  // Release the optimistic list once the broadcast confirms the submitted set.
+  useEffect(() => {
+    const submitted = submittedReadyRef.current;
+    if (submitted === null || inFlightRef.current > 0) return;
+
+    const actual = (data || []).filter(char => char.ready).map(char => char.eve_id);
+
+    if (actual.length === submitted.length && submitted.every(id => actual.includes(id))) {
+      clearPendingReady();
+    }
+  }, [data, clearPendingReady]);
+
+  useEffect(() => clearPendingReady, [clearPendingReady]);
 
   const handleToggleReady = useCallback(
     async (character: CharacterTypeRaw, e: React.MouseEvent) => {
@@ -88,24 +118,28 @@ export const Characters = ({ data }: CharactersProps) => {
             type: OutCommand.updateReadyCharacters,
             data: { ready_character_eve_ids: newList },
           });
+
+          submittedReadyRef.current = newList;
+
+          // A broadcast that never matches — the server clamped or rejected the
+          // list — must not pin the optimistic view forever. Fall back to
+          // whatever the server actually has after a bounded wait.
+          if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
+          settleTimerRef.current = setTimeout(clearPendingReady, 5000);
         } catch (err) {
           console.error('Failed to update ready characters:', err);
           // Drop the optimistic list so the next toggle re-derives from
           // whatever the server actually has.
-          pendingReadyRef.current = null;
+          clearPendingReady();
         } finally {
           inFlightRef.current -= 1;
-
-          if (inFlightRef.current === 0) {
-            pendingReadyRef.current = null;
-          }
         }
       });
 
       readyQueueRef.current = run;
       await run;
     },
-    [data, outCommand],
+    [data, outCommand, clearPendingReady],
   );
 
   const items = useMemo(

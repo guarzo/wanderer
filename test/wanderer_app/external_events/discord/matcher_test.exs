@@ -124,6 +124,41 @@ defmodule WandererApp.ExternalEvents.Discord.MatcherTest do
       assert Matcher.invalidate_tracked(map.id) == :ok
       assert Matcher.invalidate_tracked(map.id) == :ok
     end
+
+    # The race the version stamp exists to close, driven deterministically: a
+    # build reads the tracked set, an `invalidate_tracked/1` lands while that
+    # build is still in flight, and the build then tries to write. Before the
+    # version check, that write put the PRE-delete set back and the stale entry
+    # survived the full five-minute TTL — an invalidation that silently did
+    # nothing, which is the worst possible outcome for a routing cache.
+    test "an invalidation during a build is not undone by that build's write", %{map: map} do
+      stale = MapSet.new([95_465_499])
+
+      build_fun = fn _map_id ->
+        # Lands after the version read, before the write. Exactly the window.
+        Matcher.invalidate_tracked(map.id)
+        {:ok, stale}
+      end
+
+      # The caller still gets the set — it was current when the build began,
+      # and this killmail has to route somewhere.
+      assert Matcher.build_and_cache(map.id, build_fun) == stale
+
+      # But it must NOT be readable afterwards: the next killmail rebuilds.
+      assert {:ok, nil} =
+               Cachex.get(:discord_notification_cache, "map:#{map.id}:tracked_eve_ids")
+    end
+
+    # The control for the test above. If `cache_put/3` rejected every write,
+    # that test would pass while the cache never worked at all.
+    test "an uninterrupted build does write its set back", %{map: map} do
+      fresh = MapSet.new([95_465_499])
+
+      assert Matcher.build_and_cache(map.id, fn _ -> {:ok, fresh} end) == fresh
+
+      assert {:ok, ^fresh} =
+               Cachex.get(:discord_notification_cache, "map:#{map.id}:tracked_eve_ids")
+    end
   end
 
   # Seeds the in-memory map cache entry that `WandererApp.Map`'s cache-backed

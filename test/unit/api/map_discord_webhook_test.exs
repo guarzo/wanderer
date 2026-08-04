@@ -432,25 +432,23 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
   end
 
   test "update cannot re-parent a webhook onto another notification", %{
-    map: map,
     notification: notification
   } do
     hook = character_hook(notification)
 
-    {:ok, other_map} = other_map_with_notification()
+    {:ok, other_notification} = other_map_with_notification()
 
     # `notification_id` is outside the update action's accept list: moving a
     # webhook would carry the credential onto another map, and `do_invalidate/1`
     # resolves the notification *after* the write, so the original map would
     # keep routing to a destination it no longer owns for the rest of the TTL.
     assert {:error, error} =
-             MapDiscordWebhook.update(hook, %{notification_id: other_map.id})
+             MapDiscordWebhook.update(hook, %{notification_id: other_notification.id})
 
     assert Exception.message(error) =~ "notification_id"
 
     {:ok, reloaded} = MapDiscordWebhook.by_id(hook.id)
     assert reloaded.notification_id == notification.id
-    assert map.id
   end
 
   defp other_map_with_notification do

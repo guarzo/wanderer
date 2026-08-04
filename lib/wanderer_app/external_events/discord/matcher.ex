@@ -60,21 +60,47 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   """
   @spec invalidate_tracked(String.t()) :: :ok
   def invalidate_tracked(map_id) do
-    Cachex.del(@cache, cache_key(map_id))
+    # Bumping the version inside the same transaction as the delete is what
+    # makes the delete stick. Without it, a build already in flight would
+    # `Cachex.put/4` its pre-delete set back afterwards and the stale entry
+    # would survive the full TTL — the exact failure the invalidation exists to
+    # prevent. The build re-reads the version under this same lock and discards
+    # itself if it changed.
+    Cachex.transaction(@cache, [cache_key(map_id), version_key(map_id)], fn worker ->
+      Cachex.incr(worker, version_key(map_id), 1)
+      Cachex.del(worker, cache_key(map_id))
+    end)
+
     :ok
   rescue
     # Same contract as `DiscordDispatcher.invalidate_cache/1`, which drops the
-    # same cache: `Cachex.del/2` RAISES against an unstarted cache rather than
+    # same cache: Cachex RAISES against an unstarted cache rather than
     # returning an error tuple. Both are called from core map writes
     # (`WandererApp.Map`'s three writers of `characters:`), so a context without
     # the cache must not turn adding a character into a crash.
     _ -> :ok
   end
 
-  defp build_and_cache(map_id) do
-    case build(map_id) do
+  @doc false
+  # Public only as a test seam, and only for the `build_fun` argument.
+  #
+  # The compare-and-set below is the whole point of `version_key/1`, and it can
+  # only be exercised by an `invalidate_tracked/1` that lands *after* the
+  # version read and *before* the write. A real `build/1` completes in
+  # microseconds and holds no lock a test could queue behind, so there is no
+  # way to hit that window from the outside; injecting the build makes the
+  # interleaving exact instead of hoping for it. Production always calls
+  # `build_and_cache/1`.
+  def build_and_cache(map_id, build_fun \\ &build/1) do
+    # Read the version BEFORE building. `build/1` is slow (it hydrates every
+    # character on the map), so it deliberately runs outside the lock; the
+    # version read here plus the re-check in `cache_put/3` is what turns that
+    # into a compare-and-set rather than a blind write.
+    version = read_version(map_id)
+
+    case build_fun.(map_id) do
       {:ok, ids} ->
-        cache_put(map_id, ids)
+        cache_put(map_id, ids, version)
         ids
 
       :error ->
@@ -84,15 +110,40 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
     end
   end
 
+  defp read_version(map_id) do
+    case Cachex.get(@cache, version_key(map_id)) do
+      {:ok, version} when is_integer(version) -> version
+      _ -> 0
+    end
+  end
+
   # Rescued separately from `tracked_eve_ids/1` rather than under its rescue:
   # the set has already been built at this point, so a cache that cannot store
   # it must still not cost us the answer. Failing to cache is a performance
   # problem; returning an empty set would be a routing error.
-  defp cache_put(map_id, ids) do
-    Cachex.put(@cache, cache_key(map_id), ids, ttl: @ttl)
+  #
+  # The write is conditional on the version being unchanged since the build
+  # started. An `invalidate_tracked/1` that landed mid-build has already bumped
+  # it, so this build's set is known-stale and is dropped rather than written.
+  # The caller still returns it for THIS killmail — it was current when the
+  # build began — but the next killmail rebuilds instead of reading it back.
+  defp cache_put(map_id, ids, version) do
+    Cachex.transaction(@cache, [cache_key(map_id), version_key(map_id)], fn worker ->
+      if read_version_with(worker, map_id) == version do
+        Cachex.put(worker, cache_key(map_id), ids, ttl: @ttl)
+      end
+    end)
+
     :ok
   rescue
     _ -> :ok
+  end
+
+  defp read_version_with(worker, map_id) do
+    case Cachex.get(worker, version_key(map_id)) do
+      {:ok, version} when is_integer(version) -> version
+      _ -> 0
+    end
   end
 
   defp build(map_id) do
@@ -157,6 +208,11 @@ defmodule WandererApp.ExternalEvents.Discord.Matcher do
   defp parse_eve_id(_), do: nil
 
   defp cache_key(map_id), do: "map:#{map_id}:tracked_eve_ids"
+
+  # Intentionally never expires. It is a monotonic counter, not data: if it
+  # aged out while a build held an older value, that build's stale set would
+  # compare equal to the reset counter and be written back.
+  defp version_key(map_id), do: "map:#{map_id}:tracked_eve_ids:version"
 
   @type verdict :: {:involved, :victim} | {:involved, :attacker} | :not_involved
 

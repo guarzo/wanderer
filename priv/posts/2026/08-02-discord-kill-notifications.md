@@ -32,7 +32,12 @@ owner and anyone granted admin rights over it.
    the Notifications tab and hit **Save**.
 3. **Optionally add a character channel.** The *Character channel (optional)*
    section takes a second webhook. Kills involving the map's tracked characters
-   go there instead, so you can keep them out of the chain-intel channel.
+   go there instead, so you can keep them out of the chain-intel channel. You
+   can also list **focus corporations** there: a kill involving a character
+   from one of those corps counts as "yours" even if that character is not
+   tracked on the map, so the whole corp's kills land in the character channel
+   rather than the chain-intel one. If no character channel is configured,
+   these kills simply stay in the system channel — the split is opt-in.
 4. **Send a test message** to confirm the wiring before you rely on it. The
    button is right there under the form.
 
@@ -73,6 +78,15 @@ Two controls, both on the Notifications tab:
 There is also an **Enabled** checkbox, so you can mute the feed without
 throwing away the webhook and its filter list.
 
+**Both filters have a deliberate carve-out:** they do not apply to a kill that
+involves one of your own pilots — a tracked character on the map, or a member
+of a focus corporation. A kill involving your people is interesting wherever it
+happened, so it is still delivered even from an excluded system, and even from
+k-space with *Only wormhole kills* left on. Those kills go to the character
+channel when one is configured, and to the system channel otherwise. If you
+want a system genuinely silent, the **Enabled** checkbox is the control that
+covers everything.
+
 **One thing worth being clear about:** these filters are *not* the same as the
 Kills widget filters. The widget's filters are per-user and only change what
 *you* see in the map UI. The Discord filters are per-map and server-side — they
@@ -95,8 +109,11 @@ destination is disabled automatically — no point retrying a channel that no
 longer exists. Each destination carries its own enabled flag and health state,
 so disabling the character channel this way leaves the system channel posting
 normally, and vice versa. Other transient errors (rate limits, brief outages)
-are retried with backoff, and only a sustained run of failures will disable a
-destination.
+are retried with backoff for a bounded number of attempts, and only a sustained
+run of failures will disable a destination. Those retries all happen inside the
+one delivery attempt — once the attempts are exhausted, the message is dropped
+rather than re-queued, which is what keeps delivery at most once (see *Known
+limits* below).
 
 ## Self-hosting notes
 

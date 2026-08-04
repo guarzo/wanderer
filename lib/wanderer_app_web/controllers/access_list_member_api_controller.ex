@@ -171,46 +171,9 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
   )
 
   def show(conn, %{"acl_id" => acl_id, "member_id" => external_id}) do
-    external_id_str = to_string(external_id)
-
-    membership_query =
-      AccessListMember
-      |> Ash.Query.new()
-      |> filter(access_list_id == ^acl_id)
-      |> filter(
-        eve_character_id == ^external_id_str or
-          eve_corporation_id == ^external_id_str or
-          eve_alliance_id == ^external_id_str
-      )
-
-    case Ash.read(membership_query) do
-      {:ok, [membership]} ->
-        json(conn, %{data: member_to_json(membership)})
-
-      {:ok, []} ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Membership not found for given ACL and external id"})
-
-      # More than one row matches when the same external id was recorded under
-      # two of the eve_character/corporation/alliance columns. Without this
-      # clause the `[membership]` match above raised CaseClauseError.
-      {:ok, [_ | _] = memberships} ->
-        Logger.warning(
-          "[AccessListMemberAPI] #{length(memberships)} memberships matched acl/external id"
-        )
-
-        conn
-        |> put_status(:conflict)
-        |> json(%{error: "Multiple memberships match the given ACL and external id"})
-
-      {:error, error} ->
-        Logger.error("[AccessListMemberAPI] membership lookup failed: #{inspect(error)}")
-
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: "Failed to look up membership"})
-    end
+    with_membership(conn, acl_id, external_id, fn membership ->
+      json(conn, %{data: member_to_json(membership)})
+    end)
   end
 
   @doc """
@@ -378,79 +341,55 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
         "member_id" => external_id,
         "member" => member_params
       }) do
-    external_id_str = to_string(external_id)
+    with_membership(conn, acl_id, external_id, fn membership ->
+      new_role = Map.get(member_params, "role", membership.role)
 
-    membership_query =
-      AccessListMember
-      |> Ash.Query.new()
-      |> filter(access_list_id == ^acl_id)
-      |> filter(
-        eve_character_id == ^external_id_str or
-          eve_corporation_id == ^external_id_str or
-          eve_alliance_id == ^external_id_str
-      )
-
-    case Ash.read(membership_query) do
-      {:ok, [membership]} ->
-        new_role = Map.get(member_params, "role", membership.role)
-
-        member_type =
-          cond do
-            membership.eve_corporation_id -> "corporation"
-            membership.eve_alliance_id -> "alliance"
-            membership.eve_character_id -> "character"
-            true -> "character"
-          end
-
-        if member_type in ["corporation", "alliance"] and new_role in ["admin", "manager"] do
-          conn
-          |> put_status(:bad_request)
-          |> json(%{
-            error:
-              "#{String.capitalize(member_type)} members cannot have an admin or manager role"
-          })
-        else
-          case AccessListMember.update_role(membership, member_params) do
-            {:ok, updated_membership} ->
-              # Broadcast event to all maps using this ACL
-              case AclEventBroadcaster.broadcast_member_event(
-                     acl_id,
-                     updated_membership,
-                     :acl_member_updated
-                   ) do
-                :ok ->
-                  broadcast_acl_updated(acl_id)
-
-                  json(conn, %{data: member_to_json(updated_membership)})
-
-                {:error, broadcast_error} ->
-                  Logger.warning(
-                    "Failed to broadcast ACL member updated event: #{inspect(broadcast_error)}"
-                  )
-
-                  # Still broadcast internal message even if external broadcast fails
-                  broadcast_acl_updated(acl_id)
-
-                  json(conn, %{data: member_to_json(updated_membership)})
-              end
-
-            {:error, error} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{error: inspect(error)})
-          end
+      member_type =
+        cond do
+          membership.eve_corporation_id -> "corporation"
+          membership.eve_alliance_id -> "alliance"
+          membership.eve_character_id -> "character"
+          true -> "character"
         end
 
-      {:ok, []} ->
+      if member_type in ["corporation", "alliance"] and new_role in ["admin", "manager"] do
         conn
-        |> put_status(:not_found)
-        |> json(%{error: "Membership not found for given ACL and external id"})
+        |> put_status(:bad_request)
+        |> json(%{
+          error: "#{String.capitalize(member_type)} members cannot have an admin or manager role"
+        })
+      else
+        case AccessListMember.update_role(membership, member_params) do
+          {:ok, updated_membership} ->
+            # Broadcast event to all maps using this ACL
+            case AclEventBroadcaster.broadcast_member_event(
+                   acl_id,
+                   updated_membership,
+                   :acl_member_updated
+                 ) do
+              :ok ->
+                broadcast_acl_updated(acl_id)
 
-      {:error, error} ->
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: inspect(error)})
-    end
+                json(conn, %{data: member_to_json(updated_membership)})
+
+              {:error, broadcast_error} ->
+                Logger.warning(
+                  "Failed to broadcast ACL member updated event: #{inspect(broadcast_error)}"
+                )
+
+                # Still broadcast internal message even if external broadcast fails
+                broadcast_acl_updated(acl_id)
+
+                json(conn, %{data: member_to_json(updated_membership)})
+            end
+
+          {:error, error} ->
+            conn
+            |> put_status(:bad_request)
+            |> json(%{error: inspect(error)})
+        end
+      end
+    end)
   end
 
   @doc """
@@ -486,6 +425,51 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
   )
 
   def delete(conn, %{"acl_id" => acl_id, "member_id" => external_id}) do
+    with_membership(conn, acl_id, external_id, fn membership ->
+      case AccessListMember.destroy(membership) do
+        :ok ->
+          # Broadcast event to all maps using this ACL
+          case AclEventBroadcaster.broadcast_member_event(
+                 acl_id,
+                 membership,
+                 :acl_member_removed
+               ) do
+            :ok ->
+              broadcast_acl_updated(acl_id)
+
+              json(conn, %{ok: true})
+
+            {:error, broadcast_error} ->
+              Logger.warning(
+                "Failed to broadcast ACL member removed event: #{inspect(broadcast_error)}"
+              )
+
+              # Still broadcast internal message even if external broadcast fails
+              broadcast_acl_updated(acl_id)
+
+              json(conn, %{ok: true})
+          end
+
+        {:error, error} ->
+          conn
+          |> put_status(:bad_request)
+          |> json(%{error: inspect(error)})
+      end
+    end)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private Helpers
+  # ---------------------------------------------------------------------------
+
+  # `show/2`, `update_role/2` and `delete/2` all address a member by the ACL id
+  # plus one external EVE id, which may live in any of three columns. The lookup
+  # and every non-single-match outcome live here so the three actions cannot
+  # drift apart again — they previously did, and two of them were missing the
+  # multi-match clause entirely (CaseClauseError) and leaked `inspect(error)`.
+  #
+  # `fun` runs only for exactly one match.
+  defp with_membership(conn, acl_id, external_id, fun) do
     external_id_str = to_string(external_id)
 
     membership_query =
@@ -500,51 +484,33 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
 
     case Ash.read(membership_query) do
       {:ok, [membership]} ->
-        case AccessListMember.destroy(membership) do
-          :ok ->
-            # Broadcast event to all maps using this ACL
-            case AclEventBroadcaster.broadcast_member_event(
-                   acl_id,
-                   membership,
-                   :acl_member_removed
-                 ) do
-              :ok ->
-                broadcast_acl_updated(acl_id)
-
-                json(conn, %{ok: true})
-
-              {:error, broadcast_error} ->
-                Logger.warning(
-                  "Failed to broadcast ACL member removed event: #{inspect(broadcast_error)}"
-                )
-
-                # Still broadcast internal message even if external broadcast fails
-                broadcast_acl_updated(acl_id)
-
-                json(conn, %{ok: true})
-            end
-
-          {:error, error} ->
-            conn
-            |> put_status(:bad_request)
-            |> json(%{error: inspect(error)})
-        end
+        fun.(membership)
 
       {:ok, []} ->
         conn
         |> put_status(:not_found)
         |> json(%{error: "Membership not found for given ACL and external id"})
 
+      # More than one row matches when the same external id was recorded under
+      # two of the eve_character/corporation/alliance columns. Without this
+      # clause the `[membership]` match above raised CaseClauseError.
+      {:ok, [_ | _] = memberships} ->
+        Logger.warning(
+          "[AccessListMemberAPI] #{length(memberships)} memberships matched acl/external id"
+        )
+
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: "Multiple memberships match the given ACL and external id"})
+
       {:error, error} ->
+        Logger.error("[AccessListMemberAPI] membership lookup failed: #{inspect(error)}")
+
         conn
         |> put_status(:internal_server_error)
-        |> json(%{error: inspect(error)})
+        |> json(%{error: "Failed to look up membership"})
     end
   end
-
-  # ---------------------------------------------------------------------------
-  # Private Helpers
-  # ---------------------------------------------------------------------------
 
   defp broadcast_acl_updated(acl_id) do
     # Invalidate map_characters cache for all maps using this ACL

@@ -64,11 +64,16 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
   // resolve out of order, so a slow early query would overwrite the newer
   // suggestions. The generation counter drops any response that is no longer
   // the latest.
+  //
+  // The generation is bumped by the CALLER, before the debounce is scheduled,
+  // and passed in. Bumping it inside the debounced body would leave an
+  // already-in-flight query holding the current generation for the whole
+  // debounce interval, so its stale results would still be applied — and the
+  // user could select an owner that does not match what they typed.
   const searchGeneration = useRef(0);
   const debouncedSearch = useMemo(
     () =>
-      debounce(async (query: string) => {
-        const generation = ++searchGeneration.current;
+      debounce(async (query: string, generation: number) => {
         const results = await searchOwners(query);
 
         if (generation === searchGeneration.current) {
@@ -87,14 +92,16 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
 
   const completeMethod = useCallback(
     (e: { originalEvent: React.SyntheticEvent; query: string }) => {
+      // Either branch invalidates whatever is already in flight.
+      const generation = ++searchGeneration.current;
+
       if (e.query && e.query.length >= 3) {
-        debouncedSearch(e.query);
+        debouncedSearch(e.query, generation);
       } else {
         // Same race in reverse: clearing below does nothing if a lookup issued
-        // for a longer query is still in flight. Cancel the pending call and
-        // invalidate any that already went out.
+        // for a longer query is still in flight. Cancel the pending call; the
+        // bump above already invalidated any that went out.
         debouncedSearch.cancel();
-        searchGeneration.current++;
         setOwnerSuggestions([]);
       }
     },

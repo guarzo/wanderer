@@ -7,6 +7,11 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   alias WandererApp.Map.Server.Impl
   alias WandererApp.Character
 
+  # Alliance hits are enriched with one ESI ticker lookup each, so this bounds
+  # network work, not just list length. Matches the cap
+  # `WandererApp.Esi.CorporationSearch` applies to the corporation dropdown.
+  @max_search_results 20
+
   def handle_server_event(%{event: :add_system, payload: system}, socket) do
     # Schedule kill update for the new system after a short delay to allow subscription
     Process.send_after(
@@ -662,8 +667,14 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           # ESI ticker lookups run concurrently and bounded: sequentially, a
           # cold cache meant one blocking round-trip per search hit inside the
           # LiveView process, so a broad prefix stalled the whole session.
+          #
+          # `max_concurrency` bounds how many run at once, not how many run.
+          # Truncate first — otherwise a broad prefix still costs one ESI call
+          # per match and blocks this process until the whole stream drains.
+          # Same cap the system search applies above.
           formatted_results =
             results
+            |> Enum.take(@max_search_results)
             |> Task.async_stream(&format_alliance_result/1,
               max_concurrency: 10,
               timeout: :timer.seconds(10),

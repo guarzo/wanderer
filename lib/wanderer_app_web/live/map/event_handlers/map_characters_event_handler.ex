@@ -586,7 +586,11 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
         end
 
       {:error, reason} ->
-        {:noreply, socket |> put_flash(:error, reason)}
+        # The client pushed `updateReadyCharacters` and is awaiting a reply, so
+        # a bare `{:noreply, ...}` leaves that push permanently unsettled. Keep
+        # the flash and settle the push, as the sibling failure path in
+        # `perform_update_ready_characters/4` already does.
+        {:reply, %{error: reason}, socket |> put_flash(:error, reason)}
     end
   end
 

@@ -47,8 +47,15 @@ defmodule WandererApp.Api.MapDiscordNotification do
       # returns an empty list. That failure is silent: no error, no stopped
       # workers, and queued messages keep posting to webhooks the user just
       # removed.
+      # `stash_webhook_ids/2` must stay in `before_action` for the reason above.
+      # The cleanup, though, runs `after_transaction`: an `after_action` hook
+      # fires while the DELETE is still uncommitted, so a killmail arriving in
+      # that window reloads the configuration, still reads the pre-delete rows
+      # and re-caches them for the full TTL — kills keep posting to webhooks the
+      # user just removed. On rollback it would also have stopped the workers
+      # and evicted the cache for a policy that still exists.
       change before_action(&__MODULE__.stash_webhook_ids/2)
-      change after_action(&__MODULE__.after_destroy/3)
+      change after_transaction(&__MODULE__.after_destroy/3)
     end
 
     # Creates the policy row and its :system destination in one transaction.
@@ -78,6 +85,10 @@ defmodule WandererApp.Api.MapDiscordNotification do
     update :update do
       primary? true
       require_atomic? false
+
+      # Explicit, so `default_accept` cannot expose `:map_id`: re-parenting a
+      # notification would move it and its webhook children to another map.
+      accept [:enabled?, :wh_only, :excluded_systems, :focus_corp_ids]
 
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
@@ -164,7 +175,7 @@ defmodule WandererApp.Api.MapDiscordNotification do
   end
 
   @doc false
-  def after_destroy(changeset, record, _context) do
+  def after_destroy(changeset, {:ok, record}, _context) do
     WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(record.map_id)
 
     # Stop every destination's delivery worker: without this, anything already
@@ -180,4 +191,8 @@ defmodule WandererApp.Api.MapDiscordNotification do
 
     {:ok, record}
   end
+
+  # Rollback: the rows still exist, so neither the cache nor the workers may be
+  # touched. The error passes through untouched.
+  def after_destroy(_changeset, other, _context), do: other
 end

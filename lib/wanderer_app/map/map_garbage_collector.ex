@@ -70,7 +70,11 @@ defmodule WandererApp.Map.GarbageCollector do
       Logger.warning("Some #{label} failed to delete: #{inspect(non_stale_errors)}")
     end
 
-    @logger.info(fn -> "#{label} processed with #{length(errors)} race conditions" end)
+    # Count the stale errors, not every error: `length(errors)` also counted the
+    # genuine failures logged above and then labelled them race conditions.
+    stale_count = length(errors) - length(non_stale_errors)
+
+    @logger.info(fn -> "#{label} processed with #{stale_count} race conditions" end)
   end
 
   defp get_cutoff_time(seconds), do: DateTime.utc_now() |> DateTime.add(-seconds, :second)

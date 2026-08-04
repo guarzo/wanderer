@@ -156,6 +156,16 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
 
   defp kill_event(payload), do: %Event{map_id: nil, type: :map_kill, payload: payload}
 
+  # Derived from the dispatcher rather than spelled out here. A hardcoded key
+  # would make every `refute marked?(...)` below pass vacuously if the key
+  # format ever changed — the assertion that matters most in these tests.
+  defp marked?(map_id, killmail_id) do
+    Cachex.exists?(
+      DiscordDispatcher.dedup_cache(),
+      DiscordDispatcher.dedup_key(map_id, killmail_id)
+    ) == {:ok, true}
+  end
+
   # Dispatch is a cast and delivery is a second async hop, so tests synchronize
   # rather than guess: drain the dispatcher's mailbox, then the worker's.
   # Keyed by WEBHOOK id — that is the Registry key since Task 3.
@@ -539,7 +549,14 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert length(system_body["embeds"]) == 1
       assert length(character_body["embeds"]) == 1
 
-      # Exactly two messages: the third kill went nowhere.
+      # Exactly two messages: the third kill went nowhere. This is a negative
+      # assertion, so `settle/1` alone is not enough — a third request could
+      # still be in flight in an async task. Wait until BOTH workers are
+      # genuinely idle, or the count passes for the wrong reason.
+      deadline = System.monotonic_time(:millisecond) + 2_000
+      assert await_worker_idle(system_wh.id, deadline) in [:idle, :no_worker]
+      assert await_worker_idle(character_wh.id, deadline) in [:idle, :no_worker]
+
       assert length(HttpStub.requests()) == 2
     end
 
@@ -967,7 +984,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, [kill(9_002, stale)]))
 
       refute_delivery(w.id)
-      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9002") == {:ok, false}
+      refute marked?(map.id, 9002)
 
       fresh = DateTime.utc_now() |> DateTime.to_iso8601()
       DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, [kill(9_002, fresh)]))
@@ -998,8 +1015,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert hd(body["embeds"])["footer"]["text"] == "Killmail ID: 9004"
 
       # And the stale one was never burned, unlike the delivered one.
-      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9004") == {:ok, true}
-      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9003") == {:ok, false}
+      assert marked?(map.id, 9004)
+      refute marked?(map.id, 9003)
     end
 
     # The guard must run ONCE, upstream of partitioning — never inside a
@@ -1042,8 +1059,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert hd(system_body["embeds"])["footer"]["text"] == "Killmail ID: 9202"
       assert hd(character_body["embeds"])["footer"]["text"] == "Killmail ID: 9204"
 
-      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9201") == {:ok, false}
-      assert Cachex.exists?(:discord_dedup_cache, "#{map.id}:9203") == {:ok, false}
+      refute marked?(map.id, 9201)
+      refute marked?(map.id, 9203)
     end
 
     # Pins the fix for the exact regression the reviewer caught: `kill_fresh?/3`

@@ -64,11 +64,21 @@ skipped and a single `max_age_hours` sweep runs instead as a safety net.
 
 ## Disabling Options
 
-To disable zoo cleanup: Set both expiration hours to 0
+To disable per-type expiration: set both expiration hours to 0
 
 ```bash
 SIGNATURE_WORMHOLE_EXPIRATION_HOURS=0
 SIGNATURE_DEFAULT_EXPIRATION_HOURS=0
+```
+
+This does **not** disable zoo cleanup. As described above, zero on both values
+switches the sweep to the single `max_age_hours` backstop (24h by default), so
+signatures older than that are still deleted. `max_age_hours` has no environment
+variable — to widen or effectively disable the backstop, raise it in
+`config/config.exs`:
+
+```elixir
+config :wanderer_app, :signature_cleanup, max_age_hours: 87_600
 ```
 
 To disable upstream cleanup: Comment out scheduler jobs in `config/runtime.exs`:

@@ -437,11 +437,25 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     Enum.each(killmails, fn kill -> Cachex.del(@dedup_cache, dedup_key(map_id, kill)) end)
   end
 
-  # NOT role-scoped, deliberately: exactly one destination is chosen per kill,
-  # so one key per (map, killmail) is exactly right. Should a future change ever
-  # post one kill to BOTH channels, this key must gain the role — otherwise the
-  # first post marks the kill and the second is silently suppressed.
-  defp dedup_key(map_id, kill), do: "#{map_id}:#{kill["killmail_id"]}"
+  @doc """
+  Dedup cache key for one killmail, by kill map or by bare killmail id.
+
+  Public so tests derive the key instead of hardcoding its format: a hardcoded
+  key makes `refute`-style assertions ("this kill was never marked") pass
+  vacuously the moment the format changes.
+
+  NOT role-scoped, deliberately: exactly one destination is chosen per kill,
+  so one key per (map, killmail) is exactly right. Should a future change ever
+  post one kill to BOTH channels, this key must gain the role — otherwise the
+  first post marks the kill and the second is silently suppressed.
+  """
+  @spec dedup_key(String.t(), map() | integer() | String.t()) :: String.t()
+  def dedup_key(map_id, kill) when is_map(kill), do: dedup_key(map_id, kill["killmail_id"])
+  def dedup_key(map_id, killmail_id), do: "#{map_id}:#{killmail_id}"
+
+  @doc "Name of the dedup cache, so tests do not hardcode it either."
+  @spec dedup_cache() :: atom()
+  def dedup_cache, do: @dedup_cache
 
   @doc """
   Whether a killmail is recent enough to post.
