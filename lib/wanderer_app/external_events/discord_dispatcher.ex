@@ -48,6 +48,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   require Logger
 
   alias WandererApp.Api.{MapDiscordNotification, MapDiscordWebhook}
+  alias WandererApp.Env
   alias WandererApp.ExternalEvents.Discord.{EmbedFormatter, WorkerSupervisor}
   alias WandererApp.SystemClass
 
@@ -152,6 +153,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   end
 
   defp do_dispatch(map_id, %{type: :map_kill, payload: payload}) do
+    now = DateTime.utc_now()
+
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
@@ -161,7 +164,11 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
          {:ok, webhook} <- system_webhook(notification),
          {:ok, system_id, killmails} <- extract_kills(payload),
          true <- system_allowed?(notification, system_id),
-         [_ | _] = fresh <- reject_duplicates(map_id, killmails) do
+         # Stale kills (an upstream replay burst on reconnect) are filtered
+         # BEFORE dedup: a kill dropped here for age was never marked attempted,
+         # so it stays eligible if it arrives again inside the freshness window.
+         [_ | _] = recent <- Enum.filter(killmails, &kill_fresh?(&1, now)),
+         [_ | _] = fresh <- reject_duplicates(map_id, recent) do
       system_name = system_name(system_id)
 
       # Only the kills the formatter will actually render are marked. Kills past
@@ -324,4 +331,37 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
       _ -> nil
     end
   end
+
+  @doc """
+  Whether a killmail is recent enough to post.
+
+  Guards against an upstream replay burst on reconnect dumping hours of history
+  into a chat channel, and is the precondition that would make a join-time
+  preload safe if one is ever added.
+
+  **Fail-open on purpose.** An absent, non-string, or unparseable `kill_time`
+  allows the kill through, matching the dispatcher's posture everywhere else: a
+  malformed field must not silently suppress notifications. Do not change this
+  to fail-closed — a parse regression would then look exactly like a quiet map.
+
+  `now` is an argument rather than an internal `DateTime.utc_now/0` call so the
+  boundary cases are testable without sleeping or freezing the clock.
+  """
+  @spec kill_fresh?(map(), DateTime.t()) :: boolean()
+  def kill_fresh?(kill, now \\ DateTime.utc_now())
+
+  def kill_fresh?(%{"kill_time" => kill_time}, now) when is_binary(kill_time) do
+    case DateTime.from_iso8601(kill_time) do
+      {:ok, killed_at, _utc_offset} ->
+        # Positive when the kill is in the past. A future-dated kill_time gives a
+        # negative age and passes, which is the intent: this guard is about
+        # staleness only.
+        DateTime.diff(now, killed_at, :second) <= Env.discord_max_killmail_age_seconds()
+
+      {:error, _reason} ->
+        true
+    end
+  end
+
+  def kill_fresh?(_kill, _now), do: true
 end

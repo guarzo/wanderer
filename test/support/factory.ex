@@ -895,7 +895,11 @@ defmodule WandererAppWeb.Factory do
   def build(:killmail, attrs) do
     defaults = %{
       "killmail_id" => System.unique_integer([:positive]),
-      "kill_time" => "2026-08-01T12:00:00Z",
+      # Deliberately "now" rather than a fixed timestamp: the Discord dispatcher
+      # drops killmails older than `discord_max_killmail_age_seconds`
+      # (default 3600), so a hardcoded date would eventually go stale and start
+      # failing every delivery assertion in this suite.
+      "kill_time" => DateTime.utc_now() |> DateTime.to_iso8601(),
       "solar_system_id" => 31_000_005,
       "zkb" => %{},
       "victim_char_id" => 90_000_001,
