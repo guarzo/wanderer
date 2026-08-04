@@ -50,9 +50,14 @@ defmodule WandererApp.ConfigHelpersTest do
     test "falls back to http://host:port when WEB_APP_URL is unset" do
       assert ConfigHelpers.resolve_web_app_url(nil, "localhost", 8000, "NOT_FLY_APP") ==
                "http://localhost:8000"
+    end
 
-      assert ConfigHelpers.resolve_web_app_url("", "localhost", 8000, "NOT_FLY_APP") ==
-               "http://localhost:8000"
+    test "passes an explicitly-empty WEB_APP_URL through so the scheme check still raises" do
+      # `WEB_APP_URL=` in a .env file yields "" rather than nil. Today that reaches
+      # URI.parse/1, produces a nil scheme, and raises at boot with the variable named.
+      # Treating "" as unset would replace that loud failure with a silently wrong
+      # OAuth callback URL, so "" must pass through unchanged.
+      assert ConfigHelpers.resolve_web_app_url("", "localhost", 8000, "NOT_FLY_APP") == ""
     end
   end
 
