@@ -192,10 +192,24 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
         |> put_status(:not_found)
         |> json(%{error: "Membership not found for given ACL and external id"})
 
+      # More than one row matches when the same external id was recorded under
+      # two of the eve_character/corporation/alliance columns. Without this
+      # clause the `[membership]` match above raised CaseClauseError.
+      {:ok, [_ | _] = memberships} ->
+        Logger.warning(
+          "[AccessListMemberAPI] #{length(memberships)} memberships matched acl/external id"
+        )
+
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: "Multiple memberships match the given ACL and external id"})
+
       {:error, error} ->
+        Logger.error("[AccessListMemberAPI] membership lookup failed: #{inspect(error)}")
+
         conn
         |> put_status(:internal_server_error)
-        |> json(%{error: inspect(error)})
+        |> json(%{error: "Failed to look up membership"})
     end
   end
 

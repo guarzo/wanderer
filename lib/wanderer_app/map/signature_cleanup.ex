@@ -38,8 +38,14 @@ defmodule WandererApp.Map.SignatureCleanup do
     default_expiration_hours =
       Application.get_env(:wanderer_app, :signatures)[:default_expiration_hours] || 72
 
+    # Not `|| true`: `false || true` is `true`, so an explicit
+    # `preserve_connected: false` was silently ignored and the setting could
+    # only ever be on.
     preserve_connected =
-      Application.get_env(:wanderer_app, :signatures)[:preserve_connected] || true
+      case Application.get_env(:wanderer_app, :signatures)[:preserve_connected] do
+        nil -> true
+        value -> value
+      end
 
     max_age_hours =
       Application.get_env(:wanderer_app, :signature_cleanup)[:max_age_hours] || 24
@@ -60,6 +66,10 @@ defmodule WandererApp.Map.SignatureCleanup do
 
     if wormhole_expiration_hours == 0 && default_expiration_hours == 0 do
       Logger.debug("Signature expiration is disabled via environment variables")
+      # The very-old sweep runs ONLY here. It is the backstop for the
+      # expiration-disabled case; running it alongside the per-group windows
+      # made a 24h `max_age_hours` silently override a longer configured
+      # `default_expiration_hours` (72h by default).
       cleanup_very_old_signatures(signatures, old_cutoff, preserve_connected, system, map_id)
     else
       expired_signatures =
@@ -74,7 +84,6 @@ defmodule WandererApp.Map.SignatureCleanup do
         end)
 
       process_expired_signatures(expired_signatures, system, map_id)
-      cleanup_very_old_signatures(signatures, old_cutoff, preserve_connected, system, map_id)
     end
   end
 
@@ -108,7 +117,7 @@ defmodule WandererApp.Map.SignatureCleanup do
           })
         end
 
-        case Ash.destroy(sig) do
+        case WandererApp.Api.MapSystemSignature.destroy(sig) do
           :ok ->
             Logger.debug(
               "Deleted expired signature #{sig.eve_id} from system #{system.solar_system_id}"

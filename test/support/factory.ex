@@ -945,6 +945,10 @@ defmodule WandererAppWeb.Factory do
       "timestamp" => "2026-08-01T12:00:00Z",
       "type" => :killmail_update
     }
+    # Merge last so callers can override `timestamp` / `type` the same way they
+    # already override `solar_system_id` and `killmails`; both of those are
+    # derived from `attrs` above, so re-merging them is a no-op.
+    |> Map.merge(attrs)
   end
 
   # `:kill_count` — the second `:map_kill` shape, which carries no killmails

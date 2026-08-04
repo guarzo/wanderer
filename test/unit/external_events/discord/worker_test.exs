@@ -63,10 +63,19 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerTest do
   # Blocks until the worker has drained its mailbox up to this point. Cheaper
   # and far less flaky than sleeping, now that every attempt is scheduled.
   # Keyed by WEBHOOK id, not map id — that is the Registry key now.
+  #
+  # Raises rather than returning a sentinel when no worker is registered: as a
+  # no-op this stopped being a barrier at all, and the assertion that follows it
+  # would then race and pass for the wrong reason.
   defp sync(webhook_id) do
     case Registry.lookup(WorkerSupervisor.registry(), webhook_id) do
-      [{pid, _}] -> :sys.get_state(pid)
-      [] -> :no_worker
+      [{pid, _}] ->
+        :sys.get_state(pid)
+
+      [] ->
+        flunk(
+          "no worker registered for webhook #{inspect(webhook_id)} — sync/1 cannot synchronize"
+        )
     end
   end
 

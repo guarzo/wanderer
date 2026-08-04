@@ -237,9 +237,13 @@ defmodule WandererAppWeb.MapNotificationsComponent do
          socket |> assign(:error, "Save a webhook URL first.") |> assign(:flash_message, nil)}
 
       {:error, other} ->
+        # `inspect(other)` here put the raw failure term — which can carry the
+        # webhook URL — into the LiveView diff. Log a shape summary instead.
+        Logger.warning("[MapNotifications] test message failed: #{error_summary(other)}")
+
         {:noreply,
          socket
-         |> assign(:error, "Could not send a test message: #{inspect(other)}")
+         |> assign(:error, "Could not send a test message. Check the webhook URL and try again.")
          |> assign(:flash_message, nil)}
     end
   end

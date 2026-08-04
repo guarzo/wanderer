@@ -502,3 +502,12 @@ config :wanderer_app, :external_events,
   discord_max_killmail_age_seconds:
     config_dir
     |> get_int_from_path_or_env("WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS", 3600)
+
+# Signature expiration — evaluated at boot so the deployment's env vars win over
+# whatever was set when the release was built. Defaults mirror config.exs.
+config :wanderer_app, :signatures,
+  wormhole_expiration_hours:
+    config_dir |> get_int_from_path_or_env("SIGNATURE_WORMHOLE_EXPIRATION_HOURS", 24),
+  default_expiration_hours:
+    config_dir |> get_int_from_path_or_env("SIGNATURE_DEFAULT_EXPIRATION_HOURS", 72),
+  preserve_connected: true

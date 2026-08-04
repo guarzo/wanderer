@@ -6,7 +6,7 @@ defmodule WandererApp.Esi.ApiClientTokenExpiryTest do
   ship, wallet and search — so a raise here takes down character tracking, not
   just the corporation search where it was first observed.
   """
-  use ExUnit.Case, async: true
+  use WandererApp.DataCase, async: true
 
   alias WandererApp.Esi.ApiClient
 
@@ -58,6 +58,10 @@ defmodule WandererApp.Esi.ApiClientTokenExpiryTest do
 
   test "an unknown character_id is treated as expired rather than raising" do
     # Not in the cache and not in the DB => {:error, :not_found}, another MatchError.
+    # `DataCase` rather than a bare `ExUnit.Case`: without a sandbox checkout the
+    # Ash read fails on connection ownership, Ash wraps that into an error tuple,
+    # and the assertion passes for the wrong reason — "DB unreachable" instead of
+    # "row absent".
     assert ApiClient.is_access_token_expired?(Ecto.UUID.generate())
   end
 end

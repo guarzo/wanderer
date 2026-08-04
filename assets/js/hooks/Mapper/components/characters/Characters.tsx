@@ -4,7 +4,7 @@ import { CharacterTypeRaw } from '@/hooks/Mapper/types';
 import { Commands, OutCommand } from '@/hooks/Mapper/types/mapHandlers';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import clsx from 'clsx';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import {
   TooltipPosition,
   WdEveEntityPortrait,
@@ -55,25 +55,55 @@ export const Characters = ({ data }: CharactersProps) => {
     [outCommand],
   );
 
+  // The server takes the whole ready list, not an add/remove, so two toggles
+  // fired inside one round-trip would both derive their replacement list from
+  // the same rendered `data` and the second would undo the first. Chain the
+  // requests and keep the list we last sent, so each toggle composes onto the
+  // previous one instead of onto a stale snapshot. The optimistic list is held
+  // only while requests are in flight — the window in which `data` is stale —
+  // and dropped once the queue drains and the broadcast has landed.
+  const pendingReadyRef = useRef<string[] | null>(null);
+  const inFlightRef = useRef(0);
+  const readyQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+
   const handleToggleReady = useCallback(
     async (character: CharacterTypeRaw, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       if (!character.online) return;
 
-      const currentReadyCharacters = (data || []).filter(char => char.ready).map(char => char.eve_id);
-      const newList = currentReadyCharacters.includes(character.eve_id)
-        ? currentReadyCharacters.filter(id => id !== character.eve_id)
-        : [...currentReadyCharacters, character.eve_id];
+      inFlightRef.current += 1;
 
-      try {
-        await outCommand({
-          type: OutCommand.updateReadyCharacters,
-          data: { ready_character_eve_ids: newList },
-        });
-      } catch (err) {
-        console.error('Failed to update ready characters:', err);
-      }
+      const run = readyQueueRef.current.then(async () => {
+        const currentReadyCharacters =
+          pendingReadyRef.current ?? (data || []).filter(char => char.ready).map(char => char.eve_id);
+        const newList = currentReadyCharacters.includes(character.eve_id)
+          ? currentReadyCharacters.filter(id => id !== character.eve_id)
+          : [...currentReadyCharacters, character.eve_id];
+
+        pendingReadyRef.current = newList;
+
+        try {
+          await outCommand({
+            type: OutCommand.updateReadyCharacters,
+            data: { ready_character_eve_ids: newList },
+          });
+        } catch (err) {
+          console.error('Failed to update ready characters:', err);
+          // Drop the optimistic list so the next toggle re-derives from
+          // whatever the server actually has.
+          pendingReadyRef.current = null;
+        } finally {
+          inFlightRef.current -= 1;
+
+          if (inFlightRef.current === 0) {
+            pendingReadyRef.current = null;
+          }
+        }
+      });
+
+      readyQueueRef.current = run;
+      await run;
     },
     [data, outCommand],
   );

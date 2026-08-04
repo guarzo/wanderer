@@ -12,7 +12,11 @@ defmodule WandererApp.Map.Operations.Connections do
 
   # Connection type constants
   @connection_type_wormhole 0
-  @connection_type_loop 2
+  # 3, not 2: matches `ConnectionType.loop` in the TS enum
+  # (wormhole/gate/bridge/loop) and `@connection_type_loop` in
+  # map_server_connections_impl.ex. 2 is `bridge`, so loop connections were
+  # missing the wormhole ship-size rules below.
+  @connection_type_loop 3
 
   # Ship size constants
   @small_ship_size 0

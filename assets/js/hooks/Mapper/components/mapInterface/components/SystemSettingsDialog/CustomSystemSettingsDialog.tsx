@@ -59,12 +59,21 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
     inputRef.current?.focus();
   }, []);
 
-  // Wrap the searchOwners function with a debounce of 300ms.
+  // Wrap the searchOwners function with a debounce of 300ms. Debouncing only
+  // limits how often the request goes out — two in-flight lookups can still
+  // resolve out of order, so a slow early query would overwrite the newer
+  // suggestions. The generation counter drops any response that is no longer
+  // the latest.
+  const searchGeneration = useRef(0);
   const debouncedSearch = useMemo(
     () =>
       debounce(async (query: string) => {
+        const generation = ++searchGeneration.current;
         const results = await searchOwners(query);
-        setOwnerSuggestions(results);
+
+        if (generation === searchGeneration.current) {
+          setOwnerSuggestions(results);
+        }
       }, 300),
     [searchOwners, setOwnerSuggestions],
   );
@@ -81,6 +90,11 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
       if (e.query && e.query.length >= 3) {
         debouncedSearch(e.query);
       } else {
+        // Same race in reverse: clearing below does nothing if a lookup issued
+        // for a longer query is still in flight. Cancel the pending call and
+        // invalidate any that already went out.
+        debouncedSearch.cancel();
+        searchGeneration.current++;
         setOwnerSuggestions([]);
       }
     },

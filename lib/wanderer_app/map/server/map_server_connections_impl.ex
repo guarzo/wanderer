@@ -442,13 +442,18 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
     end)
   end
 
+  # Loop connections age exactly like wormholes: the auto-delete filter below
+  # already treats `@connection_type_loop` as EOL-eligible, but matching only on
+  # `@connection_type_wormhole` here meant a loop never advanced to EOL in the
+  # first place, so it was never collected.
   defp maybe_update_connection_time_status(map_id, %{
          id: connection_id,
          solar_system_source: solar_system_source_id,
          solar_system_target: solar_system_target_id,
          time_status: time_status,
-         type: @connection_type_wormhole
-       }) do
+         type: type
+       })
+       when type in [@connection_type_wormhole, @connection_type_loop] do
     connection_start_time = get_start_time(map_id, connection_id)
     new_time_status = get_new_time_status(connection_start_time, time_status)
 

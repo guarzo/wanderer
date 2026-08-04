@@ -236,6 +236,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         %{
           assigns: %{
             map_id: map_id,
+            map_loaded?: true,
             current_user: current_user,
             tracked_characters: tracked_characters,
             user_permissions: user_permissions
@@ -272,9 +273,20 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     if can_update_system?(:owner, user_permissions) do
       system_id_int =
         case sid do
-          id when is_integer(id) -> id
-          id when is_binary(id) -> String.to_integer(id)
-          _ -> nil
+          id when is_integer(id) ->
+            id
+
+          # `String.to_integer/1` raises on anything non-numeric, and `sid`
+          # comes straight off the wire — a malformed value took the whole
+          # LiveView down instead of falling through to the nil guard below.
+          id when is_binary(id) ->
+            case Integer.parse(id) do
+              {int, ""} -> int
+              _ -> nil
+            end
+
+          _ ->
+            nil
         end
 
       if system_id_int do
@@ -295,15 +307,17 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           end
 
         if main_character_id do
-          {:ok, _} =
-            WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
-              character_id: main_character_id,
-              user_id: current_user.id,
-              map_id: map_id,
-              solar_system_id: system_id_int,
-              key: :owner,
-              value: %{owner_id: oid, owner_type: otype, ticker: ticker}
-            })
+          # Not strict-matched: activity tracking is best-effort telemetry, and
+          # a failure here must not roll back an owner update that already
+          # succeeded or crash the LiveView.
+          WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
+            character_id: main_character_id,
+            user_id: current_user.id,
+            map_id: map_id,
+            solar_system_id: system_id_int,
+            key: :owner,
+            value: %{owner_id: oid, owner_type: otype, ticker: ticker}
+          })
         end
       end
     end
@@ -577,9 +591,10 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
   # Catch-all for UI events NOT handled by specific clauses above
   def handle_ui_event(event, params, socket) do
-    Logger.warning(
-      "[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}, Params: #{inspect(params)}, Assigns: #{inspect(socket.assigns)}"
-    )
+    # Deliberately does NOT log `socket.assigns`: it carries `current_user`
+    # (with its characters and tokens) and the whole map state, which is both
+    # a credential-leak risk and megabytes of noise in the log.
+    Logger.warning("[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}")
 
     # Forward to the core event handler as a fallback
     MapCoreEventHandler.handle_ui_event(event, params, socket)
@@ -644,26 +659,19 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
       case result do
         {:ok, results} ->
+          # ESI ticker lookups run concurrently and bounded: sequentially, a
+          # cold cache meant one blocking round-trip per search hit inside the
+          # LiveView process, so a broad prefix stalled the whole session.
           formatted_results =
-            Enum.map(results, fn item ->
-              name = Map.get(item, :label, "")
-              alliance_id = Map.get(item, :value, "")
-
-              ticker =
-                case WandererApp.Esi.get_alliance_info(alliance_id) do
-                  {:ok, %{"ticker" => ticker}} -> ticker
-                  _ -> ""
-                end
-
-              formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
-
-              Map.merge(item, %{
-                formatted: formatted_label,
-                name: name,
-                ticker: ticker,
-                id: item.value,
-                type: "alliance"
-              })
+            results
+            |> Task.async_stream(&format_alliance_result/1,
+              max_concurrency: 10,
+              timeout: :timer.seconds(10),
+              on_timeout: :kill_task
+            )
+            |> Enum.flat_map(fn
+              {:ok, item} -> [item]
+              {:exit, _reason} -> []
             end)
 
           {:ok, formatted_results}
@@ -675,4 +683,25 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   end
 
   defp search_alliance_names(_user_chars, _search), do: {:ok, []}
+
+  defp format_alliance_result(item) do
+    name = Map.get(item, :label, "")
+    alliance_id = Map.get(item, :value, "")
+
+    ticker =
+      case WandererApp.Esi.get_alliance_info(alliance_id) do
+        {:ok, %{"ticker" => ticker}} -> ticker
+        _ -> ""
+      end
+
+    formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
+
+    Map.merge(item, %{
+      formatted: formatted_label,
+      name: name,
+      ticker: ticker,
+      id: item.value,
+      type: "alliance"
+    })
+  end
 end

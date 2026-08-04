@@ -28,9 +28,12 @@ owner and anyone granted admin rights over it.
 1. **Create a webhook in Discord.** In your Discord server, open
    *Server Settings → Integrations → Webhooks*, create one, pick the channel it
    should post to, and copy the webhook URL.
-2. **Paste the URL** into the *Discord webhook URL* field on the Notifications
-   tab and hit **Save**.
-3. **Send a test message** to confirm the wiring before you rely on it. The
+2. **Paste the URL** into the *Discord webhook URL (system channel)* field on
+   the Notifications tab and hit **Save**.
+3. **Optionally add a character channel.** The *Character channel (optional)*
+   section takes a second webhook. Kills involving the map's tracked characters
+   go there instead, so you can keep them out of the chain-intel channel.
+4. **Send a test message** to confirm the wiring before you rely on it. The
    button is right there under the form.
 
 That is the whole setup. From that point on, kills detected in systems on the
@@ -87,11 +90,13 @@ channel. So we treat it like one.
 - To point the map at a different channel, click **Replace** and paste the new
   URL. There is no way to read the old one back out of the UI.
 
-If a webhook is deleted on the Discord side, Discord answers with a 404 and the
-map's notification config is disabled automatically — no point retrying a
-channel that no longer exists. Other transient errors (rate limits, brief
-outages) are retried with backoff, and only a sustained run of failures will
-disable the config.
+If a webhook is deleted on the Discord side, Discord answers with a 404 and that
+destination is disabled automatically — no point retrying a channel that no
+longer exists. Each destination carries its own enabled flag and health state,
+so disabling the character channel this way leaves the system channel posting
+normally, and vice versa. Other transient errors (rate limits, brief outages)
+are retried with backoff, and only a sustained run of failures will disable a
+destination.
 
 ## Self-hosting notes
 
@@ -123,7 +128,8 @@ Worth knowing before you wire it into an intel channel:
   and on zKillboard.
 - Deduplication is in memory, so a restart of the application can let a kill
   that was already posted be posted once more.
-- One webhook per map. If you want kills split across several channels, that is
-  not supported yet.
+- Two channels per map: one for system kills, one for character kills. Splitting
+  further than that — a channel per region, per corp, per anything else — is not
+  supported yet.
 
 Fly safe. o7

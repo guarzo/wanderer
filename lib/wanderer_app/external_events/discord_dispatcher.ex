@@ -401,13 +401,28 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   defp extract_kills(_), do: :skip
 
+  # The `seen` accumulator matters as much as the cache lookup: `mark_attempted/2`
+  # only runs after the whole batch is filtered, so a batch carrying the same
+  # killmail_id twice passed both copies through and posted the kill twice.
   defp reject_duplicates(map_id, killmails) do
-    Enum.reject(killmails, fn kill ->
-      case Cachex.exists?(@dedup_cache, dedup_key(map_id, kill)) do
-        {:ok, true} -> true
-        _ -> false
-      end
-    end)
+    {kept, _seen} =
+      Enum.reduce(killmails, {[], MapSet.new()}, fn kill, {kept, seen} ->
+        key = dedup_key(map_id, kill)
+
+        cached? =
+          case Cachex.exists?(@dedup_cache, key) do
+            {:ok, true} -> true
+            _ -> false
+          end
+
+        if cached? or MapSet.member?(seen, key) do
+          {kept, seen}
+        else
+          {[kill | kept], MapSet.put(seen, key)}
+        end
+      end)
+
+    Enum.reverse(kept)
   end
 
   # Records that we have *attempted* this killmail, not that Discord accepted

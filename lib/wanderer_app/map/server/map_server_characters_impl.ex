@@ -914,10 +914,10 @@ defmodule WandererApp.Map.Server.CharactersImpl do
          location,
          %{solar_system_id: nil}
        ) do
-    Logger.warning(
+    Logger.debug(fn ->
       "[CharacterTracking] Skipped system add for character #{character_id} on map #{map_id}: " <>
         "new_system=#{inspect(location.solar_system_id)}, reason=nil_old_solar_system_id"
-    )
+    end)
 
     :ok
   end
