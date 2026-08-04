@@ -173,30 +173,52 @@ defmodule WandererApp.Character do
     :ok
   end
 
+  @doc """
+  Searches EVE entities via ESI as `character_id`.
+
+  Returns `{:ok, results}` on success and `{:error, reason}` when the lookup
+  could not be performed — a missing character, or an ESI call that failed or
+  timed out.
+
+  A failed lookup deliberately does NOT collapse into `{:ok, []}`. Every caller
+  is a typeahead, and "ESI refused this request" rendered as an empty dropdown is
+  indistinguishable from "no such corporation": the user retypes the name they
+  know is correct and concludes the feature is broken. Callers that cannot act on
+  the reason should still degrade explicitly rather than by accident.
+
+  One gap remains by design: the per-hit detail lookups that turn ESI ids into
+  labels are best-effort, so a hit whose detail lookup fails is dropped from an
+  otherwise successful `{:ok, results}` rather than failing the search. Those
+  drops are logged.
+  """
   def search(character_id, opts \\ []) do
-    get_character(character_id)
-    |> case do
+    case get_character(character_id) do
       {:ok, %{access_token: access_token, eve_id: eve_id} = _character} ->
-        case WandererApp.Esi.search(eve_id |> String.to_integer(),
-               access_token: access_token,
-               character_id: character_id,
-               refresh_token?: true,
-               params: opts[:params]
-             ) do
+        WandererApp.Esi.search(eve_id |> String.to_integer(),
+          access_token: access_token,
+          character_id: character_id,
+          refresh_token?: true,
+          params: opts[:params]
+        )
+        |> case do
           {:ok, result} ->
-            {:ok, result |> prepare_search_results()}
+            {:ok, prepare_search_results(result)}
 
-          {:error, error} ->
-            Logger.warning("#{__MODULE__} failed search: #{inspect(error)}")
-            {:ok, []}
+          {:error, reason} ->
+            Logger.warning("#{__MODULE__} failed search: #{inspect(reason)}")
+            {:error, reason}
 
-          error ->
-            Logger.warning("#{__MODULE__} failed search: #{inspect(error)}")
-            {:ok, []}
+          other ->
+            Logger.warning("#{__MODULE__} failed search: #{inspect(other)}")
+            {:error, other}
         end
 
-      _error ->
-        {:ok, []}
+      other ->
+        Logger.warning(
+          "#{__MODULE__} search could not resolve character #{inspect(character_id)}: #{inspect(other)}"
+        )
+
+        {:error, :character_not_found}
     end
   end
 
@@ -327,21 +349,36 @@ defmodule WandererApp.Character do
 
   defp load_eve_info([], _, _), do: {:ok, []}
 
-  defp load_eve_info(eve_ids, method, map_function),
-    do:
-      {:ok,
-       Enum.map(eve_ids, fn eve_id ->
-         Task.async(fn -> apply(WandererApp.Esi, method, [eve_id]) end)
-       end)
-       # 145000 == Timeout in milliseconds
-       |> Enum.map(fn task -> Task.await(task, 145_000) end)
-       |> Enum.map(fn result ->
-         case result do
-           {:ok, result} -> map_function.(result)
-           _ -> nil
-         end
-       end)
-       |> Enum.filter(fn result -> not is_nil(result) end)}
+  defp load_eve_info(eve_ids, method, map_function) do
+    results =
+      eve_ids
+      |> Enum.map(fn eve_id ->
+        Task.async(fn -> apply(WandererApp.Esi, method, [eve_id]) end)
+      end)
+      # 145000 == Timeout in milliseconds
+      |> Enum.map(fn task -> Task.await(task, 145_000) end)
+      |> Enum.map(fn result ->
+        case result do
+          {:ok, result} -> map_function.(result)
+          _ -> nil
+        end
+      end)
+
+    # A hit whose detail lookup failed is dropped rather than failing the whole
+    # search: partial results still let the user pick the entity they wanted.
+    # Logged in aggregate (not per id) so an ESI outage costs one line per search
+    # rather than one per hit — without it, `search/2` answers `{:ok, []}` from a
+    # total detail-lookup failure and looks indistinguishable from "no matches".
+    dropped = Enum.count(results, &is_nil/1)
+
+    if dropped > 0 do
+      Logger.warning(
+        "#{__MODULE__} #{method} dropped #{dropped}/#{length(eve_ids)} search hits with failed detail lookups"
+      )
+    end
+
+    {:ok, Enum.reject(results, &is_nil/1)}
+  end
 
   defp map_alliance_info(info) do
     %{
