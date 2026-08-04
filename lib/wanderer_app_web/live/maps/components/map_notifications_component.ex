@@ -32,6 +32,15 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # succeeding with no matches.
   @corp_search_error "Corporation search is unavailable right now. This lookup runs as one of your characters — if it keeps failing, re-authorise a character and try again."
 
+  # The failure reason is rendered alongside the message rather than only logged.
+  # This surface is map-admin-only and the reasons are ESI status atoms
+  # (`:forbidden`, `:not_found`, `:timeout`, `:error_limited`), not secrets.
+  # Without it the banner is identical for "this character needs re-authorising"
+  # and "ESI is rate-limiting us", which is the difference between a user-fixable
+  # problem and one they should wait out — and it makes the failure diagnosable
+  # from a screenshot instead of requiring server log access.
+  defp corp_search_error(reason), do: "#{@corp_search_error} (#{inspect(reason)})"
+
   # Shown under the excluded-systems box when the lookup itself failed. Unlike the
   # corporation search this one never leaves the app, so a failure here means the
   # database or the Ash read is unhealthy rather than anything the user can fix.
@@ -492,7 +501,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
       {:error, reason} ->
         Logger.warning("[MapNotifications] corporation search failed: #{inspect(reason)}")
-        {[], @corp_search_error}
+        {[], corp_search_error(reason)}
     end
   rescue
     error ->
@@ -500,7 +509,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         "[MapNotifications] corporation search crashed: #{Exception.format(:error, error, __STACKTRACE__)}"
       )
 
-      {[], @corp_search_error}
+      {[], corp_search_error(error.__struct__)}
   end
 
   defp search_corporations(_current_user, _text), do: {[], nil}
@@ -779,7 +788,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           phx-submit="add-excluded"
           phx-target={@myself}
           class="grid items-end gap-2"
-          style="grid-template-columns: minmax(0, 24rem) auto"
+          style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
             field={ef[:excluded_system]}
@@ -834,7 +843,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           phx-submit="add-focus-corp"
           phx-target={@myself}
           class="grid items-end gap-2"
-          style="grid-template-columns: minmax(0, 24rem) auto"
+          style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
             field={cf[:focus_corp]}
