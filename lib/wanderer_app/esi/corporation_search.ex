@@ -36,8 +36,9 @@ defmodule WandererApp.Esi.CorporationSearch do
   Returns `{:ok, []}` when the user has no characters or the term is too short,
   so callers can render "no matches" without distinguishing those cases from a
   genuinely empty result. An ESI failure is passed through as `{:error, reason}`
-  — both callers degrade that to an empty dropdown, but the tuple is not
-  swallowed here.
+  and is not swallowed here — the map settings notifications tab turns that into
+  a visible message, while the system-settings dialog logs it and still renders
+  an empty dropdown.
 
   At most `max_results/0` hits are returned.
 
@@ -70,7 +71,23 @@ defmodule WandererApp.Esi.CorporationSearch do
     end
   end
 
-  def search(_characters, _search, _opts), do: {:ok, []}
+  # A list of characters with a search term that is not a binary is a real,
+  # expected state: the typeahead fires before anything has been typed. Answering
+  # `{:ok, []}` is correct there.
+  def search(characters, _search, _opts) when is_list(characters), do: {:ok, []}
+
+  # Anything else is a programming error, not a user state — most likely
+  # `characters` arriving as `%Ash.NotLoaded{}` from an unloaded association, or
+  # the arguments passed in the wrong order. This used to be folded into the
+  # `{:ok, []}` clause above, which reported success and rendered a permanently
+  # empty dropdown with nothing in the logs to explain it.
+  def search(characters, _search, _opts) do
+    Logger.warning(
+      "[CorporationSearch] search called with unusable characters: #{inspect(characters)}"
+    )
+
+    {:error, :invalid_characters}
+  end
 
   @doc """
   Human-readable label for a stored corporation id.

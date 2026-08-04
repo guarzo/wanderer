@@ -639,6 +639,47 @@ defmodule WandererAppWeb.MapNotificationsTest do
     refute render(view) =~ "Jita (The Forge)"
   end
 
+  test "a corporation keystroke reports a failed lookup instead of an empty dropdown", %{
+    conn: conn,
+    map: map
+  } do
+    notification_with_webhooks(map, [:system])
+
+    view = open_notifications(conn, map)
+
+    # `Factory.create_character/1` builds through the `:link` action, which accepts
+    # only [:eve_id, :name, :user_id] — so the character has no access token and a
+    # nil `expires_at`, exactly like an account that never completed an OAuth
+    # exchange. `is_access_token_expired?/1` reports nil as expired, so this
+    # keystroke goes down ESI's refresh-and-retry path.
+    #
+    # That path used to compute its log timing with `DateTime.from_unix!(nil)` and
+    # raise FunctionClauseError, which `search_corporations/2` rescued into `[]`.
+    # The dropdown then looked exactly like a search with no matches, which is why
+    # the typeahead appeared to do nothing at all rather than to be broken.
+    log =
+      capture_log(fn ->
+        view
+        |> with_target("#map-notifications")
+        |> render_change("live_select_change", %{
+          "id" => "focus_corp_live_select_component",
+          "text" => "Hard Knocks",
+          "field" => "focus_corp"
+        })
+      end)
+
+    refute log =~ "FunctionClauseError"
+    refute log =~ "DateTime.from_unix"
+
+    # Unconditional on purpose. `setup` gives this user exactly one character and
+    # it has no access token, so the lookup cannot succeed however the test host
+    # is configured — with no network egress the HTTP call fails, and with egress
+    # EVE SSO rejects the nil refresh token. Guarding this assertion on the log
+    # contents would let it pass vacuously the moment the keystroke stopped
+    # reaching the search at all, which is the exact regression it guards.
+    assert render(view) =~ "Corporation search is unavailable right now."
+  end
+
   test "send test message reports the global kill-switch", %{conn: conn, map: map} do
     notification_with_webhooks(map, [:system])
 
