@@ -812,15 +812,23 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         </ul>
 
         <%!-- `compact` makes the field wrapper exactly as tall as its input, so
-              stretching the row gives the Add button the field's exact box
-              rather than relying on the two having equal natural heights. --%>
+              the two columns start at the same y. The button then has to match
+              the input's HEIGHT, which it does by construction rather than by
+              stretching: `.p-inputtext` is font-size 1rem + 0.5rem vertical
+              padding + 1px border, so `!py-2 !text-base` gives the button the
+              same three values and therefore the same box. (`.p-button-sm`
+              otherwise sets 0.875rem/0.4375rem, and its two-class selector
+              needs the `!` to lose.) Deliberately NOT `items-stretch`: that
+              equalises the two GRID ITEMS, but the input does not fill its
+              wrapper, so a taller button just stretched the wrapper around a
+              short input and looked oversized. --%>
         <.form
           :let={ef}
           for={@excluded_form}
           id="excluded-system-form"
           phx-submit="add-excluded"
           phx-target={@myself}
-          class="grid items-stretch gap-2"
+          class="grid items-start gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -835,7 +843,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             options={@system_options}
             placeholder="Search a system by name"
           />
-          <.button type="submit">Add</.button>
+          <.button type="submit" class="!py-2 !text-base">Add</.button>
         </.form>
 
         <p :if={@system_search_error} class="text-sm text-amber-400">{@system_search_error}</p>
@@ -878,7 +886,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           id="focus-corp-form"
           phx-submit="add-focus-corp"
           phx-target={@myself}
-          class="grid items-stretch gap-2"
+          class="grid items-start gap-2"
           style="grid-template-columns: minmax(0, 24rem) max-content"
         >
           <.live_select
@@ -893,7 +901,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             options={@corp_options}
             placeholder="Search a corporation by name"
           />
-          <.button type="submit">Add</.button>
+          <.button type="submit" class="!py-2 !text-base">Add</.button>
         </.form>
 
         <p :if={@corp_search_error} class="text-sm text-amber-400">{@corp_search_error}</p>
