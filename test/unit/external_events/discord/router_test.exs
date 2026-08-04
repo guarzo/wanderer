@@ -135,6 +135,47 @@ defmodule WandererApp.ExternalEvents.Discord.RouterTest do
     assert id == system_wh.id
   end
 
+  # `:unknown` means involvement could not be determined — the tracked-set
+  # cache was unavailable, or the payload carried no attacker data. Rules 1 and
+  # 2 must not fire on it: they are filters that only a positive "this kill is
+  # not ours" earns. If these two tests go to `:drop`, a Cachex outage silently
+  # swallows every k-space kill on every map with the default `wh_only`, and the
+  # only evidence is one log line.
+  test "an unknown verdict bypasses the excluded-system filter", %{
+    notification: n,
+    system_wh: system_wh
+  } do
+    {:ok, n} =
+      MapDiscordNotification.update(n, %{wh_only: false, excluded_systems: [@ks_system]})
+
+    assert {:ok, %{id: id}} = Router.route(kill(@ks_system), with_webhooks(n), :unknown)
+    assert id == system_wh.id
+  end
+
+  test "an unknown verdict bypasses the wormhole-only filter", %{
+    notification: n,
+    system_wh: system_wh
+  } do
+    {:ok, n} = MapDiscordNotification.update(n, %{wh_only: true})
+
+    assert {:ok, %{id: id}} = Router.route(kill(@ks_system), with_webhooks(n), :unknown)
+    assert id == system_wh.id
+  end
+
+  # It bypasses the filters, but it is NOT involvement. An undetermined kill
+  # must not reach the character channel, which is commonly public and is
+  # supposed to mean "these are ours".
+  test "an unknown verdict goes to the system webhook even when a character one exists", %{
+    notification: n,
+    system_wh: system_wh
+  } do
+    _character_wh = add_character_webhook(n)
+    {:ok, n} = MapDiscordNotification.update(n, %{wh_only: false})
+
+    assert {:ok, %{id: id}} = Router.route(kill(@ks_system), with_webhooks(n), :unknown)
+    assert id == system_wh.id
+  end
+
   # DROP, NOT REROUTE. Turning this into `{:ok, system_wh}` would post kills
   # involving the user's own pilots into a channel they did not choose.
   test "a disabled character webhook drops rather than rerouting", %{notification: n} do

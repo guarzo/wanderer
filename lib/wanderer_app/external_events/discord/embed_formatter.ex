@@ -11,7 +11,8 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   the payload, decides the colour and the author line.
   """
 
-  @type verdict :: {:involved, :victim} | {:involved, :attacker} | :not_involved
+  @type verdict ::
+          {:involved, :victim} | {:involved, :attacker} | :not_involved | :unknown
 
   @max_embeds_per_message 10
   @max_kills_per_event 30
@@ -168,17 +169,20 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   defp color({:involved, :victim}, _value), do: @color_loss
   defp color({:involved, :attacker}, _value), do: @color_kill
 
-  defp color(:not_involved, value) when is_number(value) do
+  # `:unknown` renders exactly like `:not_involved`. Both mean "we cannot label
+  # this a kill or a loss", and an `:unknown` embed is already in the system
+  # channel — colouring it as ours would be a claim the verdict does not support.
+  defp color(verdict, value) when verdict in [:not_involved, :unknown] and is_number(value) do
     Enum.find_value(@value_colors, @color_default, fn {threshold, color} ->
       if value >= threshold, do: color
     end)
   end
 
-  defp color(:not_involved, _value), do: @color_default
+  defp color(verdict, _value) when verdict in [:not_involved, :unknown], do: @color_default
 
-  # Omitted entirely when we are not involved: neither "Kill" nor "Loss" would
-  # be a true statement about a fight none of our pilots were in.
-  defp author(_kill, :not_involved), do: nil
+  # Omitted entirely when we are not involved, or could not tell: neither "Kill"
+  # nor "Loss" would be a true statement about the fight.
+  defp author(_kill, verdict) when verdict in [:not_involved, :unknown], do: nil
   defp author(kill, {:involved, :victim}), do: author_line("Loss", kill["victim_corp_id"])
   defp author(kill, {:involved, :attacker}), do: author_line("Kill", kill["final_blow_corp_id"])
 
