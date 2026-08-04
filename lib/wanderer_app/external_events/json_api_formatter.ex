@@ -136,49 +136,64 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
     }
   end
 
+  # Producer: map_server_signatures_impl.ex:148 and :159.
+  #
+  # The producer sends sig.eve_id - the in-game signature code, not the record
+  # UUID. api/map_system_signature.ex is uuid_primary_key with eve_id unique
+  # only as identity :uniq_system_eve_id, [:system_id, :eve_id], so the code
+  # neither resolves as a map_system_signatures id nor is globally unique.
+  # Identity is therefore the event ULID and the code is an attribute.
   defp format_resource_data(%Event{type: :signature_added, payload: payload} = event) do
     %{
-      "type" => "map_system_signatures",
-      "id" => payload["signature_id"] || payload[:signature_id],
+      "type" => "signature_events",
+      "id" => event.id,
       "attributes" => %{
-        "signature_id" => payload["signature_identifier"] || payload[:signature_identifier],
-        "signature_type" => payload["signature_type"] || payload[:signature_type],
-        "name" => payload["name"] || payload[:name],
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "signature_id" => fetch(payload, :signature_id),
+        "name" => fetch(payload, :name),
+        "kind" => fetch(payload, :kind),
+        "group" => fetch(payload, :group),
+        # The producer key is :type; renamed on the wire because JSON:API
+        # forbids an attribute named "type".
+        "signature_type" => fetch(payload, :type),
         "created_at" => event.timestamp
       },
-      "relationships" => %{
-        "system" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 
+  # Producer: map_server_signatures_impl.ex:159 and :245. Sends only
+  # solar_system_id and signature_id.
   defp format_resource_data(%Event{type: :signature_removed, payload: payload} = event) do
     %{
-      "type" => "map_system_signatures",
-      "id" => payload["signature_id"] || payload[:signature_id],
+      "type" => "signature_events",
+      "id" => event.id,
+      "attributes" => %{
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "signature_id" => fetch(payload, :signature_id)
+      },
       "meta" => %{
         "deleted" => true,
         "deleted_at" => event.timestamp
       },
-      "relationships" => %{
-        "system" => %{
-          "data" => %{
-            "type" => "map_systems",
-            "id" => payload["system_id"] || payload[:system_id]
-          }
-        },
-        "map" => %{
-          "data" => %{"type" => "maps", "id" => event.map_id}
-        }
-      }
+      "relationships" => %{"map" => map_relationship(event)}
+    }
+  end
+
+  # Producer: map_server_signatures_impl.ex:166 and :250. A summary event that
+  # names no single signature, so the event ULID is the identity.
+  defp format_resource_data(%Event{type: :signatures_updated, payload: payload} = event) do
+    %{
+      "type" => "signature_updates",
+      "id" => event.id,
+      "attributes" => %{
+        "solar_system_id" => fetch(payload, :solar_system_id),
+        "added_count" => fetch(payload, :added_count),
+        "updated_count" => fetch(payload, :updated_count),
+        "removed_count" => fetch(payload, :removed_count),
+        "updated_at" => event.timestamp
+      },
+      "relationships" => %{"map" => map_relationship(event)}
     }
   end
 

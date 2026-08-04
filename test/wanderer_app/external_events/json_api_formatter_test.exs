@@ -126,4 +126,60 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatterTest do
       assert d["attributes"]["locked"] == false
     end
   end
+
+  describe "signature events" do
+    # Fixture: map_server_signatures_impl.ex:148
+    test "signature_added uses the event ULID as identity, not the EVE sig code" do
+      d =
+        data(:signature_added, %{
+          solar_system_id: 31_000_199,
+          signature_id: "ABC-123",
+          name: "Unstable Wormhole",
+          kind: "cosmic_signature",
+          group: "wormhole",
+          type: "K162"
+        })
+
+      assert d["type"] == "signature_events"
+      assert d["id"] == "01JQXYZ0000000000000000000"
+      assert d["attributes"]["signature_id"] == "ABC-123"
+      assert d["attributes"]["solar_system_id"] == 31_000_199
+      assert d["attributes"]["kind"] == "cosmic_signature"
+      assert d["attributes"]["group"] == "wormhole"
+      # Producer key :type, renamed because JSON:API reserves "type".
+      assert d["attributes"]["signature_type"] == "K162"
+      refute Map.has_key?(d["attributes"], "type")
+      refute Map.has_key?(d["attributes"], "id")
+      # No relationship may point at a map_system_signatures record we cannot name.
+      refute Map.has_key?(d["relationships"], "signature")
+    end
+
+    # Fixture: map_server_signatures_impl.ex:159 - only two keys are sent
+    test "signature_removed marks deletion with the sparse producer payload" do
+      d = data(:signature_removed, %{solar_system_id: 31_000_199, signature_id: "ABC-123"})
+
+      assert d["type"] == "signature_events"
+      assert d["id"] == "01JQXYZ0000000000000000000"
+      assert d["attributes"]["signature_id"] == "ABC-123"
+      assert d["meta"]["deleted"] == true
+    end
+
+    # Fixture: map_server_signatures_impl.ex:166 and :250 (same shape)
+    test "signatures_updated summarises counts instead of hitting the catch-all" do
+      d =
+        data(:signatures_updated, %{
+          solar_system_id: 31_000_199,
+          added_count: 2,
+          updated_count: 1,
+          removed_count: 0
+        })
+
+      assert d["type"] == "signature_updates"
+      assert d["id"] == "01JQXYZ0000000000000000000"
+      assert d["attributes"]["added_count"] == 2
+      assert d["attributes"]["updated_count"] == 1
+      assert d["attributes"]["removed_count"] == 0
+      assert d["attributes"]["solar_system_id"] == 31_000_199
+    end
+  end
 end
