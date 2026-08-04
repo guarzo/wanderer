@@ -71,7 +71,8 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
-    # Custom destroy, following map_discord_notification.ex:59-64. The default
+    # Custom destroy, following the destroy action on
+    # `WandererApp.Api.MapDiscordNotification`. The default
     # destroy would leave a stale cache entry AND leave this destination's
     # delivery worker draining its queue into a webhook the user just removed.
     destroy :destroy do

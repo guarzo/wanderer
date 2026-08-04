@@ -46,11 +46,12 @@ defmodule WandererApp.ExternalEvents.DiscordKillmailAgeTest do
       assert Env.discord_max_killmail_age_seconds() == 120
     end
 
-    # `0` would otherwise silently drop every killmail (age is always >= 0),
-    # and a negative value would silently disable the guard entirely (every
-    # age becomes "in the past" of a negative cutoff). Both are treated the
-    # same way — a misconfiguration, not a valid setting — falling back to the
-    # default with a loud warning rather than being honoured either way.
+    # `0` would otherwise silently drop every killmail (a kill that has already
+    # happened always has a non-negative age, and the guard keeps a kill only
+    # when `age <= max`), and a negative value is stricter still — it would keep
+    # only kills timestamped in the future. Both fail in the same direction, so
+    # both are treated the same way — a misconfiguration, not a valid setting —
+    # falling back to the default with a loud warning rather than being honoured.
     test "falls back to the default and warns when configured as zero" do
       put_max_age(0)
 
