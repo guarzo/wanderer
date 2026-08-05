@@ -2,9 +2,9 @@ name: 🧪 Test Suite
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [guarzo/zoo, main, develop]
   push:
-    branches: [main, develop]
+    branches: [guarzo/zoo, main, develop]
 
 # This workflow executes fork-authored code (mix deps.get / compile / test), so
 # it holds no write scopes. The test-results comment is posted by the privileged
