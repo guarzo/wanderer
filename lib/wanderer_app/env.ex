@@ -33,6 +33,7 @@ defmodule WandererApp.Env do
   def character_tracking_pause_disabled?(), do: get_key(:character_tracking_pause_disabled, true)
   def character_api_disabled?(), do: get_key(:character_api_disabled, false)
   def wanderer_kills_service_enabled?(), do: get_key(:wanderer_kills_service_enabled, false)
+  def wanderer_kills_ipv6?(), do: get_key(:wanderer_kills_ipv6, false)
   def wallet_tracking_enabled?(), do: get_key(:wallet_tracking_enabled, false)
   def admins(), do: get_key(:admins, [])
   def admin_username(), do: get_key(:admin_username)

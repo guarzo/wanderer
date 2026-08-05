@@ -73,6 +73,14 @@ wanderer_kills_base_url =
   config_dir
   |> get_var_from_path_or_env("WANDERER_KILLS_BASE_URL", "ws://wanderer-kills:4004")
 
+# Some private networks resolve service hostnames to AAAA records only, and
+# gen_tcp resolves hostnames as IPv4 by default. Mirrors the ECTO_IPV6
+# precedent below.
+wanderer_kills_ipv6 =
+  config_dir
+  |> get_var_from_path_or_env("WANDERER_KILLS_IPV6", "false")
+  |> String.to_existing_atom()
+
 map_subscriptions_enabled =
   config_dir
   |> get_var_from_path_or_env("WANDERER_MAP_SUBSCRIPTIONS_ENABLED", "false")
@@ -180,6 +188,7 @@ config :wanderer_app,
   character_api_disabled: character_api_disabled,
   wanderer_kills_service_enabled: wanderer_kills_service_enabled,
   wanderer_kills_base_url: wanderer_kills_base_url,
+  wanderer_kills_ipv6: wanderer_kills_ipv6,
   map_subscriptions_enabled: map_subscriptions_enabled,
   map_connection_auto_expire_hours: map_connection_auto_expire_hours,
   map_connection_auto_eol_hours: map_connection_auto_eol_hours,

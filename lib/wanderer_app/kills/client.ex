@@ -421,23 +421,24 @@ defmodule WandererApp.Kills.Client do
       disconnected: false
     }
 
-    # GenSocketClient expects transport_opts to be wrapped in a specific format
-    opts = [
-      transport_opts: [
-        # 10 second connection timeout
-        timeout: 10_000,
-        tcp_opts: [
-          # TCP connection timeout
-          connect_timeout: 10_000,
-          send_timeout: 5_000,
-          recv_timeout: 5_000
-        ]
-      ]
-    ]
+    # GenSocketClient passes :transport_opts verbatim to the transport's
+    # start_link/2 (gen_socket_client.ex:247, :385).
+    #
+    # :socket_opts reaches the socket only via
+    # WandererApp.Kills.Transport.WebSocketClient — upstream's transport filters
+    # it out.
+    #
+    # The connect/send/recv timeouts that used to sit here were removed: they
+    # never applied. Upstream's handler init/1 reads only :keepalive, and
+    # websocket_client 1.5.0 hardcodes its connect timeout to 6000ms
+    # (websocket_client.erl:275). They were adjustable-looking and inert.
+    socket_opts = if WandererApp.Env.wanderer_kills_ipv6?(), do: [:inet6], else: []
+
+    opts = [transport_opts: [socket_opts: socket_opts]]
 
     case GenSocketClient.start_link(
            __MODULE__.Handler,
-           Phoenix.Channels.GenSocketClient.Transport.WebSocketClient,
+           WandererApp.Kills.Transport.WebSocketClient,
            handler_state,
            opts
          ) do
