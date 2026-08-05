@@ -250,18 +250,22 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
     Enum.reverse(kept)
   end
 
+  # Matches the full `NotableItems.item()` shape rather than reading `:value`
+  # and `:abyssal?` defensively: every key is required by that type, so an item
+  # missing one is malformed and is dropped rather than rendered half-formed.
+  #
   # Abyssal modules carry no price: their market values are unreliable enough
   # that quoting one would be worse than saying nothing, matching
   # wanderer-notifier.
-  defp item_line(%{name: name, quantity: quantity} = item)
+  defp item_line(%{name: name, quantity: quantity, value: value, abyssal?: abyssal?})
        when is_binary(name) and is_integer(quantity) and quantity > 0 do
     count = if quantity > 1, do: " x#{quantity}", else: ""
 
     price =
-      if Map.get(item, :abyssal?) do
+      if abyssal? do
         ""
       else
-        case format_isk(Map.get(item, :value)) do
+        case format_isk(value) do
           nil -> ""
           isk -> " (~#{isk})"
         end
