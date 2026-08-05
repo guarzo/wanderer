@@ -191,6 +191,34 @@ defmodule WandererApp.ExternalEvents.Discord.NotableItemsTest do
       # One batched pricing request covers both kills.
       assert length(HttpStub.requests()) == 1
     end
+
+    # The kills are fetched concurrently, so an exception in one runs in its own
+    # stream child. Without the per-kill rescue that child would take the whole
+    # stream down and the healthy kills would be lost with it.
+    test "one kill raising does not cost the others their section" do
+      stub(WandererApp.Esi.Mock, :get_killmail, fn
+        1, _hash -> raise "boom"
+        2, _hash -> {:ok, killmail([dropped(1319, 1)])}
+      end)
+
+      prices([{1319, 100_000_000}])
+      stub_names(%{1319 => "Damage Control II"})
+
+      assert %{2 => [%{name: "Damage Control II"}]} =
+               NotableItems.enrich([kill(1), kill(2)])
+    end
+
+    test "enriches a full batch of kills" do
+      killmails = Map.new(1..30, fn id -> {id, killmail([dropped(1319, 1)])} end)
+      stub_killmail(killmails)
+      prices([{1319, 100_000_000}])
+      stub_names(%{1319 => "Damage Control II"})
+
+      result = NotableItems.enrich(Enum.map(1..30, &kill/1))
+
+      assert map_size(result) == 30
+      assert length(HttpStub.requests()) == 1
+    end
   end
 
   describe "fail-open" do

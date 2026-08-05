@@ -665,6 +665,18 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
       refute description =~ "• Real"
     end
 
+    # `NotableItems.item()` declares all four keys, so an item missing one did
+    # not come from the enricher and cannot be trusted to render.
+    test "an item missing a key the type requires is skipped" do
+      for missing <- [:name, :quantity, :value, :abyssal?] do
+        malformed = item("Partial") |> Map.delete(missing)
+        description = describe_kill(with_items([malformed, item("Good")]))["description"]
+
+        assert description =~ "• Good", "expected the well-formed item with #{missing} missing"
+        refute description =~ "• Partial"
+      end
+    end
+
     # -- budgeting ------------------------------------------------------------
 
     # Builds a killmail whose base description (before any section) is exactly
