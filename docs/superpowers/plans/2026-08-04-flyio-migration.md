@@ -1069,35 +1069,74 @@ Either way, create the staging EVE application now. Record both credential pairs
 
 ---
 
-## Task 7: Checkpoint — choose Option A or Option B
+## Task 7: RESOLVED — Option A, deploying from the fork
 
-**Decision gate. No code.** Everything downstream forks here.
+**Decision gate, closed on 2026-08-05. No code.** This task no longer requires
+a check; it records a decision already made.
 
-- [ ] **Step 1: Check the state of the upstream pull request from Task 5**
+**Original gate:** whether Task 5's `BIND_IP` change had merged upstream in time
+for the cutover window. If not, Option B (Flycast) avoided needing `BIND_IP` at
+all.
 
-```bash
-gh pr view --repo wanderer-industries/wanderer-kills <PR_NUMBER>
-```
+**What changed:** the kills app is deployed by building from a source checkout —
+Task 8A's `fly.toml` has an empty `[build]` section and deploys with
+`fly deploy --config .../fly.toml`, so Fly builds the Dockerfile from the working
+tree. Nothing pulls a published upstream image. The upstream merge was therefore
+never on the critical path for *deploying*; it only determined whether we carry a
+local patch.
 
-- [ ] **Step 2: Decide**
+`guarzo/wanderer-kills` was already ahead of upstream (it carries the
+Elixir 1.19.5 / OTP 28 dependency refresh, merged there as #6 and still pending
+upstream as #8), so a fork-based deploy adds no new maintenance posture.
+`feat/configurable-bind-address` was merged into that fork's `main` as `5756469`
+— a clean merge, verified conflict-free with `git merge-tree` beforehand.
 
-- **Merged and released**, with enough margin before the cutover window to build and deploy from it → **Option A**. Proceed to Task 8A. Skip 8B.
-- **Not merged, or merged too close to the window to be comfortable** → **Option B**. Proceed to Task 8B. Skip 8A. Task 5's pull request stays open and Option A becomes a later simplification, not a blocker.
+A third divergence landed on 2026-08-05: a fix for a nil telemetry measurement
+that crash-loops the metrics GenServer and, past the supervisor's restart
+intensity, shuts down the whole application tree. It is on the fork as PR #8 and
+upstream as
+[wanderer-industries/wanderer-kills#10](https://github.com/wanderer-industries/wanderer-kills/pull/10).
+This one is a deploy prerequisite, not just hygiene — the crash is reachable in
+production from any sustained burst of reserved-token consumption against
+zKillboard, which is exactly what a cold-start backfill produces.
 
-- [ ] **Step 3: Record the choice**
+**Ruling: Option A. Deploy the kills app from `guarzo/wanderer-kills:main`.**
+Task 8B is struck (see below). Upstream PR
+[wanderer-industries/wanderer-kills#9](https://github.com/wanderer-industries/wanderer-kills/pull/9)
+stays open; when it merges, this fork's divergence drops back toward zero and the
+merge commit becomes a no-op. Nothing about the cutover date depends on it.
 
-Note it in the pull request from Task 4 and in the cutover runbook. Task 6 step 6 already set `WANDERER_KILLS_BASE_URL`; under Option B it must be re-set to the `.flycast` address. Getting this wrong produces exactly the silent failure described in the risks — the client retries ten times and then quietly falls back to a 15-minute health-check cycle.
+**Consequence to carry into Task 9:** the deploy source is the fork, not a
+clone of upstream. Clone `https://github.com/guarzo/wanderer-kills.git` and
+deploy from its `main`. Merging upstream's changes into that fork periodically is
+now an ongoing obligation — the service ingests from zKillboard and ESI, so
+upstream data-source fixes matter.
+
+**Verification debt:** the `BIND_IP` IPv6-bind evidence was gathered on
+ranch 2.2.0 / cowboy 2.13.0 / plug_cowboy 2.7.4 / phoenix 1.7.21. The fork's
+refresh moves these to ranch 2.2.1 / cowboy 2.18.0 / plug_cowboy 2.9.0 /
+phoenix 1.8.9. See `.superpowers/sdd/2026-08-04-flyio-migration/fork-verify-report.md`
+for the re-verification on the merged tree, and note what it does and does not
+cover — the CI container runs OTP 26 while the image builds on OTP 28.
 
 ---
 
 ## Task 8A: `fly.toml` for wanderer-kills — direct 6PN (Option A only)
 
-Skip this task entirely if Task 7 chose Option B.
+Task 7 chose Option A, so this task runs. Task 8B is struck.
 
-The file is upstreamed rather than kept in a fork, so it must be **operator-agnostic**: no hard-coded app name. `app` is supplied at deploy time.
+**Deploy source is the fork, not upstream.** Clone
+`https://github.com/guarzo/wanderer-kills.git` and work from its `main`, which
+carries `BIND_IP` as merge `5756469`.
+
+Keep the file **operator-agnostic** anyway: no hard-coded app name, `app` supplied
+at deploy time. The fork is a staging post, not the destination — this file should
+stay upstreamable so it can go to `wanderer-industries` alongside PR #9 rather
+than becoming fork-only drift.
 
 **Files:**
-- Create: `fly.toml` in the `/tmp/wanderer-kills` clone
+- Create: `fly.toml` in the fork clone (paths below say `/tmp/wanderer-kills`;
+  that clone is now on the fork's `main`)
 
 **Interfaces:**
 - Consumes: `BIND_IP` from Task 5.
@@ -1197,120 +1236,30 @@ If you deployed from this clone before committing, confirm you are not also push
 
 ---
 
-## Task 8B: `fly.toml` for wanderer-kills — Flycast (Option B only)
+## Task 8B: STRUCK — Flycast fallback (not needed)
 
-Skip this task entirely if Task 7 chose Option A.
+**Struck 2026-08-05. Do not execute.** This task existed only so the cutover
+date would survive Task 5's `BIND_IP` change not landing upstream: Flycast routes
+through the Fly proxy, which forwards to `internal_port` locally, so the
+service's existing `{0, 0, 0, 0}` bind would have kept working without any
+upstream change.
 
-Flycast reaches the service through the Fly proxy rather than addressing the machine directly. The proxy terminates the connection and forwards to `internal_port` locally, so the existing `{0, 0, 0, 0}` bind keeps working and **no upstream change is needed**. Costs: an extra proxy hop, and a `[[services]]` block that Option A would not need.
+Task 7 resolved to **Option A** — the kills app deploys from
+`guarzo/wanderer-kills:main`, which carries `BIND_IP` as merge `5756469`. The
+contingency this task hedged against cannot occur, so building it would be dead
+work: an extra proxy hop and a `[[services]]` block that Option A does not need.
 
-The client-side `:inet6` change from Task 2 is **still required** — the Flycast address is IPv6 too.
-
-**Files:**
-- Create: `fly.toml` in the `/tmp/wanderer-kills` clone
-
-**Interfaces:**
-- Consumes: nothing from Task 5.
-- Produces: an app reachable at `<KILLS_APP_NAME>.flycast:4004`.
-
-- [ ] **Step 1: Allocate a private IPv6 address**
-
-```bash
-fly ips allocate-v6 --private --app <KILLS_APP_NAME>
-fly ips list --app <KILLS_APP_NAME>
-```
-Expected: exactly one address, of type `private_v6`. No public address.
-
-- [ ] **Step 2: Create the file**
-
-```toml
-# fly.toml — wanderer-kills
-#
-# Deploy with:  fly deploy --app <your-app-name>
-# The app name is deliberately not set here: this file is shared upstream.
-#
-# EXACTLY ONE MACHINE. The service's cache is node-local Cachex, so two machines
-# would serve different answers depending on which one a subscription landed on.
-# auto_stop_machines must stay off because a stopped machine drops the websocket
-# its consumers hold open.
-#
-# Reached over Flycast at <app>.flycast:4004, through the Fly proxy. The proxy
-# forwards to internal_port locally, so the default 0.0.0.0 bind is fine. There
-# is a private IPv6 address (fly ips allocate-v6 --private) and NO public one.
-
-primary_region = 'iad'
-kill_signal = 'SIGTERM'
-
-[build]
-
-[env]
-  PORT = '4004'
-
-[[services]]
-  internal_port = 4004
-  protocol = 'tcp'
-  auto_stop_machines = 'off'
-  auto_start_machines = false
-  min_machines_running = 1
-
-  [[services.ports]]
-    port = 4004
-
-  [[services.tcp_checks]]
-    interval = '15s'
-    timeout = '5s'
-    grace_period = '30s'
-
-  [[services.http_checks]]
-    interval = '15s'
-    timeout = '5s'
-    grace_period = '30s'
-    method = 'get'
-    path = '/health'
-    protocol = 'http'
-
-[[vm]]
-  size = 'shared-cpu-2x'
-  memory = '2gb'          # starting figure — see Task 6 step 3
-```
-
-- [ ] **Step 3: Verify the TOML against current Fly documentation**
-
-Run: `fly config validate --config /tmp/wanderer-kills/fly.toml --app <KILLS_APP_NAME>`
-Expected: `Configuration is valid`.
-
-Confirm the `[[services.http_checks]]` key names against current Fly documentation rather than trusting this plan. **Critically, confirm that a `[[services]]` block plus a private-only IP does not expose the service publicly** — that is the whole risk of Option B. Re-run `fly ips list` after deploying and confirm no public address appeared.
-
-- [ ] **Step 4: Deploy and verify**
+The original steps remain in git history if Option B is ever revived (for
+example, if the fork is abandoned in favour of an unpatched upstream image before
+PR #9 merges). Retrieve them with:
 
 ```bash
-fly deploy --config /tmp/wanderer-kills/fly.toml --app <KILLS_APP_NAME>
-fly ips list --app <KILLS_APP_NAME>       # expected: private_v6 only, no public
-fly status --app <KILLS_APP_NAME>         # expected: exactly one machine, started
+git log --oneline -- docs/superpowers/plans/2026-08-04-flyio-migration.md
+git show <commit-before-this-one>:docs/superpowers/plans/2026-08-04-flyio-migration.md
 ```
 
-- [ ] **Step 5: Confirm Flycast reachability from the wanderer app**
-
-```bash
-fly ssh console --app <WANDERER_APP_NAME> -C \
-  "curl -sS -m 5 http://<KILLS_APP_NAME>.flycast:4004/health"
-```
-Expected: a healthy response body.
-
-- [ ] **Step 6: Update the base URL secret**
-
-Task 6 step 6 set the `.internal` address. Correct it:
-
-```bash
-fly secrets set --app <WANDERER_APP_NAME> \
-  WANDERER_KILLS_BASE_URL=ws://<KILLS_APP_NAME>.flycast:4004
-```
-
-- [ ] **Step 7: Commit the file**
-
-Keep it local to the operator, or offer it upstream alongside Task 5's pull request as a documented alternative. Under Option B the upstream change is not required for this deployment, so there is no urgency.
-
----
-
+Note if you do revive it: the client-side `:inet6` change from Task 2 is required
+under **both** options — the Flycast address is IPv6 too.
 ## Task 9: Deploy and warm the kills app (Phase 1, first half)
 
 **Operator runbook, not TDD.**
@@ -1381,6 +1330,29 @@ Run this against the **MPG copy**, never against the VM database. Confirm the co
 This is the one place the plan deliberately does not validate production behaviour faithfully. The tradeoff is accepted: a staging instance that mails real users is worse than one that proves slightly less.
 
 - [ ] **Step 3: Deploy wanderer and point the staging subdomain at Fly**
+
+**Pre-flight — read before the first `fly deploy` of wanderer.** This is the
+first time `release_command` runs, and two independent failure modes live in
+that window. Both were found by review, not by deploying.
+
+*a. Secrets must exist before the first deploy, or the release step fails.*
+`release_command = '/app/bin/migrate.sh'` runs in a separate temporary Machine.
+`migrate.sh` calls `bin/wanderer_app eval`, which evaluates `config/runtime.exs`,
+which raises without `SECRET_KEY_BASE` (`config/runtime.exs:409-414`). So
+`SECRET_KEY_BASE` and `DATABASE_URL` must already be set with `fly secrets set`
+before this command, not after. `release_command` also has a **default 5-minute
+timeout** — if the migration set is large, raise it explicitly rather than
+discovering the cap mid-deploy.
+
+*b. If the app machine crashloops while migrations succeeded, suspect the release
+script, not the app.* `release_command` runs `eval`, which passes **no**
+distribution flags; the app machine starts with `--name`. On Fly,
+`rel/env.sh.eex` builds `RELEASE_NODE` from the IPv6 `FLY_PRIVATE_IP`, so it
+needs `-proto_dist inet6_tcp`. That flag was commented out in `ee15d90f9` and
+restored (inside the Fly branch only) on this branch. If someone re-removes it,
+the deploy gets **past** the release step and then crashloops at the health
+check — migrations green, app dead. Do not debug the migration; check
+`rel/env.sh.eex` first.
 
 ```bash
 fly deploy --app <WANDERER_APP_NAME>

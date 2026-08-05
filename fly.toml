@@ -41,7 +41,7 @@ swap_size_mb = 512
   # always arrive over https, and if the secret's scheme is http, every
   # LiveView websocket upgrade fails check_origin while /health still reports
   # 200, so there is no automated signal that it's wrong.
-  # TLS terminates at Fly's proxy, so this must stay 'http'. Setting it to
+  # TLS terminates at Fly's proxy, so WEB_EXTERNAL_SCHEME must stay 'http'. Setting it to
   # 'https' rebinds the endpoint to HTTP_PORT (default 80, so nothing listens
   # on internal_port), turns on force_ssl which 301s the plain-HTTP health
   # check forever, and points at /certs files that don't exist in this image

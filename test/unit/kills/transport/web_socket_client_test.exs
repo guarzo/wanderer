@@ -60,7 +60,7 @@ defmodule WandererApp.Kills.Transport.WebSocketClientTest do
     # and assert on the exact argument positions upstream reads
     # (websocket_client.erl:195-196 for socket_opts, web_socket_client.ex:48
     # for the handler-state shape). This test fails if the ws_opts/rest
-    # arguments at web_socket_client.ex:33-37 are swapped.
+    # arguments in web_socket_client.ex's start_link/2 are swapped.
     test "forwards :socket_opts to :websocket_client and keeps the rest as handler state" do
       test_pid = self()
 
