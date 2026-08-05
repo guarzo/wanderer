@@ -92,11 +92,21 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
 
       - uses: actions/cache/restore@v4
+        id: deps-cache
         with:
           path: |
             deps
             _build
           key: mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
+
+      # setup seeds this cache, but a restore can still miss (eviction, a failed
+      # save, a concurrent lockfile change). Without this the job dies on a
+      # confusing "module is not available" instead of just rebuilding.
+      - name: Install dependencies (cache miss)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          mix deps.get
+          mix deps.compile
 
       - name: Compile
         run: mix compile
@@ -128,29 +138,45 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
 
       - uses: actions/cache/restore@v4
+        id: deps-cache
         with:
           path: |
             deps
             _build
           key: mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
 
+      # setup seeds this cache, but a restore can still miss (eviction, a failed
+      # save, a concurrent lockfile change). Without this the job dies on a
+      # confusing "module is not available" instead of just rebuilding.
+      - name: Install dependencies (cache miss)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          mix deps.get
+          mix deps.compile
+
       # Gating: unformatted code fails the build.
       - name: Check formatting
         run: mix format --check-formatted
 
-      # Advisory: reported in the PR comment, does not gate.
+      # Advisory on warnings, but a genuine compile error still fails the job.
       - name: Compile and count warnings
         id: compile
         run: |
-          mix compile --force 2>&1 | tee compile_output.txt || true
+          set +e
+          set -o pipefail
+          mix compile --force 2>&1 | tee compile_output.txt
+          status=$?
           warnings=$(grep -c "warning:" compile_output.txt || true)
           echo "warnings=${warnings:-0}" >> "$GITHUB_OUTPUT"
+          exit $status
 
       - name: Run Credo
         id: credo
         continue-on-error: true
         run: |
-          mix credo --strict --format=json > credo_output.json 2>&1 || true
+          # stderr goes to its own file: merging it into the JSON breaks the
+          # parse below and silently reports "unknown".
+          mix credo --strict --format=json > credo_output.json 2> credo_stderr.txt || true
           if jq -e . credo_output.json > /dev/null 2>&1; then
             issues=$(jq '.issues | length' credo_output.json)
           else
@@ -166,6 +192,7 @@ jobs:
           path: |
             compile_output.txt
             credo_output.json
+            credo_stderr.txt
           retention-days: 7
           if-no-files-found: ignore
 
@@ -188,16 +215,30 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
 
       - uses: actions/cache/restore@v4
+        id: deps-cache
         with:
           path: |
             deps
             _build
           key: mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
 
+      # setup seeds this cache, but a restore can still miss (eviction, a failed
+      # save, a concurrent lockfile change). Without this the job dies on a
+      # confusing "module is not available" instead of just rebuilding.
+      - name: Install dependencies (cache miss)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          mix deps.get
+          mix deps.compile
+
+      # restore-keys lets a mix.lock change reuse the previous PLT and update it
+      # incrementally, instead of paying the ~6m full rebuild on every bump.
       - uses: actions/cache@v4
         with:
           path: priv/plts
           key: plt-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            plt-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-
 
       - name: Build PLT
         run: |
@@ -208,8 +249,10 @@ jobs:
         id: dialyzer
         continue-on-error: true
         run: |
+          # --format=github emits GitHub annotations ("::warning file=..."),
+          # never the literal "warning:", so anchor the count to that.
           mix dialyzer --format=github 2>&1 | tee dialyzer_output.txt || true
-          warnings=$(grep -c "warning:" dialyzer_output.txt || true)
+          warnings=$(grep -c "^::warning" dialyzer_output.txt || true)
           echo "warnings=${warnings:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Upload Dialyzer output
@@ -253,11 +296,21 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
 
       - uses: actions/cache/restore@v4
+        id: deps-cache
         with:
           path: |
             deps
             _build
           key: mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
+
+      # setup seeds this cache, but a restore can still miss (eviction, a failed
+      # save, a concurrent lockfile change). Without this the job dies on a
+      # confusing "module is not available" instead of just rebuilding.
+      - name: Install dependencies (cache miss)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          mix deps.get
+          mix deps.compile
 
       - name: Setup database
         run: |
@@ -302,8 +355,12 @@ jobs:
     if: always() && github.event_name == 'pull_request'
 
     steps:
+      # Fork PRs get a read-only GITHUB_TOKEN, so commenting 403s there. This
+      # job is purely informational and never gates a merge, so degrade quietly
+      # rather than painting the run red.
       - name: Find existing comment
         id: find_comment
+        continue-on-error: true
         uses: peter-evans/find-comment@v3
         with:
           issue-number: ${{ github.event.pull_request.number }}
@@ -311,6 +368,7 @@ jobs:
           body-includes: '## 🧪 Test Results Summary'
 
       - name: Create or update comment
+        continue-on-error: true
         uses: peter-evans/create-or-update-comment@v4
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}
