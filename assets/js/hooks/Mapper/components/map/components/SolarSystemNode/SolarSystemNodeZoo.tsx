@@ -116,10 +116,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           )}
 
           {unsplashedCount > 0 && (
-            <div
-              className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)}
-              style={{ display: 'flex', transform: 'rotate(-90deg)' }}
-            >
+            <div className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)} style={{ display: 'flex' }}>
               <GiConcentrationOrb
                 size={8}
                 color="#38bdf8"
