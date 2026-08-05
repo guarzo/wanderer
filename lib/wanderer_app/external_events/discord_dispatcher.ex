@@ -50,7 +50,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   alias WandererApp.Api.{MapDiscordNotification, MapDiscordWebhook}
   alias WandererApp.Env
-  alias WandererApp.ExternalEvents.Discord.{EmbedFormatter, Matcher, Router, SystemName}
+
+  alias WandererApp.ExternalEvents.Discord.{
+    EmbedFormatter,
+    Matcher,
+    NotableItems,
+    Router,
+    SystemName
+  }
+
   alias WandererApp.ExternalEvents.Discord.WorkerSupervisor
 
   @cache :discord_notification_cache
@@ -58,6 +66,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # Comfortably longer than any plausible upstream replay window, matching the
   # 24h TTLs already used for kill caches.
   @dedup_ttl :timer.hours(24)
+
+  # Notable-items enrichment failure cooldown. The counter lives in the shared
+  # api cache and carries the cooldown as its TTL, so it both counts and expires.
+  # Threshold and window are deliberate guesses: telemetry on
+  # `[:wanderer_app, :discord, :notable_items]` is what will tune them.
+  @notable_items_cache :api_cache
+  @notable_items_failure_key "discord-notable-items-failures"
+  @notable_items_failure_threshold 3
+  @notable_items_cooldown_ms :timer.seconds(60)
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -224,6 +241,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
       # per-kill carve-outs for kills involving this map's own pilots.
       fresh
       |> partition(map_id, notification)
+      |> enrich_notable_items()
       |> Enum.each(fn {webhook, entries} ->
         deliver_partition(map_id, system_id, webhook, entries)
       end)
@@ -257,6 +275,187 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     end)
     # Reduce prepends; restore the batch's original order per destination.
     |> Map.new(fn {webhook, entries} -> {webhook, Enum.reverse(entries)} end)
+  end
+
+  # -- notable items ---------------------------------------------------------
+  #
+  # Enrichment happens HERE — after routing and after the per-destination cap —
+  # for two reasons. Enriching before `partition/3` spends ESI and market calls
+  # on kills the router then drops. Enriching a whole partition spends the
+  # budget on kills past `max_kills_per_event/0`, which are never rendered, and
+  # starves the ones that are.
+  #
+  # It runs inline, so it BLOCKS THE SINGLETON DISPATCHER for up to
+  # `Env.notable_items_timeout_ms/0`. That budget is load-bearing: every map's
+  # kill batches funnel through this one process. Do not remove or raise it
+  # without revisiting the decision — an unbounded enrichment here stalls kill
+  # notifications instance-wide.
+  #
+  # The budget bounds ONE batch, not the mailbox. During a sustained ESI or
+  # market outage every batch would pay it in full and the dispatcher would fall
+  # arbitrarily far behind, so the failure cooldown below is part of the feature
+  # rather than a follow-up: after @notable_items_failure_threshold consecutive
+  # failures, enrichment is skipped outright for the cooldown window.
+  defp enrich_notable_items(partitions) do
+    cond do
+      not Env.notable_items_enabled?() ->
+        emit_notable_items(0, 0, 0, :disabled)
+        partitions
+
+      notable_items_cooldown_active?() ->
+        emit_notable_items(0, 0, 0, :skipped_cooldown)
+        partitions
+
+      true ->
+        run_enrichment(partitions, notable_items_candidates(partitions))
+    end
+  end
+
+  defp run_enrichment(partitions, []) do
+    emit_notable_items(0, 0, 0, :ok)
+    partitions
+  end
+
+  defp run_enrichment(partitions, candidates) do
+    started = System.monotonic_time()
+
+    case start_enrichment(candidates) do
+      nil ->
+        # No task supervisor: nothing was attempted, so this is not a failure to
+        # count against the cooldown. Distinct from `:timeout` so the telemetry
+        # does not read as a slow enricher when it is a missing supervisor.
+        emit_notable_items(0, length(candidates), 0, :unavailable)
+        partitions
+
+      task ->
+        # The documented `yield || shutdown` idiom. `Task.yield/2` returns
+        # `{:exit, reason}` INLINE when the task crashes, so all three outcomes
+        # are handled here and none of them reaches `handle_info/2`.
+        result =
+          Task.yield(task, Env.notable_items_timeout_ms()) ||
+            Task.shutdown(task, :brutal_kill)
+
+        handle_enrichment(partitions, candidates, result, System.monotonic_time() - started)
+    end
+  end
+
+  defp handle_enrichment(partitions, candidates, result, duration) do
+    case result do
+      {:ok, by_kill} when is_map(by_kill) ->
+        reset_notable_items_failures()
+        emit_notable_items(duration, length(candidates), item_count(by_kill), :ok)
+        merge_notable_items(partitions, by_kill)
+
+      {:ok, _unexpected} ->
+        reset_notable_items_failures()
+        emit_notable_items(duration, length(candidates), 0, :ok)
+        partitions
+
+      {:exit, reason} ->
+        note_notable_items_failure("enricher crashed: #{inspect(reason)}")
+        emit_notable_items(duration, length(candidates), 0, :crash)
+        partitions
+
+      _ ->
+        note_notable_items_failure("enricher timed out")
+        emit_notable_items(duration, length(candidates), 0, :timeout)
+        partitions
+    end
+  end
+
+  # `async_nolink`, never `Task.async`: a linked task would take this singleton
+  # down with it on an enrichment exception — the exact opposite of fail-open.
+  # `Discord.TaskSupervisor` is started by `WorkerSupervisor`, which only runs
+  # when webhooks are globally enabled; `do_dispatch/2` gates on that before
+  # reaching here, so this is safe. Do not move enrichment above that gate.
+  defp start_enrichment(candidates) do
+    enricher = NotableItems.impl()
+
+    Task.Supervisor.async_nolink(
+      WandererApp.ExternalEvents.Discord.TaskSupervisor,
+      fn -> enricher.enrich(candidates) end
+    )
+  rescue
+    # The supervisor is not up. Fail open like every other enrichment failure.
+    _ -> nil
+  catch
+    :exit, _ -> nil
+  end
+
+  # Only the kills that will actually be rendered, deduplicated. `Router.route/3`
+  # returns exactly one destination per kill so a kill cannot currently appear in
+  # two partitions; the dedup is cheap insurance against that property changing.
+  defp notable_items_candidates(partitions) do
+    partitions
+    |> Enum.flat_map(fn {_webhook, entries} ->
+      entries
+      |> Enum.take(EmbedFormatter.max_kills_per_event())
+      |> Enum.map(fn {kill, _verdict} -> kill end)
+    end)
+    |> Enum.uniq_by(& &1["killmail_id"])
+  end
+
+  defp merge_notable_items(partitions, by_kill) when map_size(by_kill) == 0, do: partitions
+
+  defp merge_notable_items(partitions, by_kill) do
+    Map.new(partitions, fn {webhook, entries} ->
+      entries =
+        Enum.map(entries, fn {kill, verdict} ->
+          case Map.get(by_kill, kill["killmail_id"]) do
+            nil -> {kill, verdict}
+            items -> {Map.put(kill, "notable_items", items), verdict}
+          end
+        end)
+
+      {webhook, entries}
+    end)
+  end
+
+  defp item_count(by_kill),
+    do: by_kill |> Map.values() |> Enum.map(&length/1) |> Enum.sum()
+
+  defp notable_items_cooldown_active? do
+    case Cachex.get(@notable_items_cache, @notable_items_failure_key) do
+      {:ok, count} when is_integer(count) -> count >= @notable_items_failure_threshold
+      _ -> false
+    end
+  end
+
+  # The counter carries the cooldown TTL, so reaching the threshold suppresses
+  # enrichment until the entry expires and a fresh attempt is made.
+  defp note_notable_items_failure(reason) do
+    count =
+      case Cachex.get(@notable_items_cache, @notable_items_failure_key) do
+        {:ok, n} when is_integer(n) -> n + 1
+        _ -> 1
+      end
+
+    Cachex.put(@notable_items_cache, @notable_items_failure_key, count,
+      ttl: @notable_items_cooldown_ms
+    )
+
+    Logger.warning(
+      "[Discord] notable items #{reason} (#{count} consecutive); " <>
+        "batch delivered without the section"
+    )
+  rescue
+    # The cache is not started in every context; a bookkeeping failure must not
+    # cost the batch.
+    _ -> :ok
+  end
+
+  defp reset_notable_items_failures do
+    Cachex.del(@notable_items_cache, @notable_items_failure_key)
+  rescue
+    _ -> :ok
+  end
+
+  defp emit_notable_items(duration, kill_count, item_count, outcome) do
+    :telemetry.execute(
+      [:wanderer_app, :discord, :notable_items],
+      %{duration: duration, kill_count: kill_count, item_count: item_count},
+      %{outcome: outcome}
+    )
   end
 
   # The role reaching `SystemName.display_name/3` is a LITERAL atom matched out
