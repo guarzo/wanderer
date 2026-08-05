@@ -123,6 +123,23 @@ defmodule WandererApp.Market.TriffTest do
       assert {:ok, %{1319 => 100.0}} == Triff.quote_types([1319, 1319, 1319])
       assert length(HttpStub.requests()) == 1
     end
+
+    test "keeps the prices from earlier chunks when a later chunk fails" do
+      HttpStub.set_responses([
+        {:ok, 200, types([sell(1, 10.0, nil)])},
+        {:error, :timeout}
+      ])
+
+      assert {:ok, %{1 => 10.0}} == Triff.quote_types(Enum.to_list(1..901))
+    end
+
+    test "stops requesting after the first failing chunk" do
+      HttpStub.set_responses([{:error, :timeout}])
+
+      assert {:error, :timeout} = Triff.quote_types(Enum.to_list(1..1801))
+      # Three chunks were due; the first failure ends the batch.
+      assert length(HttpStub.requests()) == 1
+    end
   end
 
   describe "failures" do
