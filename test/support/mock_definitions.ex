@@ -115,6 +115,14 @@ if Mix.env() == :test do
     @callback create!(any()) :: map()
   end
 
+  # Define websocket_client adapter mock behaviour (stands in for the
+  # `:websocket_client` Erlang module so tests can observe the arguments
+  # WandererApp.Kills.Transport.WebSocketClient passes to it).
+  defmodule WandererApp.Kills.Transport.WebSocketClientAdapter.MockBehaviour do
+    @callback start_link(charlist(), module(), list(), keyword()) ::
+                {:ok, pid()} | {:error, any()}
+  end
+
   # Define ESI mock behaviour
   defmodule WandererApp.Esi.MockBehaviour do
     @callback get_character_info(binary()) :: {:ok, map()} | {:error, any()}
@@ -155,4 +163,8 @@ if Mix.env() == :test do
   Mox.defmock(Test.TelemetryMock, for: Test.TelemetryMock.MockBehaviour)
   Mox.defmock(Test.AshMock, for: Test.AshMock.MockBehaviour)
   Mox.defmock(WandererApp.Esi.Mock, for: WandererApp.Esi.MockBehaviour)
+
+  Mox.defmock(Test.WebSocketClientMock,
+    for: WandererApp.Kills.Transport.WebSocketClientAdapter.MockBehaviour
+  )
 end

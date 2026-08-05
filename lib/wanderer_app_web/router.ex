@@ -174,6 +174,13 @@ defmodule WandererAppWeb.Router do
     plug WandererAppWeb.Plugs.CheckApiDisabled
   end
 
+  # Deliberately minimal. Fly kills a machine that fails its health check and
+  # there is exactly one machine, so nothing that can be switched off by
+  # configuration may appear here — no CheckApiDisabled, no auth, no rate limit.
+  pipeline :health do
+    plug :accepts, ["json"]
+  end
+
   # Versioned API pipeline with enhanced security and validation
   pipeline :api_versioned do
     plug WandererAppWeb.Plugs.ContentNegotiation, accepts: ["json"]
@@ -374,8 +381,14 @@ defmodule WandererAppWeb.Router do
   # Health Check Endpoints
   # Used for monitoring, load balancer health checks, and deployment validation
   #
-  scope "/api", WandererAppWeb do
-    pipe_through [:api]
+  # This scope's POSITION IN THE FILE IS LOAD-BEARING. It must stay above the
+  # `live "/:slug", MapLive, :index` wildcard further down. Phoenix matches
+  # routes in definition order, so below that line `/health` is swallowed by the
+  # wildcard and answers 302 to /welcome instead of 200.
+  scope "/", WandererAppWeb do
+    pipe_through [:health]
+
+    get "/health", HealthController, :index
   end
 
   # scope "/api/licenses", WandererAppWeb do
