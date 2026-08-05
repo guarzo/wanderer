@@ -502,7 +502,16 @@ config :wanderer_app, :external_events,
     config_dir |> get_int_from_path_or_env("WANDERER_WEBHOOK_TIMEOUT_MS", 15000),
   discord_max_killmail_age_seconds:
     config_dir
-    |> get_int_from_path_or_env("WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS", 3600)
+    |> get_int_from_path_or_env("WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS", 3600),
+  notable_items_enabled:
+    config_dir
+    |> get_var_from_path_or_env("WANDERER_NOTABLE_ITEMS_ENABLED", "false")
+    |> String.to_existing_atom(),
+  notable_items_threshold_isk:
+    config_dir |> get_int_from_path_or_env("WANDERER_NOTABLE_ITEMS_THRESHOLD_ISK", 50_000_000),
+  notable_items_limit: config_dir |> get_int_from_path_or_env("WANDERER_NOTABLE_ITEMS_LIMIT", 5),
+  notable_items_timeout_ms:
+    config_dir |> get_int_from_path_or_env("WANDERER_NOTABLE_ITEMS_TIMEOUT_MS", 1500)
 
 # Signature expiration — evaluated at boot so the deployment's env vars win over
 # whatever was set when the release was built. Defaults mirror config.exs.

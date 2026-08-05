@@ -587,4 +587,163 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
       end)
     end
   end
+
+  describe "notable items" do
+    defp with_items(items),
+      do: Factory.build(:killmail) |> Map.put("notable_items", items)
+
+    defp describe_kill(kill), do: EmbedFormatter.format_kill(kill, @bystander, "J123456")
+
+    defp item(name, opts \\ []) do
+      %{
+        name: name,
+        quantity: Keyword.get(opts, :quantity, 1),
+        value: Keyword.get(opts, :value, 100_000_000.0),
+        abyssal?: Keyword.get(opts, :abyssal?, false)
+      }
+    end
+
+    test "no section when the key is absent" do
+      description = Factory.build(:killmail) |> describe_kill() |> Map.get("description")
+      refute description =~ "Notable Items"
+    end
+
+    test "no section when the list is empty" do
+      refute describe_kill(with_items([]))["description"] =~ "Notable Items"
+    end
+
+    test "no section when the value is not a list" do
+      refute describe_kill(with_items(nil))["description"] =~ "Notable Items"
+      refute describe_kill(with_items("nope"))["description"] =~ "Notable Items"
+    end
+
+    test "a single item renders without a quantity" do
+      description = describe_kill(with_items([item("Damage Control II")]))["description"]
+
+      assert description =~ "\n\n**Notable Items:**\n"
+      assert description =~ "• Damage Control II (~100.0M ISK)"
+      refute description =~ "x1"
+    end
+
+    test "a stacked item renders its quantity" do
+      description =
+        describe_kill(with_items([item("Nanite Repair Paste", quantity: 300)]))["description"]
+
+      assert description =~ "• Nanite Repair Paste x300 (~100.0M ISK)"
+    end
+
+    test "an abyssal item renders no price" do
+      description =
+        describe_kill(with_items([item("Abyssal Warp Scrambler", abyssal?: true)]))["description"]
+
+      assert description =~ "• Abyssal Warp Scrambler"
+      refute description =~ "ISK)"
+    end
+
+    test "an abyssal item still renders its quantity" do
+      description =
+        describe_kill(with_items([item("Abyssal Damage Control", quantity: 2, abyssal?: true)]))[
+          "description"
+        ]
+
+      assert description =~ "• Abyssal Damage Control x2"
+      refute description =~ "ISK)"
+    end
+
+    test "items render one per line, in the order given" do
+      description =
+        describe_kill(with_items([item("First"), item("Second"), item("Third")]))["description"]
+
+      assert [_prose, "• First (~100.0M ISK)", "• Second (~100.0M ISK)", "• Third (~100.0M ISK)"] =
+               String.split(description, "\n", trim: true) |> Enum.take(-4)
+    end
+
+    test "a malformed item is skipped rather than rendered" do
+      description = describe_kill(with_items([%{name: "Real"}, item("Good")]))["description"]
+
+      assert description =~ "• Good"
+      refute description =~ "• Real"
+    end
+
+    # -- budgeting ------------------------------------------------------------
+
+    # Builds a killmail whose base description (before any section) is exactly
+    # `target` graphemes, by padding the victim name — it appears once in the
+    # description, so length grows with it one for one.
+    defp kill_with_base_length(target) do
+      probe = Factory.build(:killmail) |> Map.put("victim_char_name", "X")
+      base = String.length(describe_kill(probe)["description"])
+      Map.put(probe, "victim_char_name", String.duplicate("X", target - base + 1))
+    end
+
+    test "the base description alone is still truncated to the Discord limit" do
+      description = describe_kill(kill_with_base_length(5000))["description"]
+      assert String.length(description) == 4096
+    end
+
+    test "a full section never pushes the description past the limit" do
+      items = for n <- 1..5, do: item("Item #{n}")
+
+      description =
+        kill_with_base_length(4000)
+        |> Map.put("notable_items", items)
+        |> describe_kill()
+        |> Map.get("description")
+
+      assert String.length(description) <= 4096
+    end
+
+    test "only whole lines that fit are kept; the rest are dropped silently" do
+      line = "• Item 1 (~100.0M ISK)"
+      header = "\n\n**Notable Items:**\n"
+      items = for n <- 1..5, do: item("Item #{n}")
+
+      # Room for the header and exactly one line, and nothing more.
+      base = 4096 - String.length(header) - String.length(line)
+
+      description =
+        kill_with_base_length(base)
+        |> Map.put("notable_items", items)
+        |> describe_kill()
+        |> Map.get("description")
+
+      assert String.ends_with?(description, header <> line)
+      refute description =~ "Item 2"
+      assert String.length(description) == 4096
+    end
+
+    test "the header is omitted entirely when not even one line fits" do
+      items = for n <- 1..5, do: item("Item #{n}")
+
+      description =
+        kill_with_base_length(4090)
+        |> Map.put("notable_items", items)
+        |> describe_kill()
+        |> Map.get("description")
+
+      refute description =~ "Notable Items"
+      refute description =~ "•"
+    end
+
+    test "a long section splits a batch into more messages" do
+      items = for n <- 1..5, do: item(String.duplicate("N", 200) <> " #{n}")
+
+      entries =
+        for _n <- 1..10 do
+          {Factory.build(:killmail) |> Map.put("notable_items", items), @bystander}
+        end
+
+      without =
+        EmbedFormatter.format_batch(
+          Enum.map(entries, fn {k, v} -> {Map.delete(k, "notable_items"), v} end),
+          "J123456"
+        )
+
+      with_sections = EmbedFormatter.format_batch(entries, "J123456")
+
+      assert length(without) == 1
+      assert length(with_sections) > 1
+      assert Enum.all?(with_sections, &(embed_text_total(&1["embeds"]) <= 6000))
+    end
+  end
 end

@@ -139,7 +139,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
       "title" => truncate(title(kill, system_name), @max_title_length),
       "url" => zkill_url(kill["killmail_id"]),
       "color" => color(verdict, kill["total_value"]),
-      "description" => truncate(description(kill), @max_description_length),
+      "description" => full_description(kill),
       "fields" => fields(kill)
     }
     |> maybe_put("author", author(kill, verdict))
@@ -209,6 +209,68 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
     |> Enum.join()
     |> Kernel.<>(".")
   end
+
+  # The notable-items section is PRE-BUDGETED rather than left to `truncate/2`.
+  # `truncate/2` cuts at an arbitrary grapheme, which on a bullet list emits a
+  # half-written item name or a bare "• ". So the base description is truncated
+  # first, and only whole item lines that still fit are appended. If not even
+  # one fits, the header is omitted too — never a heading with nothing under it.
+  #
+  # A dropped line is silent: the ISK threshold already makes this a top-N, not
+  # an inventory. The `truncate/2` call stays because it still guards the base.
+  defp full_description(kill) do
+    base = truncate(description(kill), @max_description_length)
+    base <> notable_items_section(kill["notable_items"], String.length(base))
+  end
+
+  @notable_items_header "\n\n**Notable Items:**\n"
+
+  defp notable_items_section(items, used) when is_list(items) do
+    budget = @max_description_length - used - String.length(@notable_items_header)
+
+    case items |> Enum.flat_map(&item_line/1) |> take_fitting(budget) do
+      [] -> ""
+      lines -> @notable_items_header <> Enum.join(lines, "\n")
+    end
+  end
+
+  defp notable_items_section(_items, _used), do: ""
+
+  defp take_fitting(lines, budget) do
+    {kept, _used} =
+      Enum.reduce_while(lines, {[], 0}, fn line, {kept, used} ->
+        # The +1 is the newline joining this line to the previous one.
+        needed = String.length(line) + if kept == [], do: 0, else: 1
+
+        if used + needed <= budget,
+          do: {:cont, {[line | kept], used + needed}},
+          else: {:halt, {kept, used}}
+      end)
+
+    Enum.reverse(kept)
+  end
+
+  # Abyssal modules carry no price: their market values are unreliable enough
+  # that quoting one would be worse than saying nothing, matching
+  # wanderer-notifier.
+  defp item_line(%{name: name, quantity: quantity} = item)
+       when is_binary(name) and is_integer(quantity) and quantity > 0 do
+    count = if quantity > 1, do: " x#{quantity}", else: ""
+
+    price =
+      if Map.get(item, :abyssal?) do
+        ""
+      else
+        case format_isk(Map.get(item, :value)) do
+          nil -> ""
+          isk -> " (~#{isk})"
+        end
+      end
+
+    ["• #{name}#{count}#{price}"]
+  end
+
+  defp item_line(_item), do: []
 
   defp victim_clause(kill) do
     pilot =
