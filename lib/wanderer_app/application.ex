@@ -65,7 +65,9 @@ defmodule WandererApp.Application do
         }
       },
       # Triff pool - isolated so a slow market API cannot exhaust the ESI or
-      # Discord pools. App-env only, matching the Discord pool: no env vars.
+      # Discord pools. Sized from app env with the same defaults as the webhooks
+      # pool; no dedicated env var, since the request rate is bounded by the
+      # dispatcher's enrichment budget.
       {
         Finch,
         name: WandererApp.Finch.Triff,

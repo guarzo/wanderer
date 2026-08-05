@@ -120,18 +120,10 @@ defmodule WandererApp.Env do
   def discord_max_killmail_age_seconds() do
     Application.get_env(@app, :external_events, [])
     |> Keyword.get(:discord_max_killmail_age_seconds, @default_discord_max_killmail_age_seconds)
-    |> validate_max_killmail_age()
-  end
-
-  defp validate_max_killmail_age(seconds) when is_integer(seconds) and seconds > 0, do: seconds
-
-  defp validate_max_killmail_age(seconds) do
-    Logger.warning(
-      "[Discord] discord_max_killmail_age_seconds must be a positive integer, " <>
-        "got #{inspect(seconds)}; falling back to #{@default_discord_max_killmail_age_seconds}"
+    |> validate_positive_integer(
+      :discord_max_killmail_age_seconds,
+      @default_discord_max_killmail_age_seconds
     )
-
-    @default_discord_max_killmail_age_seconds
   end
 
   @default_notable_items_threshold_isk 50_000_000
