@@ -60,8 +60,11 @@ defmodule WandererApp.Market.Triff do
   Types with no usable quote are **absent from the map** — callers must not
   treat a missing key as zero.
 
-  Returns `{:error, reason}` if any request in the batch fails, or if a recent
-  request already failed and the cooldown is still active.
+  Returns `{:error, reason}` if the very first request in the batch fails, or if
+  a recent request already failed and the cooldown is still active. A batch that
+  spans several chunks and fails partway returns `{:ok, partial}` with whatever
+  was priced before the failure — an under-reported section beats no section,
+  and unpriced types are already an expected outcome.
   """
   @spec quote_types([integer()]) :: {:ok, prices()} | {:error, term()}
   def quote_types(type_ids) do
@@ -80,22 +83,38 @@ defmodule WandererApp.Market.Triff do
     end
   end
 
+  # Halts on the first failing chunk — a failure usually means triff is down, so
+  # issuing the remaining chunks would just add round trips to a dead endpoint.
+  # But the chunks that already answered are kept and returned: their prices are
+  # real, and discarding them would cost the whole batch its section over a
+  # partial outage. The failure is still marked, so the cooldown engages either
+  # way.
   defp fetch_missing(missing, cached) do
     missing
     |> Enum.chunk_every(@chunk_size)
-    |> Enum.reduce_while({:ok, cached}, fn chunk, {:ok, acc} ->
+    |> Enum.reduce_while({cached, 0, nil}, fn chunk, {acc, ok_count, _reason} ->
       case fetch_chunk(chunk) do
-        {:ok, priced} -> {:cont, {:ok, Map.merge(acc, priced)}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, priced} -> {:cont, {Map.merge(acc, priced), ok_count + 1, nil}}
+        {:error, reason} -> {:halt, {acc, ok_count, reason}}
       end
     end)
     |> case do
-      {:ok, prices} ->
+      {prices, _ok_count, nil} ->
         {:ok, prices}
 
-      {:error, reason} ->
+      {_prices, 0, reason} ->
         mark_failure(reason)
         {:error, reason}
+
+      {prices, ok_count, reason} ->
+        mark_failure(reason)
+
+        Logger.warning(
+          "[Triff] returning #{map_size(prices)} prices from #{ok_count} " <>
+            "chunk(s) after a later chunk failed"
+        )
+
+        {:ok, prices}
     end
   end
 
