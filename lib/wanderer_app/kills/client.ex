@@ -493,7 +493,7 @@ defmodule WandererApp.Kills.Client do
     # The connect/send/recv timeouts that used to sit here were removed: they
     # never applied. Upstream's handler init/1 reads only :keepalive, and
     # websocket_client 1.5.0 hardcodes its connect timeout to 6000ms
-    # (websocket_client.erl:276). They were adjustable-looking and inert.
+    # (websocket_client.erl:275). They were adjustable-looking and inert.
     socket_opts = if WandererApp.Env.wanderer_kills_ipv6?(), do: [:inet6], else: []
 
     opts = [transport_opts: [socket_opts: socket_opts]]

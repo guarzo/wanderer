@@ -37,6 +37,10 @@ swap_size_mb = 512
   PORT = '8080'
   # PHX_HOST and WEB_APP_URL are set as secrets, not here: they change at
   # cutover when the staging subdomain is replaced by the production hostname.
+  # WEB_APP_URL must use https:// — force_https = true below means browsers
+  # always arrive over https, and if the secret's scheme is http, every
+  # LiveView websocket upgrade fails check_origin while /health still reports
+  # 200, so there is no automated signal that it's wrong.
   # TLS terminates at Fly's proxy, so this must stay 'http'. Setting it to
   # 'https' rebinds the endpoint to HTTP_PORT (default 80, so nothing listens
   # on internal_port), turns on force_ssl which 301s the plain-HTTP health
@@ -51,6 +55,10 @@ swap_size_mb = 512
   # secrets at deploy time instead, because they embed the kills app name and
   # differ between the ws://<KILLS_APP_NAME>.internal and .flycast options.
   WANDERER_KILLS_IPV6 = 'true'
+  # PROMEX_DISABLED defaults to 'true' (config/runtime.exs), so PromEx is off
+  # and this file has no [[metrics]] block on purpose. If an operator flips
+  # PROMEX_DISABLED to 'false', they must also add a [[metrics]] block here —
+  # METRICS_PORT defaults to 4021, and nothing currently exposes it.
 
 [http_service]
   internal_port = 8080
