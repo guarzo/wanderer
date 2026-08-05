@@ -134,6 +134,66 @@ defmodule WandererApp.Env do
     @default_discord_max_killmail_age_seconds
   end
 
+  @default_notable_items_threshold_isk 50_000_000
+  @default_notable_items_limit 5
+  @default_notable_items_timeout_ms 1_500
+
+  @doc """
+  Whether Discord kill embeds carry a **Notable Items** section.
+
+  Off by default: the section costs an ESI killmail fetch and a market lookup on
+  the dispatcher's critical path, so it is opt-in per deployment.
+  """
+  def notable_items_enabled?() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:notable_items_enabled, false)
+  end
+
+  @doc """
+  Minimum ISK value for a dropped item to be worth naming. Matches
+  wanderer-notifier's threshold.
+  """
+  def notable_items_threshold_isk() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:notable_items_threshold_isk, @default_notable_items_threshold_isk)
+    |> validate_positive_integer(
+      :notable_items_threshold_isk,
+      @default_notable_items_threshold_isk
+    )
+  end
+
+  @doc "Maximum items listed per kill. Matches wanderer-notifier's limit."
+  def notable_items_limit() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:notable_items_limit, @default_notable_items_limit)
+    |> validate_positive_integer(:notable_items_limit, @default_notable_items_limit)
+  end
+
+  @doc """
+  Hard ceiling on how long enrichment may block the singleton dispatcher.
+
+  This budget is load-bearing — see the concurrency notes in
+  `WandererApp.ExternalEvents.Discord.NotableItems`. Raising it stalls kill
+  notifications for every map on the instance.
+  """
+  def notable_items_timeout_ms() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:notable_items_timeout_ms, @default_notable_items_timeout_ms)
+    |> validate_positive_integer(:notable_items_timeout_ms, @default_notable_items_timeout_ms)
+  end
+
+  defp validate_positive_integer(value, _key, _default) when is_integer(value) and value > 0,
+    do: value
+
+  defp validate_positive_integer(value, key, default) do
+    Logger.warning(
+      "[Discord] #{key} must be a positive integer, " <>
+        "got #{inspect(value)}; falling back to #{default}"
+    )
+
+    default
+  end
+
   @decorate cacheable(
               cache: WandererApp.Cache,
               key: "map-connection-auto-expire-hours"
