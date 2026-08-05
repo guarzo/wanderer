@@ -31,6 +31,7 @@ config :wanderer_app,
   environment: :test,
   map_subscriptions_enabled: false,
   wanderer_kills_service_enabled: false,
+  websocket_client_module: Test.WebSocketClientMock,
   sse: [enabled: false],
   external_events: [webhooks_enabled: false],
   discord_http_client: WandererApp.ExternalEvents.Discord.HttpStub
