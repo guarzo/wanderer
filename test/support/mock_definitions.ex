@@ -131,6 +131,13 @@ if Mix.env() == :test do
     @callback get_corporation_info(binary(), keyword()) :: {:ok, map()} | {:error, any()}
     @callback get_alliance_info(binary()) :: {:ok, map()} | {:error, any()}
     @callback get_alliance_info(binary(), keyword()) :: {:ok, map()} | {:error, any()}
+    @callback get_killmail(binary() | integer(), binary()) :: {:ok, map()} | {:error, any()}
+
+    @callback get_killmail(binary() | integer(), binary(), keyword()) ::
+                {:ok, map()} | {:error, any()}
+
+    @callback get_type_info(binary() | integer()) :: {:ok, map()} | {:error, any()}
+    @callback get_type_info(binary() | integer(), keyword()) :: {:ok, map()} | {:error, any()}
   end
 
   # Define all the mocks

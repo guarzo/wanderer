@@ -64,6 +64,20 @@ defmodule WandererApp.Application do
           ]
         }
       },
+      # Triff pool - isolated so a slow market API cannot exhaust the ESI or
+      # Discord pools. Sized from app env with the same defaults as the webhooks
+      # pool; no dedicated env var, since the request rate is bounded by the
+      # dispatcher's enrichment budget.
+      {
+        Finch,
+        name: WandererApp.Finch.Triff,
+        pools: %{
+          default: [
+            size: Application.get_env(:wanderer_app, :finch_triff_pool_size, 25),
+            count: Application.get_env(:wanderer_app, :finch_triff_pool_count, 2)
+          ]
+        }
+      },
       # Default pool - everything else (email, license manager, etc.)
       {
         Finch,
