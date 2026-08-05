@@ -19,6 +19,11 @@ defmodule WandererApp.Kills.Transport.WebSocketClient do
   @behaviour Phoenix.Channels.GenSocketClient.Transport
 
   @upstream Phoenix.Channels.GenSocketClient.Transport.WebSocketClient
+  @websocket_client Application.compile_env(
+                      :wanderer_app,
+                      :websocket_client_module,
+                      :websocket_client
+                    )
   @ws_opts [:extra_headers, :ssl_verify, :socket_opts]
 
   @doc """
@@ -34,7 +39,7 @@ defmodule WandererApp.Kills.Transport.WebSocketClient do
 
     url
     |> to_charlist()
-    |> :websocket_client.start_link(@upstream, [self(), rest], ws_opts)
+    |> @websocket_client.start_link(@upstream, [self(), rest], ws_opts)
   end
 
   @impl true
