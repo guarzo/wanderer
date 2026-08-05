@@ -60,6 +60,20 @@ Finch connection pool used for Discord delivery.
 `WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS` (default `3600`) drops killmails
 older than the given age, so an upstream replay does not post stale kills.
 
+`WANDERER_NOTABLE_ITEMS_ENABLED` (default `false`) adds a "Notable Items"
+section to each kill embed, listing the most valuable loot that *dropped*
+(destroyed modules are excluded). It is off by default because building it costs
+one extra ESI killmail fetch per kill plus a market price lookup, on the
+dispatcher's critical path. `WANDERER_NOTABLE_ITEMS_THRESHOLD_ISK` (default
+`50000000`) sets the minimum value an item must exceed to be listed,
+`WANDERER_NOTABLE_ITEMS_LIMIT` (default `5`) caps how many are listed per kill,
+and `WANDERER_NOTABLE_ITEMS_TIMEOUT_MS` (default `1500`) bounds how long
+enrichment may hold up a batch — raising it delays kill notifications for every
+map on the instance. Prices are Jita 4-4 quotes; abyssal modules are listed
+without a price, since market quotes for them are not meaningful. Any failure —
+timeout, ESI error, unavailable pricing — simply omits the section; the kill is
+still posted.
+
 The webhook URL is stored encrypted and is never displayed in full after it is
 saved — the settings tab shows only a masked hint. Pointing a destination at a
 different channel means entering the full URL again.
