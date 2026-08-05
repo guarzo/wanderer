@@ -78,6 +78,7 @@ defmodule WandererApp.Esi.ApiClient do
           }
         ]
         |> Keyword.merge(@timeout_opts)
+        |> Keyword.merge(WandererApp.RouteBuilderClient.connect_opts())
       )
 
     case response do
