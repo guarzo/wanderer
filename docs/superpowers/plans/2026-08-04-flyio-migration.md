@@ -1058,14 +1058,28 @@ Three of these are new or newly load-bearing:
 
 Add any additional EVE client pairs the VM uses. Do **not** blanket-copy the VM's remaining feature flags yet — Task 10 audits them for outbound effects first.
 
-- [ ] **Step 7: Resolve the EVE SSO callback question**
+- [ ] **Step 7: Create the staging EVE application**
 
-Check the EVE developer portal: does an application allow more than one callback URL?
+**RESOLVED 2026-08-05: an EVE application permits exactly one redirect URL.** A
+second EVE application is therefore *required* for the staging period, not merely
+preferred — staging cannot share production's application at any point.
 
-- If **no**, a second EVE application is required for the staging period, with its own client ID and secret.
-- If **yes**, a second application is **still wanted**, for credential isolation. Task 10 explains why: a staging instance that refreshes a production character's token invalidates it and logs real users out of the live map.
+That also happens to be the safer arrangement, for the reason Task 10 step 2a
+gives: a staging instance that refreshes a production character's token
+invalidates it and logs real users out of the live map. Separate applications
+means separate client IDs, so this cannot happen by accident.
 
-Either way, create the staging EVE application now. Record both credential pairs; Task 11 step 6 swaps them.
+Create it now and record both credential pairs. Callback URLs, from
+`config/config.exs:53` (`callback_path: "/auth/eve/callback"`):
+
+- staging application → `https://<staging-subdomain>/auth/eve/callback`
+- production application → `https://<production-hostname>/auth/eve/callback`, which
+  is what it is already set to today
+
+Note what this means for the cutover: the production hostname does not change
+when DNS moves to Fly, so the production application's redirect URL needs **no
+edit at any point in the migration**. Task 11 step 6 swaps the client ID and
+secret secrets on the Fly app; nothing in the EVE developer portal is touched.
 
 ---
 
@@ -1450,7 +1464,7 @@ fly secrets set --app <WANDERER_APP_NAME> \
   EVE_CLIENT_SECRET=<production>
 ```
 
-Re-enable the outbound dispatchers disabled in Task 10 step 2b. Update the EVE callback URL in the developer portal if a second application was used for staging.
+Re-enable the outbound dispatchers disabled in Task 10 step 2b. **No change is needed in the EVE developer portal** — the production application's redirect URL already points at the production hostname, which does not change when DNS moves to Fly. Staging used a separate application (Task 6 step 7), so its callback is irrelevant from here on.
 
 Walk Task 10 step 2 in reverse, item by item. Anything left in its staging state is a production defect — notifications silently not sending is the likely shape.
 
