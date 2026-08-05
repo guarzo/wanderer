@@ -1,3 +1,26 @@
+# A stand-in for the real enricher. NOT Mox: the enricher runs inside a task
+# spawned off `Discord.TaskSupervisor`, and a Mox expectation set in the test
+# process is not visible from an unrelated process without global mode — which
+# would in turn conflict with the timeout case, where the "enricher" never
+# returns at all.
+defmodule WandererApp.ExternalEvents.DiscordDispatcherTest.Enricher do
+  @behaviour WandererApp.ExternalEvents.Discord.NotableItems
+
+  @impl true
+  def enrich(kills) do
+    case Process.whereis(:notable_items_observer) do
+      nil -> :ok
+      pid -> send(pid, {:enrich_called, kills})
+    end
+
+    case Application.get_env(:wanderer_app, :test_notable_items_mode, %{}) do
+      :timeout -> Process.sleep(:infinity)
+      :crash -> raise "enricher boom"
+      by_kill when is_map(by_kill) -> by_kill
+    end
+  end
+end
+
 defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
   # `async: false` is mandatory: `HttpStub` keeps its state in a single named
   # Agent, and this file also mutates application env.
@@ -13,7 +36,13 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     WorkerSupervisor
   }
 
+  alias WandererApp.ExternalEvents.DiscordDispatcherTest.Enricher
   alias WandererAppWeb.Factory
+
+  # Must match `DiscordDispatcher`'s own key: the cooldown tests clear it
+  # between runs, and a private counter left behind would silently disable
+  # enrichment for every later test in this file.
+  @failure_key "discord-notable-items-failures"
 
   # A real wormhole system id (J-space) and a real known-space id (Jita).
   @wh_system 31_000_005
@@ -1177,6 +1206,205 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert warning_count == 1
     end
   end
+
+  describe "notable items" do
+    setup do
+      Process.register(self(), :notable_items_observer)
+      Cachex.del(:api_cache, @failure_key)
+
+      Application.put_env(:wanderer_app, :notable_items_enricher, Enricher)
+      Application.put_env(:wanderer_app, :test_notable_items_mode, %{})
+
+      on_exit(fn ->
+        Application.delete_env(:wanderer_app, :notable_items_enricher)
+        Application.delete_env(:wanderer_app, :test_notable_items_mode)
+        Cachex.del(:api_cache, @failure_key)
+      end)
+
+      :ok
+    end
+
+    test "does not enrich when the feature is disabled", %{map: map, system: w} do
+      # No `enable_notable_items/1` — the default is off, which is the shipping
+      # configuration. This test is what makes "off means zero added latency"
+      # an assertion rather than a claim.
+      dispatch(map, [fresh_kill(9_201)])
+      settle(w.id)
+
+      refute_received {:enrich_called, _}
+      assert [{_url, body}] = wait_for_requests(1)
+      refute description(body) =~ "Notable Items"
+    end
+
+    test "renders the section for an enriched kill", %{map: map, system: w} do
+      enable_notable_items()
+      returns(%{9_202 => [notable("Damage Control II", 1, 100_000_000.0)]})
+
+      dispatch(map, [fresh_kill(9_202)])
+      settle(w.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert description(body) =~ "**Notable Items:**"
+      assert description(body) =~ "• Damage Control II (~100.0M ISK)"
+    end
+
+    test "leaves un-enriched kills in the same batch alone", %{map: map, system: w} do
+      enable_notable_items()
+      returns(%{9_203 => [notable("Damage Control II", 1, 100_000_000.0)]})
+
+      dispatch(map, [fresh_kill(9_203), fresh_kill(9_204)])
+      settle(w.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert [enriched, plain] = body["embeds"]
+      assert enriched["description"] =~ "Notable Items"
+      refute plain["description"] =~ "Notable Items"
+    end
+
+    test "only offers kills that will actually be rendered", %{map: map, system: w} do
+      # The cap is per destination and applied by the formatter. Enriching past
+      # it spends ESI and market calls on kills nobody will ever see.
+      enable_notable_items()
+      over_cap = EmbedFormatter.max_kills_per_event() + 5
+      kills = for id <- 1..over_cap, do: fresh_kill(9_300 + id)
+
+      dispatch(map, kills)
+      settle(w.id)
+
+      assert_received {:enrich_called, candidates}
+      assert length(candidates) == EmbedFormatter.max_kills_per_event()
+    end
+
+    test "delivers without the section when the enricher times out", %{map: map, system: w} do
+      enable_notable_items(notable_items_timeout_ms: 50)
+      returns(:timeout)
+
+      dispatch(map, [fresh_kill(9_205)])
+      settle(w.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      refute description(body) =~ "Notable Items"
+    end
+
+    test "delivers without the section when the enricher crashes", %{map: map, system: w} do
+      # The crash must not reach the dispatcher: `async_nolink` plus the
+      # `{:exit, reason}` branch of `Task.yield/2`. If this ever regresses the
+      # singleton dies and every map stops receiving kill notifications.
+      enable_notable_items()
+      returns(:crash)
+
+      capture_log(fn -> dispatch(map, [fresh_kill(9_206)]) end)
+
+      assert Process.alive?(Process.whereis(DiscordDispatcher))
+      assert [{_url, body}] = wait_for_requests(1)
+      refute description(body) =~ "Notable Items"
+    end
+
+    test "stops enriching after repeated failures", %{map: map, system: w} do
+      enable_notable_items()
+      returns(:crash)
+
+      capture_log(fn ->
+        for id <- 1..3 do
+          dispatch(map, [fresh_kill(9_400 + id)])
+          assert_received {:enrich_called, _}
+        end
+      end)
+
+      # Threshold reached: the fourth batch skips enrichment outright rather
+      # than paying the budget again during a sustained outage.
+      dispatch(map, [fresh_kill(9_410)])
+      refute_received {:enrich_called, _}
+
+      settle(w.id)
+      assert length(wait_for_requests(4)) == 4
+    end
+
+    test "a success clears the failure counter", %{map: map, system: w} do
+      enable_notable_items()
+      returns(:crash)
+
+      capture_log(fn ->
+        for id <- 1..2 do
+          dispatch(map, [fresh_kill(9_500 + id)])
+          assert_received {:enrich_called, _}
+        end
+      end)
+
+      returns(%{})
+      dispatch(map, [fresh_kill(9_510)])
+      assert_received {:enrich_called, _}
+
+      # Without the reset, two more failures would trip the cooldown.
+      returns(:crash)
+
+      capture_log(fn ->
+        for id <- 1..2 do
+          dispatch(map, [fresh_kill(9_520 + id)])
+          assert_received {:enrich_called, _}
+        end
+      end)
+
+      settle(w.id)
+    end
+
+    test "emits telemetry for each outcome", %{map: map, system: w} do
+      handler = "notable-items-test-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach(
+        handler,
+        [:wanderer_app, :discord, :notable_items],
+        fn _event, measurements, metadata, _ ->
+          send(test_pid, {:telemetry, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      dispatch(map, [fresh_kill(9_601)])
+      assert_received {:telemetry, _, %{outcome: :disabled}}
+
+      enable_notable_items()
+      returns(%{9_602 => [notable("Damage Control II", 1, 100_000_000.0)]})
+      dispatch(map, [fresh_kill(9_602)])
+
+      assert_received {:telemetry, measurements, %{outcome: :ok}}
+      assert measurements.kill_count == 1
+      assert measurements.item_count == 1
+
+      settle(w.id)
+    end
+  end
+
+  # -- notable items helpers --------------------------------------------------
+
+  defp enable_notable_items(extra \\ []) do
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    updated =
+      original
+      |> Keyword.put(:notable_items_enabled, true)
+      |> Keyword.merge(extra)
+
+    Application.put_env(:wanderer_app, :external_events, updated)
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+  end
+
+  defp returns(mode), do: Application.put_env(:wanderer_app, :test_notable_items_mode, mode)
+
+  defp notable(name, quantity, value),
+    do: %{name: name, quantity: quantity, value: value, abyssal?: false}
+
+  defp fresh_kill(id), do: kill(id, DateTime.utc_now() |> DateTime.to_iso8601())
+
+  defp dispatch(map, kills) do
+    DiscordDispatcher.dispatch_event(map.id, kill_event(@wh_system, kills))
+    :sys.get_state(DiscordDispatcher)
+  end
+
+  defp description(body), do: body["embeds"] |> hd() |> Map.get("description")
 
   # Minimal killmail and event builders matching what `extract_kills/1` expects.
   defp kill(id, kill_time) do
