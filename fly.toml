@@ -1,80 +1,68 @@
-# fly.toml — wanderer
-#
 # EXACTLY ONE MACHINE. This is an architectural constraint, not a preference.
 # Map state lives in node-local Cachex tables and character trackers register in
 # a node-local Registry (WandererApp.Character.TrackerRegistry); PubSub uses the
-# PG2 adapter with no clustering configured. Two machines would produce two
-# independent halves of the same map — trackers updating on one node, LiveView
-# sessions subscribed on the other, and updates that never meet.
+# PG2 adapter with no clustering configured. Two machines would serve two
+# independent halves of the same map.
 #
-# Do not add autoscaling, do not raise min/max machines, and do not set
-# DNS_CLUSTER_QUERY without first making map state cluster-aware. For the same
-# reason, [deploy].strategy must stay 'rolling': 'bluegreen' and 'canary' both
-# boot a second machine alongside the one still running, which is the same
-# split-brain this file forbids everywhere else.
+# So: no autoscaling, no raising min/max machines, and no DNS_CLUSTER_QUERY
+# until map state is cluster-aware. [deploy].strategy must stay 'rolling' for
+# the same reason — 'bluegreen' and 'canary' both boot a second machine
+# alongside the one still running.
 
-# <WANDERER_APP_NAME> is a placeholder — substitute the real Fly app name
-# before any `fly` command against this file will work.
-app = '<WANDERER_APP_NAME>'
-# Placeholder for the operator's chosen region. Unlike `app`, a stale value
-# here fails silently (Fly just deploys to the wrong region) rather than
-# rejecting the command, so double check it before deploying.
+app = 'wanderer'
+# A wrong region here fails silently — Fly just deploys to the wrong place.
 primary_region = 'iad'
 kill_signal = 'SIGTERM'
-# Default kill_timeout is 5s, too tight for this supervision tree to shut
-# down cleanly; every deploy is a full restart of the single machine.
+# The default 5s is too tight for this supervision tree to shut down cleanly,
+# and every deploy is a full restart of the single machine.
 kill_timeout = 30
 swap_size_mb = 512
 
 [build]
 
 [deploy]
-  release_command = '/app/bin/migrate.sh'
+  # Migrations run against DIRECT_DATABASE_URL: Ecto's migration lock is a
+  # session-scoped advisory lock, and PgBouncer cannot carry session state
+  # across transactions, so through the pooled endpoint the lock is taken and
+  # lost on a different backend. DATABASE_URL stays pooled for the app itself.
+  release_command = "/bin/sh -lc 'DATABASE_URL=\"$DIRECT_DATABASE_URL\" /app/bin/migrate.sh'"
   strategy = 'rolling'
 
 [env]
   PHX_SERVER = 'true'
   PORT = '8080'
-  # PHX_HOST and WEB_APP_URL are set as secrets, not here: they change at
-  # cutover when the staging subdomain is replaced by the production hostname.
-  # WEB_APP_URL must use https:// — force_https = true below means browsers
-  # always arrive over https, and if the secret's scheme is http, every
-  # LiveView websocket upgrade fails check_origin while /health still reports
-  # 200, so there is no automated signal that it's wrong.
-  # TLS terminates at Fly's proxy, so WEB_EXTERNAL_SCHEME must stay 'http'. Setting it to
-  # 'https' rebinds the endpoint to HTTP_PORT (default 80, so nothing listens
-  # on internal_port), turns on force_ssl which 301s the plain-HTTP health
-  # check forever, and points at /certs files that don't exist in this image
+  # PHX_HOST and WEB_APP_URL are secrets, not env: they are per-deployment and
+  # change at cutover. WEB_APP_URL must use https:// — force_https below means
+  # browsers always arrive over https, and with an http:// scheme every
+  # LiveView websocket upgrade fails check_origin while /health still returns
+  # 200, so nothing automated catches it.
+  #
+  # WEB_EXTERNAL_SCHEME stays 'http' because TLS terminates at Fly's proxy.
+  # Setting 'https' rebinds the endpoint to HTTP_PORT (default 80, so nothing
+  # listens on internal_port), turns on force_ssl which 301s the plain-HTTP
+  # health check forever, and points at /certs files absent from this image
   # (config/runtime.exs:430-444).
   WEB_EXTERNAL_SCHEME = 'http'
-  # Safe to commit: this flag is operator-agnostic and always true on Fly
-  # (the wanderer-kills service is only reachable over Fly's IPv6-only 6PN
-  # network). Its default is "false", so omitting this line means the
-  # connection silently fails and retries forever. Its companion variables,
-  # WANDERER_KILLS_SERVICE_ENABLED and WANDERER_KILLS_BASE_URL, are set as
-  # secrets at deploy time instead, because they embed the kills app name and
-  # differ between the ws://<KILLS_APP_NAME>.internal and .flycast options.
+  # Always true on Fly — the kills service is reachable only over the IPv6-only
+  # 6PN network — and the default is "false", which fails silently and retries
+  # forever. Its companions WANDERER_KILLS_SERVICE_ENABLED and
+  # WANDERER_KILLS_BASE_URL are secrets instead: they embed the kills app name.
   WANDERER_KILLS_IPV6 = 'true'
-  # PROMEX_DISABLED defaults to 'true' (config/runtime.exs), so PromEx is off
-  # and this file has no [[metrics]] block on purpose. If an operator flips
-  # PROMEX_DISABLED to 'false', they must also add a [[metrics]] block here —
-  # METRICS_PORT defaults to 4021, and nothing currently exposes it.
+  # PROMEX_DISABLED defaults to 'true' (config/runtime.exs), so there is no
+  # [[metrics]] block here on purpose. Flipping it to 'false' requires adding
+  # one — METRICS_PORT defaults to 4021 and nothing exposes it.
 
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'off'
-  # Deliberate deviation from the brief, human-approved: 'true' only starts a
-  # machine that already exists, it cannot create one, so it doesn't weaken
-  # the one-machine guarantee above. It restores automatic recovery when the
-  # machine ends up stopped rather than crashed (interrupted deploy, manual
-  # `fly machine stop`, host maintenance) — with 'false' the app stays down
-  # until a human intervenes.
+  # 'true' only starts a machine that already exists, so it cannot weaken the
+  # one-machine guarantee. It restores automatic recovery when the machine ends
+  # up stopped rather than crashed (interrupted deploy, manual stop, host
+  # maintenance); with 'false' the app stays down until a human intervenes.
   auto_start_machines = true
-  # auto_stop_machines = 'off' is what actually delivers always-on; Fly only
-  # applies min_machines_running when auto_stop_machines is 'stop' or
-  # 'suspend', so this line is inert today. It stands as documented intent —
-  # if auto_stop_machines is ever changed, this is what keeps one machine up.
+  # Inert today: Fly only applies this when auto_stop_machines is 'stop' or
+  # 'suspend', and always-on comes from 'off' above. Kept as documented intent.
   min_machines_running = 1
   processes = ['app']
 
@@ -92,8 +80,7 @@ swap_size_mb = 512
     timeout = '5s'
 
 # Sized for the fifteen Cachex tables and five Finch pools started in
-# lib/wanderer_app/application.ex. Revisit against observed RSS once the app
-# has run under real traffic.
+# lib/wanderer_app/application.ex. Revisit against observed RSS.
 [[vm]]
   size = 'shared-cpu-2x'
   memory = '2gb'
