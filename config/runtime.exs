@@ -15,11 +15,7 @@ config_dir = System.get_env("CONFIG_DIR", "/run/secrets")
 
 app_name = System.get_env("FLY_APP_NAME", "NOT_FLY_APP")
 
-host =
-  case app_name == "NOT_FLY_APP" do
-    true -> System.get_env("PHX_HOST", "localhost")
-    _ -> "#{app_name}.fly.dev"
-  end
+host = resolve_host(System.get_env("PHX_HOST"), app_name)
 
 web_port =
   System.get_env(
@@ -32,10 +28,7 @@ web_port =
   |> String.to_integer()
 
 web_app_url =
-  case app_name == "NOT_FLY_APP" do
-    true -> System.get_env("WEB_APP_URL", "http://#{host}:#{web_port}")
-    _ -> "https://#{host}"
-  end
+  resolve_web_app_url(System.get_env("WEB_APP_URL"), host, web_port, app_name)
 
 base_url = URI.parse(web_app_url)
 
@@ -72,6 +65,13 @@ wanderer_kills_service_enabled =
 wanderer_kills_base_url =
   config_dir
   |> get_var_from_path_or_env("WANDERER_KILLS_BASE_URL", "ws://wanderer-kills:4004")
+
+# Fly's 6PN `.internal` and `.flycast` addresses are IPv6-only, and gen_tcp
+# resolves hostnames as IPv4 by default. Mirrors the ECTO_IPV6 precedent below.
+wanderer_kills_ipv6 =
+  config_dir
+  |> get_var_from_path_or_env("WANDERER_KILLS_IPV6", "false")
+  |> String.to_existing_atom()
 
 map_subscriptions_enabled =
   config_dir
@@ -190,6 +190,7 @@ config :wanderer_app,
   character_api_disabled: character_api_disabled,
   wanderer_kills_service_enabled: wanderer_kills_service_enabled,
   wanderer_kills_base_url: wanderer_kills_base_url,
+  wanderer_kills_ipv6: wanderer_kills_ipv6,
   map_subscriptions_enabled: map_subscriptions_enabled,
   map_connection_auto_expire_hours: map_connection_auto_expire_hours,
   map_connection_auto_eol_hours: map_connection_auto_eol_hours,
