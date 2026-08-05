@@ -71,6 +71,7 @@ defmodule WandererApp.Esi.ApiClient do
           }
         ]
         |> Keyword.merge(@timeout_opts)
+        |> Keyword.merge(WandererApp.RouteBuilderClient.connect_opts())
       )
 
   def get_routes_eve(hubs, origin, _params, _opts),
