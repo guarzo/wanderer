@@ -71,18 +71,44 @@ defmodule WandererApp.ExternalEvents.Discord.NotableItems do
 
   def enrich(kills) do
     dropped =
-      Enum.reduce(kills, %{}, fn kill, acc ->
-        case dropped_quantities(kill) do
-          {killmail_id, quantities} when map_size(quantities) > 0 ->
-            Map.put(acc, killmail_id, quantities)
+      kills
+      |> esi_stream(&safe_dropped_quantities/1)
+      |> Enum.reduce(%{}, fn
+        {:ok, {killmail_id, quantities}}, acc when map_size(quantities) > 0 ->
+          Map.put(acc, killmail_id, quantities)
 
-          _ ->
-            acc
-        end
+        _result, acc ->
+          acc
       end)
 
     if map_size(dropped) == 0, do: %{}, else: price_and_select(dropped)
   end
+
+  # One ESI round trip per kill, and a batch is up to
+  # `EmbedFormatter.max_kills_per_event()` kills, so doing this sequentially
+  # spent the whole enrichment budget on latency: 30 cold fetches at ~100ms
+  # each cannot fit in 1.5s no matter how fast ESI is. Concurrency is capped so
+  # a busy batch cannot flood the ESI pool on the dispatcher's behalf.
+  #
+  # `on_timeout: :kill_task` rather than letting the stream raise: a single slow
+  # lookup costs its own item, not the batch. The per-item timeout is the whole
+  # enrichment budget because the dispatcher kills this task at that point
+  # anyway — it is a ceiling, not a schedule.
+  @esi_concurrency 8
+
+  defp esi_stream(enumerable, fun) do
+    Task.async_stream(enumerable, fun,
+      max_concurrency: @esi_concurrency,
+      timeout: WandererApp.Env.notable_items_timeout_ms(),
+      on_timeout: :kill_task,
+      ordered: false
+    )
+  end
+
+  # Wrapped so a raise anywhere in the per-kill path costs that kill only. An
+  # unrescued exception in a stream child brings down the whole stream, which
+  # would discard the kills that had already resolved.
+  defp safe_dropped_quantities(kill), do: safe(fn -> dropped_quantities(kill) end, :skip)
 
   # -- step 1-4: dropped quantities per kill ---------------------------------
 
@@ -175,12 +201,18 @@ defmodule WandererApp.ExternalEvents.Discord.NotableItems do
       Enum.map(items, fn {type_id, _quantity, _value} -> type_id end)
     end)
     |> Enum.uniq()
-    |> Enum.reduce(%{}, fn type_id, acc ->
-      case safe(fn -> esi_client().get_type_info(type_id) end, :error) do
-        {:ok, %{"name" => name}} when is_binary(name) -> Map.put(acc, type_id, name)
-        _ -> acc
-      end
+    |> esi_stream(&resolve_name/1)
+    |> Enum.reduce(%{}, fn
+      {:ok, {type_id, name}}, acc -> Map.put(acc, type_id, name)
+      _result, acc -> acc
     end)
+  end
+
+  defp resolve_name(type_id) do
+    case safe(fn -> esi_client().get_type_info(type_id) end, :error) do
+      {:ok, %{"name" => name}} when is_binary(name) -> {type_id, name}
+      _ -> :unresolved
+    end
   end
 
   # An item whose name would not resolve is dropped: there is nothing to render.
