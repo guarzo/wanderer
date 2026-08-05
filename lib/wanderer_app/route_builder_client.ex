@@ -6,6 +6,28 @@ defmodule WandererApp.RouteBuilderClient do
   require Logger
 
   @timeout_opts [pool_timeout: 5_000, receive_timeout: :timer.seconds(30)]
+
+  # Mint resolves IPv4-only unless told otherwise, but on Fly the route builder
+  # is reachable only over the IPv6 6PN network — `route-builder.internal` has
+  # no A record at all, so every request fails with :nxdomain. Callers see that
+  # as an ordinary route lookup failure, and the ESI fallback path then reports
+  # "no connection" for every hub, so nothing in the logs names DNS.
+  #
+  # `inet6: true` keeps Mint's `inet4: true` default, which means it tries IPv6
+  # first and falls back to IPv4. Deployments where the route builder is an
+  # IPv4 docker-compose service (CUSTOM_ROUTE_BASE_URL=http://eve-route-builder:2001)
+  # keep working, at the cost of one failed resolution per new connection.
+  # That fallback is why this is unconditional rather than an operator flag: a
+  # flag left unset on Fly fails silently, which is the bug being fixed here.
+  @connect_opts [connect_options: [transport_opts: [inet6: true]]]
+
+  @doc """
+  Req options every caller of the route builder service must pass.
+
+  Shared with `WandererApp.Esi.ApiClient`, which posts to `/route/multiple` on
+  the same service.
+  """
+  def connect_opts, do: @connect_opts
   @loot_dir Path.join(["repo", "data", "route_by_systems"])
   @available_routes_by ["blueLoot", "redLoot", "thera", "turnur", "so_cleaning", "trade_hubs"]
 
@@ -36,7 +58,7 @@ defmodule WandererApp.RouteBuilderClient do
       count: count || 1
     }
 
-    case Req.post(url, Keyword.merge([json: payload], @timeout_opts)) do
+    case Req.post(url, Keyword.merge([json: payload], @timeout_opts ++ @connect_opts)) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, body}
 
