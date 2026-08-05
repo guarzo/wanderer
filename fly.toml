@@ -4,6 +4,7 @@
 # PG2 adapter with no clustering configured. Two machines would serve two
 # independent halves of the same map.
 #
+#
 # So: no autoscaling, no raising min/max machines, and no DNS_CLUSTER_QUERY
 # until map state is cluster-aware. [deploy].strategy must stay 'rolling' for
 # the same reason — 'bluegreen' and 'canary' both boot a second machine
