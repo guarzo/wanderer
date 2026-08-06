@@ -49,6 +49,15 @@ swap_size_mb = 512
   # forever. Its companions WANDERER_KILLS_SERVICE_ENABLED and
   # WANDERER_KILLS_BASE_URL are secrets instead: they embed the kills app name.
   WANDERER_KILLS_IPV6 = 'true'
+  # Enriches Discord killmail embeds with notable dropped items
+  # (external_events/discord_dispatcher.ex:301); default is "false". Must be
+  # exactly 'true' or 'false' — runtime.exs:508 pipes this through
+  # String.to_existing_atom/1, so '1' or 'yes' raises at boot and takes the
+  # machine down rather than falling back to the default. Read only at boot,
+  # so a deploy/restart is required. The tuning companions
+  # WANDERER_NOTABLE_ITEMS_{THRESHOLD_ISK,LIMIT,TIMEOUT_MS} stay at their
+  # defaults (50_000_000 / 5 / 1500) until set here.
+  WANDERER_NOTABLE_ITEMS_ENABLED = 'true'
   # PROMEX_DISABLED defaults to 'true' (config/runtime.exs), so there is no
   # [[metrics]] block here on purpose. Flipping it to 'false' requires adding
   # one — METRICS_PORT defaults to 4021 and nothing exposes it.
