@@ -68,14 +68,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # 24h TTLs already used for kill caches.
   @dedup_ttl :timer.hours(24)
 
-  # Notable-items enrichment failure cooldown. The counter lives in the shared
-  # api cache and carries the cooldown as its TTL, so it both counts and expires.
-  # Threshold and window are deliberate guesses: telemetry on
-  # `[:wanderer_app, :discord, :notable_items]` is what will tune them.
-  @notable_items_cache :api_cache
+  # Enrichment failure cooldown, shared by both enrichment steps. The counter
+  # lives in the shared api cache and carries the cooldown as its TTL, so it both
+  # counts and expires. Threshold and window are deliberate guesses: telemetry on
+  # `[:wanderer_app, :discord, :notable_items]` and
+  # `[:wanderer_app, :discord, :corp_tickers]` is what will tune them.
+  @enrichment_cache :api_cache
   @notable_items_failure_key "discord-notable-items-failures"
-  @notable_items_failure_threshold 3
-  @notable_items_cooldown_ms :timer.seconds(60)
+  @enrichment_failure_threshold 3
+  @enrichment_cooldown_ms :timer.seconds(60)
 
   # Corporation-ticker enrichment shares that bookkeeping, under its own key so
   # an ESI outage that stops ticker lookups does not also suppress notable items
@@ -301,7 +302,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # The budget bounds ONE batch, not the mailbox. During a sustained ESI or
   # market outage every batch would pay it in full and the dispatcher would fall
   # arbitrarily far behind, so the failure cooldown below is part of the feature
-  # rather than a follow-up: after @notable_items_failure_threshold consecutive
+  # rather than a follow-up: after @enrichment_failure_threshold consecutive
   # failures, enrichment is skipped outright for the cooldown window.
   defp enrich_notable_items(partitions) do
     cond do
@@ -381,13 +382,21 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     start_task(fn -> enricher.enrich(candidates) end)
   end
 
+  # Returns nil when the task could not be started at all, which in practice
+  # means the Discord task supervisor is not running. Logged rather than
+  # swallowed: it silently disables *both* enrichments, and unlike the other
+  # failure paths it is a supervision-tree problem, not an ESI one.
   defp start_task(fun) do
     Task.Supervisor.async_nolink(WandererApp.ExternalEvents.Discord.TaskSupervisor, fun)
   rescue
     # The supervisor is not up. Fail open like every other enrichment failure.
-    _ -> nil
+    error ->
+      Logger.warning("[Discord] enrichment task not started: #{Exception.message(error)}")
+      nil
   catch
-    :exit, _ -> nil
+    :exit, reason ->
+      Logger.warning("[Discord] enrichment task not started, exited: #{inspect(reason)}")
+      nil
   end
 
   # Only the kills that will actually be rendered, deduplicated. `Router.route/3`
@@ -425,8 +434,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp notable_items_cooldown_active?, do: cooldown_active?(@notable_items_failure_key)
 
   defp cooldown_active?(key) do
-    case Cachex.get(@notable_items_cache, key) do
-      {:ok, count} when is_integer(count) -> count >= @notable_items_failure_threshold
+    case Cachex.get(@enrichment_cache, key) do
+      {:ok, count} when is_integer(count) -> count >= @enrichment_failure_threshold
       _ -> false
     end
   end
@@ -442,12 +451,12 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   defp note_failure(key, message_fun) do
     count =
-      case Cachex.get(@notable_items_cache, key) do
+      case Cachex.get(@enrichment_cache, key) do
         {:ok, n} when is_integer(n) -> n + 1
         _ -> 1
       end
 
-    Cachex.put(@notable_items_cache, key, count, ttl: @notable_items_cooldown_ms)
+    Cachex.put(@enrichment_cache, key, count, ttl: @enrichment_cooldown_ms)
 
     Logger.warning(message_fun.(count))
   rescue
@@ -459,7 +468,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp reset_notable_items_failures, do: reset_failures(@notable_items_failure_key)
 
   defp reset_failures(key) do
-    Cachex.del(@notable_items_cache, key)
+    Cachex.del(@enrichment_cache, key)
   rescue
     _ -> :ok
   end
@@ -527,14 +536,29 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   defp handle_corp_tickers(partitions, wanted, result, duration) do
     case result do
+      # Work was owed and none of it came back. Unlike notable items — where an
+      # empty result legitimately means "this kill dropped nothing notable" —
+      # every id here was asked for because a ticker is missing, so resolving
+      # none of them means ESI answered nothing. Counting it is what lets the
+      # cooldown stop us paying the full round trip on every subsequent batch,
+      # and what makes an ESI outage visible instead of silently reappearing as
+      # the exact bug this enrichment exists to fix.
+      {:ok, tickers} when is_map(tickers) and map_size(tickers) == 0 ->
+        note_corp_tickers_failure("resolved none of #{wanted} corporations")
+        emit_corp_tickers(duration, wanted, 0, :unresolved)
+        partitions
+
       {:ok, tickers} when is_map(tickers) ->
         reset_failures(@corp_tickers_failure_key)
         emit_corp_tickers(duration, wanted, map_size(tickers), :ok)
         merge_corp_tickers(partitions, tickers)
 
-      {:ok, _unexpected} ->
-        reset_failures(@corp_tickers_failure_key)
-        emit_corp_tickers(duration, wanted, 0, :ok)
+      # Only reachable through a misconfigured `:corp_tickers_enricher`. Treated
+      # as a failure rather than an empty result so it cannot masquerade as a
+      # healthy batch forever.
+      {:ok, unexpected} ->
+        note_corp_tickers_failure("enricher returned #{inspect(unexpected)}, expected a map")
+        emit_corp_tickers(duration, wanted, 0, :invalid)
         partitions
 
       {:exit, reason} ->
