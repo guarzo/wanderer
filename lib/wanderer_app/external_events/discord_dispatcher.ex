@@ -246,6 +246,14 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
       # System-level filtering used to happen here for the whole batch. It now
       # lives in `Router.route/3`, because `excluded_systems` and `wh_only` have
       # per-kill carve-outs for kills involving this map's own pilots.
+      # Both enrichment steps block this singleton, and they run in sequence,
+      # so the worst-case hold on a batch is the SUM of their budgets — 3s with
+      # both at the default 1500ms, not 1500ms. That is accepted rather than
+      # shared: notable items is opt-in, so the default ceiling stays at one
+      # budget, and a deployment that opts in has already accepted paying for
+      # ESI killmail fetches on this path. Adding a third enrichment here, or
+      # turning notable items on by default, is the point at which the two
+      # should be bounded by one shared deadline instead.
       fresh
       |> partition(map_id, notification)
       |> enrich_notable_items()
@@ -310,7 +318,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
         emit_notable_items(0, 0, 0, :disabled)
         partitions
 
-      notable_items_cooldown_active?() ->
+      cooldown_active?(@notable_items_failure_key) ->
         emit_notable_items(0, 0, 0, :skipped_cooldown)
         partitions
 
@@ -350,12 +358,12 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp handle_enrichment(partitions, candidates, result, duration) do
     case result do
       {:ok, by_kill} when is_map(by_kill) ->
-        reset_notable_items_failures()
+        reset_failures(@notable_items_failure_key)
         emit_notable_items(duration, length(candidates), item_count(by_kill), :ok)
         merge_notable_items(partitions, by_kill)
 
       {:ok, _unexpected} ->
-        reset_notable_items_failures()
+        reset_failures(@notable_items_failure_key)
         emit_notable_items(duration, length(candidates), 0, :ok)
         partitions
 
@@ -431,8 +439,6 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp item_count(by_kill),
     do: by_kill |> Map.values() |> Enum.map(&length/1) |> Enum.sum()
 
-  defp notable_items_cooldown_active?, do: cooldown_active?(@notable_items_failure_key)
-
   defp cooldown_active?(key) do
     case Cachex.get(@enrichment_cache, key) do
       {:ok, count} when is_integer(count) -> count >= @enrichment_failure_threshold
@@ -464,8 +470,6 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     # cost the batch.
     _ -> :ok
   end
-
-  defp reset_notable_items_failures, do: reset_failures(@notable_items_failure_key)
 
   defp reset_failures(key) do
     Cachex.del(@enrichment_cache, key)
@@ -589,7 +593,14 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # did resolve render correctly — so it neither trips the cooldown nor counts as
   # a failure. It is still worth a line: sustained partial resolution means an
   # ESI problem that no other signal here reports, since the outcome stays `:ok`.
-  defp log_partial_corp_tickers(wanted, resolved) when resolved < wanted do
+  #
+  # Only when the *majority* went unresolved, though. A corporation ESI does not
+  # know, or whose record carries no ticker, never resolves and is re-requested
+  # by every batch containing that kill, since nothing is ever written back to
+  # the payload. Warning on any shortfall would turn one such corporation into a
+  # permanent warning stream describing a fixed data condition rather than the
+  # degradation this is meant to catch.
+  defp log_partial_corp_tickers(wanted, resolved) when resolved * 2 < wanted do
     Logger.warning(
       "[Discord] corp tickers resolved #{resolved} of #{wanted} corporations; " <>
         "the rest post without their ticker"

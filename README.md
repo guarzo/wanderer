@@ -76,7 +76,7 @@ still posted.
 
 Corporation tickers are filled in from ESI when a killmail reaches the
 dispatcher without them, so the `(TICKER)` after each pilot name is not lost to
-an upstream payload that arrived unenriched. This is always on: it is one
+an upstream payload that arrived unenriched. This is on by default: it is one
 lookup per corporation, cached for an hour, and only for the kills actually
 being posted. `WANDERER_CORP_TICKERS_TIMEOUT_MS` (default `1500`) bounds how
 long those lookups may hold up a batch, and `WANDERER_CORP_TICKERS_ENABLED`

@@ -1507,6 +1507,45 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert length(wait_for_requests(4)) == 4
     end
 
+    test "warns only when most of the batch went unresolved", %{map: map, system: w} do
+      # Three corporations owed across the batch. One permanently ticker-less
+      # corporation among them must not warn — otherwise every batch carrying
+      # that kill logs a fixed data condition as if it were ESI degradation.
+      batch = [
+        corp_kill(9_770,
+          victim_corp_id: 98_721_938,
+          final_blow_corp_id: 98_832_599,
+          extra: %{"final_blow_char_name" => "MiniNinja37"}
+        ),
+        corp_kill(9_771, victim_corp_id: 98_900_001)
+      ]
+
+      returns_tickers(%{"98721938" => ".STEX", "98832599" => "SKRPR"})
+      quiet = capture_log(fn -> dispatch(map, batch) end)
+      refute quiet =~ "corp tickers resolved"
+
+      # Two of three missing is degradation, and does warn.
+      returns_tickers(%{"98721938" => ".STEX"})
+
+      noisy =
+        capture_log(fn ->
+          dispatch(map, [
+            corp_kill(9_772,
+              victim_corp_id: 98_721_938,
+              final_blow_corp_id: 98_832_599,
+              extra: %{"final_blow_char_name" => "MiniNinja37"}
+            ),
+            corp_kill(9_773, victim_corp_id: 98_900_001)
+          ])
+        end)
+
+      assert noisy =~ "corp tickers resolved 1 of 3 corporations"
+
+      # One message per dispatched batch — both kills render into it.
+      settle(w.id)
+      assert length(wait_for_requests(2)) == 2
+    end
+
     test "does not resolve at all when the incident switch is off", %{map: map, system: w} do
       original = Application.get_env(:wanderer_app, :external_events, [])
 
