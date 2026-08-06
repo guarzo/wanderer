@@ -74,6 +74,14 @@ without a price, since market quotes for them are not meaningful. Any failure �
 timeout, ESI error, unavailable pricing — simply omits the section; the kill is
 still posted.
 
+Corporation tickers are filled in from ESI when a killmail reaches the
+dispatcher without them, so the `(TICKER)` after each pilot name is not lost to
+an upstream payload that arrived unenriched. This is always on: it is one
+lookup per corporation, cached for an hour, and only for the kills actually
+being posted. `WANDERER_CORP_TICKERS_TIMEOUT_MS` (default `1500`) bounds how
+long those lookups may hold up a batch. A failure omits the ticker; the kill is
+still posted.
+
 The webhook URL is stored encrypted and is never displayed in full after it is
 saved — the settings tab shows only a masked hint. Pointing a destination at a
 different channel means entering the full URL again.
