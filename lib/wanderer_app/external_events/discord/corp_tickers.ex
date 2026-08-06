@@ -132,7 +132,7 @@ defmodule WandererApp.ExternalEvents.Discord.CorpTickers do
   end
 
   defp resolve(corp_id) do
-    case safe(fn -> esi_client().get_corporation_info(corp_id) end) do
+    case safe(corp_id, fn -> esi_client().get_corporation_info(corp_id) end) do
       {:ok, %{"ticker" => ticker}} when is_binary(ticker) ->
         case present(ticker) do
           nil -> :unresolved
@@ -161,15 +161,19 @@ defmodule WandererApp.ExternalEvents.Discord.CorpTickers do
 
   # An exception in an `async_stream` child brings down the whole stream, which
   # would discard the corporations that had already resolved.
-  defp safe(fun) do
+  #
+  # The corporation id is carried into the message because the concurrency means
+  # a systemic failure produces several identical lines at once, with nothing
+  # else to tell them apart by.
+  defp safe(corp_id, fun) do
     fun.()
   rescue
     error ->
-      Logger.warning("[CorpTickers] #{Exception.message(error)}")
+      Logger.warning("[CorpTickers] corporation #{corp_id}: #{Exception.message(error)}")
       :error
   catch
     :exit, reason ->
-      Logger.warning("[CorpTickers] exited: #{inspect(reason)}")
+      Logger.warning("[CorpTickers] corporation #{corp_id} exited: #{inspect(reason)}")
       :error
   end
 end
