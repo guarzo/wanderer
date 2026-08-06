@@ -1507,6 +1507,31 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert length(wait_for_requests(4)) == 4
     end
 
+    test "counts a batch that resolved nothing as a failure, not a healthy no-op",
+         %{map: map, system: w} do
+      # Every id was asked for because its ticker was missing, so resolving none
+      # of them means ESI answered nothing — an outage wearing the shape of the
+      # original bug. It has to trip the cooldown rather than reset it, or we
+      # keep paying the round trip on every batch for the length of the outage.
+      returns_tickers(%{})
+
+      log =
+        capture_log(fn ->
+          for id <- 1..3 do
+            dispatch(map, [corp_kill(9_740 + id, victim_corp_id: 98_721_938)])
+            assert_received {:tickers_called, _}
+          end
+        end)
+
+      assert log =~ "resolved none of 1 corporations"
+
+      dispatch(map, [corp_kill(9_750, victim_corp_id: 98_721_938)])
+      refute_received {:tickers_called, _}
+
+      settle(w.id)
+      assert length(wait_for_requests(4)) == 4
+    end
+
     test "emits telemetry carrying how much was owed and resolved",
          %{map: map, system: w} do
       handler = "corp-tickers-test-#{System.unique_integer([:positive])}"
