@@ -177,6 +177,21 @@ defmodule WandererApp.Env do
   @default_corp_tickers_timeout_ms 1_500
 
   @doc """
+  Whether the Discord dispatcher fills in corporation tickers a killmail arrived
+  without.
+
+  On by default, unlike `notable_items_enabled?/0`: an off switch here means
+  embeds silently lose the `(TICKER)` after each pilot name, which is a bug, not
+  a preference. It exists as a switch only so an operator can stop the ESI
+  lookups during an incident without waiting for a deploy — the enrichment
+  already costs nothing on batches whose payload carried its tickers.
+  """
+  def corp_tickers_enabled?() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:corp_tickers_enabled, true)
+  end
+
+  @doc """
   Hard ceiling on how long corporation-ticker resolution may block the singleton
   dispatcher, in the same sense as `notable_items_timeout_ms/0`.
 

@@ -494,11 +494,22 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # a missing optional section. See `Discord.CorpTickers` for why the payload
   # cannot be trusted here.
   defp enrich_corp_tickers(partitions) do
-    if cooldown_active?(@corp_tickers_failure_key) do
-      emit_corp_tickers(0, 0, 0, :skipped_cooldown)
-      partitions
-    else
-      run_corp_tickers(partitions, render_candidates(partitions))
+    cond do
+      not Env.corp_tickers_enabled?() ->
+        emit_corp_tickers(0, 0, 0, :disabled)
+        partitions
+
+      cooldown_active?(@corp_tickers_failure_key) ->
+        emit_corp_tickers(0, 0, 0, :skipped_cooldown)
+        partitions
+
+      true ->
+        # `render_candidates/1` deliberately runs once per enrichment rather
+        # than once per batch. Hoisting it would mean handing the second
+        # enricher a list built before the first one ran, which is correct only
+        # while no enricher reads another's output — an unwritten invariant
+        # worth more than the microseconds a second pass over ten maps costs.
+        run_corp_tickers(partitions, render_candidates(partitions))
     end
   end
 
@@ -550,6 +561,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
       {:ok, tickers} when is_map(tickers) ->
         reset_failures(@corp_tickers_failure_key)
+        log_partial_corp_tickers(wanted, map_size(tickers))
         emit_corp_tickers(duration, wanted, map_size(tickers), :ok)
         merge_corp_tickers(partitions, tickers)
 
@@ -572,6 +584,19 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
         partitions
     end
   end
+
+  # A batch that resolves *some* of what it asked for is a success — the kills it
+  # did resolve render correctly — so it neither trips the cooldown nor counts as
+  # a failure. It is still worth a line: sustained partial resolution means an
+  # ESI problem that no other signal here reports, since the outcome stays `:ok`.
+  defp log_partial_corp_tickers(wanted, resolved) when resolved < wanted do
+    Logger.warning(
+      "[Discord] corp tickers resolved #{resolved} of #{wanted} corporations; " <>
+        "the rest post without their ticker"
+    )
+  end
+
+  defp log_partial_corp_tickers(_wanted, _resolved), do: :ok
 
   defp merge_corp_tickers(partitions, tickers) when map_size(tickers) == 0, do: partitions
 
