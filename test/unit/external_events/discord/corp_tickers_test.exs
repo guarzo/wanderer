@@ -34,6 +34,18 @@ defmodule WandererApp.ExternalEvents.Discord.CorpTickersTest do
 
   defp kill(fields), do: Map.merge(%{"killmail_id" => 1}, fields)
 
+  defp corp_tickers_timeout(ms) do
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.put(original, :corp_tickers_timeout_ms, ms)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+  end
+
   describe "missing_corp_ids/1" do
     test "returns the ids of both rendered fields when the tickers are absent" do
       kills = [kill(%{"victim_corp_id" => 98_721_938, "final_blow_corp_id" => 98_832_599})]
@@ -130,6 +142,22 @@ defmodule WandererApp.ExternalEvents.Discord.CorpTickersTest do
       end)
 
       assert CorpTickers.enrich([kill(%{"victim_corp_id" => 1})]) == %{}
+    end
+
+    test "keeps the corporations that resolved when one lookup outlives its slice" do
+      # The per-element timeout is half the enrichment budget precisely so this
+      # can happen: the slow corporation is dropped and the stream still returns
+      # the fast one, rather than the dispatcher killing the whole task.
+      corp_tickers_timeout(200)
+
+      stub(WandererApp.Esi.Mock, :get_corporation_info, fn corp_id ->
+        if to_string(corp_id) == "2", do: Process.sleep(180)
+        {:ok, %{"ticker" => "AAA"}}
+      end)
+
+      kills = [kill(%{"victim_corp_id" => 1, "final_blow_corp_id" => 2})]
+
+      assert CorpTickers.enrich(kills) == %{"1" => "AAA"}
     end
 
     test "survives a raising lookup — one bad corporation must not cost the batch" do
