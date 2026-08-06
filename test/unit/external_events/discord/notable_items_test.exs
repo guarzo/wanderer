@@ -19,11 +19,15 @@ defmodule WandererApp.ExternalEvents.Discord.NotableItemsTest do
     Cachex.clear(:api_cache)
 
     Application.put_env(:wanderer_app, :triff_http_client, HttpStub)
+    # Restored, not deleted, on exit: `config/test.exs` points this seam at
+    # `Esi.OfflineStub`, and deleting it would leave later tests pointed at real
+    # ESI.
+    original_esi = Application.get_env(:wanderer_app, :esi_client)
     Application.put_env(:wanderer_app, :esi_client, WandererApp.Esi.Mock)
 
     on_exit(fn ->
       Application.delete_env(:wanderer_app, :triff_http_client)
-      Application.delete_env(:wanderer_app, :esi_client)
+      Application.put_env(:wanderer_app, :esi_client, original_esi)
       Cachex.clear(:api_cache)
     end)
 
