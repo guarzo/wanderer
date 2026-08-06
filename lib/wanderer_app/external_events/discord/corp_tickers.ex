@@ -84,7 +84,7 @@ defmodule WandererApp.ExternalEvents.Discord.CorpTickers do
         corp_ids
         |> Task.async_stream(&resolve/1,
           max_concurrency: @esi_concurrency,
-          timeout: WandererApp.Env.corp_tickers_timeout_ms(),
+          timeout: element_timeout_ms(),
           on_timeout: :kill_task,
           ordered: false
         )
@@ -142,6 +142,18 @@ defmodule WandererApp.ExternalEvents.Discord.CorpTickers do
       _ ->
         :unresolved
     end
+  end
+
+  # Strictly smaller than the budget the dispatcher gives the whole enrichment,
+  # and that gap is the point. Both deadlines start at roughly the same moment,
+  # so a per-element timeout equal to the whole budget means the dispatcher
+  # shuts this task down before `on_timeout: :kill_task` can drop the slow
+  # corporation — the corporations that already resolved die with it. Half the
+  # budget leaves room for the stream to finish and hand back what it got.
+  defp element_timeout_ms do
+    WandererApp.Env.corp_tickers_timeout_ms()
+    |> div(2)
+    |> max(1)
   end
 
   defp normalize(id) when is_integer(id), do: Integer.to_string(id)
