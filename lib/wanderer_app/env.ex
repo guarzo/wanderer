@@ -174,6 +174,38 @@ defmodule WandererApp.Env do
     |> validate_positive_integer(:notable_items_timeout_ms, @default_notable_items_timeout_ms)
   end
 
+  @default_corp_tickers_timeout_ms 1_500
+
+  @doc """
+  Whether the Discord dispatcher fills in corporation tickers a killmail arrived
+  without.
+
+  On by default, unlike `notable_items_enabled?/0`: an off switch here means
+  embeds silently lose the `(TICKER)` after each pilot name, which is a bug, not
+  a preference. It exists as a switch only so an operator can stop the ESI
+  lookups during an incident without waiting for a deploy — the enrichment
+  already costs nothing on batches whose payload carried its tickers.
+  """
+  def corp_tickers_enabled?() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:corp_tickers_enabled, true)
+  end
+
+  @doc """
+  Hard ceiling on how long corporation-ticker resolution may block the singleton
+  dispatcher, in the same sense as `notable_items_timeout_ms/0`.
+
+  Separate from that budget rather than shared with it because the two do very
+  different amounts of work: ticker lookups are per-corporation and cached for
+  an hour, so the steady state is a cache read, while notable items pay an ESI
+  killmail fetch per kill every time.
+  """
+  def corp_tickers_timeout_ms() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:corp_tickers_timeout_ms, @default_corp_tickers_timeout_ms)
+    |> validate_positive_integer(:corp_tickers_timeout_ms, @default_corp_tickers_timeout_ms)
+  end
+
   defp validate_positive_integer(value, _key, _default) when is_integer(value) and value > 0,
     do: value
 

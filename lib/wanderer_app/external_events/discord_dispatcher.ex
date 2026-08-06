@@ -52,6 +52,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   alias WandererApp.Env
 
   alias WandererApp.ExternalEvents.Discord.{
+    CorpTickers,
     EmbedFormatter,
     Matcher,
     NotableItems,
@@ -67,14 +68,20 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # 24h TTLs already used for kill caches.
   @dedup_ttl :timer.hours(24)
 
-  # Notable-items enrichment failure cooldown. The counter lives in the shared
-  # api cache and carries the cooldown as its TTL, so it both counts and expires.
-  # Threshold and window are deliberate guesses: telemetry on
-  # `[:wanderer_app, :discord, :notable_items]` is what will tune them.
-  @notable_items_cache :api_cache
+  # Enrichment failure cooldown, shared by both enrichment steps. The counter
+  # lives in the shared api cache and carries the cooldown as its TTL, so it both
+  # counts and expires. Threshold and window are deliberate guesses: telemetry on
+  # `[:wanderer_app, :discord, :notable_items]` and
+  # `[:wanderer_app, :discord, :corp_tickers]` is what will tune them.
+  @enrichment_cache :api_cache
   @notable_items_failure_key "discord-notable-items-failures"
-  @notable_items_failure_threshold 3
-  @notable_items_cooldown_ms :timer.seconds(60)
+  @enrichment_failure_threshold 3
+  @enrichment_cooldown_ms :timer.seconds(60)
+
+  # Corporation-ticker enrichment shares that bookkeeping, under its own key so
+  # an ESI outage that stops ticker lookups does not also suppress notable items
+  # (or the reverse).
+  @corp_tickers_failure_key "discord-corp-tickers-failures"
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -239,9 +246,18 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
       # System-level filtering used to happen here for the whole batch. It now
       # lives in `Router.route/3`, because `excluded_systems` and `wh_only` have
       # per-kill carve-outs for kills involving this map's own pilots.
+      # Both enrichment steps block this singleton, and they run in sequence,
+      # so the worst-case hold on a batch is the SUM of their budgets — 3s with
+      # both at the default 1500ms, not 1500ms. That is accepted rather than
+      # shared: notable items is opt-in, so the default ceiling stays at one
+      # budget, and a deployment that opts in has already accepted paying for
+      # ESI killmail fetches on this path. Adding a third enrichment here, or
+      # turning notable items on by default, is the point at which the two
+      # should be bounded by one shared deadline instead.
       fresh
       |> partition(map_id, notification)
       |> enrich_notable_items()
+      |> enrich_corp_tickers()
       |> Enum.each(fn {webhook, entries} ->
         deliver_partition(map_id, system_id, webhook, entries)
       end)
@@ -294,7 +310,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # The budget bounds ONE batch, not the mailbox. During a sustained ESI or
   # market outage every batch would pay it in full and the dispatcher would fall
   # arbitrarily far behind, so the failure cooldown below is part of the feature
-  # rather than a follow-up: after @notable_items_failure_threshold consecutive
+  # rather than a follow-up: after @enrichment_failure_threshold consecutive
   # failures, enrichment is skipped outright for the cooldown window.
   defp enrich_notable_items(partitions) do
     cond do
@@ -302,12 +318,12 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
         emit_notable_items(0, 0, 0, :disabled)
         partitions
 
-      notable_items_cooldown_active?() ->
+      cooldown_active?(@notable_items_failure_key) ->
         emit_notable_items(0, 0, 0, :skipped_cooldown)
         partitions
 
       true ->
-        run_enrichment(partitions, notable_items_candidates(partitions))
+        run_enrichment(partitions, render_candidates(partitions))
     end
   end
 
@@ -342,12 +358,12 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp handle_enrichment(partitions, candidates, result, duration) do
     case result do
       {:ok, by_kill} when is_map(by_kill) ->
-        reset_notable_items_failures()
+        reset_failures(@notable_items_failure_key)
         emit_notable_items(duration, length(candidates), item_count(by_kill), :ok)
         merge_notable_items(partitions, by_kill)
 
       {:ok, _unexpected} ->
-        reset_notable_items_failures()
+        reset_failures(@notable_items_failure_key)
         emit_notable_items(duration, length(candidates), 0, :ok)
         partitions
 
@@ -371,21 +387,30 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp start_enrichment(candidates) do
     enricher = NotableItems.impl()
 
-    Task.Supervisor.async_nolink(
-      WandererApp.ExternalEvents.Discord.TaskSupervisor,
-      fn -> enricher.enrich(candidates) end
-    )
+    start_task(fn -> enricher.enrich(candidates) end)
+  end
+
+  # Returns nil when the task could not be started at all, which in practice
+  # means the Discord task supervisor is not running. Logged rather than
+  # swallowed: it silently disables *both* enrichments, and unlike the other
+  # failure paths it is a supervision-tree problem, not an ESI one.
+  defp start_task(fun) do
+    Task.Supervisor.async_nolink(WandererApp.ExternalEvents.Discord.TaskSupervisor, fun)
   rescue
     # The supervisor is not up. Fail open like every other enrichment failure.
-    _ -> nil
+    error ->
+      Logger.warning("[Discord] enrichment task not started: #{Exception.message(error)}")
+      nil
   catch
-    :exit, _ -> nil
+    :exit, reason ->
+      Logger.warning("[Discord] enrichment task not started, exited: #{inspect(reason)}")
+      nil
   end
 
   # Only the kills that will actually be rendered, deduplicated. `Router.route/3`
   # returns exactly one destination per kill so a kill cannot currently appear in
   # two partitions; the dedup is cheap insurance against that property changing.
-  defp notable_items_candidates(partitions) do
+  defp render_candidates(partitions) do
     partitions
     |> Enum.flat_map(fn {_webhook, entries} ->
       entries
@@ -414,9 +439,9 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp item_count(by_kill),
     do: by_kill |> Map.values() |> Enum.map(&length/1) |> Enum.sum()
 
-  defp notable_items_cooldown_active? do
-    case Cachex.get(@notable_items_cache, @notable_items_failure_key) do
-      {:ok, count} when is_integer(count) -> count >= @notable_items_failure_threshold
+  defp cooldown_active?(key) do
+    case Cachex.get(@enrichment_cache, key) do
+      {:ok, count} when is_integer(count) -> count >= @enrichment_failure_threshold
       _ -> false
     end
   end
@@ -424,28 +449,30 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # The counter carries the cooldown TTL, so reaching the threshold suppresses
   # enrichment until the entry expires and a fresh attempt is made.
   defp note_notable_items_failure(reason) do
+    note_failure(@notable_items_failure_key, fn count ->
+      "[Discord] notable items #{reason} (#{count} consecutive); " <>
+        "batch delivered without the section"
+    end)
+  end
+
+  defp note_failure(key, message_fun) do
     count =
-      case Cachex.get(@notable_items_cache, @notable_items_failure_key) do
+      case Cachex.get(@enrichment_cache, key) do
         {:ok, n} when is_integer(n) -> n + 1
         _ -> 1
       end
 
-    Cachex.put(@notable_items_cache, @notable_items_failure_key, count,
-      ttl: @notable_items_cooldown_ms
-    )
+    Cachex.put(@enrichment_cache, key, count, ttl: @enrichment_cooldown_ms)
 
-    Logger.warning(
-      "[Discord] notable items #{reason} (#{count} consecutive); " <>
-        "batch delivered without the section"
-    )
+    Logger.warning(message_fun.(count))
   rescue
     # The cache is not started in every context; a bookkeeping failure must not
     # cost the batch.
     _ -> :ok
   end
 
-  defp reset_notable_items_failures do
-    Cachex.del(@notable_items_cache, @notable_items_failure_key)
+  defp reset_failures(key) do
+    Cachex.del(@enrichment_cache, key)
   rescue
     _ -> :ok
   end
@@ -454,6 +481,156 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     :telemetry.execute(
       [:wanderer_app, :discord, :notable_items],
       %{duration: duration, kill_count: kill_count, item_count: item_count},
+      %{outcome: outcome}
+    )
+  end
+
+  # -- corporation tickers ---------------------------------------------------
+  #
+  # Same placement, budget and fail-open rules as notable items above: after
+  # routing and the per-destination cap, blocking for at most
+  # `Env.corp_tickers_timeout_ms/0`, and every failure path returns the
+  # partitions untouched so the batch still posts.
+  #
+  # Unlike notable items this is NOT opt-in. The embed already claims to show
+  # corporations; a payload that arrives without a ticker silently deletes the
+  # whole parenthetical, which reads as "this pilot has no corp" rather than as
+  # a missing optional section. See `Discord.CorpTickers` for why the payload
+  # cannot be trusted here.
+  defp enrich_corp_tickers(partitions) do
+    cond do
+      not Env.corp_tickers_enabled?() ->
+        emit_corp_tickers(0, 0, 0, :disabled)
+        partitions
+
+      cooldown_active?(@corp_tickers_failure_key) ->
+        emit_corp_tickers(0, 0, 0, :skipped_cooldown)
+        partitions
+
+      true ->
+        # `render_candidates/1` deliberately runs once per enrichment rather
+        # than once per batch. Hoisting it would mean handing the second
+        # enricher a list built before the first one ran, which is correct only
+        # while no enricher reads another's output — an unwritten invariant
+        # worth more than the microseconds a second pass over ten maps costs.
+        run_corp_tickers(partitions, render_candidates(partitions))
+    end
+  end
+
+  defp run_corp_tickers(partitions, []) do
+    emit_corp_tickers(0, 0, 0, :ok)
+    partitions
+  end
+
+  defp run_corp_tickers(partitions, candidates) do
+    # Counted here rather than inside the task so the telemetry still reports
+    # how much work was owed when the task times out or crashes.
+    wanted = length(CorpTickers.missing_corp_ids(candidates))
+
+    if wanted == 0 do
+      emit_corp_tickers(0, 0, 0, :ok)
+      partitions
+    else
+      started = System.monotonic_time()
+      enricher = CorpTickers.impl()
+
+      case start_task(fn -> enricher.enrich(candidates) end) do
+        nil ->
+          emit_corp_tickers(0, wanted, 0, :unavailable)
+          partitions
+
+        task ->
+          result =
+            Task.yield(task, Env.corp_tickers_timeout_ms()) ||
+              Task.shutdown(task, :brutal_kill)
+
+          handle_corp_tickers(partitions, wanted, result, System.monotonic_time() - started)
+      end
+    end
+  end
+
+  defp handle_corp_tickers(partitions, wanted, result, duration) do
+    case result do
+      # Work was owed and none of it came back. Unlike notable items — where an
+      # empty result legitimately means "this kill dropped nothing notable" —
+      # every id here was asked for because a ticker is missing, so resolving
+      # none of them means ESI answered nothing. Counting it is what lets the
+      # cooldown stop us paying the full round trip on every subsequent batch,
+      # and what makes an ESI outage visible instead of silently reappearing as
+      # the exact bug this enrichment exists to fix.
+      {:ok, tickers} when is_map(tickers) and map_size(tickers) == 0 ->
+        note_corp_tickers_failure("resolved none of #{wanted} corporations")
+        emit_corp_tickers(duration, wanted, 0, :unresolved)
+        partitions
+
+      {:ok, tickers} when is_map(tickers) ->
+        reset_failures(@corp_tickers_failure_key)
+        log_partial_corp_tickers(wanted, map_size(tickers))
+        emit_corp_tickers(duration, wanted, map_size(tickers), :ok)
+        merge_corp_tickers(partitions, tickers)
+
+      # Only reachable through a misconfigured `:corp_tickers_enricher`. Treated
+      # as a failure rather than an empty result so it cannot masquerade as a
+      # healthy batch forever.
+      {:ok, unexpected} ->
+        note_corp_tickers_failure("enricher returned #{inspect(unexpected)}, expected a map")
+        emit_corp_tickers(duration, wanted, 0, :invalid)
+        partitions
+
+      {:exit, reason} ->
+        note_corp_tickers_failure("enricher crashed: #{inspect(reason)}")
+        emit_corp_tickers(duration, wanted, 0, :crash)
+        partitions
+
+      _ ->
+        note_corp_tickers_failure("enricher timed out")
+        emit_corp_tickers(duration, wanted, 0, :timeout)
+        partitions
+    end
+  end
+
+  # A batch that resolves *some* of what it asked for is a success — the kills it
+  # did resolve render correctly — so it neither trips the cooldown nor counts as
+  # a failure. It is still worth a line: sustained partial resolution means an
+  # ESI problem that no other signal here reports, since the outcome stays `:ok`.
+  #
+  # Only when the *majority* went unresolved, though. A corporation ESI does not
+  # know, or whose record carries no ticker, never resolves and is re-requested
+  # by every batch containing that kill, since nothing is ever written back to
+  # the payload. Warning on any shortfall would turn one such corporation into a
+  # permanent warning stream describing a fixed data condition rather than the
+  # degradation this is meant to catch.
+  defp log_partial_corp_tickers(wanted, resolved) when resolved * 2 < wanted do
+    Logger.warning(
+      "[Discord] corp tickers resolved #{resolved} of #{wanted} corporations; " <>
+        "the rest post without their ticker"
+    )
+  end
+
+  defp log_partial_corp_tickers(_wanted, _resolved), do: :ok
+
+  defp merge_corp_tickers(partitions, tickers) when map_size(tickers) == 0, do: partitions
+
+  defp merge_corp_tickers(partitions, tickers) do
+    Map.new(partitions, fn {webhook, entries} ->
+      {webhook,
+       Enum.map(entries, fn {kill, verdict} ->
+         {CorpTickers.apply_tickers(kill, tickers), verdict}
+       end)}
+    end)
+  end
+
+  defp note_corp_tickers_failure(reason) do
+    note_failure(@corp_tickers_failure_key, fn count ->
+      "[Discord] corp tickers #{reason} (#{count} consecutive); " <>
+        "batch delivered without corporation tickers"
+    end)
+  end
+
+  defp emit_corp_tickers(duration, corp_count, resolved_count, outcome) do
+    :telemetry.execute(
+      [:wanderer_app, :discord, :corp_tickers],
+      %{duration: duration, corp_count: corp_count, resolved_count: resolved_count},
       %{outcome: outcome}
     )
   end

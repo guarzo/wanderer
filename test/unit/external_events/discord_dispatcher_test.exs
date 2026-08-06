@@ -21,6 +21,24 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest.Enricher do
   end
 end
 
+defmodule WandererApp.ExternalEvents.DiscordDispatcherTest.TickerEnricher do
+  @behaviour WandererApp.ExternalEvents.Discord.CorpTickers
+
+  @impl true
+  def enrich(kills) do
+    case Process.whereis(:corp_tickers_observer) do
+      nil -> :ok
+      pid -> send(pid, {:tickers_called, kills})
+    end
+
+    case Application.get_env(:wanderer_app, :test_corp_tickers_mode, %{}) do
+      :timeout -> Process.sleep(:infinity)
+      :crash -> raise "ticker enricher boom"
+      tickers when is_map(tickers) -> tickers
+    end
+  end
+end
+
 defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
   # `async: false` is mandatory: `HttpStub` keeps its state in a single named
   # Agent, and this file also mutates application env.
@@ -37,12 +55,14 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
   }
 
   alias WandererApp.ExternalEvents.DiscordDispatcherTest.Enricher
+  alias WandererApp.ExternalEvents.DiscordDispatcherTest.TickerEnricher
   alias WandererAppWeb.Factory
 
   # Must match `DiscordDispatcher`'s own key: the cooldown tests clear it
   # between runs, and a private counter left behind would silently disable
   # enrichment for every later test in this file.
   @failure_key "discord-notable-items-failures"
+  @ticker_failure_key "discord-corp-tickers-failures"
 
   # A real wormhole system id (J-space) and a real known-space id (Jita).
   @wh_system 31_000_005
@@ -1376,6 +1396,259 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
 
       settle(w.id)
     end
+  end
+
+  describe "corporation tickers" do
+    setup do
+      Process.register(self(), :corp_tickers_observer)
+      Cachex.del(:api_cache, @ticker_failure_key)
+
+      Application.put_env(:wanderer_app, :corp_tickers_enricher, TickerEnricher)
+      Application.put_env(:wanderer_app, :test_corp_tickers_mode, %{})
+
+      on_exit(fn ->
+        Application.delete_env(:wanderer_app, :corp_tickers_enricher)
+        Application.delete_env(:wanderer_app, :test_corp_tickers_mode)
+        Cachex.del(:api_cache, @ticker_failure_key)
+      end)
+
+      :ok
+    end
+
+    test "renders the corporation a payload arrived without", %{map: map, system: w} do
+      # The reported bug: the ticker is absent, so the embed used to drop the
+      # whole parenthetical and read as though the pilot had no corporation.
+      returns_tickers(%{"98721938" => ".STEX"})
+
+      dispatch(map, [corp_kill(9_701, victim_corp_id: 98_721_938)])
+      settle(w.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert description(body) =~ "(**[.STEX](https://zkillboard.com/corporation/98721938/)**)"
+    end
+
+    test "resolves the final blow's corporation too", %{map: map, system: w} do
+      returns_tickers(%{"98832599" => "SKRPR"})
+
+      kill =
+        corp_kill(9_702,
+          final_blow_corp_id: 98_832_599,
+          extra: %{"final_blow_char_name" => "MiniNinja37"}
+        )
+
+      dispatch(map, [kill])
+      settle(w.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert description(body) =~ "to **MiniNinja37** (**[SKRPR]"
+    end
+
+    test "does not run at all when the payload already carried the tickers",
+         %{map: map, system: w} do
+      kill =
+        corp_kill(9_703,
+          victim_corp_id: 98_721_938,
+          extra: %{"victim_corp_ticker" => "PAYLOAD"}
+        )
+
+      dispatch(map, [kill])
+      settle(w.id)
+
+      refute_received {:tickers_called, _}
+      assert [{_url, body}] = wait_for_requests(1)
+      assert description(body) =~ "(**[PAYLOAD]"
+    end
+
+    test "does not run when no kill carries a corporation id", %{map: map, system: w} do
+      dispatch(map, [fresh_kill(9_704)])
+      settle(w.id)
+
+      refute_received {:tickers_called, _}
+      assert [{_url, _body}] = wait_for_requests(1)
+    end
+
+    test "delivers without the corporation when the enricher times out",
+         %{map: map, system: w} do
+      corp_tickers_timeout(50)
+      returns_tickers(:timeout)
+
+      dispatch(map, [corp_kill(9_705, victim_corp_id: 98_721_938)])
+      settle(w.id)
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert description(body) =~ "lost their **Rifter**"
+      refute description(body) =~ "zkillboard.com/corporation"
+    end
+
+    test "delivers, and survives, when the enricher crashes", %{map: map} do
+      returns_tickers(:crash)
+
+      capture_log(fn -> dispatch(map, [corp_kill(9_706, victim_corp_id: 98_721_938)]) end)
+
+      assert Process.alive?(Process.whereis(DiscordDispatcher))
+      assert [{_url, body}] = wait_for_requests(1)
+      refute description(body) =~ "zkillboard.com/corporation"
+    end
+
+    test "stops resolving after repeated failures", %{map: map, system: w} do
+      returns_tickers(:crash)
+
+      capture_log(fn ->
+        for id <- 1..3 do
+          dispatch(map, [corp_kill(9_710 + id, victim_corp_id: 98_721_938)])
+          assert_received {:tickers_called, _}
+        end
+      end)
+
+      dispatch(map, [corp_kill(9_720, victim_corp_id: 98_721_938)])
+      refute_received {:tickers_called, _}
+
+      settle(w.id)
+      assert length(wait_for_requests(4)) == 4
+    end
+
+    test "warns only when most of the batch went unresolved", %{map: map, system: w} do
+      # Three corporations owed across the batch. One permanently ticker-less
+      # corporation among them must not warn — otherwise every batch carrying
+      # that kill logs a fixed data condition as if it were ESI degradation.
+      batch = [
+        corp_kill(9_770,
+          victim_corp_id: 98_721_938,
+          final_blow_corp_id: 98_832_599,
+          extra: %{"final_blow_char_name" => "MiniNinja37"}
+        ),
+        corp_kill(9_771, victim_corp_id: 98_900_001)
+      ]
+
+      returns_tickers(%{"98721938" => ".STEX", "98832599" => "SKRPR"})
+      quiet = capture_log(fn -> dispatch(map, batch) end)
+      refute quiet =~ "corp tickers resolved"
+
+      # Two of three missing is degradation, and does warn.
+      returns_tickers(%{"98721938" => ".STEX"})
+
+      noisy =
+        capture_log(fn ->
+          dispatch(map, [
+            corp_kill(9_772,
+              victim_corp_id: 98_721_938,
+              final_blow_corp_id: 98_832_599,
+              extra: %{"final_blow_char_name" => "MiniNinja37"}
+            ),
+            corp_kill(9_773, victim_corp_id: 98_900_001)
+          ])
+        end)
+
+      assert noisy =~ "corp tickers resolved 1 of 3 corporations"
+
+      # One message per dispatched batch — both kills render into it.
+      settle(w.id)
+      assert length(wait_for_requests(2)) == 2
+    end
+
+    test "does not resolve at all when the incident switch is off", %{map: map, system: w} do
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :corp_tickers_enabled, false)
+      )
+
+      on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
+      returns_tickers(%{"98721938" => ".STEX"})
+
+      dispatch(map, [corp_kill(9_760, victim_corp_id: 98_721_938)])
+      refute_received {:tickers_called, _}
+
+      settle(w.id)
+      assert [{_url, body}] = wait_for_requests(1)
+      refute description(body) =~ "zkillboard.com/corporation"
+    end
+
+    test "counts a batch that resolved nothing as a failure, not a healthy no-op",
+         %{map: map, system: w} do
+      # Every id was asked for because its ticker was missing, so resolving none
+      # of them means ESI answered nothing — an outage wearing the shape of the
+      # original bug. It has to trip the cooldown rather than reset it, or we
+      # keep paying the round trip on every batch for the length of the outage.
+      returns_tickers(%{})
+
+      log =
+        capture_log(fn ->
+          for id <- 1..3 do
+            dispatch(map, [corp_kill(9_740 + id, victim_corp_id: 98_721_938)])
+            assert_received {:tickers_called, _}
+          end
+        end)
+
+      assert log =~ "resolved none of 1 corporations"
+
+      dispatch(map, [corp_kill(9_750, victim_corp_id: 98_721_938)])
+      refute_received {:tickers_called, _}
+
+      settle(w.id)
+      assert length(wait_for_requests(4)) == 4
+    end
+
+    test "emits telemetry carrying how much was owed and resolved",
+         %{map: map, system: w} do
+      handler = "corp-tickers-test-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach(
+        handler,
+        [:wanderer_app, :discord, :corp_tickers],
+        fn _event, measurements, metadata, _ ->
+          send(test_pid, {:telemetry, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      returns_tickers(%{"98721938" => ".STEX"})
+      dispatch(map, [corp_kill(9_730, victim_corp_id: 98_721_938)])
+
+      assert_received {:telemetry, measurements, %{outcome: :ok}}
+      assert measurements.corp_count == 1
+      assert measurements.resolved_count == 1
+
+      settle(w.id)
+    end
+  end
+
+  # -- corporation ticker helpers ---------------------------------------------
+
+  defp returns_tickers(mode),
+    do: Application.put_env(:wanderer_app, :test_corp_tickers_mode, mode)
+
+  defp corp_tickers_timeout(ms) do
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.put(original, :corp_tickers_timeout_ms, ms)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+  end
+
+  # A kill carrying corporation ids but no tickers — the shape that reaches the
+  # dispatcher when upstream has not enriched the killmail.
+  defp corp_kill(id, opts) do
+    extra = Keyword.get(opts, :extra, %{})
+
+    [victim_corp_id: "victim_corp_id", final_blow_corp_id: "final_blow_corp_id"]
+    |> Enum.reduce(fresh_kill(id), fn {opt, key}, kill ->
+      case Keyword.get(opts, opt) do
+        nil -> kill
+        corp_id -> Map.put(kill, key, corp_id)
+      end
+    end)
+    |> Map.merge(extra)
   end
 
   # -- notable items helpers --------------------------------------------------
