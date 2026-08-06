@@ -34,7 +34,9 @@ config :wanderer_app,
   websocket_client_module: Test.WebSocketClientMock,
   sse: [enabled: false],
   external_events: [webhooks_enabled: false],
-  discord_http_client: WandererApp.ExternalEvents.Discord.HttpStub
+  discord_http_client: WandererApp.ExternalEvents.Discord.HttpStub,
+  # No test may reach real ESI. Enrichment tests override this per test.
+  esi_client: WandererApp.Esi.OfflineStub
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
