@@ -1507,6 +1507,27 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert length(wait_for_requests(4)) == 4
     end
 
+    test "does not resolve at all when the incident switch is off", %{map: map, system: w} do
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :corp_tickers_enabled, false)
+      )
+
+      on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
+      returns_tickers(%{"98721938" => ".STEX"})
+
+      dispatch(map, [corp_kill(9_760, victim_corp_id: 98_721_938)])
+      refute_received {:tickers_called, _}
+
+      settle(w.id)
+      assert [{_url, body}] = wait_for_requests(1)
+      refute description(body) =~ "zkillboard.com/corporation"
+    end
+
     test "counts a batch that resolved nothing as a failure, not a healthy no-op",
          %{map: map, system: w} do
       # Every id was asked for because its ticker was missing, so resolving none

@@ -512,6 +512,10 @@ config :wanderer_app, :external_events,
   notable_items_limit: config_dir |> get_int_from_path_or_env("WANDERER_NOTABLE_ITEMS_LIMIT", 5),
   notable_items_timeout_ms:
     config_dir |> get_int_from_path_or_env("WANDERER_NOTABLE_ITEMS_TIMEOUT_MS", 1500),
+  corp_tickers_enabled:
+    config_dir
+    |> get_var_from_path_or_env("WANDERER_CORP_TICKERS_ENABLED", "true")
+    |> String.to_existing_atom(),
   corp_tickers_timeout_ms:
     config_dir |> get_int_from_path_or_env("WANDERER_CORP_TICKERS_TIMEOUT_MS", 1500)
 
