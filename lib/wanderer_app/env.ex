@@ -260,6 +260,22 @@ defmodule WandererApp.Env do
     |> validate_positive_integer(:corp_tickers_timeout_ms, @default_corp_tickers_timeout_ms)
   end
 
+  @doc """
+  Whether Discord messages may carry role/user pings via `allowed_mentions`.
+
+  On by default, unlike `notable_items_enabled?/0`: mentions are already a
+  per-map, per-webhook opt-in (`MapDiscordWebhook.mention_targets`), so an
+  instance with nothing configured pings nobody regardless of this flag.
+  This exists purely as an incident kill-switch — an operator who needs
+  every mention silenced immediately (a runaway role ping, a compromised
+  mention target) flips this without touching per-map config or waiting for
+  a deploy.
+  """
+  def discord_mentions_enabled?() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:discord_mentions_enabled, true)
+  end
+
   defp validate_positive_integer(value, _key, _default) when is_integer(value) and value > 0,
     do: value
 
