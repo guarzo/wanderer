@@ -54,6 +54,20 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
     %{map: map, notification: notification}
   end
 
+  # A deterministic barrier for "the debounce timer that was just armed has
+  # fired and any task it launched has finished." `timer_ref` is guaranteed
+  # non-nil immediately after `notify/1` returns (the cast is ordered ahead of
+  # any subsequent call from this same test process, so it has always already
+  # been processed — see the first test below, which asserts this directly),
+  # so this predicate cannot be vacuously true before the real cycle runs: it
+  # only becomes true once the timer has actually fired AND the resulting
+  # task (if any) has actually completed. Checking `task: nil` alone would NOT
+  # have this property, since `task` is already nil in the steady state before
+  # a notify is even processed.
+  defp await_settled(pid) do
+    assert :ok = wait_until(fn -> match?(%{task: nil, timer_ref: nil}, :sys.get_state(pid)) end)
+  end
+
   defp start_watcher(map_id, opts \\ []) do
     default = [map_id: map_id, debounce_ms: 30, ceiling_ms: 200, task_timeout_ms: 500]
 
@@ -77,7 +91,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
     assert %{task: nil, timer_ref: ref} = :sys.get_state(pid)
     assert is_reference(ref)
 
-    Process.sleep(60)
+    await_settled(pid)
     assert %{route_state: :unknown, timer_ref: nil} = :sys.get_state(pid)
   end
 
@@ -118,7 +132,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
     end
@@ -131,7 +145,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       Application.put_env(
         :wanderer_app,
@@ -140,7 +154,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       assert %{route_state: {:qualifying, 2}} = :sys.get_state(pid)
     end
@@ -153,7 +167,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       Application.put_env(
         :wanderer_app,
@@ -162,7 +176,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
     end
@@ -175,7 +189,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       Application.put_env(
         :wanderer_app,
@@ -196,7 +210,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       assert %{route_state: :none} = :sys.get_state(pid)
     end
@@ -209,12 +223,12 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
 
       Application.put_env(:wanderer_app, :route_alert_stub_result, {:error, :solver_unreachable})
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
 
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
     end
@@ -228,7 +242,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
 
       {:ok, _} = MapDiscordNotification.update(notification, %{route_max_jumps: 2})
@@ -241,7 +255,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       # settling at a bare :unknown — the meaningful assertion is that it is
       # anything other than the stale {:qualifying, 4}.
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
       assert %{route_state: :none} = :sys.get_state(pid)
 
       # A genuinely qualifying route under the NEW threshold (2 jumps) is what
@@ -254,7 +268,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      Process.sleep(60)
+      await_settled(pid)
       assert %{route_state: {:qualifying, 2}} = :sys.get_state(pid)
     end
 
@@ -273,8 +287,12 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       )
 
       RouteWatcher.notify(map.id)
-      # Give the task time to start and block inside `receive`, but not to finish.
-      Process.sleep(30)
+
+      # Wait for the debounce timer to fire and the (blocking) task to
+      # actually launch — not vacuous, since `task` is nil in the steady state
+      # before the debounce elapses, and `BlockingSolver` cannot return on its
+      # own to clear it back to nil again.
+      assert :ok = wait_until(fn -> match?(%{task: %Task{}}, :sys.get_state(pid)) end)
       assert %{task: %Task{}} = :sys.get_state(pid)
 
       # THE assertion that fails under Task.yield(20_000): a blocking watcher
@@ -301,7 +319,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       %{task: task} = :sys.get_state(pid)
       send(task.pid, :release)
 
-      Process.sleep(60)
+      await_settled(pid)
       assert %{route_state: {:qualifying, 2}, rerun?: false} = :sys.get_state(pid)
     end
   end
@@ -316,19 +334,23 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
     {:ok, pid} = start_watcher(map.id, task_timeout_ms: 30)
 
     RouteWatcher.notify(map.id)
-    # debounce_ms (30) + task_timeout_ms (30) = 60ms until the deadline fires;
-    # a bare 60ms sleep races that exactly, so this allows a margin.
-    Process.sleep(120)
 
-    assert Process.alive?(pid)
+    # debounce_ms (30) + task_timeout_ms (30) = 60ms until the deadline fires.
+    # A fixed sleep timed against that sum is an exact tie with process
+    # scheduling; `await_settled/1` polls actual state instead, blocking only
+    # until the deadline has genuinely fired (checking `task: nil` alone would
+    # be vacuously true immediately, since `task` is nil before the debounce
+    # elapses too — `timer_ref` is what proves a real cycle actually ran).
+    await_settled(pid)
     assert %{task: nil, task_deadline_ref: nil} = :sys.get_state(pid)
+    assert Process.alive?(pid)
   end
 
   test "restart rehydrates from Cachex so a still-open route is not re-announced", %{map: map} do
     Application.put_env(:wanderer_app, :route_alert_stub_result, qualifying_result(4, 30_000_001))
     {:ok, pid} = start_watcher(map.id)
     RouteWatcher.notify(map.id)
-    Process.sleep(60)
+    await_settled(pid)
     assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
 
     GenServer.stop(pid, :normal)
