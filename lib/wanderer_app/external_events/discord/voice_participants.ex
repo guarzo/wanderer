@@ -49,6 +49,13 @@ defmodule WandererApp.ExternalEvents.Discord.VoiceParticipants do
       end)
 
       []
+  catch
+    kind, value ->
+      Logger.debug(fn ->
+        "[VoiceParticipants] lookup failed: #{inspect(kind)} #{inspect(value)}"
+      end)
+
+      []
   end
 
   # Seam: tests inject a fixture-returning fun via app env; production falls
