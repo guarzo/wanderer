@@ -518,8 +518,14 @@ config :wanderer_app, :external_events,
     |> String.to_existing_atom(),
   corp_tickers_timeout_ms:
     config_dir |> get_int_from_path_or_env("WANDERER_CORP_TICKERS_TIMEOUT_MS", 1500),
-  discord_bot_token: config_dir |> get_var_from_path_or_env("DISCORD_BOT_TOKEN"),
-  discord_guild_id: config_dir |> get_var_from_path_or_env("DISCORD_GUILD_ID")
+  discord_bot_token:
+    if(config_env() != :test,
+      do: config_dir |> get_var_from_path_or_env("DISCORD_BOT_TOKEN")
+    ),
+  discord_guild_id:
+    if(config_env() != :test,
+      do: config_dir |> get_var_from_path_or_env("DISCORD_GUILD_ID")
+    )
 
 # Nostrum powers voice-participant mentions on Discord kill notifications.
 # Configured only when a bot token exists; VoiceGateway decides at boot
