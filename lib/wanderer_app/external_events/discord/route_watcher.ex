@@ -195,6 +195,14 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   # a message already in the mailbox. Harmless no-op.
   def handle_info({:task_timeout, _stale_ref}, state), do: {:noreply, state}
 
+  # Anything else (stray messages, unexpected sends) — log and keep running
+  # rather than crashing this long-lived per-map process, mirroring
+  # `Discord.Worker`'s own catch-all (`worker.ex:182-184`).
+  def handle_info(msg, state) do
+    Logger.debug("[Discord.RouteWatcher] unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
   # -- launching a solve ------------------------------------------------------
 
   defp start_evaluation(state) do
@@ -229,33 +237,54 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   end
 
   defp launch_task(state, notification) do
-    task =
-      Task.Supervisor.async_nolink(
-        WandererApp.ExternalEvents.Discord.TaskSupervisor,
-        fn ->
-          solver_impl().find_strict(
-            notification.map_id,
-            [Integer.to_string(Evaluator.jita_system_id())],
-            Integer.to_string(notification.home_system_id),
-            Evaluator.solver_settings(),
-            false
-          )
-        end
+    if Process.whereis(WandererApp.ExternalEvents.Discord.TaskSupervisor) do
+      task =
+        Task.Supervisor.async_nolink(
+          WandererApp.ExternalEvents.Discord.TaskSupervisor,
+          fn ->
+            solver_impl().find_strict(
+              notification.map_id,
+              [Integer.to_string(Evaluator.jita_system_id())],
+              Integer.to_string(notification.home_system_id),
+              Evaluator.solver_settings(),
+              false
+            )
+          end
+        )
+
+      deadline_ref = Process.send_after(self(), {:task_timeout, task.ref}, state.task_timeout_ms)
+
+      %{
+        state
+        | task: task,
+          task_deadline_ref: deadline_ref,
+          rerun?: false,
+          pending_notification: notification
+      }
+    else
+      # `Discord.TaskSupervisor` is only started when webhooks are globally
+      # enabled (see `application.ex`'s `maybe_start_external_events_services/0`),
+      # so a route-alert-enabled map can still land here if that toggle is off
+      # or the supervisor hasn't come up yet. Skip this cycle rather than
+      # crashing on `Task.Supervisor.async_nolink/2`'s `:noproc` exit — the
+      # next `notify/1` will retry via the normal debounce path.
+      Logger.warning(
+        "[Discord.RouteWatcher] Discord.TaskSupervisor not running; skipping route solve for map #{state.map_id}"
       )
 
-    deadline_ref = Process.send_after(self(), {:task_timeout, task.ref}, state.task_timeout_ms)
-
-    %{
       state
-      | task: task,
-        task_deadline_ref: deadline_ref,
-        rerun?: false,
-        pending_notification: notification
-    }
+    end
   end
 
   defp solver_impl,
     do: Application.get_env(:wanderer_app, :route_alert_solver, WandererApp.Map.Routes)
+
+  # Overridable the same way as solver_impl/0, so a test can script a delivery
+  # failure (e.g. the general {:error, reason} branch below) without depending
+  # on the real WorkerSupervisor's DynamicSupervisor rejecting a start for some
+  # reason. Production always uses the real WorkerSupervisor.
+  defp worker_supervisor_impl,
+    do: Application.get_env(:wanderer_app, :route_alert_worker_supervisor, WorkerSupervisor)
 
   defp load_notification(map_id) do
     with {:ok, notification} when not is_nil(notification) <-
@@ -335,7 +364,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
 
     messages = EmbedFormatter.format_route_alert(alert, mention_targets: webhook.mention_targets)
 
-    case WorkerSupervisor.deliver(webhook.id, messages) do
+    case worker_supervisor_impl().deliver(webhook.id, messages) do
       :ok ->
         emit_telemetry(state, kind)
         state
@@ -344,6 +373,16 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
       # before this transition, mirroring `handle_delivery_result/4`'s
       # `{:error, :not_running}` clause in the dispatcher.
       {:error, :not_running} ->
+        persist(%{state | route_state: prev_state.route_state})
+
+      # Any other enqueue failure — mirrors `discord_dispatcher.ex:740`'s
+      # catch-all: log and revert the same way, rather than raising a
+      # `CaseClauseError` on a reason this `case` didn't anticipate.
+      {:error, reason} ->
+        Logger.warning(
+          "[Discord.RouteWatcher] route alert delivery enqueue failed for map #{state.map_id}: #{inspect(reason)}"
+        )
+
         persist(%{state | route_state: prev_state.route_state})
     end
   end

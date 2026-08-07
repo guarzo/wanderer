@@ -36,6 +36,8 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       Application.delete_env(:wanderer_app, :route_alert_stub_result)
     end)
 
+    attach_route_alert_telemetry()
+
     map = Factory.insert(:map, %{})
 
     {:ok, notification} =
@@ -66,6 +68,27 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
   # a notify is even processed.
   defp await_settled(pid) do
     assert :ok = wait_until(fn -> match?(%{task: nil, timer_ref: nil}, :sys.get_state(pid)) end)
+  end
+
+  # Proves an alert was (or was not) actually posted, rather than merely
+  # inferring it from `route_state` — `emit_telemetry/2` fires exactly once per
+  # landed evaluation, tagged with the outcome (`:opened`, `:improved`,
+  # `:none`, `:unknown`, or `:timeout`), so `assert_receive`/`refute_receive`
+  # against a specific outcome is a direct proof, not a state-shape inference.
+  defp attach_route_alert_telemetry do
+    test_pid = self()
+    handler_id = {:route_alert_telemetry, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:wanderer_app, :discord, :route_alert],
+      fn _event, measurements, metadata, _config ->
+        send(test_pid, {:route_alert_telemetry, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
   defp start_watcher(map_id, opts \\ []) do
@@ -135,6 +158,15 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       await_settled(pid)
 
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
+
+      # Proof the alert was actually posted, not just that route_state changed
+      # shape: the telemetry event AND a real (stubbed) HTTP delivery both fire.
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+
+      assert :ok =
+               wait_until(fn ->
+                 HttpStub.requests_for("https://discord.com/api/webhooks/1/tok") != []
+               end)
     end
 
     test "qualifying(4) -> qualifying(2) posts improved", %{map: map, pid: pid} do
@@ -146,6 +178,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       RouteWatcher.notify(map.id)
       await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
 
       Application.put_env(
         :wanderer_app,
@@ -157,6 +190,13 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       await_settled(pid)
 
       assert %{route_state: {:qualifying, 2}} = :sys.get_state(pid)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :improved}}
+
+      assert :ok =
+               wait_until(fn ->
+                 length(HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")) == 2
+               end)
     end
 
     test "qualifying(2) -> qualifying(4) is silent but still stores 4", %{map: map, pid: pid} do
@@ -168,6 +208,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       RouteWatcher.notify(map.id)
       await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
 
       Application.put_env(
         :wanderer_app,
@@ -179,6 +220,14 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       await_settled(pid)
 
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
+
+      # Silent means neither an :opened/:improved telemetry event nor a second
+      # HTTP delivery fires for THIS transition — only the earlier :opened
+      # event (already drained above) is on record.
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
+      refute_receive {:route_alert_telemetry, _, %{outcome: :improved}}
+
+      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
     end
 
     test "qualifying -> none clears silently", %{map: map, pid: pid} do
@@ -190,6 +239,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       RouteWatcher.notify(map.id)
       await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
 
       Application.put_env(
         :wanderer_app,
@@ -213,6 +263,9 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       await_settled(pid)
 
       assert %{route_state: :none} = :sys.get_state(pid)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :none}}
+      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
     end
 
     test "a solver error keeps prior state and does not alert", %{map: map, pid: pid} do
@@ -225,12 +278,16 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       RouteWatcher.notify(map.id)
       await_settled(pid)
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
 
       Application.put_env(:wanderer_app, :route_alert_stub_result, {:error, :solver_unreachable})
       RouteWatcher.notify(map.id)
       await_settled(pid)
 
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :unknown}}
+      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
     end
 
     test "a route_max_jumps change discards the stored state and the next qualifying result opens",
@@ -244,6 +301,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       RouteWatcher.notify(map.id)
       await_settled(pid)
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
 
       {:ok, _} = MapDiscordNotification.update(notification, %{route_max_jumps: 2})
 
@@ -270,6 +328,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       RouteWatcher.notify(map.id)
       await_settled(pid)
       assert %{route_state: {:qualifying, 2}} = :sys.get_state(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
     end
 
     test "a notify delivered while a solve is in flight sets rerun? and the stale result is discarded",
@@ -358,6 +417,36 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
     assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid2)
   end
+
+  test "a general delivery failure reverts the optimistic write instead of crashing", %{map: map} do
+    Application.put_env(
+      :wanderer_app,
+      :route_alert_worker_supervisor,
+      WandererApp.ExternalEvents.Discord.RouteWatcherTest.FailingWorkerSupervisor
+    )
+
+    on_exit(fn -> Application.delete_env(:wanderer_app, :route_alert_worker_supervisor) end)
+
+    Application.put_env(:wanderer_app, :route_alert_stub_result, qualifying_result(4, 30_000_001))
+    {:ok, pid} = start_watcher(map.id)
+
+    RouteWatcher.notify(map.id)
+    await_settled(pid)
+
+    # The `{:error, :some_other_reason}` catch-all (mirroring
+    # `discord_dispatcher.ex:740`) must revert the optimistic write back to the
+    # pre-transition state rather than raising a CaseClauseError or leaving the
+    # optimistic {:qualifying, 4} write in place despite nothing being sent.
+    assert %{route_state: :unknown} = :sys.get_state(pid)
+
+    # No telemetry fires for a failed delivery — only the `:ok` branch of
+    # `deliver_alert/7` emits it — so this proves the alert was never actually
+    # posted, not merely that route_state reverted.
+    refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
+    refute_receive {:route_alert_telemetry, _, %{outcome: :improved}}
+
+    assert Process.alive?(pid)
+  end
 end
 
 defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest.StubSolver do
@@ -392,4 +481,16 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest.BlockingSolver do
       hubs_limit_reached?
     )
   end
+end
+
+defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest.FailingWorkerSupervisor do
+  @moduledoc """
+  Stands in for `WorkerSupervisor` to script a delivery-enqueue failure whose
+  reason is something other than `:not_running` — exercising `deliver_alert/7`'s
+  general `{:error, reason}` catch-all, which the real `WorkerSupervisor` has no
+  practical, deterministic way to trigger from a test (its only non-`:ok` return
+  values are `:not_running` or a `DynamicSupervisor.start_child/2` failure that
+  would otherwise require sabotaging the shared supervision tree).
+  """
+  def deliver(_webhook_id, _messages), do: {:error, :some_other_reason}
 end
