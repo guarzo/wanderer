@@ -39,6 +39,17 @@ defmodule WandererApp.ExternalEvents.Discord.VoiceGatewayTest do
     assert log =~ "DISCORD_GUILD_ID"
   end
 
+  test "warns when a valid guild id is set without a bot token", %{original: original} do
+    put_voice_config(original, nil, "123456789")
+
+    log =
+      capture_log(fn ->
+        assert VoiceGateway.start_link([]) == :ignore
+      end)
+
+    assert log =~ "DISCORD_BOT_TOKEN"
+  end
+
   test "stays silent when nothing at all is configured", %{original: original} do
     put_voice_config(original, nil, nil)
 

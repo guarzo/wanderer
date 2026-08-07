@@ -127,13 +127,25 @@ defmodule WandererApp.Env do
   end
 
   @doc """
-  Bot token for the voice-mention gateway connection. `nil` when unset —
-  voice mentions on system-channel kill notifications are then disabled.
+  Bot token for the voice-mention gateway connection, trimmed. `nil` when
+  unset, blank, or whitespace-only — an unusable token must read as "not
+  configured", or `discord_voice_mentions_enabled?/0` would enable the
+  feature against a token Nostrum can never authenticate with.
   """
   def discord_bot_token() do
     Application.get_env(@app, :external_events, [])
     |> Keyword.get(:discord_bot_token)
+    |> normalize_token()
   end
+
+  defp normalize_token(token) when is_binary(token) do
+    case String.trim(token) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_token(_), do: nil
 
   @doc """
   Guild whose voice channels feed kill-notification mentions, as a positive
