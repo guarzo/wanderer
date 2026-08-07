@@ -230,6 +230,32 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
     end
 
+    test "qualifying(4) -> qualifying(4) is silent", %{map: map, pid: pid} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+
+      # Same jump count as before. This pins the equality boundary the
+      # "greater" case above cannot: `jumps < old` and `jumps <= old` differ
+      # only here, and reading 4 as an improvement over 4 would re-ping on
+      # every topology event for as long as the route stays open.
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
+
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
+      refute_receive {:route_alert_telemetry, _, %{outcome: :improved}}
+
+      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
+    end
+
     test "qualifying -> none clears silently", %{map: map, pid: pid} do
       Application.put_env(
         :wanderer_app,
