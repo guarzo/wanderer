@@ -22,6 +22,8 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor do
 
   use Supervisor
 
+  require Logger
+
   alias WandererApp.ExternalEvents.Discord.RouteWatcher
 
   @dyn_sup WandererApp.ExternalEvents.Discord.RouteWatcherDynamicSupervisor
@@ -52,8 +54,17 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor do
     # two processes' lifecycles are independent, so either one being absent
     # must degrade to a no-op rather than a crash.
     if running?() do
-      with {:ok, _pid} <- ensure_watcher(map_id) do
-        RouteWatcher.notify(map_id)
+      case ensure_watcher(map_id) do
+        {:ok, _pid} ->
+          RouteWatcher.notify(map_id)
+
+        # This is the feature's only production trigger, so a watcher that
+        # cannot start means the map never alerts again with nothing in the
+        # logs to find. WorkerSupervisor.deliver/2 logs the same case.
+        {:error, reason} ->
+          Logger.warning(
+            "[Discord] could not start route watcher for map #{map_id}: #{inspect(reason)}"
+          )
       end
     end
 
