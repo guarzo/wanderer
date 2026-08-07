@@ -812,4 +812,148 @@ defmodule WandererAppWeb.MapNotificationsTest do
     refute log =~ "resource:"
     refute log =~ "bread_crumbs:"
   end
+
+  describe "route alerts" do
+    test "enabling route alerts without a home system surfaces the Ash validation error", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      html =
+        view
+        |> form("#discord-notification-form", %{
+          "notification" => %{
+            "enabled" => "true",
+            "wh_only" => "true",
+            "route_alerts_enabled" => "true",
+            "home_system_id" => "",
+            "route_max_jumps" => "5"
+          }
+        })
+        |> render_submit()
+
+      # Exact wording is Task 3's to define; this asserts on it because a
+      # substring match loose enough to survive any wording would also survive
+      # the validation being silently removed. If Task 3 ships different
+      # copy, update this one line to match it — do not weaken the match.
+      assert html =~ "is required when route alerts are enabled"
+
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      refute rec.route_alerts_enabled?
+      assert rec.home_system_id == nil
+    end
+
+    test "saving valid route settings persists the toggle, home system, and max jumps", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> form("#discord-notification-form", %{
+        "notification" => %{
+          "enabled" => "true",
+          "wh_only" => "true",
+          "route_alerts_enabled" => "true",
+          "home_system_id" => "30000142",
+          "route_max_jumps" => "3"
+        }
+      })
+      |> render_submit()
+
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      assert rec.route_alerts_enabled? == true
+      assert rec.home_system_id == 30_000_142
+      assert rec.route_max_jumps == 3
+    end
+
+    test "the route fields are hidden while the toggle is off, not removed from the form", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      # Off by default (route_alerts_enabled? defaults to false per Task 3) —
+      # the wrapper carries the "hidden" class, and the inputs are still
+      # present in the DOM so their values still post on save. Scoped to
+      # `#discord-notification-form` because the settings dialog itself also
+      # renders with a (JS-toggled, not LiveView-toggled) "hidden" class in
+      # the static test render — an unscoped `div.hidden` selector matches
+      # that outer wrapper too and would pass/fail for the wrong reason.
+      assert has_element?(
+               view,
+               "#discord-notification-form div.hidden input[name='notification[home_system_id]']"
+             )
+
+      view
+      |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      refute has_element?(
+               view,
+               "#discord-notification-form div.hidden input[name='notification[home_system_id]']"
+             )
+    end
+
+    test "the route webhook url can be added", %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> form("#webhook-form-route", %{
+        "webhook" => %{"webhook_url" => "https://discord.com/api/webhooks/999/routetok"}
+      })
+      |> render_submit()
+
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      assert %{role: :route, enabled?: true} = Enum.find(webhooks, &(&1.role == :route))
+      assert has_element?(view, "#webhook-row-route button[phx-click='remove-webhook']")
+    end
+
+    test "an invalid mention target shows an inline error and does not persist the webhook", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      html =
+        view
+        |> form("#webhook-form-route", %{
+          "webhook" => %{
+            "webhook_url" => "https://discord.com/api/webhooks/999/routetok",
+            "mention_targets" => "role:123456789012345678, not-a-target"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "not-a-target"
+      assert html =~ "not a valid mention target"
+
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      refute Enum.any?(webhooks, &(&1.role == :route))
+    end
+
+    test "valid mention targets are saved, comma-separated and trimmed", %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> form("#webhook-form-route", %{
+        "webhook" => %{
+          "webhook_url" => "https://discord.com/api/webhooks/999/routetok",
+          "mention_targets" => "role:123456789012345678,  user:234567890123456789 "
+        }
+      })
+      |> render_submit()
+
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      route_wh = Enum.find(webhooks, &(&1.role == :route))
+      assert route_wh.mention_targets == ["role:123456789012345678", "user:234567890123456789"]
+    end
+  end
 end
