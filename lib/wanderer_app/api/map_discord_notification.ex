@@ -29,7 +29,16 @@ defmodule WandererApp.Api.MapDiscordNotification do
   end
 
   actions do
-    default_accept [:map_id, :enabled?, :wh_only, :excluded_systems, :focus_corp_ids]
+    default_accept [
+      :map_id,
+      :enabled?,
+      :wh_only,
+      :excluded_systems,
+      :focus_corp_ids,
+      :route_alerts_enabled?,
+      :home_system_id,
+      :route_max_jumps
+    ]
 
     defaults [:read]
 
@@ -88,7 +97,18 @@ defmodule WandererApp.Api.MapDiscordNotification do
 
       # Explicit, so `default_accept` cannot expose `:map_id`: re-parenting a
       # notification would move it and its webhook children to another map.
-      accept [:enabled?, :wh_only, :excluded_systems, :focus_corp_ids]
+      # The three route fields ARE deliberately in this list — unlike
+      # `:map_id` there is no re-parenting risk, and route alert config is
+      # meant to be editable the same way the kill-switch fields are.
+      accept [
+        :enabled?,
+        :wh_only,
+        :excluded_systems,
+        :focus_corp_ids,
+        :route_alerts_enabled?,
+        :home_system_id,
+        :route_max_jumps
+      ]
 
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
@@ -103,6 +123,10 @@ defmodule WandererApp.Api.MapDiscordNotification do
       # %Ash.NotLoaded{} instead of destinations.
       prepare build(load: [:webhooks])
     end
+  end
+
+  validations do
+    validate &__MODULE__.validate_home_system_required/2
   end
 
   attributes do
@@ -123,6 +147,30 @@ defmodule WandererApp.Api.MapDiscordNotification do
     attribute :focus_corp_ids, {:array, :integer} do
       default []
       allow_nil? false
+    end
+
+    # Route alerts — separate switch from `enabled?`, which gates kills. Ships
+    # off: an operator must opt a map in, not discover it firing unannounced.
+    attribute :route_alerts_enabled?, :boolean, default: false, allow_nil?: false
+
+    # No "home system" concept exists anywhere else in the codebase (see the
+    # design doc's repository-evidence table) — this is where it is defined,
+    # scoped to this feature. Nullable: a map with route alerts off need not
+    # have one set, and `validate_home_system_required/2` below is what
+    # enforces the combination that matters.
+    attribute :home_system_id, :integer
+
+    # Inclusive upper bound (design decision 5): "less than 6 jumps" means
+    # "at most 5", so the stored number and the UI copy agree.
+    attribute :route_max_jumps, :integer do
+      default 5
+      allow_nil? false
+      # 1 is the trivial floor (a route of zero jumps is "already there", not
+      # an alert). 20 is a generous ceiling: it is nowhere near a real hauling
+      # route in this feature's wormhole-plus-highsec shape, but it stops a
+      # typo (e.g. an extra digit) from asking the solver to treat every
+      # multi-region path as "qualifying" and firing constantly.
+      constraints min: 1, max: 20
     end
 
     create_timestamp :inserted_at
@@ -162,6 +210,22 @@ defmodule WandererApp.Api.MapDiscordNotification do
   end
 
   def invalidate_cache(_changeset, other, _context), do: other
+
+  @doc false
+  def validate_home_system_required(changeset, _context) do
+    # get_attribute/2 reads the value the changeset WOULD produce — the new
+    # value if it is being set, otherwise the record's current one — so this
+    # catches both "enable with no home system yet" and "clear the home
+    # system while alerts are still on" in one check.
+    enabled? = Ash.Changeset.get_attribute(changeset, :route_alerts_enabled?)
+    home_system_id = Ash.Changeset.get_attribute(changeset, :home_system_id)
+
+    if enabled? && is_nil(home_system_id) do
+      {:error, field: :home_system_id, message: "is required when route alerts are enabled"}
+    else
+      :ok
+    end
+  end
 
   @doc false
   def stash_webhook_ids(changeset, _context) do
