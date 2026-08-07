@@ -253,6 +253,13 @@ defmodule WandererApp.Api.MapDiscordNotification do
       WandererApp.ExternalEvents.Discord.WorkerSupervisor.stop_worker(id)
     end)
 
+    # Stops the map's route-alert watcher too: without this a deleted
+    # notification's watcher keeps its debounce timer and Cachex-persisted
+    # state alive indefinitely, and a later `MapDiscordNotification.create/1`
+    # for the same map would resume against stale route_state instead of
+    # starting fresh at :unknown.
+    WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor.stop_watcher(record.map_id)
+
     {:ok, record}
   end
 
