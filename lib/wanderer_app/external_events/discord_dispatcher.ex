@@ -269,7 +269,33 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     end
   end
 
+  # No DB or HTTP work of its own: fetch_config/1 reads the already-cached
+  # notification (a cache miss costs one Ecto query, same as the kill path
+  # pays on any cache-cold map), and RouteWatcherSupervisor.notify/1 is a cast
+  # into a different process. This dispatcher is a SINGLETON shared by every
+  # map's kill batches — the solve, the embed, and the HTTP post all belong to
+  # Discord.RouteWatcher, one GenServer per map, never to this clause.
+  defp do_dispatch(map_id, %{type: type})
+       when type in [:add_system, :connection_added, :connection_updated] do
+    with true <- enabled_globally?(),
+         {:ok, notification} <- fetch_config(map_id),
+         true <- notification.route_alerts_enabled?,
+         home_system_id when not is_nil(home_system_id) <- notification.home_system_id do
+      route_watcher_supervisor().notify(map_id)
+    end
+
+    :ok
+  end
+
   defp do_dispatch(_map_id, _event), do: :ok
+
+  defp route_watcher_supervisor,
+    do:
+      Application.get_env(
+        :wanderer_app,
+        :route_watcher_supervisor,
+        WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor
+      )
 
   # Routing is per kill, so a single `:map_kill` batch can now contain kills
   # bound for different destinations, or for none. Kills that drop belong to no

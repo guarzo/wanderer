@@ -39,6 +39,18 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest.TickerEnricher do
   end
 end
 
+defmodule WandererApp.ExternalEvents.DiscordDispatcherTest.RouteWatcherObserver do
+  @moduledoc "Stands in for RouteWatcherSupervisor.notify/1 so tests can assert it was called."
+  def notify(map_id) do
+    case Process.whereis(:route_watcher_observer) do
+      nil -> :ok
+      pid -> send(pid, {:route_notify, map_id})
+    end
+
+    :ok
+  end
+end
+
 defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
   # `async: false` is mandatory: `HttpStub` keeps its state in a single named
   # Agent, and this file also mutates application env.
@@ -1825,6 +1837,123 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       assert measurements.resolved_count == 1
 
       settle(w.id)
+    end
+  end
+
+  describe "route alert dispatch" do
+    setup %{map: map, notification: notification} do
+      Application.put_env(
+        :wanderer_app,
+        :route_watcher_supervisor,
+        WandererApp.ExternalEvents.DiscordDispatcherTest.RouteWatcherObserver
+      )
+
+      on_exit(fn -> Application.delete_env(:wanderer_app, :route_watcher_supervisor) end)
+
+      Process.register(self(), :route_watcher_observer)
+
+      # `on_exit/1` runs from a separate runner process, after the test
+      # process (registered above) has already terminated — the VM
+      # auto-deregisters a name when its owning process dies, so by the time
+      # this callback fires the name is normally already gone. Guard instead
+      # of unconditionally unregistering, or every test in this describe
+      # block raises `ArgumentError` on exit.
+      on_exit(fn ->
+        if Process.whereis(:route_watcher_observer),
+          do: Process.unregister(:route_watcher_observer)
+      end)
+
+      {:ok, notification} =
+        MapDiscordNotification.update(notification, %{
+          route_alerts_enabled?: true,
+          home_system_id: 30_000_001
+        })
+
+      DiscordDispatcher.invalidate_cache(map.id)
+      %{notification: notification}
+    end
+
+    for type <- [:add_system, :connection_added, :connection_updated] do
+      test "#{type} notifies the route watcher", %{map: map} do
+        event = Event.new(map.id, unquote(type), %{})
+        DiscordDispatcher.dispatch_event(map.id, event)
+
+        assert_receive {:route_notify, map_id}, 500
+        assert map_id == map.id
+      end
+    end
+
+    test "no notify when webhooks are globally disabled", %{map: map} do
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :webhooks_enabled, false)
+      )
+
+      on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
+      event = Event.new(map.id, :add_system, %{})
+      DiscordDispatcher.dispatch_event(map.id, event)
+
+      refute_receive {:route_notify, _}, 200
+    end
+
+    test "no notify when route_alerts_enabled? is false", %{map: map, notification: notification} do
+      {:ok, _} = MapDiscordNotification.update(notification, %{route_alerts_enabled?: false})
+      DiscordDispatcher.invalidate_cache(map.id)
+
+      event = Event.new(map.id, :add_system, %{})
+      DiscordDispatcher.dispatch_event(map.id, event)
+
+      refute_receive {:route_notify, _}, 200
+    end
+
+    test "no notify when home_system_id is nil", %{map: map, notification: notification} do
+      # Can't reach this state through `MapDiscordNotification.update/2`: Task
+      # 3's validation (`map_discord_notification.ex:223-224`) rejects
+      # `route_alerts_enabled?: true` with a nil `home_system_id` outright.
+      # This clause's own nil-check is defense in depth against a stale cache
+      # entry or a row shaped this way before that validation existed, so
+      # reach the state directly in the DB, following the same
+      # can't-go-through-the-action bypass `blank_the_url!/1` uses above.
+      {:ok, _} =
+        WandererApp.Repo.query(
+          "update map_discord_notifications_v1 set home_system_id = NULL where id = $1",
+          [Ecto.UUID.dump!(notification.id)]
+        )
+
+      DiscordDispatcher.invalidate_cache(map.id)
+
+      event = Event.new(map.id, :add_system, %{})
+      DiscordDispatcher.dispatch_event(map.id, event)
+
+      refute_receive {:route_notify, _}, 200
+    end
+
+    test "no notify for a map with no Discord configuration at all" do
+      map = Factory.insert(:map, %{})
+      event = Event.new(map.id, :add_system, %{})
+      DiscordDispatcher.dispatch_event(map.id, event)
+
+      refute_receive {:route_notify, _}, 200
+    end
+
+    test "the kill path is unaffected", %{map: map} do
+      # Regression guard, not new behaviour: re-run an existing kill-delivery
+      # scenario inside this describe block to confirm the new clause
+      # (inserted before the catch-all) does not shadow :map_kill.
+      DiscordDispatcher.dispatch_event(
+        map.id,
+        Event.new(map.id, :map_kill, %{
+          "type" => :killmail_update,
+          "solar_system_id" => @wh_system,
+          "killmails" => [killmail(1)]
+        })
+      )
+
+      assert [_] = wait_for_requests(1)
     end
   end
 
