@@ -52,19 +52,36 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherSupervisorTest do
     assert :ok = RouteWatcherSupervisor.notify(map_id)
   end
 
-  test "stop_watcher tolerates the tree being gone" do
+  test "stop_watcher tolerates the tree being gone (no raise)" do
     map_id = Ecto.UUID.generate()
-    RouteWatcherSupervisor.notify(map_id)
-    assert [{pid, _}] = Registry.lookup(RouteWatcher.registry(), map_id)
-
-    # Stopping the supervisor kills its DynamicSupervisor child and, with it,
-    # the watcher registered above — so this exercises stop_watcher/1's
-    # lookup-then-stop path with a real (now-dead) pid, not an empty lookup
-    # that would pass whether or not the guard exists.
     stop_supervised!(RouteWatcherSupervisor)
-    refute Process.alive?(pid)
 
     assert :ok = RouteWatcherSupervisor.stop_watcher(map_id)
+  end
+
+  # Round 2 review: the previous version of this test (register a watcher,
+  # stop the supervisor, assert stop_watcher/1 returns :ok) was vacuous by a
+  # coin flip rather than a constant — Registry's async cleanup of the dead
+  # pid means Registry.lookup/2 can return either [{pid, nil}] or [] after
+  # the supervisor dies, and BOTH of stop_watcher/1's branches return :ok, so
+  # neither outcome could ever fail the test. stop_watcher/1 returning :ok is
+  # not an assertion at all: every path returns :ok by construction. This
+  # asserts the one thing that IS real behaviour and IS observable: eviction
+  # runs even when the tree is gone, because evict_cache/1 sits outside the
+  # running?/0 guard on purpose. Moving it back inside the guard — the
+  # regression this is meant to catch — makes this test fail.
+  test "stop_watcher evicts the cached route_state even when the tree is not running" do
+    map_id = Ecto.UUID.generate()
+
+    Cachex.put(:discord_route_alert_cache, map_id, %{
+      route_state: {:qualifying, 5},
+      config_version: "stale"
+    })
+
+    stop_supervised!(RouteWatcherSupervisor)
+
+    assert :ok = RouteWatcherSupervisor.stop_watcher(map_id)
+    assert {:ok, nil} = Cachex.get(:discord_route_alert_cache, map_id)
   end
 
   describe "resource integration" do
