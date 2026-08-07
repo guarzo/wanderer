@@ -33,7 +33,7 @@ defmodule WandererApp.ExternalEvents.Discord.VoiceGateway do
       Env.discord_voice_mentions_enabled?() ->
         start_gateway()
 
-      Env.discord_bot_token() != nil or partial_guild_config?() ->
+      partial_config?() ->
         Logger.warning(
           "[VoiceGateway] voice mentions disabled: set both DISCORD_BOT_TOKEN " <>
             "and a valid positive-integer DISCORD_GUILD_ID"
@@ -71,13 +71,15 @@ defmodule WandererApp.ExternalEvents.Discord.VoiceGateway do
     end
   end
 
-  # A guild id that was set but failed to parse: Env returns nil for both
-  # "unset" and "malformed", so re-read the raw value to tell them apart.
-  defp partial_guild_config? do
-    raw =
-      Application.get_env(:wanderer_app, :external_events, [])
-      |> Keyword.get(:discord_guild_id)
+  # Reached only when the feature predicate is false, so any raw value —
+  # token without guild, guild without token, blank token, malformed guild
+  # id — means the operator tried to configure this and something is missing
+  # or unusable. Raw values, not Env: Env normalizes blank/malformed to nil,
+  # which is exactly the difference between "unset" and "set but broken".
+  defp partial_config? do
+    external = Application.get_env(:wanderer_app, :external_events, [])
 
-    raw != nil and Env.discord_guild_id() == nil
+    Keyword.get(external, :discord_bot_token) != nil or
+      Keyword.get(external, :discord_guild_id) != nil
   end
 end
