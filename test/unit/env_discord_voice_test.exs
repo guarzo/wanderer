@@ -58,4 +58,19 @@ defmodule WandererApp.EnvDiscordVoiceTest do
     put_voice_config(original, "token-abc", 42)
     assert Env.discord_guild_id() == 42
   end
+
+  test "blank or whitespace-only token reads as unset and disables the feature",
+       %{original: original} do
+    for blank <- ["", "   ", "\n", "\t "] do
+      put_voice_config(original, blank, "123456789")
+      assert Env.discord_bot_token() == nil, "expected #{inspect(blank)} to normalize to nil"
+      refute Env.discord_voice_mentions_enabled?()
+    end
+  end
+
+  test "token surrounded by whitespace is trimmed", %{original: original} do
+    put_voice_config(original, "  token-abc\n", "123456789")
+    assert Env.discord_bot_token() == "token-abc"
+    assert Env.discord_voice_mentions_enabled?()
+  end
 end
