@@ -271,7 +271,7 @@ defmodule WandererApp.Map.Routes do
     end
   end
 
-  defp get_all_routes(hubs, origin, params, opts \\ []) do
+  defp get_all_routes(hubs, origin, params, opts) do
     cache_key =
       "routes-#{origin}-#{hubs |> Enum.join("-")}-#{:crypto.hash(:sha, :erlang.term_to_binary(params))}"
 
