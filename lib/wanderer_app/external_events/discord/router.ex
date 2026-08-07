@@ -42,6 +42,22 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
   character channel that is a privacy question, not just a preference.
 
   Do not "fix" this into a reroute. `RouterTest` asserts it deliberately.
+
+  ## Route alerts have their own destination
+
+  `route_destination/1` resolves a route alert to the `:route` webhook,
+  falling back to the `:system` webhook when no `:route` row exists — the same
+  fallback pattern rule 3 uses for `:character`. Existing maps therefore need
+  no configuration change to keep receiving route alerts once the feature is
+  enabled.
+
+  A route alert *is* the chain topology: the path field names every system a
+  scout has found, in order, from the map's home system to Jita. There is no
+  redacted version of that message. A configured-but-disabled `:route` webhook
+  therefore drops rather than falling back to `:system` — the same
+  disabled-drops-never-reroutes rule above, for the same reason: silence must
+  mean silence, not misdirection into a channel the user did not pick for a
+  message this sensitive.
   """
 
   alias WandererApp.SystemClass
@@ -76,6 +92,15 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
       true ->
         usable(webhook(notification, :system))
     end
+  end
+
+  @doc """
+  Resolves a route alert to a destination. `notification` must have
+  `:webhooks` loaded.
+  """
+  @spec route_destination(struct()) :: {:ok, struct()} | :drop
+  def route_destination(notification) do
+    usable(webhook(notification, :route) || webhook(notification, :system))
   end
 
   # Guarded on `is_list`: `:webhooks` is a relationship, so an unloaded
