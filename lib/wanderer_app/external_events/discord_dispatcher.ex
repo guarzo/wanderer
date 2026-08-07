@@ -57,7 +57,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     Matcher,
     NotableItems,
     Router,
-    SystemName
+    SystemName,
+    VoiceParticipants
   }
 
   alias WandererApp.ExternalEvents.Discord.WorkerSupervisor
@@ -677,20 +678,44 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     # them.
     mark_attempted(map_id, marked)
 
+    {prefix, mention_count} = voice_mention_prefix(role)
+
     # PASS THE WHOLE PARTITION, NOT `rendered`. The formatter applies the cap
     # itself and counts the remainder into its "…and N more kills not shown."
     # line. Handing it the pre-truncated list compiles, passes most tests, and
     # silently deletes the overflow line.
     entries
     |> EmbedFormatter.format_batch(system_name)
+    |> VoiceParticipants.prepend_to_messages(prefix)
     |> then(&WorkerSupervisor.deliver(webhook.id, &1))
-    |> handle_delivery_result(map_id, role, marked)
+    |> handle_delivery_result(map_id, role, marked, mention_count)
   end
 
-  defp handle_delivery_result(:ok, map_id, role, kills) do
+  # Voice mentions go to the system channel only (spec decision), and only
+  # when configured. `nil` count means "feature off" and keeps the
+  # measurement out of telemetry entirely, so 0 always means "enabled but
+  # nobody taggable" — the distinction operators need.
+  defp voice_mention_prefix(:system) do
+    if Env.discord_voice_mentions_enabled?() do
+      VoiceParticipants.get_active_voice_mentions()
+      |> VoiceParticipants.mention_prefix()
+    else
+      {nil, nil}
+    end
+  end
+
+  defp voice_mention_prefix(_role), do: {nil, nil}
+
+  defp handle_delivery_result(:ok, map_id, role, kills, mention_count) do
+    measurements =
+      case mention_count do
+        nil -> %{count: length(kills)}
+        n -> %{count: length(kills), mention_count: n}
+      end
+
     :telemetry.execute(
       [:wanderer_app, :discord_dispatcher, :dispatched],
-      %{count: length(kills)},
+      measurements,
       %{map_id: map_id, role: role}
     )
   end
@@ -701,7 +726,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # unaffected — their marks stand or fall on their own delivery result. Not
   # logged at warning level — the kill-switch being off is a normal
   # configuration, not a failure.
-  defp handle_delivery_result({:error, :not_running}, map_id, role, kills) do
+  defp handle_delivery_result({:error, :not_running}, map_id, role, kills, _mention_count) do
     unmark(map_id, kills)
 
     Logger.debug(fn ->
@@ -712,7 +737,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     emit_not_delivered(map_id, role, kills, :not_running)
   end
 
-  defp handle_delivery_result({:error, reason}, map_id, role, kills) do
+  defp handle_delivery_result({:error, reason}, map_id, role, kills, _mention_count) do
     Logger.warning(
       "[Discord] #{role} delivery enqueue failed for map #{map_id}: #{inspect(reason)}"
     )

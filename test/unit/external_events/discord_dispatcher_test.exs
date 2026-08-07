@@ -205,6 +205,46 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
 
   defp kill_event(payload), do: %Event{map_id: nil, type: :map_kill, payload: payload}
 
+  # Guild fixture for voice-mention tests: users 111/222 in a voice channel,
+  # 333 in the AFK channel, channel 20 is text. Shapes mirror Nostrum structs.
+  @voice_guild %{
+    id: 999,
+    afk_channel_id: 30,
+    channels: %{
+      10 => %{id: 10, type: 2},
+      20 => %{id: 20, type: 0},
+      30 => %{id: 30, type: 2}
+    },
+    voice_states: [
+      %{user_id: 111, channel_id: 10},
+      %{user_id: 222, channel_id: 10},
+      %{user_id: 333, channel_id: 30}
+    ]
+  }
+
+  defp enable_voice_mentions(fetcher \\ nil) do
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      original
+      |> Keyword.put(:discord_bot_token, "test-token")
+      |> Keyword.put(:discord_guild_id, "999")
+    )
+
+    Application.put_env(
+      :wanderer_app,
+      :discord_voice_guild_fetcher,
+      fetcher || fn 999 -> @voice_guild end
+    )
+
+    on_exit(fn ->
+      Application.put_env(:wanderer_app, :external_events, original)
+      Application.delete_env(:wanderer_app, :discord_voice_guild_fetcher)
+    end)
+  end
+
   # Derived from the dispatcher rather than spelled out here. A hardcoded key
   # would make every `refute marked?(...)` below pass vacuously if the key
   # format ever changed — the assertion that matters most in these tests.
@@ -557,6 +597,175 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     later = wait_for_requests(first_batch_size + 1)
     [{_url, body} | _] = Enum.drop(later, first_batch_size)
     assert length(body["embeds"]) == 5
+  end
+
+  describe "voice mentions" do
+    test "system-channel kills carry voice mentions in content", %{map: map, system: w} do
+      enable_voice_mentions()
+
+      event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+
+      assert [{@system_url, body}] = wait_for_requests(1)
+      assert body["content"] == "<@111> <@222>"
+      refute body["content"] =~ "<@333>", "AFK-channel user must not be pinged"
+    end
+
+    test "character-channel kills carry no mentions", %{map: map, notification: n} do
+      enable_voice_mentions()
+      character_webhook(n)
+      track(map.id, [8000])
+
+      event =
+        kill_event(
+          Factory.build(:kill_event, %{
+            solar_system_id: @wh_system,
+            killmails: [killmail(800_100, %{"victim_char_id" => 8000})]
+          })
+        )
+
+      DiscordDispatcher.dispatch_event(map.id, event)
+
+      assert [{@character_url, body}] = wait_for_requests(1)
+      refute Map.has_key?(body, "content")
+    end
+
+    test "feature disabled leaves messages byte-identical", %{map: map, system: w} do
+      # No enable_voice_mentions(): test env has no token/guild id.
+      event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+
+      assert [{@system_url, body}] = wait_for_requests(1)
+      refute Map.has_key?(body, "content")
+    end
+
+    test "a raising guild fetch still delivers the kill, without mentions",
+         %{map: map, system: w} do
+      enable_voice_mentions(fn _guild_id -> raise "cache boom" end)
+
+      event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+
+      assert [{@system_url, body}] = wait_for_requests(1)
+      refute Map.has_key?(body, "content")
+    end
+
+    test "dispatch telemetry carries mention_count when enabled", %{map: map, system: w} do
+      enable_voice_mentions()
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        "voice-mention-count-#{inspect(ref)}",
+        [:wanderer_app, :discord_dispatcher, :dispatched],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:dispatched, ref, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("voice-mention-count-#{inspect(ref)}") end)
+
+      event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+      wait_for_requests(1)
+
+      assert_receive {:dispatched, ^ref, measurements, %{role: :system}}, 2_000
+      assert measurements.mention_count == 2
+    end
+
+    test "multi-chunk event: mentions on the first chunk only, overflow line intact",
+         %{map: map, system: w} do
+      enable_voice_mentions()
+
+      # 31 kills: 30 rendered, 1 overflow. NEVER hard-code the request count —
+      # chunking depends on embed sizes, so derive it from the formatter, the
+      # same way "does not burn kills dropped by the formatter's per-event cap"
+      # does.
+      kills = Enum.map(1..31, fn i -> killmail(20_000 + i) end)
+      expected_count = length(EmbedFormatter.format_batch(entries(kills), "J115405"))
+      assert expected_count > 1, "fixture must produce a multi-chunk event"
+
+      event =
+        kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system, killmails: kills}))
+
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+
+      requests = wait_for_requests(expected_count)
+      bodies = Enum.map(requests, fn {_url, body} -> body end)
+
+      assert hd(bodies)["content"] == "<@111> <@222>"
+
+      assert List.last(bodies)["content"] == "…and 1 more kills not shown.",
+             "overflow line must not be disturbed by mention injection"
+
+      for body <- bodies |> tl() |> Enum.drop(-1) do
+        refute Map.has_key?(body, "content")
+      end
+    end
+
+    test "enabled but nobody in voice: no content, telemetry mention_count 0",
+         %{map: map, system: w} do
+      enable_voice_mentions(fn 999 ->
+        %{id: 999, afk_channel_id: nil, channels: %{}, voice_states: []}
+      end)
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        "voice-empty-#{inspect(ref)}",
+        [:wanderer_app, :discord_dispatcher, :dispatched],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:dispatched, ref, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("voice-empty-#{inspect(ref)}") end)
+
+      event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+
+      assert [{@system_url, body}] = wait_for_requests(1)
+      refute Map.has_key?(body, "content")
+
+      assert_receive {:dispatched, ^ref, measurements, %{role: :system}}, 2_000
+      assert measurements.mention_count == 0
+    end
+
+    test "disabled: dispatch telemetry carries no mention_count key", %{map: map, system: w} do
+      # No enable_voice_mentions(): absent measurement is the "feature off"
+      # signal, distinct from mention_count 0 ("enabled but nobody taggable").
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        "voice-absent-#{inspect(ref)}",
+        [:wanderer_app, :discord_dispatcher, :dispatched],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:dispatched, ref, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("voice-absent-#{inspect(ref)}") end)
+
+      event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+      wait_for_requests(1)
+
+      assert_receive {:dispatched, ^ref, measurements, %{role: :system}}, 2_000
+      refute Map.has_key?(measurements, :mention_count)
+    end
   end
 
   describe "per-destination routing" do
