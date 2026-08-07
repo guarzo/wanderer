@@ -268,6 +268,10 @@ defmodule WandererApp.Application do
 
           [
             WandererApp.ExternalEvents.WebhookDispatcher,
+            # Boot-side-effect only (returns :ignore): starts the Nostrum gateway
+            # when voice mentions are configured. Before the worker tree so the
+            # voice cache starts warming as early as possible.
+            WandererApp.ExternalEvents.Discord.VoiceGateway,
             # Supervisor before the dispatcher that routes work into it, so the
             # first event does not find the worker tree missing.
             WandererApp.ExternalEvents.Discord.WorkerSupervisor,
