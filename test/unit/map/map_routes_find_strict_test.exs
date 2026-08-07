@@ -134,7 +134,58 @@ defmodule WandererApp.Map.RoutesFindStrictTest do
                false
              )
 
-    assert strict_result == find_result
+    # `routes` are identical either way — only `systems_static_data` differs,
+    # by design (see the next test): `find_strict/5` also hydrates the
+    # origin's static info, `find/5` does not.
+    assert strict_result.routes == find_result.routes
     assert [%{success: true, origin: ^origin, destination: ^hub}] = strict_result.routes
+  end
+
+  test "find_strict/5 includes the origin in systems_static_data, find/5 does not" do
+    hub = unique_system_id()
+    origin = unique_system_id()
+    stub_static_info(hub)
+    stub_static_info(origin)
+    map_id = Ecto.UUID.generate()
+
+    stub(WandererApp.Esi.Mock, :get_routes_custom, fn hubs, origin, _params ->
+      {:ok,
+       Enum.map(hubs, fn hub ->
+         %{
+           "origin" => origin,
+           "destination" => hub,
+           "systems" => [hub],
+           "success" => true
+         }
+       end)}
+    end)
+
+    assert {:ok, %{systems_static_data: strict_static_data}} =
+             Routes.find_strict(
+               map_id,
+               [Integer.to_string(hub)],
+               Integer.to_string(origin),
+               @routes_settings,
+               false
+             )
+
+    assert {:ok, %{systems_static_data: find_static_data}} =
+             Routes.find(
+               # Different `map_id` so this second call cannot hit the cache
+               # key `find_strict/5` just populated above.
+               Ecto.UUID.generate(),
+               [Integer.to_string(hub)],
+               Integer.to_string(origin),
+               @routes_settings,
+               false
+             )
+
+    strict_system_ids = Enum.map(strict_static_data, & &1.solar_system_id)
+    find_system_ids = Enum.map(find_static_data, & &1.solar_system_id)
+
+    assert origin in strict_system_ids
+    assert hub in strict_system_ids
+    refute origin in find_system_ids
+    assert hub in find_system_ids
   end
 end

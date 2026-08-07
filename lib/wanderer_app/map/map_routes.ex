@@ -83,7 +83,12 @@ defmodule WandererApp.Map.Routes do
   def find_strict(map_id, hubs, origin, routes_settings, false) do
     case do_find_routes(map_id, origin, hubs, routes_settings, strict: true) do
       {:ok, routes} ->
-        {:ok, %{routes: routes, systems_static_data: hydrate_static_data(routes)}}
+        # Unlike `find/5`, callers of `find_strict/5` (route alerts) must
+        # judge the ORIGIN's security too — a highsec-only route from a
+        # highsec home is a different claim than one from a lowsec home. Pass
+        # `include_origin?: true` so the origin is present in
+        # `systems_static_data`; `find/5` is unaffected (default `false`).
+        {:ok, %{routes: routes, systems_static_data: hydrate_static_data(routes, true)}}
 
       {:error, _reason} = error ->
         error
@@ -103,10 +108,19 @@ defmodule WandererApp.Map.Routes do
     {:ok, %{routes: routes, systems_static_data: []}}
   end
 
-  defp hydrate_static_data(routes) do
+  # `include_origin?` defaults to `false` to keep `find/5`'s observable output
+  # byte-identical to before this change. `find_strict/5` (route alerts) is
+  # the only caller that passes `true` — see its own comment for why the
+  # origin's static data must be present for that caller and not this one.
+  defp hydrate_static_data(routes, include_origin? \\ false) do
     routes
-    |> Enum.map(fn route_info -> route_info.systems end)
-    |> List.flatten()
+    |> Enum.flat_map(fn route_info ->
+      if include_origin? do
+        [route_info.origin | route_info.systems]
+      else
+        route_info.systems
+      end
+    end)
     |> Enum.uniq()
     |> Task.async_stream(
       fn system_id ->
