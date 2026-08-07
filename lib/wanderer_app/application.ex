@@ -152,6 +152,20 @@ defmodule WandererApp.Application do
         {Cachex, name: :discord_dedup_cache, default_ttl: :timer.hours(24)},
         id: :discord_dedup_cache_worker
       ),
+      # Route-alert state per map (route_state + config_version) — no TTL:
+      # a route that is still open must not silently forget it was already
+      # announced just because a quiet period outlasted an expiry window.
+      Supervisor.child_spec(
+        {Cachex, name: :discord_route_alert_cache},
+        id: :discord_route_alert_cache_worker
+      ),
+      # Started unconditionally (like the Discord caches above and
+      # TrackerRegistry below) rather than gated behind
+      # `maybe_start_external_events_services/0`: `Discord.RouteWatcher`
+      # processes are started individually by `RouteWatcherSupervisor`, not by
+      # that gate, and its own tests start a bare `RouteWatcher` without going
+      # through that supervisor at all.
+      {Registry, keys: :unique, name: WandererApp.ExternalEvents.Discord.RouteWatcherRegistry},
       {Registry, keys: :unique, name: WandererApp.Character.TrackerRegistry},
       {PartitionSupervisor,
        child_spec: DynamicSupervisor, name: WandererApp.Character.DynamicSupervisors},
