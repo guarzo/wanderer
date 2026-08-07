@@ -275,8 +275,21 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # into a different process. This dispatcher is a SINGLETON shared by every
   # map's kill batches — the solve, the embed, and the HTTP post all belong to
   # Discord.RouteWatcher, one GenServer per map, never to this clause.
+  # Removals are in this list for the same reason additions are: the transition
+  # table only runs during an evaluation, and an evaluation only happens on a
+  # notify. Without a notify on removal the state stays `{:qualifying, N}`
+  # indefinitely, so a route that closes and later re-opens at the same or a
+  # worse jump count takes the silent `jumps < old` branch and is never
+  # announced. Solver load stays bounded by the watcher's debounce and the
+  # 15-minute route cache, which is what bounds it for the additions too.
   defp do_dispatch(map_id, %{type: type})
-       when type in [:add_system, :connection_added, :connection_updated] do
+       when type in [
+              :add_system,
+              :connection_added,
+              :connection_updated,
+              :connection_removed,
+              :deleted_system
+            ] do
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.route_alerts_enabled?,

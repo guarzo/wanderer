@@ -1873,7 +1873,16 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       %{notification: notification}
     end
 
-    for type <- [:add_system, :connection_added, :connection_updated] do
+    # Removals are in this list too: without a notify on removal the watcher's
+    # state stays {:qualifying, N} forever, so a route that closes and later
+    # re-opens at the same or a worse jump count is never announced.
+    for type <- [
+          :add_system,
+          :connection_added,
+          :connection_updated,
+          :connection_removed,
+          :deleted_system
+        ] do
       test "#{type} notifies the route watcher", %{map: map} do
         event = Event.new(map.id, unquote(type), %{})
         DiscordDispatcher.dispatch_event(map.id, event)
