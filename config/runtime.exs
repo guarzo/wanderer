@@ -517,7 +517,36 @@ config :wanderer_app, :external_events,
     |> get_var_from_path_or_env("WANDERER_CORP_TICKERS_ENABLED", "true")
     |> String.to_existing_atom(),
   corp_tickers_timeout_ms:
-    config_dir |> get_int_from_path_or_env("WANDERER_CORP_TICKERS_TIMEOUT_MS", 1500)
+    config_dir |> get_int_from_path_or_env("WANDERER_CORP_TICKERS_TIMEOUT_MS", 1500),
+  discord_bot_token:
+    if(config_env() != :test,
+      do: config_dir |> get_var_from_path_or_env("DISCORD_BOT_TOKEN")
+    ),
+  discord_guild_id:
+    if(config_env() != :test,
+      do: config_dir |> get_var_from_path_or_env("DISCORD_GUILD_ID")
+    )
+
+# Nostrum powers voice-participant mentions on Discord kill notifications.
+# Configured only when a bot token exists; VoiceGateway decides at boot
+# whether to actually start it. Never configured in test — the suite must
+# stay hermetic.
+if config_env() != :test do
+  # Trimmed, blank treated as unset — mirrors Env.discord_bot_token/0, so a
+  # stray DISCORD_BOT_TOKEN="" never hands Nostrum an empty token.
+  raw_discord_bot_token = config_dir |> get_var_from_path_or_env("DISCORD_BOT_TOKEN")
+
+  discord_bot_token =
+    if raw_discord_bot_token && String.trim(raw_discord_bot_token) != "",
+      do: String.trim(raw_discord_bot_token)
+
+  if discord_bot_token do
+    config :nostrum,
+      token: discord_bot_token,
+      gateway_intents: [:guilds, :guild_voice_states],
+      ffmpeg: false
+  end
+end
 
 # Signature expiration — evaluated at boot so the deployment's env vars win over
 # whatever was set when the release was built. Defaults mirror config.exs.
