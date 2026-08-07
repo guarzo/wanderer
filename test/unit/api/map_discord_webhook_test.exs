@@ -514,4 +514,18 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
 
     assert updated.mention_targets == ["role:112233445566778899"]
   end
+
+  test "mention_targets validation rejects a malformed target via Mentions.valid_target?/1" do
+    # Same rejection as before the fold — this asserts the behaviour survives
+    # the delegation, and the assertion below pins that there is now exactly
+    # one regex literal for mention targets in lib/.
+    assert WandererApp.ExternalEvents.Discord.Mentions.valid_target?("role:123456789012345678")
+    refute WandererApp.ExternalEvents.Discord.Mentions.valid_target?("role:123")
+
+    resource_source =
+      File.read!("lib/wanderer_app/api/map_discord_webhook.ex")
+
+    refute resource_source =~ ~S{~r/^(user|role):},
+           "ValidateMentionTargets must delegate to Mentions.valid_target?/1, not carry its own regex"
+  end
 end

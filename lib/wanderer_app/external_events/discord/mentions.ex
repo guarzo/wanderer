@@ -9,10 +9,10 @@ defmodule WandererApp.ExternalEvents.Discord.Mentions do
   doc's "Why not VoiceParticipants".
   """
 
-  # Guild snowflakes are 17-20 decimal digits — matches
-  # `MapDiscordWebhook.ValidateMentionTargets`. Kept as a separate literal
-  # here rather than a shared reference so this module has no compile-time
-  # dependency on the Ash resource.
+  # Guild snowflakes are 17-20 decimal digits. This is the single definition of
+  # a well-formed mention target; `MapDiscordWebhook.ValidateMentionTargets`
+  # delegates here. The dependency runs resource -> Mentions and must not be
+  # reversed: this module stays free of any Ash compile-time dependency.
   @target_regex ~r/^(user|role):(\d{17,20})$/
 
   @doc """

@@ -308,10 +308,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     @moduledoc false
     use Ash.Resource.Validation
 
-    # Guild snowflakes are 17-20 decimal digits. Parseable, renderable
-    # (`<@id>` / `<@&id>`), and unable to hold a handle that would silently
-    # fail to ping — see the design doc's "Mentions" section.
-    @target_regex ~r/^(user|role):\d{17,20}$/
+    alias WandererApp.ExternalEvents.Discord.Mentions
 
     @impl true
     def validate(changeset, _opts, _context) do
@@ -320,7 +317,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
           :ok
 
         targets when is_list(targets) ->
-          if Enum.all?(targets, &valid?/1) do
+          if Enum.all?(targets, &Mentions.valid_target?/1) do
             :ok
           else
             {:error,
@@ -332,9 +329,6 @@ defmodule WandererApp.Api.MapDiscordWebhook do
           :ok
       end
     end
-
-    defp valid?(target) when is_binary(target), do: Regex.match?(@target_regex, target)
-    defp valid?(_), do: false
   end
 
   # after_transaction, not after_action: an after_action hook evicts the cached
