@@ -126,6 +126,48 @@ defmodule WandererApp.Env do
     )
   end
 
+  @doc """
+  Bot token for the voice-mention gateway connection. `nil` when unset —
+  voice mentions on system-channel kill notifications are then disabled.
+  """
+  def discord_bot_token() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:discord_bot_token)
+  end
+
+  @doc """
+  Guild whose voice channels feed kill-notification mentions, as a positive
+  integer. `nil` when unset or malformed — a malformed id disables the
+  feature; `VoiceGateway` warns once at boot rather than per kill.
+  """
+  def discord_guild_id() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:discord_guild_id)
+    |> parse_guild_id()
+  end
+
+  defp parse_guild_id(nil), do: nil
+  defp parse_guild_id(id) when is_integer(id) and id > 0, do: id
+  defp parse_guild_id(id) when is_integer(id), do: nil
+
+  defp parse_guild_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_guild_id(_), do: nil
+
+  @doc """
+  Voice-participant mentions are on iff both the bot token and a valid guild
+  id are configured. Presence of config IS the feature flag (spec decision:
+  env vars only, no DB toggle).
+  """
+  def discord_voice_mentions_enabled?() do
+    discord_bot_token() != nil and discord_guild_id() != nil
+  end
+
   @default_notable_items_threshold_isk 50_000_000
   @default_notable_items_limit 5
   @default_notable_items_timeout_ms 1_500

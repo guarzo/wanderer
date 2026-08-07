@@ -32,7 +32,11 @@ defmodule WandererApp.MixProject do
           include_executables_for: [:unix],
           steps: [:assemble, :tar],
           applications: [
-            wanderer_app: :permanent
+            wanderer_app: :permanent,
+            # runtime: false keeps Nostrum out of the release unless listed; :load
+            # ships the code without auto-starting it — VoiceGateway starts it only
+            # when voice mentions are configured.
+            nostrum: :load
           ],
           version: "1.0.0"
         ]
@@ -122,6 +126,7 @@ defmodule WandererApp.MixProject do
       {:prom_ex, "~> 1.9"},
       {:fresh, "~> 0.4.4"},
       {:nimble_publisher, "~> 1.0"},
+      {:nostrum, "~> 0.10", runtime: false},
       {:makeup_elixir, ">= 0.0.0"},
       {:makeup_erlang, ">= 0.0.0"},
       {:better_number, "~> 1.0.0"},
