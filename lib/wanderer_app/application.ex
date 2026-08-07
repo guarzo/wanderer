@@ -289,6 +289,11 @@ defmodule WandererApp.Application do
             # Supervisor before the dispatcher that routes work into it, so the
             # first event does not find the worker tree missing.
             WandererApp.ExternalEvents.Discord.WorkerSupervisor,
+            # Route-alert watchers post through WorkerSupervisor, so this
+            # comes after it. Before DiscordDispatcher, whose new topology
+            # clause (Task 9) calls RouteWatcherSupervisor.notify/1 and must
+            # never find the tree missing.
+            WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor,
             WandererApp.ExternalEvents.DiscordDispatcher
           ]
         else
