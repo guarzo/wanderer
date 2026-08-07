@@ -1,5 +1,5 @@
 defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
-  use ExUnit.Case, async: true
+  use WandererApp.DataCase, async: false
 
   alias WandererApp.ExternalEvents.Discord.EmbedFormatter
   alias WandererAppWeb.Factory
@@ -756,6 +756,179 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
       assert length(without) == 1
       assert length(with_sections) > 1
       assert Enum.all?(with_sections, &(embed_text_total(&1["embeds"]) <= 6000))
+    end
+  end
+
+  describe "format_route_alert/2" do
+    @home 31_000_005
+    @wh_hop 31_000_006
+    @exit_system 30_002_053
+    @jita 30_000_142
+
+    setup do
+      Cachex.put(:system_static_info_cache, @home, %{
+        solar_system_id: @home,
+        solar_system_name: "J115405",
+        system_class: 3
+      })
+
+      Cachex.put(:system_static_info_cache, @wh_hop, %{
+        solar_system_id: @wh_hop,
+        solar_system_name: "J132412",
+        system_class: 3
+      })
+
+      Cachex.put(:system_static_info_cache, @exit_system, %{
+        solar_system_id: @exit_system,
+        solar_system_name: "Amarr",
+        system_class: 0
+      })
+
+      Cachex.put(:system_static_info_cache, @jita, %{
+        solar_system_id: @jita,
+        solar_system_name: "Jita",
+        system_class: 0
+      })
+
+      on_exit(fn ->
+        Enum.each(
+          [@home, @wh_hop, @exit_system, @jita],
+          &Cachex.del(:system_static_info_cache, &1)
+        )
+      end)
+
+      map = Factory.insert(:map, %{})
+
+      alert = %{
+        kind: :opened,
+        jumps: 4,
+        path: [@home, @wh_hop, @exit_system, @jita],
+        exit_system: @exit_system,
+        map_id: map.id,
+        home_system_id: @home
+      }
+
+      %{alert: alert}
+    end
+
+    test "an opened alert is a single green embed titled with the jump count", %{alert: alert} do
+      assert [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      assert embed["title"] == "Highsec route to Jita — 4 jumps"
+      assert embed["color"] == 0x2ECC71
+    end
+
+    test "the path renders home through Jita using map-local names for wormhole hops", %{
+      alert: alert
+    } do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      path_field = Enum.find(embed["fields"], &(&1["name"] == "Path"))
+      assert path_field["value"] == "J115405 → J132412 → Amarr → Jita"
+    end
+
+    test "the exit system gets its own field", %{alert: alert} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      exit_field = Enum.find(embed["fields"], &(&1["name"] == "Exit system"))
+      assert exit_field["value"] == "Amarr"
+    end
+
+    test "an improved alert titles with 'improved' and carries no content", %{alert: alert} do
+      improved = %{alert | kind: :improved, jumps: 3}
+
+      assert [%{"embeds" => [embed]} = message] = EmbedFormatter.format_route_alert(improved, [])
+      assert embed["title"] == "Highsec route to Jita improved — 3 jumps"
+      refute Map.has_key?(message, "content")
+    end
+
+    test "an opened alert with configured targets carries a content ping and allowed_mentions", %{
+      alert: alert
+    } do
+      put_discord_mentions_enabled(true)
+
+      [message] =
+        EmbedFormatter.format_route_alert(alert, mention_targets: ["role:123456789012345678"])
+
+      assert message["content"] =~ "<@&123456789012345678>"
+
+      assert message["allowed_mentions"] ==
+               %{"parse" => [], "users" => [], "roles" => ["123456789012345678"]}
+    end
+
+    test "no content when no mention targets are configured", %{alert: alert} do
+      put_discord_mentions_enabled(true)
+
+      [message] = EmbedFormatter.format_route_alert(alert, mention_targets: [])
+
+      refute Map.has_key?(message, "content")
+      refute Map.has_key?(message, "allowed_mentions")
+    end
+
+    test "no content when the mentions env gate is off, even with targets configured", %{
+      alert: alert
+    } do
+      put_discord_mentions_enabled(false)
+
+      [message] =
+        EmbedFormatter.format_route_alert(alert, mention_targets: ["role:123456789012345678"])
+
+      refute Map.has_key?(message, "content")
+    end
+
+    test "an improved alert never carries content, even with targets configured", %{alert: alert} do
+      put_discord_mentions_enabled(true)
+
+      improved = %{alert | kind: :improved}
+
+      [message] =
+        EmbedFormatter.format_route_alert(improved, mention_targets: ["role:123456789012345678"])
+
+      refute Map.has_key?(message, "content")
+      refute Map.has_key?(message, "allowed_mentions")
+    end
+
+    # Mention injection guard (design: "Mention injection is a real risk").
+    # A system's temporary_name is user-supplied and goes in the EMBED only;
+    # it must never reach `content`, and `allowed_mentions` must stay a closed
+    # allowlist regardless of what the embed renders.
+    test "a system named @everyone does not inject into content", %{alert: alert} do
+      put_discord_mentions_enabled(true)
+
+      Factory.insert(:map_system, %{
+        map_id: alert.map_id,
+        solar_system_id: @home,
+        name: "J115405",
+        temporary_name: "@everyone"
+      })
+
+      [message] =
+        EmbedFormatter.format_route_alert(alert, mention_targets: ["role:123456789012345678"])
+
+      refute message["content"] =~ "@everyone"
+
+      assert message["allowed_mentions"] ==
+               %{"parse" => [], "users" => [], "roles" => ["123456789012345678"]}
+
+      [%{"embeds" => [embed]}] = [message]
+
+      assert embed["fields"] |> Enum.find(&(&1["name"] == "Path")) |> Map.get("value") =~
+               "@everyone"
+    end
+
+    # `Env.discord_mentions_enabled?/0` reads a nested `:discord_mentions_enabled`
+    # key inside the `:external_events` keyword list, not a top-level app env
+    # key — mirrors `test/unit/env_discord_mentions_test.exs`.
+    defp put_discord_mentions_enabled(enabled?) do
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :discord_mentions_enabled, enabled?)
+      )
+
+      on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
     end
   end
 end

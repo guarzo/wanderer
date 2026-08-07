@@ -11,6 +11,9 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   the payload, decides the colour and the author line.
   """
 
+  alias WandererApp.ExternalEvents.Discord.Mentions
+  alias WandererApp.ExternalEvents.Discord.SystemName
+
   @type verdict ::
           {:involved, :victim} | {:involved, :attacker} | :not_involved | :unknown
 
@@ -32,6 +35,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   @color_loss 0xE74C3C
   @color_kill 0x2ECC71
+  @color_route 0x2ECC71
 
   # ISK tiers for kills involving nobody we track, largest first.
   #
@@ -86,6 +90,78 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
       |> Enum.map(&%{"embeds" => &1})
 
     append_overflow(messages, overflow)
+  end
+
+  @doc """
+  Formats a route-alert transition (design §"Message, mentions, and privacy")
+  into Discord message chunks. `opts[:mention_targets]` are guild-scoped
+  snowflake strings (`"user:123"` / `"role:456"`); pinging is gated on
+  `WandererApp.Env.discord_mentions_enabled?/0` and fires only for `:opened`
+  (design: "Ping on open only" — an "improved" update posts with no `content`,
+  keeping the ping meaningful on a chain under active scanning).
+  """
+  @spec format_route_alert(map(), keyword()) :: [map()]
+  def format_route_alert(alert, opts) do
+    embed = route_embed(alert)
+    mention_targets = Keyword.get(opts, :mention_targets, [])
+
+    message =
+      case route_ping(alert.kind, mention_targets) do
+        nil ->
+          %{"embeds" => [embed]}
+
+        {content, allowed_mentions} ->
+          %{"embeds" => [embed], "content" => content, "allowed_mentions" => allowed_mentions}
+      end
+
+    [message]
+  end
+
+  defp route_embed(alert) do
+    %{
+      "title" => route_title(alert),
+      "color" => @color_route,
+      "fields" => [
+        %{"name" => "Path", "value" => route_path_text(alert), "inline" => false},
+        %{
+          "name" => "Exit system",
+          "value" => route_system_name(alert, alert.exit_system),
+          "inline" => true
+        }
+      ]
+    }
+    |> drop_nils()
+  end
+
+  defp route_title(%{kind: :opened, jumps: jumps}),
+    do: "Highsec route to Jita — #{jumps} jumps"
+
+  defp route_title(%{kind: :improved, jumps: jumps}),
+    do: "Highsec route to Jita improved — #{jumps} jumps"
+
+  defp route_path_text(alert) do
+    Enum.map_join(alert.path, " → ", &route_system_name(alert, &1))
+  end
+
+  # Literal :route, per SystemName's map-local-names privacy boundary — never
+  # threaded through as a variable. See the Router moduledoc's "Role
+  # resolution is literal" note and SystemName's own moduledoc.
+  defp route_system_name(_alert, nil), do: "Unknown system"
+
+  defp route_system_name(alert, solar_system_id) do
+    SystemName.display_name(alert.map_id, solar_system_id, :route) || "Unknown system"
+  end
+
+  defp route_ping(:improved, _mention_targets), do: nil
+  defp route_ping(:opened, []), do: nil
+
+  defp route_ping(:opened, mention_targets) do
+    if WandererApp.Env.discord_mentions_enabled?() do
+      case Mentions.prefix(mention_targets) do
+        nil -> nil
+        content -> {content, Mentions.allowed_mentions(mention_targets)}
+      end
+    end
   end
 
   # Two bounds at once: at most @max_embeds_per_message embeds, and at most
