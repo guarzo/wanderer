@@ -56,13 +56,14 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   end
 
   actions do
-    default_accept [:notification_id, :role, :webhook_url, :enabled?]
+    default_accept [:notification_id, :role, :webhook_url, :enabled?, :mention_targets]
 
     defaults [:read]
 
     create :create do
       primary? true
       validate {__MODULE__.ValidateWebhookUrl, []}
+      validate {__MODULE__.ValidateMentionTargets, []}
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
@@ -77,8 +78,13 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       # owns for the rest of the TTL. `role` is immutable for the same reason:
       # the unique (notification_id, role) identity is what makes "the system
       # destination" addressable.
-      accept [:webhook_url, :enabled?]
+      #
+      # `mention_targets` is safe to add here unlike `notification_id`/`role`:
+      # it carries no ownership semantics, only which snowflakes this
+      # destination pings.
+      accept [:webhook_url, :enabled?, :mention_targets]
       validate {__MODULE__.ValidateWebhookUrl, []}
+      validate {__MODULE__.ValidateMentionTargets, []}
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
@@ -198,7 +204,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
 
     attribute :role, :atom do
       allow_nil? false
-      constraints one_of: [:system, :character]
+      constraints one_of: [:system, :character, :route]
     end
 
     attribute :webhook_url, :string do
@@ -213,6 +219,15 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     attribute :last_error, :string, constraints: [max_length: @max_error_length]
     attribute :last_error_at, :utc_datetime
     attribute :consecutive_failures, :integer, default: 0, allow_nil?: false
+
+    # Guild-scoped snowflakes to ping on this destination — see the design
+    # doc's "Where configured targets live": these belong on the webhook row,
+    # not anywhere map- or instance-wide, because a role/user id from one
+    # guild is meaningless (and unrenderable) in another.
+    attribute :mention_targets, {:array, :string} do
+      default []
+      allow_nil? false
+    end
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
@@ -287,6 +302,39 @@ defmodule WandererApp.Api.MapDiscordWebhook do
           end
       end
     end
+  end
+
+  defmodule ValidateMentionTargets do
+    @moduledoc false
+    use Ash.Resource.Validation
+
+    # Guild snowflakes are 17-20 decimal digits. Parseable, renderable
+    # (`<@id>` / `<@&id>`), and unable to hold a handle that would silently
+    # fail to ping — see the design doc's "Mentions" section.
+    @target_regex ~r/^(user|role):\d{17,20}$/
+
+    @impl true
+    def validate(changeset, _opts, _context) do
+      case Ash.Changeset.get_argument_or_attribute(changeset, :mention_targets) do
+        nil ->
+          :ok
+
+        targets when is_list(targets) ->
+          if Enum.all?(targets, &valid?/1) do
+            :ok
+          else
+            {:error,
+             field: :mention_targets,
+             message: "each entry must match user:<id> or role:<id> (17-20 digit snowflake)"}
+          end
+
+        _ ->
+          :ok
+      end
+    end
+
+    defp valid?(target) when is_binary(target), do: Regex.match?(@target_regex, target)
+    defp valid?(_), do: false
   end
 
   # after_transaction, not after_action: an after_action hook evicts the cached

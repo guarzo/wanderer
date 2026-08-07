@@ -459,4 +459,59 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
       webhook_url: "https://discord.com/api/webhooks/999/othertok"
     })
   end
+
+  test "accepts the :route role", %{notification: notification} do
+    assert {:ok, hook} =
+             MapDiscordWebhook.create(%{
+               notification_id: notification.id,
+               role: :route,
+               webhook_url: valid_url()
+             })
+
+    assert hook.role == :route
+    assert hook.mention_targets == []
+  end
+
+  test "mention_targets accepts well-formed user and role snowflakes", %{
+    notification: notification
+  } do
+    assert {:ok, hook} =
+             MapDiscordWebhook.create(%{
+               notification_id: notification.id,
+               role: :route,
+               webhook_url: valid_url(),
+               mention_targets: ["user:123456789012345678", "role:98765432109876543"]
+             })
+
+    assert hook.mention_targets == ["user:123456789012345678", "role:98765432109876543"]
+  end
+
+  test "mention_targets rejects a handle, a bare id, and an out-of-range snowflake", %{
+    notification: notification
+  } do
+    for bad <- ["@guarzo", "user:123", "role:123456789012345678901", "corp:123456789012345678"] do
+      assert {:error, %Ash.Error.Invalid{}} =
+               MapDiscordWebhook.create(%{
+                 notification_id: notification.id,
+                 role: :route,
+                 webhook_url: valid_url(),
+                 mention_targets: [bad]
+               }),
+             "expected #{inspect(bad)} to be rejected"
+    end
+  end
+
+  test "mention_targets round-trips through update", %{notification: notification} do
+    {:ok, hook} =
+      MapDiscordWebhook.create(%{
+        notification_id: notification.id,
+        role: :route,
+        webhook_url: valid_url()
+      })
+
+    assert {:ok, updated} =
+             MapDiscordWebhook.update(hook, %{mention_targets: ["role:112233445566778899"]})
+
+    assert updated.mention_targets == ["role:112233445566778899"]
+  end
 end
