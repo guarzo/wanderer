@@ -74,8 +74,10 @@ Near-verbatim port of the notifier module:
 - Every failure path — bot not started, guild not cached yet, malformed
   config, unexpected struct shape — rescues/returns `[]`.
 - Logging: the notifier's per-call `Logger.info` narration becomes
-  `Logger.debug`; keep one `Logger.warning` for the "users present but all
-  filtered out" diagnostic case.
+  `Logger.debug`, including the "users present but all filtered out"
+  diagnostic — at warning level it would fire on every kill whenever the
+  guild's only voice occupants sit in the AFK channel, which is normal
+  idling, not misconfiguration (final-review ruling).
 - The `GuildCache` read sits behind a single seam (an injectable
   guild-fetching function or a public function accepting a guild struct) so
   unit tests supply guild fixtures without Nostrum running.
