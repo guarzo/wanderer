@@ -532,7 +532,13 @@ config :wanderer_app, :external_events,
 # whether to actually start it. Never configured in test — the suite must
 # stay hermetic.
 if config_env() != :test do
-  discord_bot_token = config_dir |> get_var_from_path_or_env("DISCORD_BOT_TOKEN")
+  # Trimmed, blank treated as unset — mirrors Env.discord_bot_token/0, so a
+  # stray DISCORD_BOT_TOKEN="" never hands Nostrum an empty token.
+  raw_discord_bot_token = config_dir |> get_var_from_path_or_env("DISCORD_BOT_TOKEN")
+
+  discord_bot_token =
+    if raw_discord_bot_token && String.trim(raw_discord_bot_token) != "",
+      do: String.trim(raw_discord_bot_token)
 
   if discord_bot_token do
     config :nostrum,
