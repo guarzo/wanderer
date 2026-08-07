@@ -25,6 +25,11 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor do
   alias WandererApp.ExternalEvents.Discord.RouteWatcher
 
   @dyn_sup WandererApp.ExternalEvents.Discord.RouteWatcherDynamicSupervisor
+  # Same cache RouteWatcher.persist/1 and rehydrate/1 read and write
+  # (route_watcher.ex:41). Named directly rather than through an accessor
+  # because RouteWatcher does not expose one — application.ex names this same
+  # atom directly too when declaring the Cachex worker.
+  @cache :discord_route_alert_cache
   @stop_timeout_ms 5_000
 
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
@@ -41,40 +46,55 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor do
   @doc "Starts the map's watcher if needed, then forwards the notify."
   @spec notify(binary()) :: :ok
   def notify(map_id) do
-    case Process.whereis(@dyn_sup) do
-      nil ->
-        :ok
-
-      _ ->
-        with {:ok, _pid} <- ensure_watcher(map_id) do
-          RouteWatcher.notify(map_id)
-        end
-
-        :ok
+    # Both the dyn sup (owned here) and the Registry (owned by RouteWatcher,
+    # started unconditionally elsewhere — see the moduledoc) must be checked:
+    # Registry.lookup/2 raises ArgumentError on an unregistered name, and the
+    # two processes' lifecycles are independent, so either one being absent
+    # must degrade to a no-op rather than a crash.
+    if running?() do
+      with {:ok, _pid} <- ensure_watcher(map_id) do
+        RouteWatcher.notify(map_id)
+      end
     end
+
+    :ok
   end
 
-  @doc "Stops the map's watcher if one is running, discarding its state."
+  @doc """
+  Stops the map's watcher if one is running, and evicts its cached
+  route_state/config_version so a subsequent watcher for the same map starts
+  fresh at `:unknown` instead of rehydrating stale state (the TTL-less
+  `:discord_route_alert_cache` otherwise outlives the process indefinitely).
+  """
   @spec stop_watcher(binary()) :: :ok
   def stop_watcher(map_id) do
-    case Process.whereis(@dyn_sup) do
-      nil ->
-        :ok
-
-      _ ->
-        case Registry.lookup(RouteWatcher.registry(), map_id) do
-          [{pid, _}] -> try_stop(pid)
-          [] -> :ok
-        end
-
-        :ok
+    if running?() do
+      case Registry.lookup(RouteWatcher.registry(), map_id) do
+        [{pid, _}] -> try_stop(pid)
+        [] -> :ok
+      end
     end
+
+    evict_cache(map_id)
+    :ok
   end
+
+  defp running?, do: Process.whereis(@dyn_sup) && Process.whereis(RouteWatcher.registry())
 
   defp try_stop(pid) do
     GenServer.stop(pid, :normal, @stop_timeout_ms)
   catch
     :exit, _ -> :ok
+  end
+
+  # Defensive the same way RouteWatcher.persist/1 and rehydrate/1 are: the
+  # cache is not started in every test context, and a missing cache must not
+  # turn a stop into a crash.
+  defp evict_cache(map_id) do
+    Cachex.del(@cache, map_id)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp ensure_watcher(map_id) do
