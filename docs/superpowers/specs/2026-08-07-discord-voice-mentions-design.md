@@ -96,11 +96,19 @@ entries
   `Env.discord_voice_mentions_enabled?()`: fetch mentions; if non-empty, set or
   prepend the joined mention string on the **first** message's `"content"`
   field (separated from any existing content by a space). Embeds are untouched.
+- **Content-length cap (fail-open):** Discord rejects `content` over 2,000
+  characters, and the worker treats a 400 as a permanent event failure that
+  feeds the auto-disable counter (`worker.ex:306`). The mention prefix is
+  therefore built against a fixed budget (1,800 characters, leaving headroom
+  for any existing content): mentions are appended one at a time until the
+  next would exceed the budget, and the remainder are silently dropped. A
+  partially-tagged ping is acceptable; a rejected kill notification is not.
 - All other roles, feature disabled, or empty mentions: messages pass through
   unchanged — no stray whitespace, no empty content key.
-- One event = one ping regardless of chunk count. If a single-chunk event also
-  carries the overflow "…and N more kills not shown." content line, mentions
-  are prepended to that same content string.
+- One event = one ping regardless of chunk count. Mentions (first chunk) and
+  the formatter's overflow "…and N more kills not shown." line (last chunk,
+  `embed_formatter.ex:129`) can never collide: overflow requires more than 30
+  kills, and at 10 embeds per message that is always a multi-chunk event.
 - Discord's default `allowed_mentions` for webhook payloads pings users
   mentioned in `content`, so no payload changes beyond the string.
 
@@ -127,8 +135,24 @@ Invariant: **voice tagging can never cost a kill notification.**
 | Env vars absent | `VoiceGateway` no-op; dispatcher predicate false; messages unchanged |
 | Malformed `DISCORD_GUILD_ID` | One `Logger.warning` at boot; feature off; no per-kill noise |
 | Nostrum fails to start (bad token, network) | Error logged by `VoiceGateway`; supervision tree continues; kills deliver without pings. `VoiceGateway` must not link the app's fate to Discord's gateway |
-| Gateway down / reconnecting / guild not yet cached | `GuildCache.get!` raises → rescued → `[]` → message sends without pings |
+| Guild not yet cached (startup, cache flush) | `GuildCache.get!` raises → rescued → `[]` → message sends without pings |
+| Gateway down / reconnecting after the cache was populated | The ETS cache stays readable but **stale**: users who left voice may still be pinged, and new joiners missed, for the duration of the reconnect window. **Accepted tradeoff** — the ping is best-effort comms awareness, the notifier has the identical behavior in production, and a gateway-freshness signal is not worth its complexity here. Nostrum resyncs the cache on resume/reconnect |
 | Nobody in voice, or everyone in AFK channel | `[]` → clean message, no prepended whitespace |
+
+## Observability
+
+An empty mention list from a broken gateway must be distinguishable from
+"nobody in voice":
+
+- The existing `[:wanderer_app, :discord_dispatcher, :dispatched]` telemetry
+  event (`discord_dispatcher.ex:690`) gains a `mention_count` measurement for
+  `:system`-role dispatches when the feature is enabled (`0` when the lookup
+  returned empty or rescued; absent when the feature is off).
+- `VoiceParticipants` logs at `debug` the participant count per lookup, and at
+  `debug` when a lookup rescues (with the error), so a persistently broken
+  gateway is visible in debug logs without adding per-kill warning noise.
+- `VoiceGateway` logs at `info` on successful start and at `error` when
+  Nostrum fails to start — the one-time signals an operator actually needs.
 
 ## Testing
 
@@ -138,9 +162,12 @@ Invariant: **voice tagging can never cost a kill notification.**
   deduped; nil/absent voice_states, nil channels map, non-integer guild id,
   and raise-from-cache all return `[]`.
 - **Dispatcher tests** (extend existing): mentions prepended only for
-  `:system` role; only first chunk's content modified; single-chunk event with
-  overflow line keeps both mentions and overflow text; feature disabled →
-  byte-identical messages; mention lookup raising does not prevent delivery.
+  `:system` role; multi-chunk event → only first chunk's content modified and
+  the last chunk's overflow line untouched; mention list exceeding the
+  1,800-character budget → prefix truncated at a mention boundary, message
+  still valid; feature disabled → byte-identical messages; mention lookup
+  raising does not prevent delivery; `mention_count` present in dispatch
+  telemetry when enabled.
 - **Not covered by automated tests:** the live gateway connection. Verified
   manually once against the real guild (bot online, user in voice, kill in a
   mapped system → ping received; user in AFK channel → no ping).
