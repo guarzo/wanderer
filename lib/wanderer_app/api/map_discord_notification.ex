@@ -110,7 +110,7 @@ defmodule WandererApp.Api.MapDiscordNotification do
         :route_max_jumps
       ]
 
-      change after_transaction(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.after_update/3)
     end
 
     read :by_map do
@@ -210,6 +210,30 @@ defmodule WandererApp.Api.MapDiscordNotification do
   end
 
   def invalidate_cache(_changeset, other, _context), do: other
+
+  # Update runs the same invalidation, plus one thing the create path does not
+  # need: when the record lands with route alerts OFF, the map's watcher must
+  # go away. Nothing else evicts it — the dispatcher stops calling notify/1 for
+  # a disabled map (discord_dispatcher.ex), so the watcher's own
+  # "clear state when disabled" branch never runs, and `config_version/1`
+  # deliberately excludes `route_alerts_enabled?` so the stale
+  # `{:qualifying, N}` rehydrates byte-identical on re-enable. The result would
+  # be a permanently silent map: the route is still open at the same jump
+  # count, so the transition table takes the silent branch forever.
+  # `stop_watcher/1` stops the process AND evicts the cache entry, which is
+  # what makes the next enable start fresh at `:unknown`.
+  @doc false
+  def after_update(changeset, {:ok, record} = result, context) do
+    {:ok, _} = invalidate_cache(changeset, result, context)
+
+    unless record.route_alerts_enabled? do
+      WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor.stop_watcher(record.map_id)
+    end
+
+    {:ok, record}
+  end
+
+  def after_update(_changeset, other, _context), do: other
 
   @doc false
   def validate_home_system_required(changeset, _context) do

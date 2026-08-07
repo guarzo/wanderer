@@ -138,6 +138,46 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherSupervisorTest do
 
       assert %{route_state: :unknown} = :sys.get_state(pid)
     end
+
+    # Regression for I1 of the whole-branch review. The dispatcher stops
+    # calling notify/1 once route alerts are off, so the watcher's own
+    # "clear state when disabled" branch never runs in production, and
+    # config_version/1 excludes route_alerts_enabled? so the stale entry
+    # rehydrates byte-identical. Without the eviction in the update hook a
+    # disable/re-enable cycle leaves the watcher at {:qualifying, 5}, and a
+    # route still open at 5 jumps takes the silent branch forever.
+    test "disabling route alerts stops the watcher and evicts its cached state", %{
+      map: map,
+      notification: notification
+    } do
+      {:ok, notification} =
+        MapDiscordNotification.update(notification, %{
+          route_alerts_enabled?: true,
+          home_system_id: 30_000_001
+        })
+
+      RouteWatcherSupervisor.notify(map.id)
+      assert [{pid, _}] = Registry.lookup(RouteWatcher.registry(), map.id)
+
+      Cachex.put(:discord_route_alert_cache, map.id, %{
+        route_state: {:qualifying, 5},
+        config_version: "stale"
+      })
+
+      {:ok, notification} =
+        MapDiscordNotification.update(notification, %{route_alerts_enabled?: false})
+
+      refute Process.alive?(pid)
+      assert {:ok, nil} = Cachex.get(:discord_route_alert_cache, map.id)
+
+      # ...and re-enabling therefore starts from :unknown, the one state the
+      # transition table posts an :opened alert from.
+      {:ok, _} = MapDiscordNotification.update(notification, %{route_alerts_enabled?: true})
+
+      RouteWatcherSupervisor.notify(map.id)
+      assert [{new_pid, _}] = Registry.lookup(RouteWatcher.registry(), map.id)
+      assert %{route_state: :unknown} = :sys.get_state(new_pid)
+    end
   end
 
   defp await_condition(fun, timeout \\ 2_000) do
