@@ -490,6 +490,20 @@ defmodule WandererAppWeb.ApiRoutes do
 
       # ACL Members API
       %RouteSpec{
+        verb: :get,
+        path: ~w(api v1 acls :acl_id members :member_id),
+        controller: WandererAppWeb.AccessListMemberAPIController,
+        action: :show_v1,
+        features: [],
+        metadata: %{
+          auth_required: true,
+          rate_limit: :standard,
+          success_status: 200,
+          content_type: "application/vnd.api+json",
+          description: "Get a specific member from an access list"
+        }
+      },
+      %RouteSpec{
         verb: :post,
         path: ~w(api v1 acls :acl_id members),
         controller: WandererAppWeb.AccessListMemberAPIController,

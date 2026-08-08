@@ -66,6 +66,10 @@ defmodule WandererApp.Map.Server do
 
   defdelegate remove_hub(map_id, hub_info), to: Impl
 
+  defdelegate update_system_owner(map_id, update), to: Impl
+
+  defdelegate update_system_custom_flags(map_id, update), to: Impl
+
   defdelegate add_ping(map_id, ping_info), to: Impl
 
   defdelegate cancel_ping(map_id, ping_info), to: Impl
