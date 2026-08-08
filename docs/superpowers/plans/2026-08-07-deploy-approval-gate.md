@@ -4,7 +4,7 @@
 
 **Goal:** Replace Fly's branch-watch auto-deploy with a GitHub Actions workflow that deploys `guarzo/zoo` to Fly only after a green test suite and an explicit human approval, then tags the deployed commit.
 
-**Architecture:** One workflow (`.github/workflows/zoo-deploy.yml`) with a single gated job. It triggers on the `🧪 Test Suite` workflow succeeding on `guarzo/zoo`, waits on the `production-deploy` GitHub Environment for approval, verifies the commit is still current, runs `flyctl deploy`, and only then tags the SHA and moves `guarzo/release` to it as a bookmark. Fly's own GitHub integration is disconnected — the workflow replaces it rather than running alongside it.
+**Architecture:** One workflow (`.github/workflows/zoo-deploy.yml`) with a single gated job. It triggers on the `🧪 Test Suite` workflow succeeding on `guarzo/zoo`, waits on the `production-deploy` GitHub Environment for approval, verifies the commit is still current, runs `flyctl deploy`, and only then tags the SHA. The tag is the sole record of what is in production; `guarzo/release` is retired and frozen rather than kept as a bookmark. Fly's own GitHub integration is disconnected — the workflow replaces it rather than running alongside it.
 
 **Tech Stack:** GitHub Actions, GitHub Environments (deployment protection rules), GitHub repository rulesets, Fly.io (`flyctl`), Docker build on Fly remote builders.
 
@@ -29,7 +29,7 @@ Most of this plan is CI configuration and GitHub/Fly settings, not application c
 
 | File | Status | Responsibility |
 |---|---|---|
-| `.github/workflows/zoo-deploy.yml` | Create | The entire deploy pipeline: trigger, gate, staleness guard, deploy, tag, bookmark |
+| `.github/workflows/zoo-deploy.yml` | Create | The entire deploy pipeline: trigger, gate, staleness guard, deploy, tag |
 | `docs/ZOO-FORK.md` | Modify | Document the deploy process so it stops being tribal knowledge |
 
 No application code changes. No migrations.
@@ -38,7 +38,7 @@ No application code changes. No migrations.
 
 1. **Task 1 — operator prerequisites** (manual). Must precede everything: the workflow references an environment and a secret that must already exist, and Fly's integration must be disconnected before the workflow can deploy without double-deploying.
 2. **Task 2 — the workflow file**, merged to `guarzo/zoo`. Both `workflow_run` and `workflow_dispatch` only see workflow files on the default branch, so the file must be merged before any run is possible.
-3. **Task 3 — validation deploy** via `workflow_dispatch`. Proves the gate, the credential, the deploy, the tag, and the ruleset bypass.
+3. **Task 3 — validation deploy** via `workflow_dispatch`. Proves the gate, the credential, the deploy, and the tag.
 4. **Task 4 — trigger validation** via a real push. Proves the part `workflow_dispatch` cannot exercise: that a deploy run appears only after a green suite.
 5. **Task 5 — documentation.**
 
@@ -51,7 +51,7 @@ No application code changes. No migrations.
 **Files:** none — this is configuration in GitHub and Fly.
 
 **Interfaces:**
-- Produces: GitHub Environment `production-deploy` with a required reviewer; environment secret `FLY_API_TOKEN` scoped to it; a repository ruleset on `guarzo/release`; Fly app `wanderer` with no GitHub integration.
+- Produces: GitHub Environment `production-deploy` with a required reviewer; environment secret `FLY_API_TOKEN` scoped to it; a repository ruleset freezing `guarzo/release`; Fly app `wanderer` with no GitHub integration.
 
 - [ ] **Step 1: Record the current deploy state, so a revert is possible**
 
@@ -134,19 +134,28 @@ Expected: `FLY_API_TOKEN` appears in the **first** output and **not** in the sec
 
 If it appears in the second, it was created as a repository secret — delete it there and redo Step 7.
 
-- [ ] **Step 9: Add the `guarzo/release` ruleset with a bypass for Actions**
+- [ ] **Step 9: Freeze `guarzo/release` with a ruleset**
+
+`guarzo/release` is retired: the workflow does not push it, and nothing reads it. The ruleset exists solely so the old hard-reset-and-push habit fails loudly instead of silently doing nothing.
 
 GitHub → Settings → Rules → Rulesets → New branch ruleset:
 
-- Name: `guarzo/release protected`
+- Name: `guarzo/release frozen`
 - Enforcement: Active
 - Target branches: include `refs/heads/guarzo/release`
-- Rules: enable **Restrict updates** (blocks direct pushes)
-- **Bypass list: add the `GitHub Actions` bypass actor** (Repository role / integration `GitHub Actions`), mode **Always**
+- Rules: enable **Restrict updates** and **Restrict deletions**
+- **Bypass list: empty.** Nothing needs to write to this branch, including Actions.
 
-The bypass is load-bearing. Without it the workflow's own push at the final step is rejected — *after* a successful production deploy, leaving production changed but untagged and unbookmarked. Verified for real in Task 3, because it cannot be verified any other way.
+The equivalent API call, from `.superpowers/sdd/2026-08-07-deploy-approval-gate/release-ruleset.json`:
 
-- [ ] **Step 10: Verify the ruleset and its bypass**
+```bash
+gh api repos/guarzo/wanderer/rulesets --method POST \
+  --input .superpowers/sdd/2026-08-07-deploy-approval-gate/release-ruleset.json
+```
+
+**Do not add a `GitHub Actions` bypass actor.** It is not needed here, and it is not available: `guarzo/wanderer` is user-owned, and GitHub rejects the `Integration` actor type on user-owned repositories with *"Actor GitHub Actions integration must be part of the ruleset source or owner organization"* (verified, HTTP 422).
+
+- [ ] **Step 10: Verify the ruleset**
 
 Run:
 
@@ -154,14 +163,14 @@ Run:
 gh api repos/guarzo/wanderer/rulesets --jq '.[] | {id, name, enforcement}'
 ```
 
-Note the id of `guarzo/release protected`, then:
+Note the id of `guarzo/release frozen`, then:
 
 ```bash
 gh api repos/guarzo/wanderer/rulesets/<ID> \
-  --jq '{conditions: .conditions.ref_name.include, bypass: [.bypass_actors[] | {actor_type, bypass_mode}], rules: [.rules[].type]}'
+  --jq '{conditions: .conditions.ref_name.include, bypass: .bypass_actors, rules: [.rules[].type], can_bypass: .current_user_can_bypass}'
 ```
 
-Expected: the include list contains `refs/heads/guarzo/release`, `bypass` contains an entry with `"actor_type":"Integration"` (or `RepositoryRole`) and `"bypass_mode":"always"`, and `rules` contains `update`.
+Expected: the include list contains `refs/heads/guarzo/release`, `bypass` is `[]`, `rules` contains `update` and `deletion`, and `can_bypass` is `"never"`.
 
 - [ ] **Step 11: Confirm a direct push is now refused**
 
@@ -173,7 +182,15 @@ git push origin origin/guarzo/zoo:guarzo/release --force
 
 Expected: **rejected** by the ruleset, with a message naming the rule.
 
-This is the point of the ruleset: the old hard-reset-and-push habit now fails loudly instead of silently doing nothing. A push that *succeeds* here means the ruleset is not protecting the branch — fix it before continuing.
+A push that *succeeds* here means the ruleset is not protecting the branch — fix it before continuing.
+
+- [ ] **Step 12: Delete the unused `production` environment (optional)**
+
+An empty, unprotected environment named `production` exists alongside `production-deploy`. Nothing references it. Two similarly named environments where only one gates anything is a footgun during an incident, so delete it:
+
+```bash
+gh api repos/guarzo/wanderer/environments/production --method DELETE
+```
 
 ---
 
@@ -183,7 +200,7 @@ This is the point of the ruleset: the old hard-reset-and-push habit now fails lo
 - Create: `.github/workflows/zoo-deploy.yml`
 
 **Interfaces:**
-- Consumes: environment `production-deploy`, environment secret `FLY_API_TOKEN`, and the `guarzo/release` ruleset bypass from Task 1.
+- Consumes: environment `production-deploy` and environment secret `FLY_API_TOKEN` from Task 1.
 - Produces: a workflow named `🚀 Zoo Deploy` triggerable by `workflow_dispatch` (with an optional `ref` input) and by the `🧪 Test Suite` workflow completing on `guarzo/zoo`.
 
 - [ ] **Step 1: Resolve the action SHAs to pin**
@@ -226,8 +243,9 @@ on:
         required: false
         type: string
 
-# Default token is read-only; the job scopes itself up because it pushes a tag
-# and moves a branch.
+# Default token is read-only; the job scopes itself up because it pushes a tag.
+# The tag is the ONLY record of what is in production — no branch tracks it, by
+# design (see docs/ZOO-FORK.md, "Deployment").
 permissions:
   contents: read
 
@@ -265,8 +283,9 @@ jobs:
     # NEVER set cancel-in-progress: true here. Cancellation applies to running
     # jobs, not just to runs awaiting approval: a merge landing mid-deploy would
     # kill this job while Fly's builder keeps going, changing production with no
-    # tag and no bookmark. That is the exact failure this workflow exists to
-    # prevent. `false` also serializes deploys onto the single machine.
+    # tag — and the tag is the only record of what is live. That is the exact
+    # failure this workflow exists to prevent. `false` also serializes deploys
+    # onto the single machine.
     concurrency:
       group: zoo-deploy-run
       cancel-in-progress: false
@@ -365,7 +384,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           # Convergent, not merely collision-safe. A recovery re-run (deploy
-          # succeeded, bookmark push failed) must reuse the tag the first run
+          # succeeded, tag push failed) must reuse the tag the first run
           # created, not mint a second one for the same commit — the tag name is
           # generated from the clock, so checking only the new name would always
           # miss the existing one.
@@ -385,15 +404,6 @@ jobs:
             echo "Tagged ${SHA} as ${TAG}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-
-      # Force-push: guarzo/zoo is rebased regularly, so this is not a
-      # fast-forward. Requires the ruleset bypass from Task 1 Step 9.
-      - name: Move the guarzo/release bookmark
-        if: steps.guard.outputs.proceed == 'true'
-        run: |
-          set -euo pipefail
-          git push --force origin "HEAD:refs/heads/guarzo/release"
-          echo "guarzo/release now points at $(git rev-parse HEAD)"
 
       - name: Summarize
         if: steps.guard.outputs.proceed == 'true'
@@ -461,7 +471,8 @@ git commit -m "ci: gated deploy workflow for guarzo/zoo
 Triggers on a successful Test Suite run, waits on the production-deploy
 environment for approval, then deploys to Fly and tags the commit only after
 the release is healthy. Replaces Fly's branch-watch integration on
-guarzo/release, which now becomes a CI-owned bookmark of what is in production."
+guarzo/release, which is retired — the deploy tag is now the record of what is
+in production."
 ```
 
 - [ ] **Step 7: Open a PR and merge to `guarzo/zoo`**
@@ -529,7 +540,7 @@ Proves the pipeline end to end with a deliberate release. This costs one restart
 
 **Interfaces:**
 - Consumes: the merged workflow from Task 2 and all configuration from Task 1.
-- Produces: confirmation that self-approval works, the credential resolves, the deploy succeeds, and the ruleset bypass permits the bookmark push.
+- Produces: confirmation that self-approval works, the credential resolves, the deploy succeeds, and the commit is tagged.
 
 - [ ] **Step 1: Record the pre-deploy state**
 
@@ -591,22 +602,22 @@ git rev-parse "$(git for-each-ref --sort=-creatordate --format='%(refname:short)
 
 Expected: a new `v2026…` tag exists, newer than the one recorded in Step 1, pointing at the SHA that was deployed.
 
-- [ ] **Step 7: Verify the bookmark moved — the step most likely to fail**
+- [ ] **Step 7: Verify the tag push is the only ref write — the step most likely to fail**
 
 ```bash
-git fetch origin
-git rev-parse origin/guarzo/release origin/guarzo/zoo
+git fetch origin --tags --prune
+git rev-parse origin/guarzo/release
 ```
 
-Expected: both print the same SHA.
+Expected: `guarzo/release` is **unchanged** from the SHA recorded in Step 1. The workflow no longer touches it, and the Task 1 Step 9 ruleset rejects any push to it.
 
-**If the run failed at `Move the guarzo/release bookmark`,** the ruleset bypass from Task 1 Step 9 is misconfigured. Note that production is *already deployed* at this point — this is the partial-failure state the spec describes. Fix the bypass, then recover by re-running:
+**If the run failed at `Tag the deployed commit`,** production is *already deployed* at this point and the deployed commit carries no tag — the partial-failure state the spec describes, and now the only one, since the tag is the sole production record. The likely cause is the job's `permissions: contents: write` not taking effect. Fix it, then recover by re-running against the explicit SHA:
 
 ```bash
 gh workflow run "🚀 Zoo Deploy" -f ref="$(git rev-parse origin/guarzo/zoo)"
 ```
 
-and approving it. The tag step is idempotent and the deploy is a no-op change, at the cost of one more restart.
+and approving it. The tag step is convergent and the deploy is a no-op change, at the cost of one more restart.
 
 - [ ] **Step 8: Verify the app is actually serving**
 
@@ -726,13 +737,21 @@ comment at the top of `fly.toml`).
 3. On success, `🚀 Zoo Deploy` opens a run that **waits for approval** in the
    `production-deploy` environment. GitHub emails an approval request; the run
    also shows as pending in the Actions tab.
-4. Approving it deploys to Fly, then tags the commit `v<UTC timestamp>` and
-   moves `guarzo/release` to that commit.
+4. Approving it deploys to Fly, then tags the commit `v<UTC timestamp>`.
 
-**`guarzo/release` is CI-owned.** It is a bookmark of what is in production, not
-a trigger. Direct pushes are rejected by a ruleset — resetting and pushing it by
-hand does nothing except fail. This is deliberate: it used to be the deploy
-trigger, and the change is easy to forget.
+**The newest `v20*` tag is the record of what is in production.** No branch
+tracks it. To see what you have written but not yet deployed:
+
+```bash
+git fetch origin --tags
+git log --oneline "$(git tag -l 'v20*' | sort | tail -1)"..guarzo/zoo
+```
+
+**`guarzo/release` is retired.** It used to be the deploy trigger — hard-resetting
+and pushing it was how you shipped. It no longer moves, deploys nothing, and is
+frozen by a ruleset that rejects pushes to it, so the old habit fails loudly
+instead of silently doing nothing. It survives only as a marker of where the
+old process stopped.
 
 **Nothing deploys without approval**, including a run that has been sitting
 pending. Pending approvals expire after 30 days.
@@ -781,17 +800,18 @@ folklore and how the deploy tags going away went unnoticed."
 Order matters, and it is the reverse of the rollout.
 
 1. **Disable or delete `.github/workflows/zoo-deploy.yml`** first.
-2. Reconnect Fly's GitHub integration to `guarzo/release`.
-3. Delete the `guarzo/release` ruleset.
-4. Optionally delete the `production-deploy` environment and its secret.
+2. Delete the `guarzo/release frozen` ruleset, so the branch can move again.
+3. Hard-reset `guarzo/release` to `guarzo/zoo` and push it — it has been frozen since Task 1, so it is stale by however many deploys have happened.
+4. Reconnect Fly's GitHub integration to `guarzo/release`.
+5. Optionally delete the `production-deploy` environment and its secret.
 
-Reconnecting Fly while the workflow is still active recreates double deployment in a confusing form: the workflow deploys, then pushes `guarzo/release` as its final step, which triggers the reconnected integration to deploy the same commit again — two restarts, the second apparently uncaused.
+Steps 2 and 3 must precede step 4. Reconnecting Fly first would make the next hard-reset push deploy whatever `guarzo/release` was frozen at — an old commit — rather than current `guarzo/zoo`.
 
-`guarzo/release` still tracks the same commits throughout, so the old process resumes unchanged.
+Unlike the earlier design that kept `guarzo/release` as a live bookmark, this rollback requires an explicit catch-up push: the branch stopped tracking production the moment the workflow landed. The newest `v20*` tag records what was actually deployed in the interim.
 
 ## Known risks carried into implementation
 
-- **`flyctl deploy` may not exit non-zero on a failed health check.** The tag and bookmark steps depend on it. If Task 3 shows a deploy reported as successful while the machine is unhealthy, add an explicit `flyctl status` / `/health` poll between the deploy and tag steps.
+- **`flyctl deploy` may not exit non-zero on a failed health check.** The tag step depends on it. If Task 3 shows a deploy reported as successful while the machine is unhealthy, add an explicit `flyctl status` / `/health` poll between the deploy and tag steps.
 - **Steps 2–5 of the job are not atomic.** A failure after the deploy leaves production changed but untagged. Recovery is the idempotent `workflow_dispatch` re-run in Task 3 Step 7, at the cost of one restart.
 - **Self-approval is assumed and verified in Task 3 Step 3.** If it does not hold, the design needs a second reviewer.
 - **`superfly/flyctl-actions/setup-flyctl` is a new dependency** on this repo. If pinning proves awkward, installing flyctl directly (`curl -L https://fly.io/install.sh | sh`) is a viable substitute, but a piped installer is a worse supply-chain posture than a pinned action.
