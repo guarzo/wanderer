@@ -326,15 +326,15 @@ because the app runs exactly one machine. Simply re-running (or re-approving)
 the automatic path does **not** recover this — once `guarzo/zoo` has moved, the
 staleness guard blocks it.
 
-**`FLY_API_TOKEN` must stay an environment secret on `production-deploy`, never
+**`FLY_DEPLOY_TOKEN` must stay an environment secret on `production-deploy`, never
 a repository secret** — an environment secret is released only to a job that
-has cleared the approval gate, which is the entire point. Note that
-`advanced-test.yml` also reads a secret named `FLY_API_TOKEN`, with no
-environment gate, targeting the separate `wanderer-test` app; no
-repository-scoped secret of that name exists today, but adding one in the
-future would hand this workflow's production credential to that ungated
-workflow, so keep any `develop`-deploy credential scoped to its own name or
-environment instead.
+has cleared the approval gate, which is the entire point. The name is
+deliberately not `FLY_API_TOKEN`: `advanced-test.yml` reads a secret of that
+name with no environment gate, targeting the separate `wanderer-test` app.
+Keeping the names distinct means this production credential can never be picked
+up by that ungated workflow, whatever gets added to repository secrets later.
+The workflow maps it onto the `FLY_API_TOKEN` env var that `flyctl` itself
+reads.
 
 ---
 
