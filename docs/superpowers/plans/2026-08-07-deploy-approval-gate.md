@@ -16,7 +16,7 @@
 - **Fly app name:** `wanderer`. Never `wanderer-*`; the other Fly apps (`kills`, `route-builder`) are separate services and must not be touched.
 - **Exactly one machine.** `fly.toml:1-11` documents this as an architectural constraint: map state lives in node-local Cachex tables and a node-local Registry. Do not add autoscaling, raise machine counts, or change `[deploy].strategy` from `rolling`. Every deploy is a full restart with a user-visible gap.
 - **Tag format:** `v$(date +%Y%m%d%H%M%S)` — matches the tags the deleted `release.yml` produced (e.g. `v20260805165448`). Do not switch to semver.
-- **Deploy credential:** `FLY_API_TOKEN` is an **environment** secret on `production-deploy`, never a repository secret.
+- **Deploy credential:** `FLY_DEPLOY_TOKEN` is an **environment** secret on `production-deploy`, never a repository secret. The name is deliberately not `FLY_API_TOKEN`: `advanced-test.yml` reads an ungated secret of that name for the separate `wanderer-test` app. The workflow maps it onto the `FLY_API_TOKEN` env var that `flyctl` itself reads.
 - **Pin every third-party action to a full commit SHA** with the version in a trailing comment. This matches the deleted `release.yml` (`git show ce58765b^:.github/workflows/release.yml`), which pinned all four of its actions. It deliberately does **not** match `test.yml`, which uses floating version tags throughout (`test.yml:34`, `:87`, `:133`, `:210`, `:291`) — this workflow holds a production deploy credential, so it takes the stricter posture rather than the local majority one.
 - **Never cancel a running deploy.** `cancel-in-progress` must be `false` on the deploy job.
 - **Do not modify** `.github/workflows/test.yml`, `build.yml`, `build-develop.yml`, `advanced-test.yml`, `release_actions.yml`, or `flaky-test-detection.yml`. The last four are upstream's.
@@ -51,7 +51,7 @@ No application code changes. No migrations.
 **Files:** none — this is configuration in GitHub and Fly.
 
 **Interfaces:**
-- Produces: GitHub Environment `production-deploy` with a required reviewer; environment secret `FLY_API_TOKEN` scoped to it; a repository ruleset freezing `guarzo/release`; Fly app `wanderer` with no GitHub integration.
+- Produces: GitHub Environment `production-deploy` with a required reviewer; environment secret `FLY_DEPLOY_TOKEN` scoped to it; a repository ruleset freezing `guarzo/release`; Fly app `wanderer` with no GitHub integration.
 
 - [ ] **Step 1: Record the current deploy state, so a revert is possible**
 
@@ -117,7 +117,7 @@ Deploy-scoped, not a personal org token: a compromised runner must not be able t
 
 - [ ] **Step 7: Store it as an environment secret**
 
-GitHub → Settings → Environments → `production-deploy` → **Environment secrets** → Add secret → name `FLY_API_TOKEN`, value from Step 6.
+GitHub → Settings → Environments → `production-deploy` → **Environment secrets** → Add secret → name `FLY_DEPLOY_TOKEN`, value from Step 6.
 
 **Environment secret, not repository secret.** A repository secret is readable by any workflow on a trusted branch; an environment secret is released only to a job that has cleared the approval gate. The whole premise is that nothing reaches production without approval, and the credential is part of "nothing".
 
@@ -130,7 +130,7 @@ gh api repos/guarzo/wanderer/environments/production-deploy/secrets --jq '.secre
 gh api repos/guarzo/wanderer/actions/secrets --jq '.secrets[].name'
 ```
 
-Expected: `FLY_API_TOKEN` appears in the **first** output and **not** in the second.
+Expected: `FLY_DEPLOY_TOKEN` appears in the **first** output and **not** in the second.
 
 If it appears in the second, it was created as a repository secret — delete it there and redo Step 7.
 
@@ -200,7 +200,7 @@ gh api repos/guarzo/wanderer/environments/production --method DELETE
 - Create: `.github/workflows/zoo-deploy.yml`
 
 **Interfaces:**
-- Consumes: environment `production-deploy` and environment secret `FLY_API_TOKEN` from Task 1.
+- Consumes: environment `production-deploy` and environment secret `FLY_DEPLOY_TOKEN` from Task 1.
 - Produces: a workflow named `🚀 Zoo Deploy` triggerable by `workflow_dispatch` (with an optional `ref` input) and by the `🧪 Test Suite` workflow completing on `guarzo/zoo`.
 
 - [ ] **Step 1: Resolve the action SHAs to pin**
@@ -273,7 +273,7 @@ jobs:
 
     # The gate AND the work live in one job on purpose. A protected environment
     # gates every job that references it, so splitting them would prompt twice;
-    # and FLY_API_TOKEN is an environment secret, readable only by a job inside
+    # and FLY_DEPLOY_TOKEN is an environment secret, readable only by a job inside
     # the environment. Secrets cannot be passed between jobs.
     environment: production-deploy
 
@@ -361,7 +361,12 @@ jobs:
         if: steps.guard.outputs.proceed == 'true'
         id: deploy
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          # Repository secret name is FLY_DEPLOY_TOKEN, deliberately NOT
+          # FLY_API_TOKEN: advanced-test.yml reads a secret of that name with no
+          # environment gate, for the separate wanderer-test app. Distinct names
+          # mean this production credential can never be picked up there. The
+          # env var flyctl itself reads is still FLY_API_TOKEN.
+          FLY_API_TOKEN: ${{ secrets.FLY_DEPLOY_TOKEN }}
         run: |
           set -euo pipefail
           flyctl deploy --app wanderer --remote-only
