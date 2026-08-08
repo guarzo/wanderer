@@ -27,6 +27,17 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
      into a credential, and two destinations still render differently because
      the hash differs.
 
+  ## What the label claims
+
+  `source` says which tier produced the label, because the UI's wording depends
+  on it: `:channel` is a real `#channel-name`, `:webhook_name` is only the
+  nickname whoever created the webhook typed, `:masked` is the hash hint, and
+  `:unknown` is a label persisted before this field existed. `:unknown` renders
+  bare — no "Channel:"/"Webhook:" prefix — because guessing the tier from the
+  label's shape is exactly the inference this field exists to stop. It is also
+  treated as stale, so a row drains to a real tier on its next render rather
+  than needing a backfill that nothing recorded enough to write.
+
   ## Blocking policy
 
   `describe/1` **never** blocks and never performs I/O: it answers from cache,
@@ -56,7 +67,8 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   @type info :: %{
           label: String.t(),
           channel_id: String.t() | nil,
-          source: :resolved | :masked
+          guild_id: String.t() | nil,
+          source: :channel | :webhook_name | :unknown | :masked
         }
 
   # Role order, and the order collisions are reported in. Mirrors
@@ -114,16 +126,47 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   Returns `{:error, :no_webhook_url}` when handed nothing usable; callers
   rendering an unconfigured destination should not be asking in the first
   place, and a `{:ok, "••••"}` there would look like a configured one.
+
+  ## `notify:`
+
+  Pass `notify: self()` from a render path to be told when the background
+  refresh lands, so the masked hint this call returns is replaced by the real
+  name instead of sitting there until something else happens to re-render.
+  The message is
+
+      {:discord_channel_info, notification_id, source}
+
+  a **three**-tuple, deliberately. `MapsLive` carries an unguarded
+  `handle_info({ref, result}, socket)` catch-all that calls
+  `Process.demonitor(ref, [:flush])` (`maps_live.ex:651`), and
+  `Process.demonitor/2` raises `ArgumentError` on anything that is not a
+  reference — so a two-tuple here would take the whole map LiveView down on the
+  first refresh. Ordering our clause above the catch-all would also work and is
+  worse: it makes correctness depend on a source-file position that any later
+  edit can silently break.
+
+  Nothing is sent for a raw URL (there is no row to name), and a send to a pid
+  that has since died is a no-op, so a closed settings tab costs nothing.
   """
-  @spec describe(MapDiscordWebhook.t() | String.t() | nil) :: {:ok, info()} | {:error, term()}
-  def describe(webhook_or_url) do
+  @spec describe(MapDiscordWebhook.t() | String.t() | nil, keyword()) ::
+          {:ok, info()} | {:error, term()}
+  def describe(webhook_or_url, opts \\ []) do
     with {:ok, url} <- webhook_url(webhook_or_url) do
       case cached(url) do
+        {:ok, %{source: :masked} = info} ->
+          # A masked cache entry means the last resolution could not reach
+          # Discord or could not name the channel. It must not displace a real
+          # label already on the row — `persist/2` refuses to write one over the
+          # other for exactly this reason, and letting it win here would undo
+          # that on screen: a destination showing "#kills" would drop back to a
+          # hash hint the moment Discord had one bad minute.
+          {:ok, persisted(webhook_or_url) || info}
+
         {:ok, info} ->
           {:ok, info}
 
         :miss ->
-          refresh_async(webhook_or_url)
+          refresh_async(webhook_or_url, opts)
           {:ok, persisted(webhook_or_url) || masked(url)}
       end
     end
@@ -157,14 +200,22 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   Deduplicated through a short-lived cache lock and always `:ok` — a refresh
   that cannot be scheduled is not an error, it is one more render showing the
   masked hint.
+
+  Accepts the same `notify:` option as `describe/2`. Note that the lock is what
+  makes the notification worth having and also its one sharp edge: a caller
+  whose refresh is deduped against one already in flight is not notified,
+  because the in-flight task was scheduled by whoever won the lock. That is the
+  right trade for a settings tab, where losing the race means someone else's
+  refresh is about to write the row anyway.
   """
-  @spec refresh_async(MapDiscordWebhook.t() | String.t() | nil) :: :ok
-  def refresh_async(webhook_or_url) do
+  @spec refresh_async(MapDiscordWebhook.t() | String.t() | nil, keyword()) :: :ok
+  def refresh_async(webhook_or_url, opts \\ []) do
     with {:ok, url} <- webhook_url(webhook_or_url),
          :ok <- acquire_refresh_lock(url) do
       Task.Supervisor.start_child(WandererApp.TaskSupervisor, fn ->
         info = put_cached(url, resolve_uncached(url))
         persist(webhook_or_url, info)
+        notify(webhook_or_url, info, opts)
       end)
     end
 
@@ -226,22 +277,59 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   defp resolve_uncached(url) do
     case fetch_webhook(url) do
       {:ok, %{"channel_id" => channel_id} = webhook} when is_binary(channel_id) ->
+        # The webhook payload carries a `guild_id` of its own. It is the weaker
+        # of the two — tier 2 answers for the channel that is actually being
+        # posted into — so it is only the fallback.
+        webhook_guild_id = present(webhook["guild_id"])
+
         # Reachable and it named a channel, but a name is a separate question:
         # the bot may not share the guild and the webhook itself may be
         # unnamed. Falling back to the masked hint here must NOT count as
         # resolved, or the hint would be cached for the full hour and written
         # over whatever real label the row already holds.
-        case bot_channel_label(channel_id) || webhook_label(webhook) do
-          nil -> %{label: masked_label(url), channel_id: channel_id, source: :masked}
-          label -> %{label: label, channel_id: channel_id, source: :resolved}
+        case bot_channel(channel_id) do
+          %{label: label, guild_id: guild_id} ->
+            %{
+              label: label,
+              channel_id: channel_id,
+              guild_id: guild_id || webhook_guild_id,
+              source: :channel
+            }
+
+          nil ->
+            case webhook_label(webhook) do
+              nil ->
+                %{
+                  label: masked_label(url),
+                  channel_id: channel_id,
+                  guild_id: webhook_guild_id,
+                  source: :masked
+                }
+
+              label ->
+                %{
+                  label: label,
+                  channel_id: channel_id,
+                  guild_id: webhook_guild_id,
+                  source: :webhook_name
+                }
+            end
         end
 
       {:ok, webhook} ->
         # Reachable, but Discord did not hand back a channel — nothing to ask
         # the bot about, and nothing to collide on.
         case webhook_label(webhook) do
-          nil -> masked(url)
-          label -> %{label: label, channel_id: nil, source: :resolved}
+          nil ->
+            masked(url)
+
+          label ->
+            %{
+              label: label,
+              channel_id: nil,
+              guild_id: present(webhook["guild_id"]),
+              source: :webhook_name
+            }
         end
 
       :error ->
@@ -259,7 +347,11 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
 
   # Tier 2. A 401/403 here is the ordinary case for an instance whose bot is
   # not in the operator's guild, so it is not logged as a failure.
-  defp bot_channel_label(channel_id) do
+  #
+  # Returns the guild alongside the name: this is the only response that ties a
+  # destination to a specific guild authoritatively, and the mention pickers
+  # need it to know which guild's roles and members to offer.
+  defp bot_channel(channel_id) do
     with token when is_binary(token) <- WandererApp.Env.discord_bot_token(),
          {:ok, 200, body} <-
            safe_get(
@@ -268,9 +360,9 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
              "channel lookup",
              channel_id
            ),
-         {:ok, %{"name" => name}} <- decode(body, channel_id),
+         {:ok, %{"name" => name} = channel} <- decode(body, channel_id),
          name when is_binary(name) <- present(name) do
-      truncate("##{name}")
+      %{label: truncate("##{name}"), guild_id: present(channel["guild_id"])}
     else
       _ -> nil
     end
@@ -284,7 +376,8 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
 
   ## Masking
 
-  defp masked(url), do: %{label: masked_label(url), channel_id: nil, source: :masked}
+  defp masked(url),
+    do: %{label: masked_label(url), channel_id: nil, guild_id: nil, source: :masked}
 
   defp masked_label(url) do
     "#{@masked_prefix} #{url |> fingerprint() |> binary_part(0, @hint_length)}"
@@ -309,6 +402,13 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   end
 
   defp ttl_for(%{source: :masked}), do: @masked_cache_ttl
+  # A guard, not the draining mechanism. `put_cached/2` is only ever handed
+  # `resolve_uncached/1`'s output, which never carries `:unknown` — a legacy row
+  # reaches the UI through `persisted/1` on a cache miss, and that same miss is
+  # what schedules the refresh that records the tier. This clause exists so that
+  # if an `:unknown` ever does get cached, it gets the short TTL rather than
+  # falling through to the hour-long one below.
+  defp ttl_for(%{source: :unknown}), do: @masked_cache_ttl
   defp ttl_for(_info), do: @cache_ttl
 
   # `:ok` only for the caller that won the lock. `get_and_update/3` is the
@@ -342,12 +442,14 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
 
   # Only a saved row has somewhere to persist to; a raw URL string (a paste
   # not yet submitted) resolves into the cache and stops there.
-  defp persist(%MapDiscordWebhook{id: id} = webhook, %{source: :resolved} = info)
-       when is_binary(id) do
-    if webhook.channel_id != info.channel_id or webhook.channel_label != info.label do
+  defp persist(%MapDiscordWebhook{id: id} = webhook, %{source: source} = info)
+       when is_binary(id) and source in [:channel, :webhook_name] do
+    if stale?(webhook, info) do
       case MapDiscordWebhook.cache_channel_info(webhook, %{
              channel_id: info.channel_id,
-             channel_label: info.label
+             channel_label: info.label,
+             channel_label_source: source,
+             guild_id: info.guild_id
            }) do
         {:ok, _record} ->
           :ok
@@ -376,9 +478,37 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   # single unreachable moment produced no better answer than.
   defp persist(_webhook_or_url, _info), do: :ok
 
+  # All four fields are compared, so a row that already has the right label but
+  # a null `channel_label_source` — every row written before that column
+  # existed — still counts as stale and gets its tier recorded on the first
+  # refresh that reaches it.
+  defp stale?(%MapDiscordWebhook{} = webhook, info) do
+    webhook.channel_id != info.channel_id or webhook.channel_label != info.label or
+      webhook.channel_label_source != info.source or webhook.guild_id != info.guild_id
+  end
+
+  ## Notification
+
+  # Sent whatever the outcome, including `:masked`. A refresh that could do no
+  # better than the hint is still news to a tab that has been showing the hint
+  # with no way to know whether it is still waiting.
+  #
+  # Three-tuple: see `describe/2`. Two-tuple crashes `MapsLive`.
+  defp notify(%MapDiscordWebhook{notification_id: notification_id}, info, opts)
+       when is_binary(notification_id) do
+    case Keyword.get(opts, :notify) do
+      pid when is_pid(pid) -> send(pid, {:discord_channel_info, notification_id, info.source})
+      _no_listener -> :ok
+    end
+
+    :ok
+  end
+
+  defp notify(_webhook_or_url, _info, _opts), do: :ok
+
   # Never `inspect/1` an Ash error: `InvalidAttribute` carries the submitted
-  # value, and `sensitive? true` does not redact it. Only this action's two
-  # fields could appear here and neither is a credential, but the rule is worth
+  # value, and `sensitive? true` does not redact it. Only this action's four
+  # fields could appear here and none is a credential, but the rule is worth
   # keeping mechanical rather than reasoning about it at each call site — so
   # this reports field names and messages and never a value.
   defp error_summary(%{errors: errors}) when is_list(errors) and errors != [] do
@@ -393,10 +523,21 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   defp error_summary(error) when is_atom(error), do: to_string(error)
   defp error_summary(_error), do: "unknown error"
 
-  defp persisted(%MapDiscordWebhook{channel_label: label, channel_id: channel_id}) do
+  defp persisted(%MapDiscordWebhook{channel_label: label} = webhook) do
     case present(label) do
-      nil -> nil
-      label -> %{label: label, channel_id: present(channel_id), source: :resolved}
+      nil ->
+        nil
+
+      label ->
+        %{
+          label: label,
+          channel_id: present(webhook.channel_id),
+          guild_id: present(webhook.guild_id),
+          # Null means the row predates the column. The label is still worth
+          # showing — it is what the operator sees today — but nothing recorded
+          # which tier produced it, so the UI must not claim one.
+          source: webhook.channel_label_source || :unknown
+        }
     end
   end
 

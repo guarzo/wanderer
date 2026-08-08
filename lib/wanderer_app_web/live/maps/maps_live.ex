@@ -647,6 +647,47 @@ defmodule WandererAppWeb.MapsLive do
     {:noreply, socket |> put_flash(type, message)}
   end
 
+  # A background Discord channel-identity refresh landed. The notifications tab
+  # rendered a masked hint from a cold cache; this is what replaces it with the
+  # real name without the operator having to close and reopen the tab.
+  #
+  # Three elements, not two: the clause below would otherwise swallow it and
+  # hand a non-reference to `Process.demonitor/2`, which raises. See
+  # `ChannelInfo.describe/2`.
+  @impl true
+  def handle_info({:discord_channel_info, _notification_id, _source}, socket) do
+    # Only push into the component while it is actually mounted. The refresh is
+    # scheduled from its render path but resolves over the network, so the
+    # operator can easily have switched tabs or closed the modal by the time it
+    # lands — and `send_update/3` against a component that is no longer rendered
+    # is a logged error for a result nobody is waiting on.
+    if socket.assigns[:live_action] == :settings and
+         socket.assigns[:active_settings_tab] == "notifications" do
+      send_update(WandererAppWeb.MapNotificationsComponent,
+        id: "map-notifications",
+        channel_info_refreshed: true
+      )
+    end
+
+    {:noreply, socket}
+  end
+
+  # The guild's role list for the mention picker, read off the render path for
+  # the same reason as the identity refresh above: `HttpClient` can spend
+  # several seconds before it fails, and the settings dialog must not wait on
+  # it. Three elements for the same `Process.demonitor/2` reason.
+  def handle_info({:discord_guild_roles, guild_id, result}, socket) do
+    if socket.assigns[:live_action] == :settings and
+         socket.assigns[:active_settings_tab] == "notifications" do
+      send_update(WandererAppWeb.MapNotificationsComponent,
+        id: "map-notifications",
+        guild_roles: {guild_id, result}
+      )
+    end
+
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_info(
         {ref, result},
