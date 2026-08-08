@@ -11,6 +11,8 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   the payload, decides the colour and the author line.
   """
 
+  require Logger
+
   alias WandererApp.ExternalEvents.Discord.Mentions
   alias WandererApp.ExternalEvents.Discord.SystemName
 
@@ -28,10 +30,13 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # title bound is reachable from ordinary user input, not just malice.
   @max_title_length 256
   @max_description_length 4096
-  # Discord's per-field value bound. The route path is the one field built from
-  # an unbounded number of unbounded names (up to route_max_jumps + 1 systems,
-  # each of which may carry a length-unconstrained custom_name), so it is the
-  # one that can reach this from ordinary user input.
+  # Discord's per-field value bound. Still the tightest bound in the route
+  # embed's exit field, whose system names carry no length constraint on
+  # `MapSystem`. The route PATH now renders as the description rather than a
+  # field, so it is bounded by @max_description_length instead — that is the
+  # looser of the two, and the path is the one string built from an unbounded
+  # number of unbounded names (up to route_max_jumps + 1 systems, each of which
+  # may carry a length-unconstrained custom_name).
   @max_field_length 1024
   # The per-message ceiling counts the text of every embed in the message
   # together, so it can be breached by a batch that satisfies each field bound
@@ -40,7 +45,31 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   @color_loss 0xE74C3C
   @color_kill 0x2ECC71
-  @color_route 0x2ECC71
+
+  # Route alerts are logistics, not combat, and they share a channel with kill
+  # embeds — so they deliberately sit outside the kill palette's hues. Red,
+  # green, yellow and orange are all spoken for by @color_loss, @color_kill and
+  # the @value_colors tiers below; blue is unclaimed, and it is also The Forge's
+  # own colour, which is where the alert always points.
+  #
+  # The two states are one hue at two lightness steps rather than two hues: the
+  # family should read as "route" at a glance, with `:improved` legibly the
+  # quieter of the two. An `:improved` alert also carries no ping (see
+  # `route_ping/2`), so the dimmer stripe matches how loud the message is.
+  @color_route_opened 0x2E9BD6
+  @color_route_improved 0x2A6E90
+
+  # What `Evaluator`'s pinned @solver_settings actually guarantee, in the
+  # reader's language rather than the config's. This is the whole value of the
+  # alert — that the route needs no scouting — and it was previously invisible,
+  # so a reader had to know the internals to trust the message.
+  #
+  # Deliberately makes NO ship-class claim: `include_cruise: true` means a
+  # cruiser-sized hole qualifies, so "freighter-safe" would be false. The three
+  # exclusions are stated plainly and the reader judges their own hull.
+  # `route_guarantee_settings/0` and its test pin this string to the settings it
+  # describes, because drift here turns a safety guarantee into a lie.
+  @route_guarantee "highsec only · no EOL · no crit · no frigate holes"
 
   # ISK tiers for kills involving nobody we track, largest first.
   #
@@ -124,33 +153,160 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   defp route_embed(alert) do
     %{
-      "title" => route_title(alert),
-      "color" => @color_route,
-      "fields" => [
-        %{
-          "name" => "Path",
-          "value" => truncate(route_path_text(alert), @max_field_length),
-          "inline" => false
-        },
-        %{
-          "name" => "Exit system",
-          "value" => truncate(route_system_name(alert, alert.exit_system), @max_field_length),
-          "inline" => true
-        }
-      ]
+      "author" => %{"name" => route_kind_label(alert.kind)},
+      "title" => truncate(route_title(alert), @max_title_length),
+      "url" => map_url(alert.map_id),
+      "color" => route_color(alert.kind),
+      "description" => truncate(route_path_text(alert), @max_description_length),
+      "footer" => %{"text" => @route_guarantee},
+      # Renders client-side as the reader's local time. A qualifying route is
+      # perishable — the chain it runs through can roll or die within the hour —
+      # so "how old is this alert" is part of the decision, not metadata.
+      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
     }
+    |> put_route_fields(alert)
     |> drop_nils()
   end
 
-  defp route_title(%{kind: :opened, jumps: jumps}),
-    do: "Highsec route to Jita — #{jumps} jumps"
-
-  defp route_title(%{kind: :improved, jumps: jumps}),
-    do: "Highsec route to Jita improved — #{jumps} jumps"
-
-  defp route_path_text(alert) do
-    Enum.map_join(alert.path, " → ", &route_system_name(alert, &1))
+  # The exit field earns its place only when the exit is NOT the destination.
+  # `find_exit_system/2` returns the first non-wormhole system in path order, so
+  # on a chain that pops straight into Jita it returns Jita — and "Exit system:
+  # Jita" then restates the last token of the path line directly above it. When
+  # the exit is somewhere else it is the most decision-relevant fact in the
+  # message (where the chain touches k-space), so it gets stated with the gate
+  # distance that makes it actionable.
+  defp put_route_fields(embed, alert) do
+    case route_exit_field(alert) do
+      nil -> embed
+      field -> Map.put(embed, "fields", [field])
+    end
   end
+
+  defp route_exit_field(%{exit_system: nil}), do: nil
+
+  defp route_exit_field(alert) do
+    destination = List.last(alert.path)
+
+    if alert.exit_system == destination do
+      nil
+    else
+      %{
+        "name" => "Exit",
+        "value" =>
+          truncate(
+            "#{route_system_name(alert, alert.exit_system)} · #{gates_from_exit(alert)} from #{route_system_name(alert, destination)}",
+            @max_field_length
+          ),
+        "inline" => true
+      }
+    end
+  end
+
+  # Gates remaining between the exit and the destination. Read off the solved
+  # path by position rather than recomputed: the path IS the route, so the hops
+  # after the exit's index are exactly the k-space legs left to fly. Falls back
+  # to the full jump count if the exit is somehow not on the path, which
+  # `find_exit_system/2` cannot produce but which keeps this function total —
+  # a raise here costs the whole alert, not just the field.
+  defp gates_from_exit(alert) do
+    remaining =
+      case Enum.find_index(alert.path, &(&1 == alert.exit_system)) do
+        nil -> alert.jumps
+        index -> length(alert.path) - 1 - index
+      end
+
+    pluralize(remaining, "gate")
+  end
+
+  defp route_kind_label(:opened), do: "Route opened"
+  defp route_kind_label(:improved), do: "Route shortened"
+
+  defp route_color(:opened), do: @color_route_opened
+  defp route_color(:improved), do: @color_route_improved
+
+  # Origin and destination live in the TITLE, not only in the description,
+  # because a mobile push preview shows the title and nothing else. The origin
+  # resolves map-local first (see `route_system_name/2`), so a map that names its
+  # home "Home" reads as "Home → Jita" with no special-casing here — that naming
+  # decision belongs to the map, not to this formatter.
+  #
+  # The delta clause comes first and everything else falls through to the plain
+  # total: that covers `:opened` (which has no previous count by construction)
+  # and an `:improved` alert whose previous count is somehow absent, without
+  # writing the same title string twice. Two copies of one format string is how
+  # the separator drifts in one place and not the other.
+  #
+  # The delta itself is why `previous_jumps` is threaded down from the watcher's
+  # transition table at all: 3 → 2 is a shrug and 7 → 2 is news, and the bare
+  # "2 jumps" of the old format could not tell them apart.
+  defp route_title(%{kind: :improved, previous_jumps: previous} = alert)
+       when is_integer(previous) do
+    "#{route_origin_name(alert)} → #{route_destination_name(alert)} · #{previous} → #{pluralize(alert.jumps, "jump")}"
+  end
+
+  defp route_title(alert) do
+    "#{route_origin_name(alert)} → #{route_destination_name(alert)} · #{pluralize(alert.jumps, "jump")}"
+  end
+
+  defp route_origin_name(alert), do: route_system_name(alert, List.first(alert.path))
+  defp route_destination_name(alert), do: route_system_name(alert, List.last(alert.path))
+
+  defp pluralize(1, unit), do: "1 #{unit}"
+  defp pluralize(count, unit), do: "#{count} #{unit}s"
+
+  # The destination is bolded because it is the one hop the reader is scanning
+  # for; every other hop is context for getting there.
+  defp route_path_text(alert) do
+    destination = List.last(alert.path)
+
+    Enum.map_join(alert.path, " → ", fn system_id ->
+      name = route_system_name(alert, system_id)
+      if system_id == destination, do: "**#{name}**", else: name
+    end)
+  end
+
+  # Makes the embed title a link back to the map that raised the alert, so the
+  # message is not a dead end.
+  #
+  # Returns nil rather than a best-effort URL on every failure path. A malformed
+  # `url` is a 400 from Discord, not a broken link in the client — and a 400 is
+  # a delivery failure, which counts toward `@max_consecutive_failures` and can
+  # auto-disable the destination. `Env.base_url/0` defaults to the literal
+  # placeholder "<BASE_URL>" when unconfigured, so the scheme check is load-
+  # bearing, not defensive padding.
+  defp map_url(map_id) when is_binary(map_id) do
+    with %URI{scheme: scheme, host: host} <- URI.parse(WandererApp.Env.base_url()),
+         true <- scheme in ["http", "https"],
+         true <- is_binary(host) and host != "",
+         {:ok, %{slug: slug}} when is_binary(slug) <- WandererApp.Api.Map.by_id(map_id) do
+      "#{String.trim_trailing(WandererApp.Env.base_url(), "/")}/#{slug}"
+    else
+      _ -> nil
+    end
+  rescue
+    error ->
+      Logger.debug(fn ->
+        "[EmbedFormatter] map url lookup failed for #{map_id}: #{inspect(error)}"
+      end)
+
+      nil
+  end
+
+  defp map_url(_map_id), do: nil
+
+  @doc """
+  The `Evaluator` settings that `@route_guarantee` claims to describe, as
+  `{key, required_value}` pairs. Exposed so a test can assert the string and the
+  solver cannot drift apart — the footer is a safety guarantee, and a stale one
+  is worse than none.
+  """
+  @spec route_guarantee_settings() :: keyword()
+  def route_guarantee_settings,
+    do: [include_eol: false, include_mass_crit: false, include_frig: false]
+
+  @doc false
+  @spec route_guarantee() :: String.t()
+  def route_guarantee, do: @route_guarantee
 
   # Literal :route, per SystemName's map-local-names privacy boundary — never
   # threaded through as a variable. See the Router moduledoc's "Role
