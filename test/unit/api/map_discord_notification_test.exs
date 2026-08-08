@@ -246,4 +246,84 @@ defmodule WandererApp.Api.MapDiscordNotificationTest do
     assert {:ok, ^rec} = Cachex.get(@cache, fresh_map.id)
     assert {:ok, ^rec} = Cachex.get(@cache, map.id)
   end
+
+  test "route alert fields default off with a 5-jump cap", %{map: map} do
+    assert {:ok, rec} =
+             MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    assert rec.route_alerts_enabled? == false
+    assert rec.home_system_id == nil
+    assert rec.route_max_jumps == 5
+  end
+
+  test "route alert config round-trips through update", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    assert {:ok, updated} =
+             MapDiscordNotification.update(rec, %{
+               route_alerts_enabled?: true,
+               home_system_id: 30_000_142,
+               route_max_jumps: 3
+             })
+
+    assert updated.route_alerts_enabled? == true
+    assert updated.home_system_id == 30_000_142
+    assert updated.route_max_jumps == 3
+
+    assert {:ok, reloaded} = MapDiscordNotification.by_map(map.id)
+    assert reloaded.home_system_id == 30_000_142
+  end
+
+  test "route_alerts_enabled? without a home_system_id is rejected", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             MapDiscordNotification.update(rec, %{route_alerts_enabled?: true})
+
+    assert Enum.any?(errors, fn e ->
+             Map.get(e, :field) == :home_system_id and
+               to_string(Map.get(e, :message, "")) =~ "required"
+           end)
+  end
+
+  test "route_alerts_enabled? with a home_system_id already set is accepted", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    {:ok, rec} = MapDiscordNotification.update(rec, %{home_system_id: 30_000_142})
+
+    assert {:ok, updated} = MapDiscordNotification.update(rec, %{route_alerts_enabled?: true})
+    assert updated.route_alerts_enabled? == true
+  end
+
+  test "home_system_id can be set while route_alerts_enabled? stays false", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    assert {:ok, updated} = MapDiscordNotification.update(rec, %{home_system_id: 30_000_142})
+    assert updated.route_alerts_enabled? == false
+  end
+
+  test "route_max_jumps accepts the 1..20 boundary and rejects outside it", %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    assert {:ok, _} = MapDiscordNotification.update(rec, %{route_max_jumps: 1})
+    assert {:ok, _} = MapDiscordNotification.update(rec, %{route_max_jumps: 20})
+    assert {:error, _} = MapDiscordNotification.update(rec, %{route_max_jumps: 0})
+    assert {:error, _} = MapDiscordNotification.update(rec, %{route_max_jumps: 21})
+  end
+
+  test "updating route alert config invalidates the cache after the transaction, not inside it",
+       %{map: map} do
+    {:ok, rec} = MapDiscordNotification.create(%{map_id: map.id, webhook_url: valid_url()})
+
+    assert {:ok, _rec} =
+             rec
+             |> Ash.Changeset.for_update(:update, %{
+               route_alerts_enabled?: true,
+               home_system_id: 30_000_142
+             })
+             |> cache_none_inside_transaction(map.id)
+             |> Ash.update()
+
+    assert Cachex.get(@cache, map.id) == {:ok, nil}
+  end
 end
