@@ -16,6 +16,7 @@ This document describes the zoo fork's extensions to upstream Wanderer, includin
 5. [Signature Cleanup](#signature-cleanup)
 6. [Fleet Readiness](#fleet-readiness)
 7. [Upstream PR Recommendations](#upstream-pr-recommendations)
+8. [Deployment](#deployment)
 
 ---
 
@@ -266,6 +267,74 @@ Could be generalized to a "character tags" system. Requires significant refactor
 | System Ownership | Specific to tracking wormhole space occupation |
 | Custom Flags | Generic "store anything" field lacks structure |
 | Connection Loop Type | Niche EVE mechanic |
+
+---
+
+## Deployment
+
+Production is the Fly app `wanderer` (single machine — see the constraint
+comment at the top of `fly.toml`).
+
+**How a change reaches production:**
+
+1. Merge to `guarzo/zoo`.
+2. `🧪 Test Suite` runs. If it fails, a `🚀 Zoo Deploy` run still appears in the
+   Actions tab but its only job is **skipped** — no approval is requested and
+   nothing can be deployed. Skipped deploy runs after a red suite are normal.
+3. On success, `🚀 Zoo Deploy` opens a run that **waits for approval** in the
+   `production-deploy` environment. GitHub emails an approval request; the run
+   also shows as pending in the Actions tab.
+4. Approving it deploys to Fly, then tags the commit `v<UTC timestamp>`.
+
+**The newest `v20*` tag is the record of what is in production.** No branch
+tracks it. To see what you have written but not yet deployed:
+
+```bash
+git fetch origin --tags
+git log --oneline "$(git tag -l 'v20*' | sort | tail -1)"..guarzo/zoo
+```
+
+**`guarzo/release` is retired.** It used to be the deploy trigger — hard-resetting
+and pushing it was how you shipped. It no longer moves, deploys nothing, and is
+frozen by a ruleset that rejects pushes to it, so the old habit fails loudly
+instead of silently doing nothing. It survives only as a marker of where the
+old process stopped.
+
+**Nothing deploys without approval**, including a run that has been sitting
+pending. Pending approvals expire after 30 days.
+
+**To roll back**, run `🚀 Zoo Deploy` manually with `ref` set to a previous tag
+and approve it. Note that migrations only run forward — a rollback does not
+revert a schema change.
+
+**Approving a stale run is safe.** If `guarzo/zoo` has moved on since the run
+was created, the workflow exits without deploying and says so.
+
+**If a deploy half-succeeded.** The deploy and the tag push are two separate
+steps, not one atomic operation. If the deploy step fails, nothing else runs and
+production is unchanged (or partially migrated if the `release_command`
+succeeded before the health check failed — see `fly.toml`). If the tag push
+fails after a successful deploy, that is the dangerous case: production is now
+running a commit that carries **no tag**, and the tag is the only record of what
+is live. If `guarzo/zoo` is rebased or squashed before this is fixed, that commit
+becomes unreachable from any ref — the exact loss this whole mechanism exists to
+prevent. Recover by running `🚀 Zoo Deploy` manually (`workflow_dispatch`) with
+`ref` set to the deployed commit's explicit SHA and approving it: this skips the
+staleness guard, so it works even after `guarzo/zoo` has moved on, and it
+redeploys and tags the commit. The only cost is one extra machine restart,
+because the app runs exactly one machine. Simply re-running (or re-approving)
+the automatic path does **not** recover this — once `guarzo/zoo` has moved, the
+staleness guard blocks it.
+
+**`FLY_DEPLOY_TOKEN` must stay an environment secret on `production-deploy`, never
+a repository secret** — an environment secret is released only to a job that
+has cleared the approval gate, which is the entire point. The name is
+deliberately not `FLY_API_TOKEN`: `advanced-test.yml` reads a secret of that
+name with no environment gate, targeting the separate `wanderer-test` app.
+Keeping the names distinct means this production credential can never be picked
+up by that ungated workflow, whatever gets added to repository secrets later.
+The workflow maps it onto the `FLY_API_TOKEN` env var that `flyctl` itself
+reads.
 
 ---
 
