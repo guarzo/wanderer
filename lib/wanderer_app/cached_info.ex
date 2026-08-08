@@ -3,6 +3,32 @@ defmodule WandererApp.CachedInfo do
 
   alias WandererAppWeb.Helpers.APIUtils
 
+  # Courier lock key for the full-table warm-up in `warm_system_static_info_cache/0`.
+  # It is never committed to the cache (the fallback returns `{:ignore, _}`), so
+  # it cannot collide with the integer solar system ids stored alongside it.
+  @static_info_warm_key :__system_static_info_warm__
+
+  @system_static_info_attrs [
+    :solar_system_id,
+    :region_id,
+    :constellation_id,
+    :solar_system_name,
+    :solar_system_name_lc,
+    :constellation_name,
+    :region_name,
+    :system_class,
+    :security,
+    :type_description,
+    :class_title,
+    :is_shattered,
+    :effect_name,
+    :effect_power,
+    :statics,
+    :wandering,
+    :triglavian_invasion_status,
+    :sun_type_id
+  ]
+
   def run(_arg) do
     :ok = cache_trig_systems()
   end
@@ -100,44 +126,15 @@ defmodule WandererApp.CachedInfo do
 
     case Cachex.get(:system_static_info_cache, solar_system_id) do
       {:ok, nil} ->
-        case WandererApp.Api.MapSolarSystem.read() do
-          {:ok, systems} ->
-            systems
-            |> Enum.each(fn system ->
-              Cachex.put(
-                :system_static_info_cache,
-                system.solar_system_id,
-                Map.take(system, [
-                  :solar_system_id,
-                  :region_id,
-                  :constellation_id,
-                  :solar_system_name,
-                  :solar_system_name_lc,
-                  :constellation_name,
-                  :region_name,
-                  :system_class,
-                  :security,
-                  :type_description,
-                  :class_title,
-                  :is_shattered,
-                  :effect_name,
-                  :effect_power,
-                  :statics,
-                  :wandering,
-                  :triglavian_invasion_status,
-                  :sun_type_id
-                ])
-              )
-            end)
-
+        case warm_system_static_info_cache() do
+          :ok ->
             case Cachex.get(:system_static_info_cache, solar_system_id) do
               {:ok, nil} -> {:error, :not_found}
               result -> result
             end
 
           {:error, reason} ->
-            Logger.error("Failed to read solar systems from API: #{inspect(reason)}")
-            {:error, :api_error}
+            {:error, reason}
         end
 
       {:ok, system_static_info} ->
@@ -145,6 +142,78 @@ defmodule WandererApp.CachedInfo do
 
       {:error, reason} ->
         Logger.error("Failed to get system static info from cache: #{inspect(reason)}")
+        {:error, :cache_error}
+    end
+  end
+
+  # A single cache miss repopulates the WHOLE table, so N concurrent misses used
+  # to run N full `MapSolarSystem.read/0` scans plus N row-by-row rewrites of the
+  # same data. That is the normal case, not an edge case: `:system_static_info_cache`
+  # has a 4h TTL (application.ex) and route hydration fans out over every system
+  # in a route at `schedulers_online() * 4` concurrency, so every restart and
+  # every TTL rollover produced a stampede — and each of those scans is what made
+  # a single lookup slow enough to blow a `Task.async_stream` timeout.
+  #
+  # `Cachex.fetch/4` routes the fallback through Cachex's Courier, which runs it
+  # at most once at a time per key and hands every concurrent caller the same
+  # result. Returning `{:ignore, _}` means the marker key is never written, so
+  # sequential behaviour is unchanged: a later miss still triggers a fresh scan
+  # and still picks up a newly inserted system immediately. Only *simultaneous*
+  # scans are collapsed.
+  defp warm_system_static_info_cache do
+    # Cachex runs the fallback in a Courier-owned process, not the caller's, and
+    # that process starts with an empty dictionary. `$callers` has to be carried
+    # across by hand or the read loses the caller's context — most visibly under
+    # `Ecto.Adapters.SQL.Sandbox` ownership mode, where an unlinked process has
+    # no checked-out connection and every warm-up would fail with
+    # `DBConnection.OwnershipError`.
+    callers = [self() | Process.get(:"$callers", [])]
+
+    result =
+      Cachex.fetch(:system_static_info_cache, @static_info_warm_key, fn _key ->
+        Process.put(:"$callers", callers)
+
+        case WandererApp.Api.MapSolarSystem.read() do
+          {:ok, systems} ->
+            # A discarded write is worse here than anywhere else: the caller
+            # re-reads the key straight after this returns, so a silently failed
+            # put surfaces as `{:error, :not_found}` — "this system does not
+            # exist" — for a system that does. Halt on the first failure rather
+            # than grinding through thousands more writes into a cache that has
+            # already told us it is not accepting them.
+            Enum.reduce_while(systems, {:ignore, :ok}, fn system, acc ->
+              case Cachex.put(
+                     :system_static_info_cache,
+                     system.solar_system_id,
+                     Map.take(system, @system_static_info_attrs)
+                   ) do
+                {:ok, true} ->
+                  {:cont, acc}
+
+                error ->
+                  Logger.error(
+                    "Failed to cache static info for solar system " <>
+                      "#{system.solar_system_id}: #{inspect(error)}"
+                  )
+
+                  {:halt, {:ignore, {:error, :cache_error}}}
+              end
+            end)
+
+          {:error, reason} ->
+            Logger.error("Failed to read solar systems from API: #{inspect(reason)}")
+            {:ignore, {:error, :api_error}}
+        end
+      end)
+
+    case result do
+      {:ignore, outcome} ->
+        outcome
+
+      # Defensive: `{:ignore, _}` above is the only path that can populate this,
+      # so anything else means Cachex itself failed (dead cache, etc.).
+      {:error, reason} ->
+        Logger.error("Failed to warm system static info cache: #{inspect(reason)}")
         {:error, :cache_error}
     end
   end
