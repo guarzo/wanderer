@@ -107,22 +107,25 @@ defmodule WandererAppWeb.MapNotificationsTest do
   test "saving a valid webhook url creates the record", %{conn: conn, map: map} do
     view = open_notifications(conn, map)
 
+    # L0 is one URL field and one button — no checkboxes at all. The absent
+    # params are the point: `notification_attrs/1` omits a key it was not
+    # given rather than parsing `nil` into `false`, so the resource defaults
+    # apply.
     view
     |> form("#discord-notification-form", %{
-      "notification" => %{
-        "webhook_url" => "https://discord.com/api/webhooks/123/tok",
-        "wh_only" => "true",
-        "enabled" => "true"
-      }
+      "notification" => %{"webhook_url" => "https://discord.com/api/webhooks/123/tok"}
     })
     |> render_submit()
 
     assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
     assert rec.wh_only == true
-    # Regression guard: the Enabled checkbox must render during creation too.
-    # When it was hidden behind `:if={@notification}` the param was absent, so
-    # `params["enabled"] == "true"` was false and every new config was born
-    # disabled — invisibly, because the UI showed no checkbox to contradict it.
+
+    # Regression guard, now guarding a different mechanism. Previously the
+    # Enabled checkbox was hidden behind `:if={@notification}`, so its param
+    # was absent, `params["enabled"] == "true"` was false, and every new
+    # config was born disabled — invisibly, because no checkbox contradicted
+    # it. The checkbox is deliberately absent at L0 again, so what keeps this
+    # true is `put_param/5` treating "key not submitted" as "leave it alone".
     assert rec.enabled? == true
 
     # The create action seeds the required `:system` destination in the same
@@ -849,6 +852,50 @@ defmodule WandererAppWeb.MapNotificationsTest do
     refute log =~ "bread_crumbs:"
   end
 
+  describe "channel collisions" do
+    test "the route channel sharing a Discord channel with the kill feed is warned about", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:route])
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+
+      # Two DISTINCT webhook URLs resolved to the SAME channel — the case the
+      # old same-URL check could not see, and the one that actually leaks the
+      # home system into the kill feed's audience.
+      for wh <- webhooks do
+        {:ok, _} =
+          MapDiscordWebhook.cache_channel_info(wh, %{
+            channel_id: "987650001234500777",
+            channel_label: "#kills"
+          })
+      end
+
+      html = conn |> open_notifications(map) |> render()
+
+      assert html =~ "Route alerts post to the same Discord channel as the system channel."
+      assert html =~ "route to it"
+
+      # The generic counterpart on the kill-notification card, naming the other
+      # side rather than "another destination".
+      assert html =~ "This channel is also used by route alerts on this map."
+
+      # D6: the resolved label is what identifies a destination now. The
+      # snowflake itself is never rendered.
+      assert html =~ "#kills"
+      refute html =~ "987650001234500777"
+    end
+
+    test "distinct channels produce no warning", %{conn: conn, map: map} do
+      notification_with_webhooks(map, [:route])
+
+      html = conn |> open_notifications(map) |> render()
+
+      refute html =~ "also used by"
+      refute html =~ "Route alerts post to the same Discord channel"
+    end
+  end
+
   describe "route alerts" do
     test "enabling route alerts without a home system surfaces the Ash validation error", %{
       conn: conn,
@@ -857,18 +904,21 @@ defmodule WandererAppWeb.MapNotificationsTest do
       notification_with_webhooks(map, [:system])
       view = open_notifications(conn, map)
 
+      # Route settings now live on their own form with their own submit, so
+      # this no longer rides along with the kill-notification Save. Pushed at
+      # the component rather than through `form/3` because `home_system_id` is
+      # a LiveSelect hidden input, which LiveViewTest refuses to set (same
+      # reason as the excluded-systems and focus-corp tests above).
       html =
         view
-        |> form("#discord-notification-form", %{
+        |> with_target("#map-notifications")
+        |> render_submit("save-route", %{
           "notification" => %{
-            "enabled" => "true",
-            "wh_only" => "true",
             "route_alerts_enabled" => "true",
             "home_system_id" => "",
             "route_max_jumps" => "5"
           }
         })
-        |> render_submit()
 
       # Exact wording is Task 3's to define; this asserts on it because a
       # substring match loose enough to survive any wording would also survive
@@ -899,10 +949,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # DOM — LiveSelect's hidden input, holding the id behind the name the
       # user picked — which is the whole point of the picker.
       view
-      |> form("#discord-notification-form", %{
+      |> form("#route-alerts-form", %{
         "notification" => %{
-          "enabled" => "true",
-          "wh_only" => "true",
           "route_alerts_enabled" => "true",
           "route_max_jumps" => "3"
         }
@@ -915,23 +963,77 @@ defmodule WandererAppWeb.MapNotificationsTest do
       assert rec.route_max_jumps == 3
     end
 
-    test "the route fields are hidden while the toggle is off, not removed from the form", %{
+    test "the route Save writes only route fields, and the kills Save only kill fields", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system])
+
+      {:ok, _} =
+        MapDiscordNotification.update(rec, %{
+          wh_only: true,
+          route_alerts_enabled?: true,
+          home_system_id: 30_000_142,
+          route_max_jumps: 3
+        })
+
+      view = open_notifications(conn, map)
+
+      # P0 (four saves, one flash, no scope): pressing one panel's Save must
+      # not touch another panel's fields. Before the split, ticking a box in
+      # one section and pressing the wrong Save reported "Saved." and silently
+      # reverted the tick, because every Save submitted the whole tab.
+      view
+      |> form("#discord-notification-form", %{
+        "notification" => %{"enabled" => "true", "wh_only" => "false"}
+      })
+      |> render_submit()
+
+      assert {:ok, after_kills} = MapDiscordNotification.by_map(map.id)
+      assert after_kills.wh_only == false
+      # Untouched by the kills Save, not reset to their defaults.
+      assert after_kills.route_alerts_enabled? == true
+      assert after_kills.home_system_id == 30_000_142
+      assert after_kills.route_max_jumps == 3
+
+      view
+      |> with_target("#map-notifications")
+      |> render_submit("save-route", %{
+        "notification" => %{
+          "route_alerts_enabled" => "true",
+          "home_system_id" => "30000144",
+          "route_max_jumps" => "7"
+        }
+      })
+
+      assert {:ok, after_route} = MapDiscordNotification.by_map(map.id)
+      assert after_route.home_system_id == 30_000_144
+      assert after_route.route_max_jumps == 7
+      # And the route Save did not resurrect the wh_only default.
+      assert after_route.wh_only == false
+      assert after_route.enabled? == true
+    end
+
+    test "the route fields are disabled while the toggle is off, not hidden or removed", %{
       conn: conn,
       map: map
     } do
       notification_with_webhooks(map, [:system])
       view = open_notifications(conn, map)
 
-      # Off by default (route_alerts_enabled? defaults to false per Task 3) —
-      # the wrapper carries the "hidden" class, and the inputs are still
-      # present in the DOM so their values still post on save. Scoped to
-      # `#discord-notification-form` because the settings dialog itself also
-      # renders with a (JS-toggled, not LiveView-toggled) "hidden" class in
-      # the static test render — an unscoped `div.hidden` selector matches
-      # that outer wrapper too and would pass/fail for the wrong reason.
+      # Off by default (route_alerts_enabled? defaults to false per Task 3).
+      # These fields used to be wrapped in a `hidden` div, which is what made
+      # the "configured but switched off" warning unreachable: the one state
+      # that needed a warning rendered it inside the container that was
+      # hidden. They are now DISABLED instead (upstream checklist §5), via a
+      # <fieldset> so the disable reaches LiveSelect's own inputs too.
+      #
+      # Asserting on the fieldset rather than the input because that is where
+      # the attribute lives; `input[disabled]` would not match a descendant
+      # disabled by an ancestor fieldset.
       assert has_element?(
                view,
-               "#discord-notification-form div.hidden input[name='notification[home_system_id]']"
+               "#route-alerts-form fieldset[disabled] input[name='notification[home_system_id]']"
              )
 
       view
@@ -940,8 +1042,40 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       refute has_element?(
                view,
-               "#discord-notification-form div.hidden input[name='notification[home_system_id]']"
+               "#route-alerts-form fieldset[disabled] input[name='notification[home_system_id]']"
              )
+
+      # Still in the DOM either way — never `:if`-ed out.
+      assert has_element?(view, "#route-alerts-form input[name='notification[home_system_id]']")
+    end
+
+    test "a disabled route field does not wipe the saved value on the next save", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system])
+
+      {:ok, _} =
+        MapDiscordNotification.update(rec, %{
+          route_alerts_enabled?: true,
+          home_system_id: 30_000_142,
+          route_max_jumps: 3
+        })
+
+      view = open_notifications(conn, map)
+
+      # Turning the toggle off disables the fields below it, and a disabled
+      # input submits NOTHING — not even the hidden "false" companion. If
+      # `notification_attrs/1` read the key unconditionally it would parse the
+      # absent value as nil and clear a home system the user never touched.
+      view
+      |> with_target("#map-notifications")
+      |> render_submit("save-route", %{"notification" => %{"route_alerts_enabled" => "false"}})
+
+      assert {:ok, saved} = MapDiscordNotification.by_map(map.id)
+      assert saved.route_alerts_enabled? == false
+      assert saved.home_system_id == 30_000_142
+      assert saved.route_max_jumps == 3
     end
 
     # The two save tests above hand `render_submit` an explicit params map, so
@@ -1027,7 +1161,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # No params at all — the checkbox and the picked home system both come
       # from the rendered DOM, which is the whole point: this is what the
       # browser actually posts.
-      view |> form("#discord-notification-form") |> render_submit()
+      view |> form("#route-alerts-form") |> render_submit()
 
       assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
       assert rec.route_alerts_enabled? == true
@@ -1065,7 +1199,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       |> render_change("option_click", %{"idx" => "0"})
 
       view
-      |> form("#discord-notification-form", %{
+      |> form("#route-alerts-form", %{
         "notification" => %{"route_alerts_enabled" => "true"}
       })
       |> render_submit()
@@ -1102,7 +1236,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # says nothing about the name that was actually typed.
       html =
         view
-        |> form("#discord-notification-form", %{
+        |> form("#route-alerts-form", %{
           "notification" => %{
             "route_alerts_enabled" => "true",
             "home_system_id_text_input" => "Jitaaa"
@@ -1129,7 +1263,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
 
       view
-      |> form("#discord-notification-form", %{
+      |> form("#route-alerts-form", %{
         "notification" => %{
           "route_alerts_enabled" => "true",
           "home_system_id_text_input" => "jita"
@@ -1164,7 +1298,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       html =
         view
-        |> form("#discord-notification-form", %{
+        |> form("#route-alerts-form", %{
           "notification" => %{
             "route_alerts_enabled" => "true",
             "home_system_id_text_input" => "Jit"
@@ -1199,7 +1333,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       pick_home_system(view, "Jita")
 
       # What the browser does on selection: post the form as the DOM now has it.
-      view |> form("#discord-notification-form") |> render_change()
+      view |> form("#route-alerts-form") |> render_change()
 
       # An unrelated widget re-renders the component.
       view
@@ -1212,31 +1346,45 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       assert has_element?(view, "input[name='notification[home_system_id]'][value='30000142']")
 
-      view |> form("#discord-notification-form") |> render_submit()
+      view |> form("#route-alerts-form") |> render_submit()
 
       assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
       assert rec.home_system_id == 30_000_142
     end
 
-    test "toggling route alerts never renders a submitted webhook url", %{conn: conn, map: map} do
-      # No notification yet, so the create path renders the webhook URL field
-      # alongside the route toggle. The change event carries whatever is typed
-      # into it, and the generic `.input` writes `value=` for password inputs
-      # too — so a form rebuilt straight from those params would print a live
-      # credential into the HTML.
+    test "no form carrying a webhook url has a change handler that could echo it", %{
+      conn: conn,
+      map: map
+    } do
+      # #130's fix was to blank `webhook_url` before rebuilding the form on
+      # change, because the route toggle and the create-path URL field shared
+      # one form and the generic `.input` writes `value=` for password inputs
+      # too. The IA split removes the shared form entirely: the credential now
+      # lives only on the L0 create form and the per-row webhook forms, none of
+      # which carry a `phx-change`. This asserts the structural property rather
+      # than the old symptom, so it fails if a change handler is ever added
+      # back to a form holding a URL.
       view = open_notifications(conn, map)
+      html = render(view)
 
-      url = "https://discord.com/api/webhooks/1534657087244603394/supersecrettoken"
+      # The L0 create form is the one that holds the URL field...
+      assert has_element?(
+               view,
+               "#discord-notification-form input[name='notification[webhook_url]']"
+             )
 
-      html =
-        view
-        |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
-        |> render_change(%{
-          "notification" => %{"route_alerts_enabled" => "true", "webhook_url" => url}
-        })
+      # ...and its form tag must carry no phx-change.
+      [create_form] = Regex.run(~r/<form[^>]*id="discord-notification-form"[^>]*>/, html)
+      refute create_form =~ "phx-change"
 
-      refute html =~ "supersecrettoken"
-      refute html =~ url
+      notification_with_webhooks(map, [:system, :character, :route])
+
+      html = render(open_notifications(conn, map))
+
+      for role <- ~w(system character route) do
+        [form_tag] = Regex.run(~r/<form[^>]*id="webhook-form-#{role}"[^>]*>/, html)
+        refute form_tag =~ "phx-change"
+      end
     end
 
     test "the route webhook url can be added", %{conn: conn, map: map} do
@@ -1300,7 +1448,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # form lets an owner enable route alerts, set a home system and max jumps,
     # and save successfully while every alert is silently dropped for want of a
     # destination. The hint is the only feedback in that state.
-    @hint "Route alerts need an enabled Route alert channel below"
+    @hint "Route alerts are on, but no Route alert channel is ready"
 
     test "enabling route alerts with no route channel warns that nothing will be sent", %{
       conn: conn,
