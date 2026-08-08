@@ -1,0 +1,174 @@
+name: 🚀 Zoo Deploy
+
+# Deploys are gated on a green test suite, so the trigger is the test workflow
+# finishing — not the push itself. An environment gate does not wait for another
+# workflow's checks, so `on: push` would offer approval while the suite is still
+# running, and a red commit could be approved and shipped.
+on:
+  workflow_run:
+    workflows: ["🧪 Test Suite"]
+    types: [completed]
+    branches: [guarzo/zoo]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or SHA to deploy (defaults to guarzo/zoo HEAD)'
+        required: false
+        type: string
+
+# Default token is read-only; the job scopes itself up because it pushes a tag
+# and moves a branch.
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Fly
+    # workflow_run fires on EVERY completion of the test suite — GitHub offers
+    # no conclusion filter on the trigger itself, so a red suite still creates a
+    # Zoo Deploy run. This condition is what makes it inert: the single job is
+    # skipped, so no environment is referenced, no approval is requested, and no
+    # credential is released. Expect skipped runs in the Actions tab after every
+    # failed suite; that is the mechanism working, not a misfire.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    # The gate AND the work live in one job on purpose. A protected environment
+    # gates every job that references it, so splitting them would prompt twice;
+    # and FLY_API_TOKEN is an environment secret, readable only by a job inside
+    # the environment. Secrets cannot be passed between jobs.
+    environment: production-deploy
+
+    permissions:
+      contents: write
+
+    # NEVER set cancel-in-progress: true here. Cancellation applies to running
+    # jobs, not just to runs awaiting approval: a merge landing mid-deploy would
+    # kill this job while Fly's builder keeps going, changing production with no
+    # tag and no bookmark. That is the exact failure this workflow exists to
+    # prevent. `false` also serializes deploys onto the single machine.
+    concurrency:
+      group: zoo-deploy-run
+      cancel-in-progress: false
+
+    steps:
+      - name: Resolve the ref to deploy
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ inputs.ref }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            REF="${DISPATCH_REF:-guarzo/zoo}"
+          else
+            # NOT github.ref: under workflow_run that resolves to the default
+            # branch tip at trigger time, which may not be the tested commit.
+            REF="$RUN_SHA"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Resolved deploy ref: $REF"
+
+      - name: Check out the ref
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
+          # Annotated tagging needs full history.
+          fetch-depth: 0
+
+      # Runs AFTER approval, which is the entire point: a run may sit pending
+      # for hours while guarzo/zoo moves on. Because runs are never cancelled,
+      # this is what stops an old approval from shipping a superseded commit.
+      - name: Guard against a superseded commit
+        id: guard
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "workflow_dispatch: staleness guard skipped — deploying a ref that is not the branch tip is what rollback is for."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --quiet origin guarzo/zoo
+          TIP="$(git rev-parse origin/guarzo/zoo)"
+          HERE="$(git rev-parse HEAD)"
+          if [ "$TIP" != "$HERE" ]; then
+            echo "::notice title=Superseded::guarzo/zoo has moved to ${TIP}; this run was approved for ${HERE}. Nothing was deployed."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up flyctl
+        if: steps.guard.outputs.proceed == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1
+
+      # Fly runs release_command first (fly.toml:29 — migrations against
+      # DIRECT_DATABASE_URL), so a failed migration fails the deploy before new
+      # code serves traffic. Under strategy = 'rolling' (fly.toml:30) this
+      # blocks on the /health check (fly.toml:84-88).
+      - name: Deploy to Fly
+        if: steps.guard.outputs.proceed == 'true'
+        id: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          flyctl deploy --app wanderer --remote-only
+          # Recorded in the tag message so a tag can be matched to a Fly release
+          # without the dashboard. Best-effort: a lookup failure must not fail a
+          # deploy that already succeeded.
+          VERSION="$(flyctl releases --app wanderer --json | jq -r '.[0].version' || echo unknown)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # Everything below runs only after a healthy deploy. That ordering is what
+      # makes the tag mean "this commit served production traffic".
+      - name: Tag the deployed commit
+        if: steps.guard.outputs.proceed == 'true'
+        id: tag
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse --short HEAD)"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          # Convergent, not merely collision-safe. A recovery re-run (deploy
+          # succeeded, bookmark push failed) must reuse the tag the first run
+          # created, not mint a second one for the same commit — the tag name is
+          # generated from the clock, so checking only the new name would always
+          # miss the existing one.
+          # Tags are present because checkout used fetch-depth: 0.
+          EXISTING="$(git tag --points-at HEAD --list 'v[0-9]*' | head -n1)"
+          if [ -n "${EXISTING}" ]; then
+            TAG="${EXISTING}"
+            echo "Commit is already tagged ${TAG}; reusing it."
+          else
+            TAG="v$(date +%Y%m%d%H%M%S)"
+            git tag -a "${TAG}" -m "Deployed ${SHA} to Fly app wanderer (release v${{ steps.deploy.outputs.version }})"
+            git push origin "${TAG}"
+            echo "Tagged ${SHA} as ${TAG}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      # Force-push: guarzo/zoo is rebased regularly, so this is not a
+      # fast-forward. Requires the ruleset bypass from Task 1 Step 9.
+      - name: Move the guarzo/release bookmark
+        if: steps.guard.outputs.proceed == 'true'
+        run: |
+          set -euo pipefail
+          git push --force origin "HEAD:refs/heads/guarzo/release"
+          echo "guarzo/release now points at $(git rev-parse HEAD)"
+
+      - name: Summarize
+        if: steps.guard.outputs.proceed == 'true'
+        run: |
+          {
+            echo "### Deployed"
+            echo ""
+            echo "- commit: \`$(git rev-parse HEAD)\`"
+            echo "- tag: \`${{ steps.tag.outputs.tag }}\`"
+            echo "- app: \`wanderer\`"
+          } >> "$GITHUB_STEP_SUMMARY"
