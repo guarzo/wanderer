@@ -28,6 +28,11 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   # unexpectedly long error message is truncated rather than rejected.
   @max_error_length 500
 
+  # Discord caps a channel name at 100 characters and a webhook name at 80.
+  # 100 with room to spare for the "#" prefix `ChannelInfo` adds, so a rename
+  # upstream can never fail the write that caches it.
+  @max_channel_label_length 128
+
   postgres do
     repo(WandererApp.Repo)
     table("map_discord_webhooks_v1")
@@ -53,6 +58,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     define(:record_success, action: :record_success)
     define(:record_failure, action: :record_failure, args: [:error])
     define(:disable, action: :disable, args: [:error])
+    define(:cache_channel_info, action: :cache_channel_info)
   end
 
   actions do
@@ -132,6 +138,24 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       change set_attribute(:consecutive_failures, 0)
       change set_attribute(:last_error, nil)
       change set_attribute(:last_error_at, nil)
+    end
+
+    # Writes back what `ChannelInfo` resolved from Discord, so the settings tab
+    # renders a real channel name on open instead of waiting on two HTTP calls
+    # per destination.
+    #
+    # Like `record_success`, deliberately no cache invalidation: neither
+    # attribute feeds a routing decision — routing reads `enabled?` and
+    # `webhook_url` — so evicting here would drop the routing cache every time a
+    # background refresh confirmed a name that had not changed.
+    #
+    # Its own action rather than widening `update`'s `accept`: these are cached
+    # values written by a background task, not user input, and keeping them off
+    # the user-facing action means a crafted form submit cannot claim this
+    # destination posts to `#some-innocent-channel`.
+    update :cache_channel_info do
+      require_atomic? false
+      accept [:channel_id, :channel_label]
     end
 
     # Increments the counter from the value re-read inside the change rather
@@ -219,6 +243,20 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     attribute :last_error, :string, constraints: [max_length: @max_error_length]
     attribute :last_error_at, :utc_datetime
     attribute :consecutive_failures, :integer, default: 0, allow_nil?: false
+
+    # Cached Discord identity for this destination, resolved by
+    # `WandererApp.ExternalEvents.Discord.ChannelInfo` and refreshed in the
+    # background. Neither is a credential and neither is `sensitive?`: the whole
+    # point is that they are safe to render on a screen that gets screenshotted,
+    # unlike the webhook id the settings tab used to show. `channel_id` is a
+    # public guild snowflake, and `channel_label` is the channel or webhook name
+    # the operator already sees in Discord.
+    #
+    # Nullable and always re-derivable: an instance with no bot token, or a
+    # webhook Discord will not answer for, simply leaves both nil and renders a
+    # masked hint. Nothing routes off either value.
+    attribute :channel_id, :string
+    attribute :channel_label, :string, constraints: [max_length: @max_channel_label_length]
 
     # Guild-scoped snowflakes to ping on this destination — see the design
     # doc's "Where configured targets live": these belong on the webhook row,
