@@ -123,16 +123,27 @@ checks. `Test Suite` is a separate workflow (`.github/workflows/test.yml`) whose
 deploy run. On a plain `push` trigger the approval prompt would appear
 immediately, and a commit whose tests were still running, or already red, could
 be approved and shipped. `workflow_run` makes the dependency real: a red suite
-produces no deploy run at all.
+can never reach the approval prompt.
 
 `workflow_run` evaluates its workflow file from the default branch, which is
 `guarzo/zoo` — the branch being deployed — so this trigger works without extra
 configuration.
 
-**Failure and cancellation of the test run** are handled by the same condition:
-any conclusion other than `success` (`failure`, `cancelled`, `timed_out`,
-`skipped`) produces no deploy run. Silence therefore means "not shippable",
-never "shipped without checking".
+**Failure and cancellation of the test run** are handled by the job's `if:`
+condition: any conclusion other than `success` (`failure`, `cancelled`,
+`timed_out`, `skipped`) skips the job.
+
+Note precisely what this does and does not do. `workflow_run` offers **no
+conclusion filter on the trigger itself**, so GitHub creates a deploy run for
+*every* completion of the test suite, red or green. The `if:` condition operates
+one level down: it skips the single job, so no environment is referenced, no
+approval is requested, and the deploy credential is never released.
+
+The observable consequence is that the Actions tab accumulates **skipped** deploy
+runs after failed suites. That is the mechanism working. The invariant is "a red
+commit cannot reach the approval prompt", not "a red commit produces no run" —
+the latter is not achievable with this trigger, and any validation written
+against it would fail on a correct implementation.
 
 ### Concurrency: one non-cancellable job, with a staleness guard
 
@@ -237,11 +248,12 @@ made recoverable and loud:
 - **Bounded blast radius.** Only the tag/bookmark steps can fail this way. They
   are pure git operations against a known SHA, with no dependency on Fly.
 - **Idempotent recovery.** Re-running the workflow via `workflow_dispatch` with
-  `ref` set to the deployed SHA must converge rather than error: creating a tag
-  that already points at that SHA is a no-op, and the bookmark force-push is
-  idempotent by construction. A tag name collision is not a realistic concern —
-  the name is second-resolution — but a re-run within the same second must not
-  hard-fail the job.
+  `ref` set to the deployed SHA must converge rather than error. The tag name is
+  generated from the clock, so a re-run would otherwise mint a *second* tag for
+  the same commit. The tag step therefore looks for an existing `v*` tag
+  pointing at HEAD and reuses it if present, creating a new one only when the
+  commit is genuinely untagged. The bookmark force-push is idempotent by
+  construction.
 - **Loud, not silent.** A failure here fails the run, so the red run is the
   signal. The recovery is the `workflow_dispatch` re-run above; it redeploys the
   same SHA, which on this app costs one restart.
@@ -329,9 +341,17 @@ it, then confirm:
   it from being discovered during a real release.
 
 Then confirm the trigger itself, which `workflow_dispatch` does not exercise:
-push a trivial commit to `guarzo/zoo` and verify that a deploy run appears only
-after `Test Suite` goes green, and that a commit with a failing suite produces
-no deploy run at all.
+push a trivial commit to `guarzo/zoo` and verify that no deploy run exists while
+the suite is still running, that one appears in state `waiting` once it goes
+green, and that a commit whose suite went red produces a **skipped** deploy run
+that never reaches `waiting`.
+
+Note also that **merging the workflow itself arms the automatic path**:
+`test.yml` triggers on pushes to `guarzo/zoo` (`test.yml:6-7`), so the merge
+commit's green suite opens a pending deploy run for the same SHA the validation
+`workflow_dispatch` will target. The staleness guard cannot distinguish them —
+both are the branch tip — so approving both would deploy one commit twice. The
+automatic run is cancelled before validation begins.
 
 This costs one deliberate restart to prove the pipeline, which is preferable to
 discovering a broken pipeline during a real change.
