@@ -43,34 +43,9 @@ defmodule WandererApp.Map.Routes do
   @logger Application.compile_env(:wanderer_app, :logger)
 
   def find(map_id, hubs, origin, routes_settings, false) do
-    do_find_routes(
-      map_id,
-      origin,
-      hubs,
-      routes_settings
-    )
-    |> case do
+    case do_find_routes(map_id, origin, hubs, routes_settings) do
       {:ok, routes} ->
-        systems_static_data =
-          routes
-          |> Enum.map(fn route_info -> route_info.systems end)
-          |> List.flatten()
-          |> Enum.uniq()
-          |> Task.async_stream(
-            fn system_id ->
-              case WandererApp.CachedInfo.get_system_static_info(system_id) do
-                {:ok, nil} ->
-                  nil
-
-                {:ok, system} ->
-                  system |> Map.take(@minimum_route_attrs)
-              end
-            end,
-            max_concurrency: System.schedulers_online() * 4
-          )
-          |> Enum.map(fn {:ok, val} -> val end)
-
-        {:ok, %{routes: routes, systems_static_data: systems_static_data}}
+        {:ok, %{routes: routes, systems_static_data: hydrate_static_data(routes)}}
 
       _error ->
         {:ok, %{routes: [], systems_static_data: []}}
@@ -90,7 +65,88 @@ defmodule WandererApp.Map.Routes do
     {:ok, %{routes: routes, systems_static_data: []}}
   end
 
-  defp do_find_routes(map_id, origin, hubs, routes_settings) do
+  @doc """
+  Sibling of `find/5` for callers that must distinguish a solver outage from a
+  genuine no-path result (see the design doc, "Distinguishing failure from
+  no-route"). Same params assembly, same cache key, same TTL — the only
+  difference is that a `get_routes_custom/3` error is returned to the caller
+  instead of falling back to the `get_routes_eve/4` stub.
+
+  The final argument is named `hubs_limit_reached?`. It is *not* "avoid
+  wormholes": as in `find/5`, `true` means "the hub count already exceeded the
+  map's limit, skip the solver" — see `find/5`'s second clause
+  (`map_routes.ex:80-91`) and its callers in `map_routes_event_handler.ex:96,105`.
+  Route alerts always pass `false`.
+  """
+  @spec find_strict(binary(), [binary()], binary(), map(), boolean()) ::
+          {:ok, %{routes: [map()], systems_static_data: [map() | nil]}} | {:error, term()}
+  def find_strict(map_id, hubs, origin, routes_settings, false) do
+    case do_find_routes(map_id, origin, hubs, routes_settings, strict: true) do
+      {:ok, routes} ->
+        # Unlike `find/5`, callers of `find_strict/5` (route alerts) must
+        # judge the ORIGIN's security too — a highsec-only route from a
+        # highsec home is a different claim than one from a lowsec home. Pass
+        # `include_origin?: true` so the origin is present in
+        # `systems_static_data`; `find/5` is unaffected (default `false`).
+        {:ok, %{routes: routes, systems_static_data: hydrate_static_data(routes, true)}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  def find_strict(_map_id, hubs, origin, _routes_settings, true) do
+    origin = origin |> String.to_integer()
+    hubs = hubs |> Enum.map(&(&1 |> String.to_integer()))
+
+    routes =
+      hubs
+      |> Enum.map(fn hub ->
+        %{origin: origin, destination: hub, success: false, systems: [], has_connection: false}
+      end)
+
+    {:ok, %{routes: routes, systems_static_data: []}}
+  end
+
+  # `include_origin?` defaults to `false` to keep `find/5`'s observable output
+  # byte-identical to before this change. `find_strict/5` (route alerts) is
+  # the only caller that passes `true` — see its own comment for why the
+  # origin's static data must be present for that caller and not this one.
+  defp hydrate_static_data(routes, include_origin? \\ false) do
+    routes
+    |> Enum.flat_map(fn route_info ->
+      if include_origin? do
+        [route_info.origin | route_info.systems]
+      else
+        route_info.systems
+      end
+    end)
+    |> Enum.uniq()
+    |> Task.async_stream(
+      fn system_id ->
+        case WandererApp.CachedInfo.get_system_static_info(system_id) do
+          {:ok, nil} ->
+            nil
+
+          {:ok, system} ->
+            system |> Map.take(@minimum_route_attrs)
+
+          # `get_system_static_info/1` also returns {:error, :not_found},
+          # {:error, :api_error} and {:error, :cache_error}. Without this clause
+          # any of them raises CaseClauseError inside the task, and because
+          # `Task.async_stream` LINKS its tasks, that kills this process rather
+          # than surfacing as `{:exit, _}` below. A system we cannot resolve is
+          # missing static data, which every caller already handles as `nil`.
+          {:error, _reason} ->
+            nil
+        end
+      end,
+      max_concurrency: System.schedulers_online() * 4
+    )
+    |> Enum.map(fn {:ok, val} -> val end)
+  end
+
+  defp do_find_routes(map_id, origin, hubs, routes_settings, opts \\ []) do
     origin = origin |> String.to_integer()
     hubs = hubs |> Enum.map(&(&1 |> String.to_integer()))
 
@@ -208,19 +264,23 @@ defmodule WandererApp.Map.Routes do
         avoid: avoidance_list
       }
 
-    {:ok, all_routes} = get_all_routes(hubs, origin, params)
+    case get_all_routes(hubs, origin, params, opts) do
+      {:ok, all_routes} ->
+        routes =
+          all_routes
+          |> Enum.map(fn route_info ->
+            map_route_info(route_info)
+          end)
+          |> Enum.filter(fn route_info -> not is_nil(route_info) end)
 
-    routes =
-      all_routes
-      |> Enum.map(fn route_info ->
-        map_route_info(route_info)
-      end)
-      |> Enum.filter(fn route_info -> not is_nil(route_info) end)
+        {:ok, routes}
 
-    {:ok, routes}
+      {:error, _reason} = error ->
+        error
+    end
   end
 
-  defp get_all_routes(hubs, origin, params, opts \\ []) do
+  defp get_all_routes(hubs, origin, params, opts) do
     cache_key =
       "routes-#{origin}-#{hubs |> Enum.join("-")}-#{:crypto.hash(:sha, :erlang.term_to_binary(params))}"
 
@@ -229,7 +289,7 @@ defmodule WandererApp.Map.Routes do
         {:ok, result}
 
       _ ->
-        case WandererApp.Esi.get_routes_custom(hubs, origin, params) do
+        case esi_client().get_routes_custom(hubs, origin, params) do
           {:ok, result} ->
             WandererApp.Cache.insert(
               cache_key,
@@ -239,17 +299,23 @@ defmodule WandererApp.Map.Routes do
 
             {:ok, result}
 
-          {:error, _error} ->
+          {:error, error} ->
             error_file_path = save_error_params(origin, hubs, params)
 
             @logger.error(
               "Error getting custom routes for #{inspect(origin)}: #{inspect(params)}. Params saved to: #{error_file_path}"
             )
 
-            WandererApp.Esi.get_routes_eve(hubs, origin, params, opts)
+            if Keyword.get(opts, :strict, false) do
+              {:error, error}
+            else
+              esi_client().get_routes_eve(hubs, origin, params, opts)
+            end
         end
     end
   end
+
+  defp esi_client, do: Application.get_env(:wanderer_app, :esi_client, WandererApp.Esi)
 
   defp save_error_params(origin, hubs, params) do
     timestamp = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
