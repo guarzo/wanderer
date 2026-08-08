@@ -51,13 +51,14 @@ desired property, not a limitation to remove.
 
 | Decision | Choice |
 |---|---|
-| Trigger | Push to `guarzo/zoo` opens a deploy run that waits for approval |
+| Trigger | A **successful `Test Suite` run** on `guarzo/zoo` opens a deploy run that waits for approval (`workflow_run`, not `push`) |
 | Gate | GitHub Environment `production-deploy` with required reviewer |
 | Who talks to Fly | The workflow, via `flyctl deploy` with a scoped token |
 | Fly GitHub integration | Disconnected — replaced, not run alongside |
 | Tag timing | **After** a verified-healthy deploy, never before |
 | `guarzo/release` | Retained as a CI-owned bookmark of what is in production |
-| Preconditions | `Test Suite` must be green on the SHA before approval is offered |
+| Concurrency | Two groups: approvals coalesce and cancel; deploys serialize and are **not** cancellable |
+| Deploy credential | Stored as an **environment** secret on `production-deploy`, not a repository secret |
 | Rollback | `workflow_dispatch` with a `ref` input (tag or SHA) |
 
 ### Rejected alternatives
@@ -72,6 +73,15 @@ desired property, not a limitation to remove.
   run appearing after every merge is precisely what makes this work.
 - **Auto-deploy every merge to `guarzo/zoo`.** Removes the failure mode
   entirely, but discards the "deploy is a decision" property, which is wanted.
+- **`on: push` trigger with the test suite as a stated precondition.** This was
+  the first draft of this design. It does not work: an environment gate does not
+  wait on another workflow's checks, so the approval prompt appears while the
+  suite is still running, and a red commit can be approved and shipped. Replaced
+  by the `workflow_run` trigger.
+- **A single concurrency group with `cancel-in-progress: true`.** Also from the
+  first draft. It correctly coalesces pending approvals but also cancels a run
+  that is mid-deploy, which changes production without tagging or bookmarking
+  it. Replaced by two groups.
 
 ## Architecture
 
@@ -81,9 +91,14 @@ tag-and-push logic, SHA-pinned actions, and a concurrency group.
 
 ### Trigger and gate
 
+The deploy workflow is **not** triggered by the push directly. It is triggered by
+the test workflow finishing successfully on `guarzo/zoo`:
+
 ```yaml
 on:
-  push:
+  workflow_run:
+    workflows: ["🧪 Test Suite"]
+    types: [completed]
     branches: [guarzo/zoo]
   workflow_dispatch:
     inputs:
@@ -92,30 +107,81 @@ on:
         required: false
 ```
 
-- **`concurrency: {group: zoo-deploy, cancel-in-progress: true}`.** Merging
-  three PRs before approving leaves one pending approval for the newest SHA, not
-  three stale runs queued in order. Deploying an intermediate commit that was
-  already superseded is never the intent.
-- **`environment: production-deploy`** on the deploying job. Nothing runs until
-  approved. GitHub holds a pending run for 30 days, so a run may wait as long as
-  needed. The repository is public, so environment protection rules are
-  available at no cost, and GitHub permits a reviewer to approve their own
-  deployment run.
-- **Precondition:** the `Test Suite` check must be green on the exact SHA before
-  approval is offered. Approval is a judgment about timing, not about whether
-  the code works. `test.yml` already runs on every push to `guarzo/zoo`.
+with `if: github.event.workflow_run.conclusion == 'success'` on the first job,
+and the deployed commit taken from `github.event.workflow_run.head_sha` rather
+than from `github.ref`.
+
+**Why not `on: push`.** An environment gate does not wait for another workflow's
+checks. `Test Suite` is a separate workflow (`.github/workflows/test.yml`) whose
+`gate` job is named `Test Suite` (`test.yml:334-335`) and is wired to the
+`guarzo/zoo` ruleset for pull requests — nothing connects it to a push-triggered
+deploy run. On a plain `push` trigger the approval prompt would appear
+immediately, and a commit whose tests were still running, or already red, could
+be approved and shipped. `workflow_run` makes the dependency real: a red suite
+produces no deploy run at all.
+
+`workflow_run` evaluates its workflow file from the default branch, which is
+`guarzo/zoo` — the branch being deployed — so this trigger works without extra
+configuration.
+
+**Failure and cancellation of the test run** are handled by the same condition:
+any conclusion other than `success` (`failure`, `cancelled`, `timed_out`,
+`skipped`) produces no deploy run. Silence therefore means "not shippable",
+never "shipped without checking".
+
+### Concurrency: coalesce approvals, serialize deploys
+
+Two jobs with **different** concurrency groups. Collapsing them into one group
+is a correctness bug, not a simplification.
+
+| Job | Concurrency | Rationale |
+|---|---|---|
+| `await-approval` (gate only) | `group: zoo-deploy-approval`, `cancel-in-progress: true` | Merging three PRs before approving leaves one pending approval for the newest SHA, not three stale runs queued in order. Deploying an already-superseded intermediate commit is never the intent. |
+| `deploy` (everything after approval) | `group: zoo-deploy-run`, `cancel-in-progress: false` | Once approved, the run must not be interruptible. |
+
+**Why `cancel-in-progress` must not cover the deploy job.** GitHub's
+cancellation applies to *running* jobs, not only to runs waiting on approval. A
+merge landing mid-`flyctl deploy` would cancel the workflow while Fly's builder
+continues remotely — production changes, and the tag and bookmark steps never
+run. That is precisely the failure this design exists to prevent, reintroduced
+by the mechanism meant to tidy the approval queue.
+
+`cancel-in-progress: false` on the deploy group also serializes deploys: a
+second approved run queues behind the first rather than racing it onto the
+single machine.
+
+### The approval gate
+
+**`environment: production-deploy`** on the deploying job. Nothing runs until
+approved. The repository is public, so environment protection rules are
+available at no cost.
+
+**Pending runs expire after 30 days** and are then marked failed. This is a real
+bound, not "wait as long as you like". It is acceptable rather than mitigated: a
+run that has sat unapproved for 30 days is itself a signal, and any subsequent
+push to `guarzo/zoo` opens a fresh run against a newer SHA. No expiry-renewal
+mechanism is specified, deliberately.
+
+**Self-approval must be confirmed, not assumed.** GitHub is understood to permit
+a reviewer to approve a run they triggered, but with a single required reviewer
+this is load-bearing — if it does not hold, the gate is unopenable. Verify
+before relying on it (see Validation).
+
 
 ### Post-approval sequence
 
 Strictly linear; each step runs only if the previous one succeeded. That
 ordering is what makes the tag trustworthy.
 
-1. **Checkout the approved SHA** with `fetch-depth: 0` (annotated tagging needs
-   full history).
-2. **`flyctl deploy --app wanderer`** authenticated with `FLY_API_TOKEN`. Fly
-   runs `release_command` first (`fly.toml:29` — migrations against
-   `DIRECT_DATABASE_URL`), so a failed migration fails the deploy before new
-   code serves traffic.
+1. **Checkout the approved SHA** — `github.event.workflow_run.head_sha` for
+   `workflow_run` runs, or the `ref` input for `workflow_dispatch` — with
+   `fetch-depth: 0` (annotated tagging needs full history). Never `github.ref`:
+   under `workflow_run` that resolves to the default branch's tip at trigger
+   time, not the tested commit.
+2. **`flyctl deploy --app wanderer`** authenticated with the `FLY_API_TOKEN`
+   environment secret. Fly runs `release_command` first (`fly.toml:29` —
+   migrations against `DIRECT_DATABASE_URL`), so a failed migration fails the
+   deploy before new code serves traffic.
 3. **Wait for healthy.** Under `strategy = 'rolling'` (`fly.toml:30`),
    `flyctl deploy` blocks on the `/health` check (`fly.toml:84-88`;
    route at `lib/wanderer_app_web/router.ex:391`). An unhealthy machine fails
@@ -135,6 +201,43 @@ served traffic.
 This is a real improvement over the current process, where `guarzo/release` is
 moved *before* Fly attempts anything — so a failed deploy leaves the branch
 asserting a success that never happened.
+
+#### Partial failure after a successful deploy
+
+Steps 2–5 are **not atomic**. If the deploy succeeds and step 4 or 5 then fails,
+production has moved while the tag or bookmark has not — the one state that
+contradicts the invariant this design is built on. It cannot be prevented, only
+made recoverable and loud:
+
+- **Bounded blast radius.** Only the tag/bookmark steps can fail this way. They
+  are pure git operations against a known SHA, with no dependency on Fly.
+- **Idempotent recovery.** Re-running the workflow via `workflow_dispatch` with
+  `ref` set to the deployed SHA must converge rather than error: creating a tag
+  that already points at that SHA is a no-op, and the bookmark force-push is
+  idempotent by construction. A tag name collision is not a realistic concern —
+  the name is second-resolution — but a re-run within the same second must not
+  hard-fail the job.
+- **Loud, not silent.** A failure here fails the run, so the red run is the
+  signal. The recovery is the `workflow_dispatch` re-run above; it redeploys the
+  same SHA, which on this app costs one restart.
+
+#### Permissions and the `guarzo/release` ruleset
+
+The workflow needs `contents: write`, scoped to the deploy job only — the
+default token is read-only, and the approval-gate job has no reason to hold
+write access.
+
+**The ruleset restricting pushes to `guarzo/release` will reject the workflow's
+own push unless a bypass actor is configured for it.** This is the design's
+sharpest self-inflicted failure mode: it surfaces at step 5, *after* a
+successful production deploy, in exactly the partial-failure state described
+above. The bypass must also permit **force-push** (non-fast-forward), since a
+`guarzo/zoo` rebase guarantees the bookmark update is not a fast-forward.
+
+Both behaviors — bypass actor and force-push permission — are verified during
+validation rather than assumed, because the cost of getting them wrong is paid
+in production.
+
 
 ### `guarzo/release` becomes CI-owned
 
@@ -164,33 +267,64 @@ Manual steps, in order:
 
 1. **Disconnect Fly's GitHub integration** for app `wanderer` (Fly dashboard →
    app → Settings).
-2. **Create a deploy-scoped token** — `fly tokens create deploy -a wanderer` —
-   stored as repository secret `FLY_API_TOKEN`. Deploy-scoped rather than a
-   personal org token, so a compromised runner cannot reach `kills`,
-   `route-builder`, or other apps in the org.
-3. **Create environment `production-deploy`** with the repository owner as
+2. **Create environment `production-deploy`** with the repository owner as
    required reviewer.
-4. **Add a ruleset on `guarzo/release`** restricting direct pushes.
+3. **Create a deploy-scoped token** — `fly tokens create deploy -a wanderer` —
+   stored as an **environment secret on `production-deploy`**, not a repository
+   secret. A repository secret is readable by any workflow running on a trusted
+   branch; an environment secret is released only to a job that has cleared the
+   approval gate. The design's whole premise is that nothing reaches production
+   without approval, and the credential is part of "nothing". Deploy-scoped
+   rather than a personal org token, so a compromised runner cannot reach
+   `kills`, `route-builder`, or other apps in the org.
+4. **Add a ruleset on `guarzo/release`** restricting direct pushes, with a
+   bypass actor for the deploy workflow that permits force-push (see
+   *Permissions and the `guarzo/release` ruleset*).
 
 Then land `.github/workflows/zoo-deploy.yml`.
+
+Step 2 precedes step 3 because the environment must exist before a secret can be
+attached to it.
 
 ### Validation
 
 First run is a `workflow_dispatch` against current `guarzo/zoo` HEAD. Approve
 it, then confirm:
 
+- **self-approval works** — the required reviewer can approve a run they
+  triggered. If not, the gate is unopenable and a second reviewer or a different
+  protection rule is needed. Check this first; everything else is moot if it
+  fails.
 - the Fly release counter increments,
 - `/health` passes and the machine stays up,
 - a `v2026...` tag exists pointing at the expected SHA,
-- `guarzo/release` has moved to that SHA.
+- **`guarzo/release` has moved to that SHA** — this is the check that proves the
+  ruleset bypass and force-push permission are configured correctly. It fails
+  *after* a successful deploy, so verifying it deliberately here is what keeps
+  it from being discovered during a real release.
+
+Then confirm the trigger itself, which `workflow_dispatch` does not exercise:
+push a trivial commit to `guarzo/zoo` and verify that a deploy run appears only
+after `Test Suite` goes green, and that a commit with a failing suite produces
+no deploy run at all.
 
 This costs one deliberate restart to prove the pipeline, which is preferable to
 discovering a broken pipeline during a real change.
 
 ### Reverting the whole design
 
-Reconnect Fly's GitHub integration and delete the ruleset. `guarzo/release`
-still tracks the same commits, so the current process resumes unchanged.
+**Order matters here too, in reverse.** Disable or delete
+`.github/workflows/zoo-deploy.yml` **first**, then reconnect Fly's GitHub
+integration, then drop the `guarzo/release` ruleset.
+
+Reconnecting Fly while the workflow is still active recreates the double-deploy
+this design removes, in a more confusing form: the workflow deploys, then pushes
+`guarzo/release` as its final step, which triggers the reconnected integration
+to deploy the same commit again — two restarts, the second one apparently
+uncaused.
+
+Once the workflow is gone, `guarzo/release` still tracks the same commits, so
+the current process resumes unchanged.
 
 ## Assumptions and unresolved risks
 
@@ -202,10 +336,20 @@ still tracks the same commits, so the current process resumes unchanged.
 - **Unverified: whether disconnecting the GitHub integration affects anything
   else on the Fly app.** It is understood to be a build trigger rather than
   runtime configuration, but this has not been confirmed.
+- **Unverified: that GitHub permits self-approval of a deployment run.** With a
+  single required reviewer this is load-bearing — if it does not hold, the gate
+  cannot be opened at all. First item in the validation checklist.
+- **Unverified: that a ruleset bypass actor can force-push to `guarzo/release`.**
+  Required by step 5, and failing there leaves production deployed but
+  unbookmarked. Also in the validation checklist.
 - **Assumed: `flyctl deploy` exits non-zero when the release fails its health
   check.** Steps 4 and 5 depend on this. To be confirmed during validation; if
   it does not hold, an explicit `flyctl status` / `/health` poll is needed
   before tagging.
+- **Accepted: steps 2–5 are not atomic.** See *Partial failure after a
+  successful deploy*. Recovery is a `workflow_dispatch` re-run, at the cost of
+  one restart.
+- **Accepted: pending approvals expire after 30 days.** No renewal mechanism.
 - **Not addressed: migration rollback.** `release_command` runs migrations
   forward. Deploying an older tag does not revert a schema change, so a
   destructive migration is still a manual recovery. Unchanged from today.
