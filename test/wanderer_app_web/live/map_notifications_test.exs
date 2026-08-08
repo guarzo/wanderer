@@ -899,6 +899,101 @@ defmodule WandererAppWeb.MapNotificationsTest do
              )
     end
 
+    # The two save tests above hand `render_submit` an explicit params map, so
+    # they never exercise the rendered checkbox — they passed while ticking the
+    # box in a browser did nothing. `checked` is rendered from the form's
+    # value, so a handler that updates only `:route_toggle` re-renders the box
+    # UNCHECKED, and LiveView patches the real one back. The tests below drive
+    # the DOM instead: no params for the checkbox, ever.
+    test "ticking the route alerts box leaves it checked in the re-render", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      refute has_element?(
+               view,
+               "input[name='notification[route_alerts_enabled]'][type='checkbox'][checked]"
+             )
+
+      view
+      |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      assert has_element?(
+               view,
+               "input[name='notification[route_alerts_enabled]'][type='checkbox'][checked]"
+             )
+    end
+
+    test "toggling route alerts keeps values already typed into the form", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      # A real browser posts every input in the form with the change event, so
+      # a re-render that rebuilds the form from anything BUT those params
+      # silently discards whatever the user had already typed.
+      view
+      |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+      |> render_change(%{
+        "notification" => %{
+          "route_alerts_enabled" => "true",
+          "home_system_id" => "30000142",
+          "route_max_jumps" => "4"
+        }
+      })
+
+      assert has_element?(view, "input[name='notification[home_system_id]'][value='30000142']")
+      assert has_element?(view, "input[name='notification[route_max_jumps]'][value='4']")
+    end
+
+    test "ticking the box and saving persists the toggle", %{conn: conn, map: map} do
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      # Only `home_system_id` is supplied — the value the user types. Everything
+      # else, the checkbox included, comes from the rendered DOM, which is the
+      # whole point: this is what the browser actually posts.
+      view
+      |> form("#discord-notification-form", %{
+        "notification" => %{"home_system_id" => "30000142"}
+      })
+      |> render_submit()
+
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      assert rec.route_alerts_enabled? == true
+      assert rec.home_system_id == 30_000_142
+    end
+
+    test "toggling route alerts never renders a submitted webhook url", %{conn: conn, map: map} do
+      # No notification yet, so the create path renders the webhook URL field
+      # alongside the route toggle. The change event carries whatever is typed
+      # into it, and the generic `.input` writes `value=` for password inputs
+      # too — so a form rebuilt straight from those params would print a live
+      # credential into the HTML.
+      view = open_notifications(conn, map)
+
+      url = "https://discord.com/api/webhooks/1534657087244603394/supersecrettoken"
+
+      html =
+        view
+        |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+        |> render_change(%{
+          "notification" => %{"route_alerts_enabled" => "true", "webhook_url" => url}
+        })
+
+      refute html =~ "supersecrettoken"
+      refute html =~ url
+    end
+
     test "the route webhook url can be added", %{conn: conn, map: map} do
       rec = notification_with_webhooks(map, [:system])
       view = open_notifications(conn, map)
