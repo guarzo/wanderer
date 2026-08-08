@@ -190,6 +190,19 @@ to_remove = removed_signatures |> Enum.filter(fn %{"eve_id" => eve_id} -> "#{sol
       delete_timeout
     )
 
+    # Get the system to clean up expired signatures
+    case WandererApp.Api.MapSystem.read_by_map_and_solar_system(%{
+           map_id: map_id,
+           solar_system_id: solar_system_id
+         }) do
+      {:ok, system} ->
+        # Clean up expired signatures before updating
+        WandererApp.Map.SignatureCleanup.cleanup_async(system.id)
+
+      _ ->
+        :ok
+    end
+
     map_id
     |> WandererApp.Map.Server.update_signatures(%{
       solar_system_id: solar_system_id,
@@ -229,6 +242,9 @@ to_remove = removed_signatures |> Enum.filter(fn %{"eve_id" => eve_id} -> "#{sol
           solar_system_id: solar_system_id_int
         }) do
           {:ok, system} ->
+            # Clean up expired signatures before returning them
+            WandererApp.Map.SignatureCleanup.cleanup_async(system.id)
+
             removed_sig_eve_ids = Map.get(assigns, :removed_sig_eve_ids, [])
             system_signatures =
               get_system_signatures(system.id)
