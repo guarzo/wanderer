@@ -1,9 +1,15 @@
-defmodule WandererAppWeb.Maps.MapNotificationsComponent do
+defmodule WandererAppWeb.MapNotificationsComponent do
   @moduledoc """
   Settings tab for per-map Discord kill notifications.
 
-  The webhook URL is a credential: it is stored encrypted and only ever shown
-  as a masked hint, with a replace flow, like a password field.
+  A map has one notification record and up to two destinations: a `:system`
+  webhook (kills in systems on the map) and an optional `:character` webhook
+  (kills involving characters tracked on the map). Each destination has its own
+  URL, enable flag, delivery status and test button, because an owner needs to
+  be able to diagnose one channel without touching the other.
+
+  Webhook URLs are credentials: stored encrypted, only ever rendered as a masked
+  hint with a replace flow, like a password field.
   """
 
   use WandererAppWeb, :live_component
@@ -11,170 +17,58 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
   require Logger
 
   alias WandererApp.Api.MapDiscordNotification
+  alias WandererApp.Api.MapDiscordWebhook
   alias WandererApp.Api.MapSolarSystem
-  alias WandererApp.CachedInfo
+  alias WandererApp.Esi.CorporationSearch
 
-  @live_select_id "excluded_system_live_select_component"
+  @excluded_select_id "excluded_system_live_select_component"
+  @focus_corp_select_id "focus_corp_live_select_component"
   @min_search_length 2
   @max_search_results 20
-  @masked_url_token_prefix 4
-  @max_postgres_bigint 9_223_372_036_854_775_807
+
+  @roles [:system, :character]
 
   @impl true
-  # Delivery outcomes are written by the map's Discord worker, asynchronously.
-  # Without this path the tab keeps showing whatever it read when it opened: a
-  # webhook that has since been auto-disabled after a run of failures would
-  # still look healthy. The parent LiveView subscribes to the resource's status
-  # topic and forwards here via send_update/2.
-  #
-  # Only the record is refreshed — :replacing_url?, :error and :flash_message
-  # belong to what the user is doing right now and must survive a background
-  # refresh.
-  def update(%{refresh_status: true, map_id: map_id}, socket) do
-    # A broadcast still in flight when the component switched maps must not
-    # overwrite the map now on screen.
-    if socket.assigns[:loaded_map_id] == map_id do
-      case load_notification(map_id) do
-        {:ok, %{} = notification} -> {:ok, refresh_notification(socket, notification)}
-        # Nothing to show, or a transient read failure: leave the tab as it is
-        # rather than blanking it from a background event the user did not ask
-        # for. The next explicit interaction goes through the normal load path.
-        _ -> {:ok, socket}
-      end
-    else
-      {:ok, socket}
-    end
-  end
-
   def update(%{map_id: map_id} = assigns, socket) do
-    socket =
-      socket
-      |> assign(assigns)
-      |> assign(:live_select_id, @live_select_id)
-      |> assign(:min_search_length, @min_search_length)
-      |> assign_new(:system_options, fn -> [] end)
-      |> assign_new(:error, fn -> nil end)
-      |> assign_new(:flash_message, fn -> nil end)
-
-    # The parent re-renders this component whenever any of its own assigns
-    # change, and each pass here costs a by_map/1 read plus an excluded-systems
-    # lookup. Reload only on first mount or when the map actually changes; every
-    # write path calls assign_notification/2 directly, so mutations still
-    # refresh immediately.
-    if initialized_for?(socket, map_id) do
-      {:ok, socket}
-    else
-      # Transient feedback belongs to the map that produced it: a "Saved." or an
-      # error raised against the previous map must not greet the next one.
-      # `system_options` is deliberately left alone — it holds live_select
-      # results for the global EVE system list, which is not map-scoped.
-      socket = socket |> assign(:error, nil) |> assign(:flash_message, nil)
-
-      case load_notification(map_id) do
-        {:ok, notification} ->
-          {:ok,
-           socket
-           |> assign(:loaded_map_id, map_id)
-           # Recomputed, not assign_new: this branch runs on first mount *and*
-           # whenever the map changes, and the flag belongs to the map being
-           # shown. Retaining a previous `false` across a map switch would hide
-           # the webhook input on an unconfigured map, leaving no way to
-           # configure it. The in-session toggle survives because a same-map
-           # re-render returns early.
-           |> assign(:replacing_url?, is_nil(notification))
-           |> assign_notification(notification)}
-
-        :error ->
-          # Clears :loaded_map_id rather than leaving it alone. Leaving it would
-          # keep the *previous* map's id, and assign_notification(nil) below has
-          # already wiped that map's record — so switching back to it would
-          # satisfy initialized_for?/2, short-circuit, and render a configured
-          # map as unconfigured. nil matches no map id, so every subsequent
-          # render retries the read instead of memoizing a failed one as "this
-          # map has no config", which would invite the user to re-enter a URL
-          # that is in fact already stored.
-          {:ok,
-           socket
-           |> assign(:loaded_map_id, nil)
-           # Reset, not assign_new: a "Replace" toggle left over from the
-           # previous map would otherwise render the create form over a map
-           # whose configuration we just failed to read, inviting the user to
-           # re-enter a URL that may already be stored.
-           |> assign(:replacing_url?, false)
-           |> assign_notification(nil)
-           |> assign(
-             :error,
-             "Could not load the Discord configuration for this map. Try reopening this tab."
-           )}
+    notification =
+      case MapDiscordNotification.by_map(map_id) do
+        {:ok, rec} -> rec
+        _ -> nil
       end
-    end
-  end
 
-  defp initialized_for?(socket, map_id) do
-    Map.has_key?(socket.assigns, :notification) and socket.assigns[:loaded_map_id] == map_id
+    {:ok,
+     socket
+     |> assign(assigns)
+     |> assign(:excluded_select_id, @excluded_select_id)
+     |> assign(:focus_corp_select_id, @focus_corp_select_id)
+     |> assign(:min_search_length, @min_search_length)
+     |> assign(:corp_min_search_length, CorporationSearch.min_search_length())
+     |> assign_new(:system_options, fn -> [] end)
+     |> assign_new(:corp_options, fn -> [] end)
+     |> assign_new(:error, fn -> nil end)
+     |> assign_new(:flash_message, fn -> nil end)
+     |> assign_notification(notification)}
   end
-
-  # Loads the masked-hint dependency explicitly: the resource does not decrypt
-  # `webhook_url` by default, and masked_url/1 needs the plaintext to derive the
-  # hint. Nothing else in this component reads the full URL back.
-  #
-  # `{:ok, nil}` means the map has no configuration; `:error` means the read
-  # itself failed. Collapsing the two would render a transient database failure
-  # as "not configured yet" — indistinguishable, to the user, from their
-  # settings having been lost.
-  defp load_notification(map_id) do
-    case MapDiscordNotification.by_map(map_id, load: [:webhook_url]) do
-      # `by_map` is `get? true`; depending on Ash's not-found configuration a
-      # missing row surfaces either as {:ok, nil} or as a NotFound error.
-      {:ok, rec} -> {:ok, rec}
-      {:error, error} -> if not_found?(error), do: {:ok, nil}, else: :error
-    end
-  end
-
-  defp not_found?(%Ash.Error.Query.NotFound{}), do: true
-  defp not_found?(%{errors: errors}) when is_list(errors), do: Enum.any?(errors, &not_found?/1)
-  defp not_found?(_), do: false
 
   @impl true
-  def handle_event("change", %{"notification" => params}, socket) when is_map(params) do
-    current_params =
-      Map.new(
-        [{"webhook_url", :webhook_url}, {"wh_only", :wh_only}, {"enabled", :enabled}],
-        fn {param, field} -> {param, socket.assigns.form[field].value} end
-      )
-
-    {:noreply,
-     assign(socket, :form, to_form(Map.merge(current_params, params), as: :notification))}
-  end
-
-  def handle_event("change", _params, socket), do: {:noreply, socket}
-
-  def handle_event("save", %{"notification" => params}, socket) when is_map(params) do
+  def handle_event("save", %{"notification" => params}, socket) do
     # `.input type="checkbox"` renders a hidden "false" before the box, so a
     # rendered field always submits a value and Phoenix keeps the last one.
     attrs = %{
-      wh_only: checkbox_param(params, "wh_only", current_wh_only(socket)),
+      wh_only: checked?(params["wh_only"]),
       enabled?: checked?(params["enabled"])
     }
 
-    # Each write loads :webhook_url back explicitly. Without it the returned
-    # record carries %Ash.NotLoaded{} and the masked hint would silently
-    # degrade to "••••" until the next full reload.
     result =
-      case {socket.assigns.notification, params["webhook_url"]} do
-        {nil, url} ->
-          MapDiscordNotification.create(
-            Map.merge(attrs, %{map_id: socket.assigns.map_id, webhook_url: url}),
-            load: [:webhook_url]
-          )
+      case socket.assigns.notification do
+        nil ->
+          create_with_system_webhook(socket.assigns.map_id, attrs, params["webhook_url"])
 
-        {rec, url} when is_binary(url) and url != "" ->
-          MapDiscordNotification.update(rec, Map.put(attrs, :webhook_url, url),
-            load: [:webhook_url]
-          )
-
-        {rec, _} ->
-          MapDiscordNotification.update(rec, attrs, load: [:webhook_url])
+        rec ->
+          # Deliberately NOT `webhook_url`: that moved to the child resource and
+          # is no longer an accepted input here — passing it raises NoSuchInput
+          # at runtime. URLs are saved through "save-webhook".
+          MapDiscordNotification.update(rec, attrs)
       end
 
     case result do
@@ -182,7 +76,6 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
         {:noreply,
          socket
          |> assign_notification(rec)
-         |> assign(:replacing_url?, false)
          |> assign(:error, nil)
          |> assign(:flash_message, "Saved.")}
 
@@ -191,53 +84,88 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
     end
   end
 
-  # Same reasoning as the add-excluded fallback below: a submit without the
-  # "notification" key is not something the rendered form produces, so answer it
-  # rather than taking the LiveView down with a FunctionClauseError.
-  def handle_event("save", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:error, "Could not read the submitted settings.")
-     |> assign(:flash_message, nil)}
+  def handle_event("replace-url", %{"role" => role}, socket) do
+    {:noreply, put_replacing(socket, parse_role(role), true)}
   end
 
-  def handle_event("replace-url", _params, socket) do
-    {:noreply, assign(socket, :replacing_url?, true)}
+  def handle_event("save-webhook", %{"role" => role, "webhook" => params}, socket) do
+    role = parse_role(role)
+
+    with %{} = rec <- socket.assigns.notification,
+         {:ok, _} <- save_webhook(rec, socket.assigns.webhooks[role], role, params) do
+      {:noreply,
+       socket
+       |> assign_notification(reload_notification(socket.assigns.map_id))
+       |> assign(:error, nil)
+       |> assign(:flash_message, "Saved.")}
+    else
+      {:error, error} ->
+        {:noreply, socket |> assign(:error, humanize_error(error)) |> assign(:flash_message, nil)}
+
+      _ ->
+        {:noreply, assign(socket, :error, "Save the map's notification settings first.")}
+    end
   end
 
-  # LiveSelect's search callback: users know systems by name, not by numeric id.
+  def handle_event("remove-webhook", %{"role" => role}, socket) do
+    # Only the `:character` destination is removable. `:system` is required —
+    # removing notifications entirely means deleting the parent record.
+    role = parse_role(role)
+
+    case {role, socket.assigns.webhooks[role]} do
+      {:character, %{} = webhook} ->
+        case MapDiscordWebhook.destroy(webhook) do
+          :ok ->
+            {:noreply,
+             socket
+             |> assign_notification(reload_notification(socket.assigns.map_id))
+             |> assign(:error, nil)
+             |> assign(:flash_message, "Character destination removed.")}
+
+          {:error, error} ->
+            {:noreply,
+             socket |> assign(:error, humanize_error(error)) |> assign(:flash_message, nil)}
+        end
+
+      _ ->
+        {:noreply, assign(socket, :error, "The system destination cannot be removed.")}
+    end
+  end
+
+  # LiveSelect's search callback: users know systems and corporations by name,
+  # not by numeric id.
   #
   # This must be handled HERE and not by the parent LiveView, whose own
   # `live_select_change` handler answers unconditionally with access-list
-  # options. `phx-target={@myself}` on the live_select is what keeps the event
+  # options. `phx-target={@myself}` on each live_select is what keeps the event
   # in this component.
-  def handle_event("live_select_change", %{"id" => @live_select_id, "text" => text}, socket) do
+  #
+  # Two pickers now share this handler, so it MUST dispatch on the id that
+  # fired. Answering unconditionally with system options would fill the
+  # corporation dropdown with solar systems.
+  def handle_event("live_select_change", %{"id" => @focus_corp_select_id, "text" => text}, socket) do
+    options = search_corporations(socket.assigns[:current_user], text)
+
+    send_update(LiveSelect.Component, id: @focus_corp_select_id, options: options)
+
+    {:noreply, assign(socket, :corp_options, options)}
+  end
+
+  def handle_event("live_select_change", %{"id" => id, "text" => text}, socket) do
     options = search_systems(text)
 
-    send_update(LiveSelect.Component, id: @live_select_id, options: options)
+    send_update(LiveSelect.Component, id: id, options: options)
 
     {:noreply, assign(socket, :system_options, options)}
   end
 
-  def handle_event("live_select_change", _params, socket), do: {:noreply, socket}
-
-  # `raw` is client-supplied. `to_string/1` raises Protocol.UndefinedError on a
-  # map or a keyword-shaped param, and a raise inside `with` is not caught by
-  # `else` — a crafted payload would take down the LiveView. Checking for a
-  # binary first routes those to the same error response as a non-numeric id.
   def handle_event("add-excluded", %{"excluded" => %{"excluded_system" => raw}}, socket) do
     with %{} = rec <- socket.assigns.notification,
-         id when is_integer(id) <- parse_system_id(raw) do
+         {id, ""} <- Integer.parse(to_string(raw)) do
       update_excluded(socket, rec, Enum.uniq([id | rec.excluded_systems]))
     else
       _ -> {:noreply, assign(socket, :error, "Pick a system from the list.")}
     end
-  end
-
-  # Any other shape is a payload the rendered form cannot produce; answer it
-  # like a bad id rather than letting FunctionClauseError take the LiveView down.
-  def handle_event("add-excluded", _params, socket) do
-    {:noreply, assign(socket, :error, "Pick a system from the list.")}
   end
 
   # Guarded the same way as `add-excluded`: only reachable from a rendered
@@ -245,30 +173,37 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
   # missing record or a non-numeric id is survivable.
   def handle_event("remove-excluded", %{"system_id" => raw}, socket) do
     with %{} = rec <- socket.assigns.notification,
-         id when is_integer(id) <- parse_system_id(raw) do
+         {id, ""} <- Integer.parse(to_string(raw)) do
       update_excluded(socket, rec, Enum.reject(rec.excluded_systems, &(&1 == id)))
     else
       _ -> {:noreply, assign(socket, :error, "Could not remove that system.")}
     end
   end
 
-  def handle_event("remove-excluded", _params, socket) do
-    {:noreply, assign(socket, :error, "Could not remove that system.")}
+  # Guarded the same way as `add-excluded`: only reachable from a rendered
+  # record, and only for an id that parses cleanly. LiveSelect hands back the
+  # corporation eve id as a STRING (`character.ex:365`), while `focus_corp_ids`
+  # stores integers.
+  def handle_event("add-focus-corp", %{"focus_corp" => %{"focus_corp" => raw}}, socket) do
+    with %{} = rec <- socket.assigns.notification,
+         {id, ""} <- Integer.parse(to_string(raw)) do
+      update_focus_corps(socket, rec, Enum.uniq(rec.focus_corp_ids ++ [id]))
+    else
+      _ -> {:noreply, assign(socket, :error, "Pick a corporation from the list.")}
+    end
   end
 
-  def handle_event(
-        "send-test",
-        _params,
-        %{assigns: %{notification: %{enabled?: false}}} = socket
-      ) do
-    {:noreply,
-     socket
-     |> assign(:error, "Enable and save notifications before sending a test message.")
-     |> assign(:flash_message, nil)}
+  def handle_event("remove-focus-corp", %{"corp_id" => raw}, socket) do
+    with %{} = rec <- socket.assigns.notification,
+         {id, ""} <- Integer.parse(to_string(raw)) do
+      update_focus_corps(socket, rec, Enum.reject(rec.focus_corp_ids, &(&1 == id)))
+    else
+      _ -> {:noreply, assign(socket, :error, "Could not remove that corporation.")}
+    end
   end
 
-  def handle_event("send-test", _params, socket) do
-    case WandererApp.ExternalEvents.DiscordDispatcher.send_test_message(socket.assigns.map_id) do
+  def handle_event("send-test", %{"webhook_id" => webhook_id}, socket) do
+    case send_test(socket, webhook_id) do
       # `:ok` means the message was ENQUEUED — the last hop is an async cast, so
       # this must not claim Discord accepted it.
       :ok ->
@@ -284,16 +219,31 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
          )
          |> assign(:flash_message, nil)}
 
-      {:error, :not_configured} ->
+      {:error, :webhook_disabled} ->
+        {:noreply,
+         socket
+         |> assign(
+           :error,
+           "This destination is disabled. Enable it and save before sending a test message."
+         )
+         |> assign(:flash_message, nil)}
+
+      # Two distinct dispatcher answers, one message on purpose: "no such row"
+      # and "row with no usable URL" are worth telling apart in a log or a test,
+      # but a user can do nothing about either except save a URL, and this
+      # wording is brief-mandated verbatim.
+      {:error, reason} when reason in [:webhook_not_found, :webhook_url_missing] ->
         {:noreply,
          socket |> assign(:error, "Save a webhook URL first.") |> assign(:flash_message, nil)}
 
-      {:error, _other} ->
-        Logger.warning("Discord test message could not be queued")
+      {:error, other} ->
+        # `inspect(other)` here put the raw failure term — which can carry the
+        # webhook URL — into the LiveView diff. Log a shape summary instead.
+        Logger.warning("[MapNotifications] test message failed: #{error_summary(other)}")
 
         {:noreply,
          socket
-         |> assign(:error, "Could not send a test message. Try again later.")
+         |> assign(:error, "Could not send a test message. Check the webhook URL and try again.")
          |> assign(:flash_message, nil)}
     end
   end
@@ -305,13 +255,12 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
 
       rec ->
         # The resource's custom destroy invalidates the config cache and stops
-        # the map's delivery worker; nothing extra to do here.
-        case MapDiscordNotification.destroy(rec) do
+        # the delivery workers; the webhook children cascade with the parent.
+        case WandererApp.Api.MapDiscordNotification.destroy(rec) do
           :ok ->
             {:noreply,
              socket
              |> assign_notification(nil)
-             |> assign(:replacing_url?, true)
              |> assign(:error, nil)
              |> assign(:flash_message, "Removed.")}
 
@@ -322,24 +271,80 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
     end
   end
 
-  # Form params always arrive as strings; live_select can hand back the integer
-  # option value directly. Anything else is malformed.
-  defp parse_system_id(id) when is_integer(id) and id > 0 and id <= @max_postgres_bigint,
-    do: id
-
-  defp parse_system_id(raw) when is_binary(raw) do
-    case Integer.parse(raw) do
-      {id, ""} -> parse_system_id(id)
-      _ -> :error
+  # `webhook_id` arrives from the client as `phx-value-webhook_id`, and
+  # `send_test_message/1` resolves it by id alone — across every map in the
+  # installation. So the id MUST be matched against this map's own destinations
+  # before it is dispatched; without that, anyone who can open a settings tab
+  # can post the test message into any other map's Discord channel.
+  #
+  # The `enabled?` check that rides along STAYS even though `send_test_message/1`
+  # now reports the disabled case itself, and the ordering is the reason. The
+  # dispatcher checks the global kill-switch first, so with webhooks disabled
+  # server-wide it answers `:notifications_disabled` and never looks at the row —
+  # a user who unticked one destination would be told the whole server is off.
+  # Checking here keeps the more specific message. `map_notifications_test.exs`
+  # fails if either half of this is removed.
+  defp send_test(socket, webhook_id) do
+    socket.assigns.webhooks
+    |> Map.values()
+    |> Enum.find(&match?(%{id: ^webhook_id}, &1))
+    |> case do
+      nil -> {:error, :webhook_not_found}
+      %{enabled?: false} -> {:error, :webhook_disabled}
+      _webhook -> WandererApp.ExternalEvents.DiscordDispatcher.send_test_message(webhook_id)
     end
   end
 
-  defp parse_system_id(_), do: :error
+  defp save_webhook(rec, nil, role, %{"webhook_url" => url}) when is_binary(url) and url != "" do
+    MapDiscordWebhook.create(%{notification_id: rec.id, role: role, webhook_url: url})
+  end
+
+  defp save_webhook(_rec, nil, _role, _params), do: {:error, "Enter a webhook URL first."}
+
+  defp save_webhook(_rec, webhook, _role, %{"webhook_url" => url} = params)
+       when is_binary(url) and url != "" do
+    MapDiscordWebhook.update(webhook, %{
+      webhook_url: url,
+      enabled?: checked?(params["enabled"])
+    })
+  end
+
+  defp save_webhook(_rec, webhook, _role, params) do
+    MapDiscordWebhook.set_enabled(webhook, %{enabled?: checked?(params["enabled"])})
+  end
+
+  # Creating the config and its required `:system` destination is one user
+  # action. Task 2's `create` takes `webhook_url` as a required argument and
+  # creates the `:system` child through `manage_relationship` in the SAME
+  # transaction, so there is no window in which a parent exists without a
+  # destination. Do not split this into two calls with a compensating cleanup:
+  # the two-step version fails outright (`create` rejects a missing
+  # `webhook_url`) and its explicit child create would collide with Task 1's
+  # (notification_id, role) identity.
+  defp create_with_system_webhook(map_id, attrs, url) do
+    attrs
+    |> Map.put(:map_id, map_id)
+    |> Map.put(:webhook_url, url)
+    |> MapDiscordNotification.create()
+  end
+
+  defp put_replacing(socket, role, value) do
+    assign(socket, :replacing_url?, Map.put(socket.assigns.replacing_url?, role, value))
+  end
+
+  defp parse_role("character"), do: :character
+  defp parse_role(:character), do: :character
+  defp parse_role(_), do: :system
+
+  defp reload_notification(map_id) do
+    case MapDiscordNotification.by_map(map_id) do
+      {:ok, rec} -> rec
+      _ -> nil
+    end
+  end
 
   defp update_excluded(socket, rec, excluded) do
-    # load: as in handle_event("save", ...) — the updated record is assigned
-    # straight into the template, which renders the masked webhook hint.
-    case MapDiscordNotification.update(rec, %{excluded_systems: excluded}, load: [:webhook_url]) do
+    case MapDiscordNotification.update(rec, %{excluded_systems: excluded}) do
       {:ok, updated} ->
         {:noreply, socket |> assign_notification(updated) |> assign(:error, nil)}
 
@@ -348,39 +353,57 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
     end
   end
 
-  # Resolves the excluded systems' names once per change, not once per render:
-  # this runs a query, and the template re-renders on every live_select
-  # keystroke. Also rebuilds the forms so their values follow the record.
-  defp assign_notification(socket, notification) do
-    socket
-    |> assign(:notification, notification)
-    |> assign(:excluded_systems, excluded_system_labels(notification))
-    |> assign(:form, notification_form(notification))
-    |> assign(:form_flags, form_flags(notification))
-    |> assign(:excluded_form, to_form(%{"excluded_system" => nil}, as: :excluded))
-  end
+  defp update_focus_corps(socket, rec, corp_ids) do
+    case MapDiscordNotification.update(rec, %{focus_corp_ids: corp_ids}) do
+      {:ok, updated} ->
+        {:noreply, socket |> assign_notification(updated) |> assign(:error, nil)}
 
-  # The background refresh path. The form holds checkbox state the user may have
-  # toggled without saving, so it is rebuilt only when the stored flags moved —
-  # an auto-disable has to reach the Enabled checkbox, since that is the only
-  # place the tab shows it. The excluded-system search box is never rebuilt.
-  defp refresh_notification(socket, notification) do
-    socket =
-      socket
-      |> assign(:notification, notification)
-      |> assign(:excluded_systems, excluded_system_labels(notification))
-
-    if socket.assigns[:form_flags] == form_flags(notification) do
-      socket
-    else
-      socket
-      |> assign(:form, notification_form(notification))
-      |> assign(:form_flags, form_flags(notification))
+      {:error, error} ->
+        {:noreply, assign(socket, :error, humanize_error(error))}
     end
   end
 
-  defp form_flags(nil), do: nil
-  defp form_flags(notification), do: {notification.wh_only, notification.enabled?}
+  # Resolves excluded-system names and focus-corporation labels once per change,
+  # not once per render: both run lookups, and the template re-renders on every
+  # live_select keystroke. Also rebuilds every form so values follow the record.
+  defp assign_notification(socket, notification) do
+    webhooks = load_webhooks(notification)
+
+    socket
+    |> assign(:notification, notification)
+    |> assign(:webhooks, webhooks)
+    |> assign(:excluded_systems, excluded_system_labels(notification))
+    |> assign(:focus_corps, focus_corp_labels(notification))
+    |> assign(:form, notification_form(notification))
+    |> assign(:webhook_forms, webhook_forms(webhooks))
+    |> assign(:excluded_form, to_form(%{"excluded_system" => nil}, as: :excluded))
+    |> assign(:focus_corp_form, to_form(%{"focus_corp" => nil}, as: :focus_corp))
+    |> assign_replacing(webhooks)
+  end
+
+  # A destination with no stored URL is always in "replace" (i.e. entry) mode;
+  # one with a URL starts masked. Recomputed on every record change so that
+  # saving a URL collapses the field back to the masked hint.
+  defp assign_replacing(socket, webhooks) do
+    replacing =
+      Map.new(@roles, fn role ->
+        {role, is_nil(Map.get(webhooks, role))}
+      end)
+
+    assign(socket, :replacing_url?, replacing)
+  end
+
+  defp load_webhooks(nil), do: %{system: nil, character: nil}
+
+  defp load_webhooks(%{id: notification_id}) do
+    records =
+      case MapDiscordWebhook.by_notification(notification_id) do
+        {:ok, list} -> list
+        _ -> []
+      end
+
+    Map.new(@roles, fn role -> {role, Enum.find(records, &(&1.role == role))} end)
+  end
 
   defp notification_form(notification) do
     to_form(
@@ -391,6 +414,23 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
       },
       as: :notification
     )
+  end
+
+  defp webhook_forms(webhooks) do
+    Map.new(@roles, fn role ->
+      webhook = Map.get(webhooks, role)
+
+      form =
+        to_form(
+          %{
+            "webhook_url" => "",
+            "enabled" => is_nil(webhook) or webhook.enabled?
+          },
+          as: :webhook
+        )
+
+      {role, form}
+    end)
   end
 
   # Mirrors the ACL live_select pattern in maps_live: search server-side, feed
@@ -409,246 +449,311 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
 
   defp search_systems(_), do: []
 
-  # Static system data is already fully cached (CachedInfo warms the whole EVE
-  # SDE into :system_static_info_cache on first miss), so this never hits the
-  # database. Labelled the same way as the live_select search results
-  # ("Jita (The Forge)") so the entry a user picked matches what they see here
-  # afterwards. Falls back to the bare id for anything unresolvable, and keeps
-  # the stored order.
+  # `CorporationSearch.search/2` enforces its own minimum length and returns
+  # `{:ok, []}` for a user with no characters, so no length guard is needed here.
+  #
+  # The rescue is not belt-and-braces: the search runs as one of the user's
+  # characters, and a character whose ESI token has never been refreshed makes
+  # `Character.search/2` raise. Unrescued that kills the LiveView on a keystroke
+  # in the corporation box, taking the whole settings tab with it. An empty
+  # dropdown is the right degradation for a lookup this component cannot fix.
+  defp search_corporations(%{characters: characters}, text) when is_list(characters) do
+    case CorporationSearch.search(characters, text) do
+      {:ok, results} ->
+        results
+        |> Enum.take(@max_search_results)
+        |> Enum.map(&{&1.formatted, &1.id})
+
+      _ ->
+        []
+    end
+  rescue
+    error ->
+      Logger.warning("[MapNotifications] corporation search failed: #{inspect(error)}")
+      []
+  end
+
+  defp search_corporations(_current_user, _text), do: []
+
+  # One query for every excluded system, not one per system. Falls back to the
+  # bare id for anything the lookup did not return, and keeps the stored order.
   defp excluded_system_labels(nil), do: []
   defp excluded_system_labels(%{excluded_systems: []}), do: []
 
   defp excluded_system_labels(%{excluded_systems: ids}) do
-    Enum.map(ids, fn id ->
-      label =
-        case CachedInfo.get_system_static_info(id) do
-          {:ok, %{solar_system_name: name, region_name: region}} -> "#{name} (#{region})"
-          _ -> to_string(id)
-        end
+    labels =
+      case MapSolarSystem.by_solar_system_ids(ids) do
+        {:ok, systems} ->
+          Map.new(
+            systems,
+            &{&1.solar_system_id, "#{&1.solar_system_name} (#{&1.solar_system_id})"}
+          )
 
-      {id, label}
-    end)
+        _ ->
+          %{}
+      end
+
+    Enum.map(ids, &{&1, Map.get(labels, &1, to_string(&1))})
   end
+
+  # `label_for/1` already degrades to the bare id, so a chip is never dropped
+  # because ESI is unreachable — the user must always be able to remove what
+  # they saved.
+  defp focus_corp_labels(nil), do: []
+  defp focus_corp_labels(%{focus_corp_ids: []}), do: []
+
+  defp focus_corp_labels(%{focus_corp_ids: ids}),
+    do: Enum.map(ids, &{&1, CorporationSearch.label_for(&1)})
 
   defp checked?("true"), do: true
   defp checked?(true), do: true
   defp checked?(_), do: false
 
-  defp checkbox_param(params, field, fallback) do
-    case Map.fetch(params, field) do
-      {:ok, value} -> checked?(value)
-      :error -> fallback
-    end
+  defp humanize_error(message) when is_binary(message), do: message
+
+  defp humanize_error(%Ash.Error.Invalid{errors: errors}) do
+    Enum.map_join(errors, ", ", &error_sentence/1)
   end
 
-  defp current_wh_only(%{assigns: %{form: form}}), do: checked?(form[:wh_only].value)
-  defp current_wh_only(%{assigns: %{notification: %{wh_only: wh_only}}}), do: wh_only
-  defp current_wh_only(_socket), do: false
+  defp humanize_error(other), do: fallback_message(other)
 
-  defp humanize_error(%Ash.Error.Invalid{errors: errors} = error) do
-    case Enum.filter(errors, &is_binary(Map.get(&1, :message))) do
-      [] -> log_error(error)
-      messages -> Enum.map_join(messages, ", ", & &1.message)
-    end
+  # Ash carries validation copy as a template plus a `vars` bag — a max-length
+  # violation's `message` is the literal `length must be less than or equal to
+  # %{max}`. Rendering the raw field shows the user the placeholder, so
+  # substitute before display.
+  defp error_sentence(%{message: message} = error) when is_binary(message) do
+    error
+    |> Map.get(:vars)
+    |> List.wrap()
+    |> Enum.reduce(message, fn {key, value}, acc ->
+      String.replace(acc, "%{#{key}}", var_string(value))
+    end)
   end
 
-  defp humanize_error(other), do: log_error(other)
+  defp error_sentence(other), do: fallback_message(other)
 
-  # AshCloak's generated argument can retain plaintext in a pending changeset,
-  # even when the resource attribute is sensitive. Never inspect the error term.
-  defp log_error(_error) do
-    Logger.warning("Discord notification settings could not be saved")
-    "Could not save the Discord configuration. Try again later."
+  # Anything without a message is an error shape we did not anticipate. Its
+  # fields are not user-facing copy, so it is logged rather than rendered — but
+  # only its TYPE. The struct itself must never be inspected into the log: an
+  # `Ash.Error.Invalid` raised by a create carries the submitted value in
+  # `InvalidArgument`/`InvalidAttribute`'s `value:` field, and `sensitive? true`
+  # on the attribute does NOT redact that — so `inspect/1` here would write the
+  # webhook URL, a credential, into the log in full. The type is enough to
+  # identify the shape and add a clause for it.
+  defp fallback_message(error) do
+    Logger.warning("[MapNotifications] unrecognised error shape: #{error_summary(error)}")
+    "Something went wrong. Please try again."
   end
+
+  # Struct name for structs, the atom itself for atom reasons (those are code
+  # constants, never user input), and the bare kind for anything else. None of
+  # these can carry a submitted value.
+  defp error_summary(%module{}), do: inspect(module)
+  defp error_summary(error) when is_atom(error), do: inspect(error)
+  defp error_summary(error) when is_tuple(error), do: "#{tuple_size(error)}-tuple"
+  defp error_summary(error) when is_list(error), do: "#{length(error)}-element list"
+  defp error_summary(error) when is_map(error), do: "plain map"
+  defp error_summary(_error), do: "unrecognised term"
+
+  defp var_string(value) when is_binary(value), do: value
+  defp var_string(value) when is_number(value) or is_atom(value), do: to_string(value)
+  defp var_string(value), do: inspect(value)
 
   defp masked_url(nil), do: ""
 
   defp masked_url(url) when is_binary(url) do
-    # Query/fragment slashes are not path delimiters: splitting the entire URL
-    # can mistake the full credential for the webhook id and expose it verbatim.
-    with {:ok, %URI{path: path}} when is_binary(path) <- URI.new(url),
-         [token, id | _] <- path |> String.split("/", trim: true) |> Enum.reverse() do
-      # Short valid tokens must not be shown in full, even with bullets appended.
-      prefix =
-        if String.length(token) > @masked_url_token_prefix,
-          do: String.slice(token, 0, @masked_url_token_prefix),
-          else: ""
+    case String.split(url, "/", trim: true) do
+      parts when length(parts) >= 2 ->
+        [token, id | _] = Enum.reverse(parts)
+        ".../#{id}/#{String.slice(token, 0, 4)}••••"
 
-      ".../#{id}/#{prefix}••••"
-    else
-      _ -> "••••"
+      _ ->
+        "••••"
     end
   end
 
   defp masked_url(_), do: "••••"
 
-  @impl true
-  def render(assigns) do
-    assigns = assign(assigns, :form_enabled?, checked?(assigns.form[:enabled].value))
+  attr :role, :atom, required: true
+  attr :title, :string, required: true
+  attr :help, :string, required: true
+  attr :webhook, :any, required: true
+  attr :form, :any, required: true
+  attr :replacing?, :boolean, required: true
+  attr :removable?, :boolean, required: true
+  attr :myself, :any, required: true
 
+  defp webhook_row(assigns) do
     ~H"""
-    <div id={@id} class="flex flex-col gap-4">
+    <div id={"webhook-row-#{@role}"} class="flex flex-col gap-2 rounded border border-white/10 p-3">
+      <h4 class="text-sm font-semibold">{@title}</h4>
+      <p class="text-xs opacity-70">{@help}</p>
+
       <.form
-        :let={f}
+        :let={wf}
         for={@form}
-        id="discord-notification-form"
-        phx-change="change"
-        phx-submit="save"
+        id={"webhook-form-#{@role}"}
+        phx-submit="save-webhook"
+        phx-value-role={@role}
         phx-target={@myself}
-        class="flex flex-col gap-3"
+        class="flex flex-col gap-2"
       >
-        <section class="rounded-sm border border-neutral-700/80 bg-neutral-900/30 p-4">
-          <div class="flex items-center justify-between gap-6">
-            <div class="flex min-w-0 items-start gap-3">
-              <.icon name="hero-bell-alert-solid" class="mt-0.5 h-5 w-5 shrink-0 text-sky-400/80" />
-              <div class="min-w-0">
-                <h2 class="text-sm font-medium text-neutral-200">Discord kill notifications</h2>
-                <p class="mt-1 text-sm leading-5 text-neutral-500">
-                  Send kill reports for systems on this map directly to a Discord channel.
-                </p>
-              </div>
-            </div>
-
-            <label
-              for={f[:enabled].id}
-              class="relative h-6 w-[5.75rem] shrink-0 cursor-pointer select-none"
-              data-switch-status={if @form_enabled?, do: "enabled", else: "disabled"}
-            >
-              <input type="hidden" name={f[:enabled].name} value="false" />
-              <input
-                id={f[:enabled].id}
-                name={f[:enabled].name}
-                type="checkbox"
-                role="switch"
-                class="peer absolute inset-0 z-10 m-0 h-full w-full cursor-pointer opacity-0"
-                value="true"
-                checked={@form_enabled?}
-                aria-checked={to_string(@form_enabled?)}
-                aria-label={
-                  if @form_enabled?, do: "Disable notifications", else: "Enable notifications"
-                }
-              />
-              <span
-                aria-hidden="true"
-                class={[
-                  "absolute inset-0 rounded-sm border transition-colors duration-200 ease-out peer-focus-visible:ring-1 peer-focus-visible:ring-sky-300",
-                  if(@form_enabled?,
-                    do: "border-sky-400/70 bg-sky-400/20",
-                    else: "border-neutral-600 bg-neutral-800"
-                  )
-                ]}
-              >
-                <span class={[
-                  "absolute top-0.5 h-[18px] w-[18px] rounded-[2px] border transition-[left,background-color,border-color] duration-200 ease-out",
-                  if(@form_enabled?,
-                    do: "left-[calc(100%-1.25rem)] border-sky-300/80 bg-sky-300",
-                    else: "left-0.5 border-neutral-500 bg-neutral-500"
-                  )
-                ]}>
-                </span>
-                <span class={[
-                  "absolute inset-y-0 left-2 right-7 flex items-center justify-start text-[10px] font-medium uppercase tracking-wide text-sky-200 transition-all duration-200 ease-out",
-                  if(@form_enabled?,
-                    do: "translate-x-0 opacity-100",
-                    else: "-translate-x-1 opacity-0"
-                  )
-                ]}>
-                  Enabled
-                </span>
-                <span class={[
-                  "absolute inset-y-0 left-7 right-2 flex items-center justify-end text-[10px] font-medium uppercase tracking-wide text-neutral-400 transition-all duration-200 ease-out",
-                  if(@form_enabled?, do: "translate-x-1 opacity-0", else: "translate-x-0 opacity-100")
-                ]}>
-                  Disabled
-                </span>
-              </span>
-            </label>
-          </div>
-        </section>
-
-        <p :if={@error} role="alert" class="text-sm text-red-400">{@error}</p>
-
-        <p :if={@flash_message} role="alert" class="text-sm text-green-400">
-          {@flash_message}
-        </p>
-
         <.input
-          :if={@replacing_url?}
-          field={f[:webhook_url]}
+          :if={@replacing?}
+          field={wf[:webhook_url]}
           type="password"
           label="Discord webhook URL"
           placeholder="https://discord.com/api/webhooks/..."
           autocomplete="off"
-          disabled={!@form_enabled?}
         />
-        <div :if={!@replacing_url? && @notification} class="flex items-center gap-2">
-          <span class="text-sm opacity-70">URL: {masked_url(@notification.webhook_url)}</span>
-          <.button
-            type="button"
-            phx-click="replace-url"
-            phx-target={@myself}
-            disabled={!@form_enabled?}
-          >
+
+        <div :if={!@replacing? && @webhook} class="flex items-center gap-2">
+          <span class="text-sm opacity-70">URL: {masked_url(@webhook.webhook_url)}</span>
+          <.button type="button" phx-click="replace-url" phx-value-role={@role} phx-target={@myself}>
             Replace
           </.button>
         </div>
 
-        <div class="mt-1 flex items-center gap-3">
-          <span class="shrink-0 text-xs font-normal uppercase tracking-wide text-stone-500">
-            Notification options
-          </span>
-          <div class="h-px flex-1 border-t border-stone-700" />
-        </div>
+        <.input :if={@webhook} field={wf[:enabled]} type="checkbox" label="Enabled" />
 
-        <div class="mt-1 [&_.form-control]:mt-0">
-          <.input
-            field={f[:wh_only]}
-            type="checkbox"
-            label="Only wormhole kills"
-            disabled={!@form_enabled?}
-          />
-        </div>
+        <.button type="submit">{if @webhook, do: "Save", else: "Add"}</.button>
       </.form>
 
-      <div :if={@notification} class={["flex flex-col gap-2", !@form_enabled? && "opacity-50"]}>
+      <div :if={@webhook} class="flex items-center gap-2">
+        <.button
+          type="button"
+          phx-click="send-test"
+          phx-value-webhook_id={@webhook.id}
+          phx-target={@myself}
+        >
+          Send test message
+        </.button>
+        <.button
+          :if={@removable?}
+          type="button"
+          class="btn-error"
+          phx-click="remove-webhook"
+          phx-value-role={@role}
+          phx-target={@myself}
+          data-confirm="Remove this Discord destination?"
+        >
+          Remove
+        </.button>
+      </div>
+
+      <div :if={@webhook} class="flex flex-col gap-1 text-sm">
+        <span :if={@webhook.last_delivery_at} class="opacity-70">
+          Last delivered: {Calendar.strftime(@webhook.last_delivery_at, "%Y-%m-%d %H:%M UTC")}
+        </span>
+        <span :if={is_nil(@webhook.last_delivery_at)} class="opacity-70">
+          No kills delivered yet.
+        </span>
+
+        <span :if={@webhook.last_error} class="text-amber-400">
+          Last error: {@webhook.last_error}
+          <span :if={@webhook.consecutive_failures > 0}>
+            ({@webhook.consecutive_failures} consecutive failures)
+          </span>
+        </span>
+        <span :if={!@webhook.enabled?} class="text-amber-400">
+          This destination is disabled and is not delivering.
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div id={@id} class="flex flex-col gap-4">
+      <p class="text-sm opacity-70">
+        Posts kills to Discord. These filters are separate from the Kills widget's
+        own filters, which are per-user and only affect what you see in the map UI.
+      </p>
+
+      <p :if={@error} class="text-sm text-red-400">{@error}</p>
+      <p :if={@flash_message} class="text-sm text-green-400">{@flash_message}</p>
+
+      <.form
+        :let={f}
+        for={@form}
+        id="discord-notification-form"
+        phx-submit="save"
+        phx-target={@myself}
+        class="flex flex-col gap-3"
+      >
+        <.input
+          :if={is_nil(@notification)}
+          field={f[:webhook_url]}
+          type="password"
+          label="Discord webhook URL (system channel)"
+          placeholder="https://discord.com/api/webhooks/..."
+          autocomplete="off"
+        />
+
+        <.input field={f[:wh_only]} type="checkbox" label="Only wormhole kills" />
+        <.input field={f[:enabled]} type="checkbox" label="Enabled for this map" />
+
+        <.button type="submit">Save</.button>
+      </.form>
+
+      <.webhook_row
+        :if={@notification}
+        role={:system}
+        title="System channel"
+        help="Receives kills that happen in systems on this map."
+        webhook={@webhooks[:system]}
+        form={@webhook_forms[:system]}
+        replacing?={@replacing_url?[:system]}
+        removable?={false}
+        myself={@myself}
+      />
+
+      <.webhook_row
+        :if={@notification}
+        role={:character}
+        title="Character channel (optional)"
+        help={
+          "Receives kills involving characters tracked on this map, wherever they happen. " <>
+            "Leave it unset and those kills go to the system channel instead."
+        }
+        webhook={@webhooks[:character]}
+        form={@webhook_forms[:character]}
+        replacing?={@replacing_url?[:character]}
+        removable?={true}
+        myself={@myself}
+      />
+
+      <div :if={@notification} class="flex flex-col gap-2">
         <h4 class="text-sm font-semibold">Excluded systems</h4>
 
-        <p :if={@excluded_systems == []} class="text-sm opacity-70">
-          No systems are excluded.
-        </p>
-
-        <ul :if={@excluded_systems != []} class="flex flex-col gap-1">
+        <ul class="flex flex-col gap-1">
           <li :for={{system_id, label} <- @excluded_systems} class="flex items-center gap-2 text-sm">
             <span>{label}</span>
             <.button
               type="button"
               phx-click="remove-excluded"
-              aria-label={"Remove #{label} (#{system_id}) from excluded systems"}
               phx-value-system_id={system_id}
               phx-target={@myself}
-              disabled={!@form_enabled?}
             >
               Remove
             </.button>
           </li>
         </ul>
 
-        <%!-- Grid, not flex, so the search box stretches and the button keeps its
-        natural width. Centered because the live_select wrapper adds a label row
-        above its input and an error row below: aligning to the end would hang
-        the button below the box it sits next to. --%>
         <.form
           :let={ef}
           for={@excluded_form}
           id="excluded-system-form"
           phx-submit="add-excluded"
           phx-target={@myself}
-          class="grid items-center gap-2"
+          class="grid items-end gap-2"
           style="grid-template-columns: 1fr auto"
         >
           <.live_select
             field={ef[:excluded_system]}
-            id={@live_select_id}
+            id={@excluded_select_id}
             phx-target={@myself}
             dropdown_extra_class="!h-24"
             debounce={250}
@@ -656,56 +761,74 @@ defmodule WandererAppWeb.Maps.MapNotificationsComponent do
             mode={:single}
             options={@system_options}
             placeholder="Search a system by name"
-            disabled={!@form_enabled?}
           />
-          <.button type="submit" disabled={!@form_enabled?}>Add</.button>
+          <.button type="submit">Add</.button>
         </.form>
       </div>
 
-      <%!-- Remove destroys the whole configuration, so it sits opposite the
-      harmless test button rather than beside it, and carries the theme's danger
-      styling. `btn-error` does nothing here: .button is built on the PrimeReact
-      button classes, not daisyUI's. --%>
-      <div
-        :if={@notification}
-        class="flex items-center justify-between border-t border-stone-700 pt-3 mt-2"
-      >
-        <.button
-          type="button"
-          phx-click="send-test"
-          phx-target={@myself}
-          disabled={!@form_enabled? or !@notification.enabled?}
-        >
-          Send test message
-        </.button>
+      <div :if={@notification} class="flex flex-col gap-2">
+        <h4 class="text-sm font-semibold">Focus corporations</h4>
+        <p class="text-xs opacity-70">
+          Kills involving these corporations are treated as relevant even when the
+          system or wormhole-only filters would otherwise drop them.
+        </p>
 
+        <ul class="flex flex-wrap gap-2">
+          <li
+            :for={{corp_id, label} <- @focus_corps}
+            class="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm"
+          >
+            <span>{label}</span>
+            <.button
+              type="button"
+              phx-click="remove-focus-corp"
+              phx-value-corp_id={corp_id}
+              phx-target={@myself}
+            >
+              Remove
+            </.button>
+          </li>
+        </ul>
+
+        <p :if={@current_user.characters in [nil, []]} class="text-sm text-amber-400">
+          Add a character to this account to search corporations.
+        </p>
+
+        <.form
+          :let={cf}
+          :if={@current_user.characters not in [nil, []]}
+          for={@focus_corp_form}
+          id="focus-corp-form"
+          phx-submit="add-focus-corp"
+          phx-target={@myself}
+          class="grid items-end gap-2"
+          style="grid-template-columns: 1fr auto"
+        >
+          <.live_select
+            field={cf[:focus_corp]}
+            id={@focus_corp_select_id}
+            phx-target={@myself}
+            dropdown_extra_class="!h-24"
+            debounce={250}
+            update_min_len={@corp_min_search_length}
+            mode={:single}
+            options={@corp_options}
+            placeholder="Search a corporation by name"
+          />
+          <.button type="submit">Add</.button>
+        </.form>
+      </div>
+
+      <div :if={@notification} class="flex items-center gap-2">
         <.button
           type="button"
-          class="p-button-danger"
+          class="btn-error"
           phx-click="delete"
-          aria-label="Remove Discord notification configuration"
           phx-target={@myself}
           data-confirm="Remove Discord notifications for this map?"
         >
-          Remove
+          Remove all Discord notifications
         </.button>
-      </div>
-
-      <div :if={@notification} class="flex flex-col gap-1 text-sm">
-        <span :if={@notification.last_delivery_at} class="opacity-70">
-          Last delivered: {Calendar.strftime(@notification.last_delivery_at, "%Y-%m-%d %H:%M UTC")}
-        </span>
-
-        <span :if={is_nil(@notification.last_delivery_at)} class="opacity-70">
-          No kills delivered yet.
-        </span>
-
-        <span :if={@notification.last_error} class="text-amber-400">
-          Last error: {@notification.last_error}
-          <span :if={@notification.consecutive_failures > 0}>
-            ({@notification.consecutive_failures} consecutive failures)
-          </span>
-        </span>
       </div>
     </div>
     """

@@ -773,9 +773,10 @@
               class="mapSettingsScrollableTab custom-scrollbar"
             >
               <.live_component
-                module={WandererAppWeb.Maps.MapNotificationsComponent}
+                module={WandererAppWeb.MapNotificationsComponent}
                 id="map-notifications"
                 map_id={@map.id}
+                current_user={@current_user}
               />
             </div>
 
@@ -865,19 +866,6 @@
             </.button>
           </div>
 
-          <div
-            :if={@webhooks_enabled? and @active_settings_tab == "notifications"}
-            class="mapSettingsPanelFooter flex items-center justify-end gap-2"
-          >
-            <.button
-              type="submit"
-              form="discord-notification-form"
-              outlined={false}
-              class="py-[4px]"
-            >
-              Save
-            </.button>
-          </div>
         </div>
       </div>
     </div>

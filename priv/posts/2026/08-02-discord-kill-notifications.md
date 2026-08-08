@@ -1,7 +1,7 @@
 %{
 title: "New Feature: Discord Kill Notifications",
 author: "Wanderer Team",
-cover_image_uri: "/images/news/08-02-discord-kill-notifications/cover.jpg",
+cover_image_uri: "/images/news/08-02-discord-kill-notifications/cover.png",
 tags: ~w(discord notifications kills map settings guide),
 description: "Post kills from your map straight into a Discord channel. Set a webhook once, filter to wormhole space, exclude the systems you don't care about."
 }
@@ -21,8 +21,6 @@ corp is already sitting in.
 
 ## Setting it up
 
-![Notifications tab, unconfigured](/images/news/08-02-discord-kill-notifications/setup.jpg "Notifications tab before setup")
-
 Open **Map settings → Notifications**. The tab lives inside the map's settings
 page, so it is available to whoever can administer the map — in practice the map
 owner and anyone granted admin rights over it.
@@ -30,24 +28,23 @@ owner and anyone granted admin rights over it.
 1. **Create a webhook in Discord.** In your Discord server, open
    *Server Settings → Integrations → Webhooks*, create one, pick the channel it
    should post to, and copy the webhook URL.
-2. **Paste the URL** into the *Discord webhook URL* field on the Notifications
-   tab and hit **Save**.
-3. **Send a test message** to check the wiring before you rely on it. The
-   button queues a sample for delivery; “Test message queued” does not confirm
-   Discord received it. Check the channel and the delivery status below the form.
+2. **Paste the URL** into the *Discord webhook URL (system channel)* field on
+   the Notifications tab and hit **Save**.
+3. **Optionally add a character channel.** The *Character channel (optional)*
+   section takes a second webhook. Kills involving the map's tracked characters
+   go there instead, so you can keep them out of the chain-intel channel. You
+   can also list **focus corporations** there: a kill involving a character
+   from one of those corps counts as "yours" even if that character is not
+   tracked on the map, so the whole corp's kills land in the character channel
+   rather than the chain-intel one. If no character channel is configured,
+   these kills simply stay in the system channel — the split is opt-in.
+4. **Send a test message** to confirm the wiring before you rely on it. The
+   button is right there under the form.
 
 That is the whole setup. From that point on, kills detected in systems on the
 map are formatted and pushed to the channel.
 
-![Notifications tab, configured](/images/news/08-02-discord-kill-notifications/cover.jpg "Notifications tab after saving a webhook")
-
-Once saved, the URL is replaced by a masked hint and the rest of the controls
-appear: the filters, the excluded-systems list, and a **Send test message**
-button.
-
 ## What a notification looks like
-
-![Two kill embeds in a Discord channel](/images/news/08-02-discord-kill-notifications/notification.jpg "A kill notification in Discord")
 
 Each kill arrives as a Discord embed:
 
@@ -81,6 +78,15 @@ Two controls, both on the Notifications tab:
 There is also an **Enabled** checkbox, so you can mute the feed without
 throwing away the webhook and its filter list.
 
+**Both filters have a deliberate carve-out:** they do not apply to a kill that
+involves one of your own pilots — a tracked character on the map, or a member
+of a focus corporation. A kill involving your people is interesting wherever it
+happened, so it is still delivered even from an excluded system, and even from
+k-space with *Only wormhole kills* left on. Those kills go to the character
+channel when one is configured, and to the system channel otherwise. If you
+want a system genuinely silent, the **Enabled** checkbox is the control that
+covers everything.
+
 **One thing worth being clear about:** these filters are *not* the same as the
 Kills widget filters. The widget's filters are per-user and only change what
 *you* see in the map UI. The Discord filters are per-map and server-side — they
@@ -98,18 +104,16 @@ channel. So we treat it like one.
 - To point the map at a different channel, click **Replace** and paste the new
   URL. There is no way to read the old one back out of the UI.
 
-If a webhook is deleted on the Discord side, Discord answers with a 404 and the
-map's notification config is disabled automatically — no point retrying a
-channel that no longer exists. Other transient errors (rate limits, brief
-outages) are retried with backoff, and only a sustained run of failures will
-disable the config.
-
-Re-checking **Enabled** does not clear the consecutive failed-event history.
-The counter tracks failed events, not individual HTTP retry attempts. A successful
-delivery or replacing the webhook URL resets it. Until then, the next failed event
-can disable the configuration again if the failure threshold has already been
-reached. A test message cannot clear the history while **Enabled** is unchecked:
-the worker drops it without making an HTTP request.
+If a webhook is deleted on the Discord side, Discord answers with a 404 and that
+destination is disabled automatically — no point retrying a channel that no
+longer exists. Each destination carries its own enabled flag and health state,
+so disabling the character channel this way leaves the system channel posting
+normally, and vice versa. Other transient errors (rate limits, brief outages)
+are retried with backoff for a bounded number of attempts, and only a sustained
+run of failures will disable a destination. Those retries all happen inside the
+one delivery attempt — once the attempts are exhausted, the message is dropped
+rather than re-queued, which is what keeps delivery at most once (see *Known
+limits* below).
 
 ## Self-hosting notes
 
@@ -120,33 +124,29 @@ system:
 export WANDERER_WEBHOOKS_ENABLED="true"
 ```
 
-With it off, the Notifications tab is not shown at all. If an administrator
-turns the switch off while the tab is already open, "Send test message" reports
-that notifications are disabled on this server.
+With it off, the Notifications tab still renders but "Send test message" will
+tell you notifications are disabled on this server.
 
 Delivery uses its own isolated connection pool, so a slow Discord cannot back up
 the rest of the application. If you run a large instance with many maps sending
 notifications, you can size that pool:
 
 ```bash
-export WANDERER_FINCH_DISCORD_POOL_SIZE="10"   # default
+export WANDERER_DISCORD_POOL_SIZE="10"   # default
 ```
 
 ## Known limits
 
 Worth knowing before you wire it into an intel channel:
 
-- Delivery is **best effort**, not at-most-once or exactly-once. Transport
-  failures are retried, and Discord may already have accepted a message before
-  the connection failed, so a retry can produce a duplicate.
-- Attempted kills are deduplicated in memory, before delivery is confirmed. An
-  exhausted retry budget or a worker crash can lose queued notifications while
-  the attempted mark still suppresses replays. The kills remain visible in the
-  Kills widget and on zKillboard.
-- A restart, cache loss, or deduplication expiry can let a previously attempted
-  kill be posted again. Kills omitted by the per-event formatting cap are not
-  marked as attempted.
-- One webhook per map. If you want kills split across several channels, that is
-  not supported yet.
+- Notifications are **at most once**. If a delivery fails outright, that kill is
+  not re-sent later. We would rather drop the occasional kill than double-post
+  into a chat channel, and a dropped kill is still visible in the Kills widget
+  and on zKillboard.
+- Deduplication is in memory, so a restart of the application can let a kill
+  that was already posted be posted once more.
+- Two channels per map: one for system kills, one for character kills. Splitting
+  further than that — a channel per region, per corp, per anything else — is not
+  supported yet.
 
 Fly safe. o7
