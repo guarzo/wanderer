@@ -7,6 +7,22 @@ defmodule WandererAppWeb.MapsLive do
 
   @pubsub_client Application.compile_env(:wanderer_app, :pubsub_client)
 
+  # Settings tabs that are always available to anyone who can open the dialog.
+  # The dialog itself is already gated on the `delete_map` permission in
+  # `apply_action(:settings, ...)`, so this list is not a permission boundary —
+  # it stops a crafted `change_settings_tab` event from selecting a tab that was
+  # never rendered, which would otherwise defeat the feature-flag `:if` guards
+  # on the tab list in maps_live.html.heex.
+  @always_available_settings_tabs ~w(general import notifications)
+
+  # Tabs whose availability tracks a deployment feature flag. Each entry mirrors
+  # the `:if` guard on the corresponding <li> in maps_live.html.heex; keep the
+  # two in sync.
+  @subscription_settings_tabs ~w(balance subscription bot)
+  @public_api_settings_tab "public_api"
+
+  @default_settings_tab "general"
+
   @impl true
   def mount(
         _params,
@@ -175,7 +191,7 @@ defmodule WandererAppWeb.MapsLive do
           importing: false,
           show_settings?: true,
           is_topping_up?: false,
-          active_settings_tab: "general",
+          active_settings_tab: @default_settings_tab,
           is_adding_subscription?: false,
           selected_subscription: nil,
           options_form: options_form_data |> to_form(),
@@ -208,6 +224,19 @@ defmodule WandererAppWeb.MapsLive do
         |> push_navigate(to: ~p"/maps")
     end
   end
+
+  defp settings_tab_available?(tab, _assigns)
+       when tab in @always_available_settings_tabs,
+       do: true
+
+  defp settings_tab_available?(tab, %{map_subscriptions_enabled?: subscriptions_enabled?})
+       when tab in @subscription_settings_tabs,
+       do: subscriptions_enabled?
+
+  defp settings_tab_available?(@public_api_settings_tab, _assigns),
+    do: not WandererApp.Env.public_api_disabled?()
+
+  defp settings_tab_available?(_tab, _assigns), do: false
 
   defp allow_map_creation(),
     do: not WandererApp.Env.restrict_maps_creation?() || WandererApp.Cache.take("create_map_once")
@@ -396,8 +425,15 @@ defmodule WandererAppWeb.MapsLive do
   end
 
   @impl true
-  def handle_event("change_settings_tab", %{"tab" => tab}, socket),
-    do: {:noreply, socket |> assign(active_settings_tab: tab)}
+  def handle_event("change_settings_tab", %{"tab" => tab}, socket) do
+    if settings_tab_available?(tab, socket.assigns) do
+      {:noreply, socket |> assign(active_settings_tab: tab)}
+    else
+      # Unknown or feature-disabled tab: keep the current selection rather than
+      # rendering a panel whose <li> was never shown.
+      {:noreply, socket}
+    end
+  end
 
   def handle_event("open_acl", %{"data" => id}, socket) do
     {:noreply,
