@@ -292,13 +292,30 @@ defmodule WandererApp.Esi.ApiClient do
     end
   end
 
-  defp is_access_token_expired?(character_id) do
-    {:ok, %{expires_at: expires_at} = _character} =
-      WandererApp.Character.get_character(character_id)
+  @doc false
+  # Answers "can we prove this character's access token is still valid?".
+  #
+  # Only an integer `expires_at` in the future counts as not-expired. Every other
+  # shape means we cannot prove validity, so we report expired and let the caller
+  # take the refresh-and-retry path:
+  #
+  #   * `expires_at` is nullable on `WandererApp.Api.Character`, so a character
+  #     that has never completed an OAuth exchange carries `nil`.
+  #   * `WandererApp.Character.get_character/1` answers `{:ok, nil}` for a nil id
+  #     and `{:error, :not_found}` for an id that is not in the cache or the DB.
+  #
+  # Previously all three raised (ArithmeticError / MatchError) on *every*
+  # authenticated ESI call — location, online, ship, wallet and search — rather
+  # than on the corporation search where it was first observed.
+  def is_access_token_expired?(character_id) do
+    case WandererApp.Character.get_character(character_id) do
+      {:ok, %{expires_at: expires_at}} when is_integer(expires_at) ->
+        now = DateTime.utc_now() |> DateTime.to_unix()
+        expires_at - now <= 0
 
-    now = DateTime.utc_now() |> DateTime.to_unix()
-
-    expires_at - now <= 0
+      _other ->
+        true
+    end
   end
 
   defp get_corporation_auth_data(corporation_eve_id, info_path, opts),
