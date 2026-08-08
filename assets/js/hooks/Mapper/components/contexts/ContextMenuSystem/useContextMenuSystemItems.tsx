@@ -41,19 +41,22 @@ export const useContextMenuSystemItems = ({
   userHubs,
   systems,
 }: Omit<ContextMenuSystemProps, 'contextMenuRef'>) => {
-  const getTags = useTagMenu(systems, systemId, onSystemTag);
-  const getStatus = useStatusMenu(systems, systemId, onSystemStatus);
-  const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog);
+  const {
+    data: { pings, isSubscriptionActive, options: mapOptions },
+  } = useMapRootState();
+
+  // Intel-managed fields are owned by the source map, so their menus are read-only here.
+  const hasIntelSource = !!mapOptions?.intel_source_map_id;
+
+  const getTags = useTagMenu(systems, systemId, onSystemTag, hasIntelSource);
+  const getStatus = useStatusMenu(systems, systemId, onSystemStatus, hasIntelSource);
+  const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog, hasIntelSource);
   const getJumpMenu = useJumpMenu({ onJumpFrom, onJumpTo });
   const getWaypointMenu = useWaypointMenu(onWaypointSet);
   const canLockSystem = useMapCheckPermissions([UserPermission.LOCK_SYSTEM]);
   const canManageSystem = useMapCheckPermissions([UserPermission.UPDATE_SYSTEM]);
   const canDeleteSystem = useMapCheckPermissions([UserPermission.DELETE_SYSTEM]);
   const getUserRoutes = useUserRoute({ userHubs, systemId, onUserHubToggle });
-
-  const {
-    data: { pings, isSubscriptionActive },
-  } = useMapRootState();
 
   const ping = useMemo(() => (pings.length === 1 ? pings[0] : undefined), [pings]);
   const isShowPingBtn = useMemo(() => {
@@ -206,5 +209,6 @@ export const useContextMenuSystemItems = ({
     onTogglePing,
     ping,
     isShowPingBtn,
+    hasIntelSource,
   ]);
 };
