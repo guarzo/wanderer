@@ -8,7 +8,7 @@ import { useSystemInfo } from '@/hooks/Mapper/components/hooks';
 import {
   SOLAR_SYSTEM_CLASSES_TO_CLASS_GROUPS,
   WORMHOLES_ADDITIONAL_INFO_BY_CLASS_ID,
-} from '@/hooks/Mapper/components/map/constants.ts';
+} from '@/hooks/Mapper/components/map/constants';
 import { useMemo } from 'react';
 import { WHClassView } from '@/hooks/Mapper/components/ui-kit';
 
