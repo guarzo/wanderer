@@ -302,6 +302,33 @@ revert a schema change.
 **Approving a stale run is safe.** If `guarzo/zoo` has moved on since the run
 was created, the workflow exits without deploying and says so.
 
+**If a deploy half-succeeded.** The deploy, the tag push, and the
+`guarzo/release` bookmark move are three separate steps, not one atomic
+operation. If the deploy step fails, nothing else runs and production is
+unchanged (or partially migrated if the `release_command` succeeded before the
+health check failed — see `fly.toml`). If the tag push fails after a successful
+deploy, that is the dangerous case: production is now running a new commit that
+carries **no tag** and a **stale `guarzo/release` bookmark**. If `guarzo/zoo` is
+rebased or squashed before this is fixed, that commit becomes unreachable from
+any branch — the exact loss this whole mechanism exists to prevent. Recover by
+running `🚀 Zoo Deploy` manually (`workflow_dispatch`) with `ref` set to the
+deployed commit's explicit SHA and approving it: this skips the staleness
+guard, so it works even after `guarzo/zoo` has moved on, and it redeploys and
+tags the commit. The only cost is one extra machine restart, because the app
+runs exactly one machine. Simply re-running (or re-approving) the automatic
+path does **not** recover this — once `guarzo/zoo` has moved, the staleness
+guard blocks it.
+
+**`FLY_API_TOKEN` must stay an environment secret on `production-deploy`, never
+a repository secret** — an environment secret is released only to a job that
+has cleared the approval gate, which is the entire point. Note that
+`advanced-test.yml` also reads a secret named `FLY_API_TOKEN`, with no
+environment gate, targeting the separate `wanderer-test` app; no
+repository-scoped secret of that name exists today, but adding one in the
+future would hand this workflow's production credential to that ungated
+workflow, so keep any `develop`-deploy credential scoped to its own name or
+environment instead.
+
 ---
 
 ## Key Files Reference
