@@ -24,9 +24,10 @@ for upstream contribution.
 9. [Deployment (Fly.io)](#deployment-flyio)
 10. [CI](#ci)
 11. [Configuration Reference](#configuration-reference)
-12. [Upstream PR Recommendations](#upstream-pr-recommendations)
-13. [Key Files Reference](#key-files-reference)
-14. [Maintenance Notes](#maintenance-notes)
+12. [Commit Convention](#commit-convention)
+13. [Upstream PR Recommendations](#upstream-pr-recommendations)
+14. [Key Files Reference](#key-files-reference)
+15. [Maintenance Notes](#maintenance-notes)
 
 ---
 
@@ -427,6 +428,59 @@ config :wanderer_app, :signature_cleanup, max_age_hours: 24
 | `phoenix_gen_socket_client` | `== 4.0.0` | `Kills.Transport.WebSocketClient` depends on its private handler-state shape |
 | `gettext` | `~> 0.26` | `WandererAppWeb.Gettext` uses `Gettext.Backend`, absent before 0.26 |
 | `nostrum` | `~> 0.10`, `runtime: false` | Voice mentions only; `:load` in the release |
+
+---
+
+## Commit Convention
+
+Fork-only work uses **`zoo(<type>): <summary>`**:
+
+```
+zoo(feat): add voice-channel mentions to route alerts
+zoo(fix): stop one slow static lookup from killing the whole request
+zoo(chore): drop the dead fleet-readiness flag
+zoo(docs): document the intel-sharing config surface
+```
+
+Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`.
+
+### Why the type sits in the scope position
+
+This inverts the Angular format in `.gitmessage`, which is `<type>(<scope>)`. That is
+deliberate. The fork's dominant recurring question is *"which commits are ours?"* — every
+upstream merge, every extraction for an upstream PR, and every `git blame` into a diverged
+subsystem needs that answer. Putting `zoo` first makes it a prefix match:
+
+```bash
+git log --grep '^zoo(' upstream/main..HEAD      # everything fork-only
+git log --grep -v '^zoo(' upstream/main..HEAD   # candidates to send upstream
+```
+
+With `feat(zoo):` the marker is buried mid-subject and the same query needs a regex that also
+matches `fix(zoo)`, `chore(zoo)`, and so on.
+
+### When *not* to use it
+
+**Anything intended for upstream keeps the plain Angular format** — `fix(routes): …`,
+`feat(api): …`. The `zoo(` prefix is the signal that a commit is *not* upstreamable, so
+applying it to a commit you plan to send upstream defeats the whole mechanism and means the
+message has to be rewritten at extraction time.
+
+If a change is partly both, split it: the upstreamable part gets a plain-format commit, the
+fork-specific remainder gets `zoo(…)`.
+
+### Everything else from `.gitmessage` still applies
+
+100-character wrapping, imperative present tense, and a body explaining *why* rather than
+restating the diff. The body is mandatory except for `docs`, and at least 20 characters when
+required.
+
+### Enforcement
+
+None currently — the repo has no commitlint or husky config, so this is convention only. A
+`commit-msg` hook rejecting subjects that match neither `^zoo\((feat|fix|chore|docs|refactor|perf|test|build|ci)\):`
+nor the plain Angular pattern would enforce it, at the cost of imposing a hook on every
+contributor. Not added yet.
 
 ---
 
