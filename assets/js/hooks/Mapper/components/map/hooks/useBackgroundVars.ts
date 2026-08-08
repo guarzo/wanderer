@@ -30,8 +30,12 @@ export function useBackgroundVars(themeName?: string) {
 
     const cssVarGap = style.getPropertyValue('--rf-bg-gap');
     const cssVarSize = style.getPropertyValue('--rf-bg-size');
-    const cssVarSnapSizeX = style.getPropertyValue('--rf-snap-sizeX');
-    const cssVarSnapSizeY = style.getPropertyValue('--rf-snap-sizeY');
+    // The per-axis variables are a zoo addition; `pathfinder-theme.scss` still
+    // only defines the single-value `--rf-snap-size`. Without this fallback that
+    // theme lost its configured 17 and silently snapped at the hardcoded 25.
+    const cssVarSnapSize = style.getPropertyValue('--rf-snap-size');
+    const cssVarSnapSizeX = style.getPropertyValue('--rf-snap-sizeX') || cssVarSnapSize;
+    const cssVarSnapSizeY = style.getPropertyValue('--rf-snap-sizeY') || cssVarSnapSize;
 
     const cssColor = style.getPropertyValue('--rf-bg-pattern-color');
 
