@@ -83,7 +83,6 @@ export const MarkdownEditor = ({
         onChange={handleOnChange}
         placeholder="Start typing..."
         readOnly={readOnly}
-        editable={!readOnly}
       />
       <div
         className={clsx('absolute top-0 left-0 h-full pointer-events-none', {

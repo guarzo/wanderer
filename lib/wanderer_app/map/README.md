@@ -23,7 +23,7 @@ The application has two signature cleanup systems that operate in parallel:
 ## Configuration (Zoo)
 
 ```elixir
-# config/config.exs
+# config/config.exs (defaults); env-var overrides are applied in config/runtime.exs
 config :wanderer_app, :signatures,
   wormhole_expiration_hours: 24,   # SIGNATURE_WORMHOLE_EXPIRATION_HOURS
   default_expiration_hours: 72,    # SIGNATURE_DEFAULT_EXPIRATION_HOURS
@@ -49,7 +49,8 @@ config :wanderer_app, :signature_cleanup,
 
 ## Cleanup Logic (Zoo)
 
-The zoo cleanup (`cleanup_expired_signatures/1`) works as follows:
+The zoo cleanup (`WandererApp.Map.SignatureCleanup.cleanup/1`, usually invoked
+asynchronously via `cleanup_async/1`) works as follows:
 
 1. Loads all signatures for the system
 2. Calculates cutoff times based on signature type:
@@ -57,17 +58,31 @@ The zoo cleanup (`cleanup_expired_signatures/1`) works as follows:
    - Other signatures: `default_expiration_hours` (default 72h)
 3. Optionally preserves connected signatures (`preserve_connected: true`)
 4. Deletes expired signatures and broadcasts updates
-5. Additionally cleans very old signatures (`max_age_hours`) as a safety net
+
+When expiration is disabled (both hour settings are 0), the per-type windows are
+skipped and a single `max_age_hours` sweep runs instead as a safety net.
 
 ## Disabling Options
 
-To disable zoo cleanup: Set both expiration hours to 0
+To disable per-type expiration: set both expiration hours to 0
+
 ```bash
 SIGNATURE_WORMHOLE_EXPIRATION_HOURS=0
 SIGNATURE_DEFAULT_EXPIRATION_HOURS=0
 ```
 
+This does **not** disable zoo cleanup. As described above, zero on both values
+switches the sweep to the single `max_age_hours` backstop (24h by default), so
+signatures older than that are still deleted. `max_age_hours` has no environment
+variable — to widen or effectively disable the backstop, raise it in
+`config/config.exs`:
+
+```elixir
+config :wanderer_app, :signature_cleanup, max_age_hours: 87_600
+```
+
 To disable upstream cleanup: Comment out scheduler jobs in `config/runtime.exs`:
+
 ```elixir
 # {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_chain_passages, []}},
 # {"@daily", {WandererApp.Map.GarbageCollector, :cleanup_system_signatures, []}}
