@@ -525,7 +525,20 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
     resource_source =
       File.read!("lib/wanderer_app/api/map_discord_webhook.ex")
 
-    refute resource_source =~ ~S{~r/^(user|role):},
+    # Spelling-agnostic on purpose: pinning one literal (`~r/^(user|role):`)
+    # stopped catching a re-duplication the moment `Mentions` switched its
+    # anchors to `\A`/`\z`. Any regex construction naming both prefixes is a
+    # second definition, however its anchors are written.
+    duplicated_regex =
+      ~r/(~r|Regex\.compile!?)/
+      |> Regex.split(resource_source, trim: true)
+      |> Enum.drop(1)
+      |> Enum.any?(fn following ->
+        head = String.slice(following, 0, 120)
+        head =~ "user" and head =~ "role"
+      end)
+
+    refute duplicated_regex,
            "ValidateMentionTargets must delegate to Mentions.valid_target?/1, not carry its own regex"
   end
 end

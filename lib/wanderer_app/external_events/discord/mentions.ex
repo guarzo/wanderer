@@ -13,7 +13,13 @@ defmodule WandererApp.ExternalEvents.Discord.Mentions do
   # a well-formed mention target; `MapDiscordWebhook.ValidateMentionTargets`
   # delegates here. The dependency runs resource -> Mentions and must not be
   # reversed: this module stays free of any Ash compile-time dependency.
-  @target_regex ~r/^(user|role):(\d{17,20})$/
+  #
+  # `\A`/`\z`, NOT `^`/`$`: PCRE's `$` matches before a trailing newline, so
+  # `^...$` accepts `"user:123456789012345678\n"`. `valid_target?/1` would let
+  # that through validation and `allowed_mentions/1` — which splits on `":"`
+  # rather than re-running this regex — would put the newline INSIDE the
+  # snowflake it hands Discord.
+  @target_regex ~r/\A(user|role):(\d{17,20})\z/
 
   @doc """
   Whether `target` is a well-formed `"user:<id>"` or `"role:<id>"` mention

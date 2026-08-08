@@ -38,6 +38,19 @@ defmodule WandererApp.ExternalEvents.Discord.MentionsTest do
                "roles" => ["222222222222222222"]
              }
     end
+
+    test "drops invalid entries but keeps the valid ones" do
+      assert Mentions.allowed_mentions([
+               "user:111111111111111111",
+               "@guarzo",
+               "role:222222222222222222",
+               "user:123"
+             ]) == %{
+               "parse" => [],
+               "users" => ["111111111111111111"],
+               "roles" => ["222222222222222222"]
+             }
+    end
   end
 
   describe "valid_target?/1" do
@@ -52,6 +65,20 @@ defmodule WandererApp.ExternalEvents.Discord.MentionsTest do
       refute Mentions.valid_target?("corp:123456789012345678")
       refute Mentions.valid_target?("user:123")
       refute Mentions.valid_target?("role:123456789012345678901")
+    end
+
+    # `$` matches before a trailing newline in PCRE, so `^...$` accepts this and
+    # `allowed_mentions/1` — which splits on ":" rather than re-matching —
+    # carries the newline into the snowflake handed to Discord.
+    test "rejects a trailing newline" do
+      refute Mentions.valid_target?("user:123456789012345678\n")
+      refute Mentions.valid_target?("role:123456789012345678\n")
+
+      assert Mentions.allowed_mentions(["user:123456789012345678\n"]) == %{
+               "parse" => [],
+               "users" => [],
+               "roles" => []
+             }
     end
   end
 end
