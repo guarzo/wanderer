@@ -25,6 +25,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   @excluded_select_id "excluded_system_live_select_component"
   @focus_corp_select_id "focus_corp_live_select_component"
+  @home_system_select_id "home_system_live_select_component"
   @min_search_length 2
   @max_search_results 20
 
@@ -80,10 +81,13 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      |> assign(assigns)
      |> assign(:excluded_select_id, @excluded_select_id)
      |> assign(:focus_corp_select_id, @focus_corp_select_id)
+     |> assign(:home_system_select_id, @home_system_select_id)
      |> assign(:min_search_length, @min_search_length)
      |> assign(:corp_min_search_length, CorporationSearch.min_search_length())
      |> assign_new(:system_options, fn -> [] end)
      |> assign_new(:system_search_error, fn -> nil end)
+     |> assign_new(:home_system_search_error, fn -> nil end)
+     |> assign_new(:home_system_error, fn -> nil end)
      |> assign_new(:corp_options, fn -> [] end)
      |> assign_new(:corp_search_error, fn -> nil end)
      |> assign_new(:error, fn -> nil end)
@@ -93,38 +97,9 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   @impl true
   def handle_event("save", %{"notification" => params}, socket) do
-    # `.input type="checkbox"` renders a hidden "false" before the box, so a
-    # rendered field always submits a value and Phoenix keeps the last one.
-    attrs = %{
-      wh_only: checked?(params["wh_only"]),
-      enabled?: checked?(params["enabled"]),
-      route_alerts_enabled?: checked?(params["route_alerts_enabled"]),
-      home_system_id: parse_home_system_id(params["home_system_id"]),
-      route_max_jumps: parse_route_max_jumps(params["route_max_jumps"])
-    }
-
-    result =
-      case socket.assigns.notification do
-        nil ->
-          create_with_system_webhook(socket.assigns.map_id, attrs, params["webhook_url"])
-
-        rec ->
-          # Deliberately NOT `webhook_url`: that moved to the child resource and
-          # is no longer an accepted input here — passing it raises NoSuchInput
-          # at runtime. URLs are saved through "save-webhook".
-          MapDiscordNotification.update(rec, attrs)
-      end
-
-    case result do
-      {:ok, rec} ->
-        {:noreply,
-         socket
-         |> assign_notification(rec)
-         |> assign(:error, nil)
-         |> assign(:flash_message, "Saved.")}
-
-      {:error, error} ->
-        {:noreply, socket |> assign(:error, humanize_error(error)) |> assign(:flash_message, nil)}
+    case resolve_home_system(params) do
+      {:ok, home_system_id} -> save_notification(socket, params, home_system_id)
+      {:error, message} -> {:noreply, put_home_system_error(socket, message)}
     end
   end
 
@@ -133,8 +108,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   end
 
   # Which fields are visually shown, driven by the CHECKBOX's own `phx-change`
-  # (not the whole form's) so ticking or unticking this one box is the only
-  # thing that round-trips — typing in the numeric fields below it does not.
+  # rather than the form's, so this box keeps its dedicated handler even though
+  # the form now has a `phx-change` of its own (see "notification-changed").
   # Nothing here is persisted; the actual value is only ever written by "save",
   # same as every other field on this form.
   #
@@ -147,25 +122,32 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # validation has nothing to complain about.
   #
   # Rebuilt from `params` rather than by patching the one key, because those
-  # params are the whole form as the browser has it — anything already typed
-  # into `home_system_id` / `route_max_jumps` is preserved instead of being
-  # reset to the last-saved record on every tick.
-  #
-  # `webhook_url` is forced back to "" rather than carried through. On the
-  # create path that field is rendered (a password input) and the generic
-  # `.input` writes `value=` for every type, password included — so echoing the
-  # submitted params would put a live webhook URL into the server-rendered
-  # HTML, which this module treats as a credential that is only ever rendered
-  # as a masked hint. Blanking it costs nothing: "" is what the field rendered
-  # before this event too, so there is no diff for that input and whatever the
-  # user typed stays in the DOM untouched.
+  # params are the whole form as the browser has it — the home system already
+  # picked and anything typed into `route_max_jumps` are preserved instead of
+  # being reset to the last-saved record on every tick.
   def handle_event("toggle-route-alerts", %{"notification" => params}, socket) do
-    form = params |> Map.put("webhook_url", "") |> to_form(as: :notification)
+    {:noreply, rebuild_form(socket, params)}
+  end
 
-    {:noreply,
-     socket
-     |> assign(:route_toggle, checked?(params["route_alerts_enabled"]))
-     |> assign(:form, form)}
+  # The FORM's own `phx-change`, which the checkbox above never reaches: an
+  # input that declares `phx-change` itself wins over its form's
+  # (`phoenix_live_view.esm.js`, `bindForms`: `inputEvent || formEvent`), so
+  # ticking the box still runs "toggle-route-alerts" and only that.
+  #
+  # This exists for the home-system picker. LiveSelect keeps the selection in
+  # its OWN component state and re-derives it from `field.value` on every
+  # re-render (`live_select/component.ex:153-170`), so a parent re-render while
+  # `@form` still holds the old value — searching the excluded-systems box,
+  # saving a webhook, any flash — wipes the user's pick and blanks the hidden
+  # input with it. On selection LiveSelect's JS hook dispatches a bubbling
+  # `input` event on that hidden input (`live_select.min.js`, `inputEvent`),
+  # which has no `phx-change` of its own, so it lands here: the form is rebuilt
+  # WITH the chosen id and every later re-render re-derives the same selection.
+  #
+  # Nothing here is persisted, same as the toggle — "save" is still the only
+  # writer.
+  def handle_event("notification-changed", %{"notification" => params}, socket) do
+    {:noreply, rebuild_form(socket, params)}
   end
 
   def handle_event("save-webhook", %{"role" => role, "webhook" => params}, socket) do
@@ -235,6 +217,27 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      socket
      |> assign(:corp_options, options)
      |> assign(:corp_search_error, corp_search_error)}
+  end
+
+  # The home-system picker searches the same way the excluded-systems one does
+  # but keeps its own options and error assigns, so a failed lookup is reported
+  # under the box the user is typing in rather than under the other one. It also
+  # clears the "no system by that name" error from the previous save attempt:
+  # the user is now picking from the list, which is the fix for it.
+  def handle_event(
+        "live_select_change",
+        %{"id" => @home_system_select_id, "text" => text},
+        socket
+      ) do
+    {options, home_system_search_error} = search_systems(text)
+
+    send_update(LiveSelect.Component, id: @home_system_select_id, options: options)
+
+    {:noreply,
+     socket
+     |> assign(:home_system_options, options)
+     |> assign(:home_system_search_error, home_system_search_error)
+     |> assign(:home_system_error, nil)}
   end
 
   def handle_event("live_select_change", %{"id" => id, "text" => text}, socket) do
@@ -449,6 +452,59 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   defp parse_mention_targets(_), do: {:ok, []}
 
+  # `webhook_url` is forced back to "" rather than carried through. On the
+  # create path that field is rendered (a password input) and the generic
+  # `.input` writes `value=` for every type, password included — so echoing the
+  # submitted params would put a live webhook URL into the server-rendered
+  # HTML, which this module treats as a credential that is only ever rendered
+  # as a masked hint. Blanking it costs nothing: "" is what the field rendered
+  # before this event too, so there is no diff for that input and whatever the
+  # user typed stays in the DOM untouched.
+  defp rebuild_form(socket, params) do
+    form = params |> Map.put("webhook_url", "") |> to_form(as: :notification)
+
+    socket
+    |> assign(:route_toggle, checked?(params["route_alerts_enabled"]))
+    |> assign(:form, form)
+  end
+
+  # `.input type="checkbox"` renders a hidden "false" before the box, so a
+  # rendered field always submits a value and Phoenix keeps the last one.
+  defp save_notification(socket, params, home_system_id) do
+    attrs = %{
+      wh_only: checked?(params["wh_only"]),
+      enabled?: checked?(params["enabled"]),
+      route_alerts_enabled?: checked?(params["route_alerts_enabled"]),
+      home_system_id: home_system_id,
+      route_max_jumps: parse_route_max_jumps(params["route_max_jumps"])
+    }
+
+    result =
+      case socket.assigns.notification do
+        nil ->
+          create_with_system_webhook(socket.assigns.map_id, attrs, params["webhook_url"])
+
+        rec ->
+          # Deliberately NOT `webhook_url`: that moved to the child resource and
+          # is no longer an accepted input here — passing it raises NoSuchInput
+          # at runtime. URLs are saved through "save-webhook".
+          MapDiscordNotification.update(rec, attrs)
+      end
+
+    case result do
+      {:ok, rec} ->
+        {:noreply,
+         socket
+         |> assign_notification(rec)
+         |> assign(:error, nil)
+         |> assign(:home_system_error, nil)
+         |> assign(:flash_message, "Saved.")}
+
+      {:error, error} ->
+        {:noreply, socket |> assign(:error, humanize_error(error)) |> assign(:flash_message, nil)}
+    end
+  end
+
   # Creating the config and its required `:system` destination is one user
   # action. Task 2's `create` takes `webhook_url` as a required argument and
   # creates the `:system` child through `manage_relationship` in the SAME
@@ -524,6 +580,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     |> assign(:route_toggle, !is_nil(notification) and notification.route_alerts_enabled?)
     |> assign(:excluded_systems, excluded_system_labels(notification))
     |> assign(:focus_corps, focus_corp_labels(notification))
+    |> assign(:home_system_options, home_system_options(notification))
     |> assign(:form, notification_form(notification))
     |> assign(:webhook_forms, webhook_forms(webhooks))
     |> assign(:excluded_form, to_form(%{"excluded_system" => nil}, as: :excluded))
@@ -590,6 +647,78 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     end
   end
 
+  # What the form posts for the home system, resolved to the integer id the
+  # resource stores.
+  #
+  # LiveSelect submits two inputs: the hidden `home_system_id` (the picked
+  # option's value) and the visible `home_system_id_text_input`. Normally only
+  # the first matters. The text is the fallback for the user who types a full
+  # name and hits Save without opening the dropdown — resolving it here is what
+  # keeps that from posting `nil` and coming back as the generic "is required
+  # when route alerts are enabled", which says nothing about the name they
+  # typed.
+  #
+  # The text is only consulted while route alerts are ENABLED. With the toggle
+  # off the whole block is hidden, so leftover text in it is invisible, and
+  # refusing to save unrelated settings over something the user cannot see
+  # would be baffling.
+  defp resolve_home_system(params) do
+    case parse_home_system_id(params["home_system_id"]) do
+      id when is_integer(id) ->
+        {:ok, id}
+
+      nil ->
+        resolve_home_system_name(
+          params["home_system_id_text_input"],
+          checked?(params["route_alerts_enabled"])
+        )
+    end
+  end
+
+  defp resolve_home_system_name(raw, true) when is_binary(raw) do
+    case String.trim(raw) do
+      "" -> {:ok, nil}
+      name -> lookup_home_system_name(name)
+    end
+  end
+
+  defp resolve_home_system_name(_raw, _route_alerts_enabled?), do: {:ok, nil}
+
+  # `find_by_name` is a substring search (`map_solar_system.ex:104`), so it can
+  # answer with several systems for a typed prefix. Only an exact name is
+  # accepted: picking "Jitanenba" for someone who typed "Jita" would silently
+  # watch the wrong system, and the dropdown is right there for choosing
+  # between near-misses.
+  defp lookup_home_system_name(name) do
+    wanted = String.downcase(name)
+
+    case MapSolarSystem.find_by_name(%{name: name}) do
+      {:ok, systems} ->
+        case Enum.find(systems, &(String.downcase(&1.solar_system_name) == wanted)) do
+          %{solar_system_id: id} ->
+            {:ok, id}
+
+          nil ->
+            {:error,
+             "No solar system is named \"#{name}\". Pick one from the search results below the box."}
+        end
+
+      other ->
+        Logger.warning("[MapNotifications] home system lookup failed: #{inspect(other)}")
+        {:error, @system_search_error}
+    end
+  end
+
+  # Field-level, next to the picker: the generic banner at the top of the tab
+  # is far enough from this box that "no system is named X" reads as being
+  # about something else. Clears the "Saved." flash for the same reason it
+  # clears on any other failed save — nothing was written.
+  defp put_home_system_error(socket, message) do
+    socket
+    |> assign(:home_system_error, message)
+    |> assign(:flash_message, nil)
+  end
+
   # Falls back to the column default (5) on blank/non-numeric input rather
   # than sending `nil` into an `allow_nil?: false` attribute, which Ash would
   # reject outright.
@@ -627,12 +756,20 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # Returns `{options, error_message_or_nil}` for the same reason
   # `search_corporations/2` does: this is a database lookup that can fail, and an
   # empty dropdown reads as "there is no system by that name".
+  #
+  # Option VALUES are strings, not the integer solar system ids. LiveSelect
+  # re-derives its selection by matching `field.value` against its options
+  # (`component.ex:561-572`), and a form field's value round-trips through the
+  # browser as a string — so integer values would stop matching the moment the
+  # form is rebuilt from params and the picker would show a bare id where it had
+  # shown "Jita (The Forge)". Both consumers parse the value back to an integer
+  # (`add-excluded`, `resolve_home_system/1`), so nothing downstream cares.
   defp search_systems(text) when is_binary(text) and byte_size(text) >= @min_search_length do
     case MapSolarSystem.find_by_name(%{name: text}) do
       {:ok, systems} ->
         {systems
          |> Enum.take(@max_search_results)
-         |> Enum.map(&{"#{&1.solar_system_name} (#{&1.region_name})", &1.solar_system_id}), nil}
+         |> Enum.map(&{system_option_label(&1), to_string(&1.solar_system_id)}), nil}
 
       other ->
         Logger.warning("[MapNotifications] system search failed: #{inspect(other)}")
@@ -641,6 +778,34 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   end
 
   defp search_systems(_), do: {[], nil}
+
+  defp system_option_label(%{solar_system_name: name, region_name: region})
+       when is_binary(region) and region != "",
+       do: "#{name} (#{region})"
+
+  defp system_option_label(%{solar_system_name: name}), do: name
+
+  # Seeds the home-system picker with the option it is already showing, so a
+  # saved home system renders as "Jita (The Forge)" and not as the raw id the
+  # form field holds. LiveSelect can only put a label on a value it has seen as
+  # an option, and on the first render its options are whatever this assign
+  # says (it ignores the assign on later re-renders and carries the selection
+  # instead, `component.ex:121-127`).
+  #
+  # Degrades to the bare id rather than dropping the option, for the same
+  # reason `focus_corp_labels/1` does: the user must be able to see and change
+  # what is saved even when the lookup is unavailable.
+  defp home_system_options(nil), do: []
+  defp home_system_options(%{home_system_id: nil}), do: []
+
+  defp home_system_options(%{home_system_id: id}) do
+    value = to_string(id)
+
+    case MapSolarSystem.by_solar_system_ids([id]) do
+      {:ok, [system | _]} -> [{system_option_label(system), value}]
+      _ -> [{value, value}]
+    end
+  end
 
   # `CorporationSearch.search/3` enforces its own minimum length and returns
   # `{:ok, []}` for a user with no characters, so no length guard is needed here.
@@ -910,6 +1075,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         for={@form}
         id="discord-notification-form"
         phx-submit="save"
+        phx-change="notification-changed"
         phx-target={@myself}
         class="flex flex-col gap-3 rounded border border-white/10 p-3"
       >
@@ -934,12 +1100,25 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         />
 
         <div class={if @route_toggle, do: "flex flex-col gap-2", else: "hidden"}>
-          <.input
-            field={f[:home_system_id]}
-            type="number"
-            label="Home system (solar system ID)"
-            placeholder="e.g. 31000005"
-          />
+          <div class="flex flex-col gap-1">
+            <span class="text-sm">Home system</span>
+            <.live_select
+              field={f[:home_system_id]}
+              id={@home_system_select_id}
+              phx-target={@myself}
+              dropdown_extra_class="!h-24"
+              compact={true}
+              debounce={250}
+              update_min_len={@min_search_length}
+              mode={:single}
+              options={@home_system_options}
+              placeholder="Search a system by name, e.g. Jita"
+            />
+            <p :if={@home_system_error} class="text-sm text-red-400">{@home_system_error}</p>
+            <p :if={@home_system_search_error} class="text-sm text-amber-400">
+              {@home_system_search_error}
+            </p>
+          </div>
           <.input
             field={f[:route_max_jumps]}
             type="number"
@@ -950,9 +1129,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
           <p class="text-xs opacity-70">
             Posts when a highsec-only route this length or shorter opens from
             the home system to Jita. Wormhole hops on the way don't count
-            against "highsec" — only k-space systems on the path do. Enter the
-            home system's numeric solar system ID; there is no name search for
-            this field yet.
+            against "highsec" — only k-space systems on the path do. Pick the
+            home system by name from the search results.
           </p>
           <p
             :if={@notification && not route_destination_ready?(@webhooks[:route])}
