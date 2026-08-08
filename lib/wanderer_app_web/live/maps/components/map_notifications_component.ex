@@ -132,14 +132,40 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     {:noreply, put_replacing(socket, parse_role(role), true)}
   end
 
-  # Purely client-display state: which fields are visually shown, driven by
-  # the CHECKBOX's own `phx-change` (not the whole form's) so ticking or
-  # unticking this one box is the only thing that round-trips — typing in the
-  # numeric fields below it does not. Nothing here is persisted; the actual
-  # value is only ever written by "save", same as every other field on this
-  # form.
+  # Which fields are visually shown, driven by the CHECKBOX's own `phx-change`
+  # (not the whole form's) so ticking or unticking this one box is the only
+  # thing that round-trips — typing in the numeric fields below it does not.
+  # Nothing here is persisted; the actual value is only ever written by "save",
+  # same as every other field on this form.
+  #
+  # The form MUST be rebuilt here, not just `:route_toggle`. A checkbox renders
+  # `checked` from its form value, so re-rendering against the unchanged form
+  # emits the box UNCHECKED and LiveView patches the user's ticked box back —
+  # the fields below appear, which reads as "it worked", and then Save posts
+  # `false` and silently stores route alerts as off. It reports "Saved."
+  # because it IS a valid save: with the toggle false the home-system
+  # validation has nothing to complain about.
+  #
+  # Rebuilt from `params` rather than by patching the one key, because those
+  # params are the whole form as the browser has it — anything already typed
+  # into `home_system_id` / `route_max_jumps` is preserved instead of being
+  # reset to the last-saved record on every tick.
+  #
+  # `webhook_url` is forced back to "" rather than carried through. On the
+  # create path that field is rendered (a password input) and the generic
+  # `.input` writes `value=` for every type, password included — so echoing the
+  # submitted params would put a live webhook URL into the server-rendered
+  # HTML, which this module treats as a credential that is only ever rendered
+  # as a masked hint. Blanking it costs nothing: "" is what the field rendered
+  # before this event too, so there is no diff for that input and whatever the
+  # user typed stays in the DOM untouched.
   def handle_event("toggle-route-alerts", %{"notification" => params}, socket) do
-    {:noreply, assign(socket, :route_toggle, checked?(params["route_alerts_enabled"]))}
+    form = params |> Map.put("webhook_url", "") |> to_form(as: :notification)
+
+    {:noreply,
+     socket
+     |> assign(:route_toggle, checked?(params["route_alerts_enabled"]))
+     |> assign(:form, form)}
   end
 
   def handle_event("save-webhook", %{"role" => role, "webhook" => params}, socket) do
