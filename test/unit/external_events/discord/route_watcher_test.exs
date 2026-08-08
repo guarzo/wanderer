@@ -256,6 +256,47 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
     end
 
+    # A dropped destination is "nothing was enqueued", exactly like
+    # `deliver_alert/7`'s {:error, :not_running}. If the optimistic
+    # {:qualifying, N} write survives the drop, the SAME route at the SAME jump
+    # count takes the silent `{:qualifying, _old}` branch forever after the
+    # destination becomes usable again — it is never announced.
+    test "a dropped destination does not silence the route once it is usable again",
+         %{map: map, notification: notification, pid: pid} do
+      {:ok, notification} = Ash.load(notification, :webhooks)
+      [webhook] = notification.webhooks
+      {:ok, webhook} = WandererApp.Api.MapDiscordWebhook.update(webhook, %{enabled?: false})
+
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      # Nothing was posted, and nothing was recorded as posted.
+      assert [] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
+      assert %{route_state: :unknown} = :sys.get_state(pid)
+
+      {:ok, _webhook} = WandererApp.Api.MapDiscordWebhook.update(webhook, %{enabled?: true})
+
+      # Same route, same jump count, same config_version — only the destination
+      # changed. It must announce now.
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+
+      assert :ok =
+               wait_until(fn ->
+                 HttpStub.requests_for("https://discord.com/api/webhooks/1/tok") != []
+               end)
+    end
+
     test "qualifying -> none clears silently", %{map: map, pid: pid} do
       Application.put_env(
         :wanderer_app,

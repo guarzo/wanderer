@@ -347,8 +347,13 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
       {:ok, webhook} ->
         deliver_alert(new_state, prev_state, notification, webhook, kind, qualifying, jumps)
 
+      # Also "nothing was enqueued", so it reverts exactly like
+      # `deliver_alert/7`'s {:error, :not_running}. Keeping the optimistic
+      # write here would mean the same route at the same jump count takes the
+      # silent `{:qualifying, _old}` branch forever once the destination is
+      # usable again, and is never announced.
       :drop ->
-        new_state
+        persist(prev_state)
     end
   end
 
