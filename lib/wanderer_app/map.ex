@@ -251,6 +251,7 @@ defmodule WandererApp.Map do
     else
       case update_map(map_id, %{characters: new_character_ids ++ current_characters}) do
         {:commit, map} ->
+          WandererApp.ExternalEvents.Discord.Matcher.invalidate_tracked(map_id)
           map
 
         _ ->
@@ -271,6 +272,8 @@ defmodule WandererApp.Map do
       true ->
         map_id
         |> update_map(%{characters: [character_id | characters]})
+
+        WandererApp.ExternalEvents.Discord.Matcher.invalidate_tracked(map_id)
 
         :ok
 
@@ -295,6 +298,8 @@ defmodule WandererApp.Map do
       true ->
         map_id
         |> update_map(%{characters: characters |> Enum.reject(fn id -> id == character_id end)})
+
+        WandererApp.ExternalEvents.Discord.Matcher.invalidate_tracked(map_id)
 
         :ok
 

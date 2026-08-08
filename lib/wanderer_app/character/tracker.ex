@@ -83,10 +83,37 @@ defmodule WandererApp.Character.Tracker do
 
           WandererApp.Cache.delete("character:#{character_id}:last_online_time")
 
+          # The ESI handler clears ready status only when it observes the
+          # online->offline transition. This timeout path writes `online: false`
+          # directly, so without this call the character stayed marked ready
+          # forever — and the next ESI poll skips cleanup because the state is
+          # already false.
+          clear_ready_status(character_id)
+
           :ok
         else
           :skip
         end
+    end
+  end
+
+  defp clear_ready_status(character_id) do
+    case WandererApp.Character.get_character(character_id) do
+      {:ok, character} ->
+        case WandererApp.Character.TrackingUtils.clear_ready_status_on_offline(character.eve_id) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to clear ready status for character #{character.eve_id}: #{inspect(reason)}"
+            )
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to get character #{character_id} for ready status clearing: #{inspect(reason)}"
+        )
     end
   end
 
@@ -185,25 +212,7 @@ defmodule WandererApp.Character.Tracker do
 
                   # Clear ready status if character went offline
                   if not online.online do
-                    case WandererApp.Character.get_character(character_id) do
-                      {:ok, character} ->
-                        case WandererApp.Character.TrackingUtils.clear_ready_status_on_offline(
-                               character.eve_id
-                             ) do
-                          :ok ->
-                            :ok
-
-                          {:error, reason} ->
-                            Logger.warning(
-                              "Failed to clear ready status for character #{character.eve_id}: #{inspect(reason)}"
-                            )
-                        end
-
-                      {:error, reason} ->
-                        Logger.warning(
-                          "Failed to get character #{character_id} for ready status clearing: #{inspect(reason)}"
-                        )
-                    end
+                    clear_ready_status(character_id)
                   end
 
                   try do

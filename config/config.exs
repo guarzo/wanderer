@@ -150,14 +150,14 @@ config :wanderer_app, :signature_cleanup,
   # Default to 24 hours
   max_age_hours: 24
 
-# Replace the signature configuration with one that uses environment variables
+# Signature expiration defaults. The env-var overrides live in runtime.exs —
+# reading System.get_env/1 here would bake the build machine's values into the
+# release instead of the deployment's.
 config :wanderer_app, :signatures,
-  # Wormhole signatures expire after the configured hours (default 24, 0 means never expire)
-  wormhole_expiration_hours:
-    String.to_integer(System.get_env("SIGNATURE_WORMHOLE_EXPIRATION_HOURS") || "24"),
-  # All other signatures expire after the configured hours (default 72, 0 means never expire)
-  default_expiration_hours:
-    String.to_integer(System.get_env("SIGNATURE_DEFAULT_EXPIRATION_HOURS") || "72"),
+  # Wormhole signatures expire after the configured hours (0 means never expire)
+  wormhole_expiration_hours: 24,
+  # All other signatures expire after the configured hours (0 means never expire)
+  default_expiration_hours: 72,
   # Don't expire signatures that have connections
   preserve_connected: true
 

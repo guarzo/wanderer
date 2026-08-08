@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { MapSolarSystemType } from '../../map.types';
-import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useEdges } from 'reactflow';
 import clsx from 'clsx';
 import classes from './SolarSystemNodeZoo.module.scss';
 import { PrimeIcons } from 'primereact/api';
@@ -35,8 +35,11 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
   const { killsCount: localKillsCount, killsActivityType: localKillsActivityType } = useNodeKillsCount(
     nodeVars.solarSystemId,
   );
-  const { getEdges } = useReactFlow();
-  const edges = getEdges();
+  // `useEdges` rather than `useReactFlow().getEdges()`: the latter is a
+  // snapshot read that does not subscribe, so `connectionCount` went stale
+  // whenever a connection was added or removed without the node re-rendering
+  // for some other reason.
+  const edges = useEdges();
   const connectionCount = edges.filter(edge => edge.source === props.id || edge.target === props.id).length;
 
   const showHandlers = nodeVars.isConnecting || nodeVars.hoverNodeId === nodeVars.id;
@@ -104,7 +107,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
           {unsplashedCount > 0 && (
             <div
               className={clsx(classes.Bookmark, MARKER_BOOKMARK_BG_STYLES.unSplashed)}
-              style={{ display: 'flex', transform: 'rotate(-90dg)' }}
+              style={{ display: 'flex', transform: 'rotate(-90deg)' }}
             >
               <GiConcentrationOrb
                 size={8}
@@ -228,7 +231,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                   </div>
                 )}
                 {nodeVars.tag != null && nodeVars.tag !== '' && (
-                  <div className={clsx(classes.tagTitle, 'font-medium')}>{`[${nodeVars.tag}]`}</div>
+                  <div className={clsx(classes.TagTitle, 'font-medium')}>{`[${nodeVars.tag}]`}</div>
                 )}
                 <div className={clsx(classes.customName)} title={`${customName ?? ''}`}>
                   {customName}

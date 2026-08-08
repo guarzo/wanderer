@@ -49,7 +49,8 @@ export const ContextMenuConnection: React.FC<ContextMenuConnectionProps> = ({
 
     const isFrigateSize = edge.data?.ship_size_type === ShipSizeStatus.small;
     const isLoop = edge.data?.type === ConnectionType.loop;
-    const isWormholeType = edge.data?.type === ConnectionType.wormhole || edge.data?.type === ConnectionType.loop;
+    // No `isWormholeType` binding: the bridge and gate types return early
+    // above, so everything reaching the menu below is already wormhole-or-loop.
 
     if (edge.data?.type === ConnectionType.bridge) {
       return [

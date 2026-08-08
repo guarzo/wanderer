@@ -327,9 +327,13 @@ defmodule WandererAppWeb.MapConnectionsEventHandler do
     passages =
       passages
       |> Enum.map(fn p ->
+        # `%{p | character: p.character}` was a no-op that shipped the raw Ash
+        # struct to the client. Every other character-bearing payload goes
+        # through the stat serializer, which trims it to the UI fields and drops
+        # unloaded associations.
         %{
           p
-          | character: p.character
+          | character: MapEventHandler.map_ui_character_stat(p.character)
         }
         |> Map.put_new(
           :ship,
