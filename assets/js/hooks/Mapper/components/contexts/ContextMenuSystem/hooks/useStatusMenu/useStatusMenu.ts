@@ -4,7 +4,7 @@ import { useCallback, useRef } from 'react';
 import { SolarSystemRawType } from '@/hooks/Mapper/types';
 import { getSystemById } from '@/hooks/Mapper/helpers';
 import clsx from 'clsx';
-import { STATUS_COLOR_CLASSES, STATUS_NAMES, STATUSES_ORDER } from '@/hooks/Mapper/components/map/constants.ts';
+import { STATUS_COLOR_CLASSES, STATUS_NAMES, STATUSES_ORDER } from '@/hooks/Mapper/components/map/constants';
 import { GRADIENT_MENU_ACTIVE_CLASSES } from '@/hooks/Mapper/constants.ts';
 
 export const useStatusMenu = (
