@@ -53,7 +53,10 @@ for upstream contribution.
 
 ## Database Schema Extensions
 
-The fork adds 2 tables and 10 columns, across 15 migration files.
+The fork adds 2 tables and 8 columns to upstream tables, across 15 migration files (13 new,
+2 modified in place). A further 4 columns are added by later migrations to the fork's *own*
+new tables — the three route-alert columns and `mention_targets` below — which is why the
+tables above list more columns than the "8" here counts.
 
 ### New tables
 
@@ -123,7 +126,7 @@ route alerts, and system events can target different channels.
 
 ### Migration files
 
-```
+```text
 priv/repo/migrations/
 ├── 20250122214138_add_zoo_flags.exs
 ├── 20250204223853_add_system_owners.exs
@@ -135,16 +138,20 @@ priv/repo/migrations/
 ├── 20260801234058_add_map_discord_notifications.exs
 ├── 20260803202833_create_map_discord_webhooks.exs
 ├── 20260803210357_split_discord_webhooks.exs         # hand-edited
-├── 20260804180000_add_map_chain_locked_by_fkey.exs
+├── 20260804180000_add_map_chain_locked_by_fkey.exs    # constraint only, no column
 ├── 20260807203452_add_route_alert_config.exs
 └── 20260807203453_add_webhook_mention_targets.exs
 ```
 
+`20260804180000_add_map_chain_locked_by_fkey.exs` adds **no column**. It creates the
+`map_chain_v1_locked_by_id_fkey` constraint on the existing `locked_by_id` reference, which
+`MapConnection`'s `belongs_to :locked_by` has always implied but no database has ever had.
+
 Two upstream migrations are also **modified in place** — `20260331192521` and `20260406213852`
 each change `default: '{wormholes}'` to `default: ~c"{wormholes}"` to silence the Elixir
 single-quoted-charlist deprecation. The emitted DDL is identical, so this is cosmetic, but it
-means those two files will conflict on every upstream merge until the same change lands
-upstream.
+means those two files can conflict whenever upstream changes them, until the equivalent change
+lands upstream.
 
 > **⚠ `20260801200000_fix_maps_scopes_default.exs` is not an upstream migration.**
 > Commit `1b4970ffb` (#122) describes it as "upstream's", but it exists on neither
@@ -171,6 +178,8 @@ ALTER TABLE map_system_structures_v1 DROP COLUMN IF EXISTS inherited_from_map_id
 
 DROP TABLE IF EXISTS map_discord_webhooks_v1;
 DROP TABLE IF EXISTS map_discord_notifications_v1;
+
+ALTER TABLE map_chain_v1 DROP CONSTRAINT IF EXISTS map_chain_v1_locked_by_id_fkey;
 ```
 
 ---
@@ -435,7 +444,7 @@ config :wanderer_app, :signature_cleanup, max_age_hours: 24
 
 Fork-only work uses **`zoo(<type>): <summary>`**:
 
-```
+```text
 zoo(feat): add voice-channel mentions to route alerts
 zoo(fix): stop one slow static lookup from killing the whole request
 zoo(chore): drop the dead fleet-readiness flag
@@ -603,7 +612,7 @@ its own before/after write-up since it changes emitted payloads.
 
 ### Frontend (Zoo-Specific)
 
-```
+```text
 assets/js/hooks/Mapper/
 ├── components/map/
 │   ├── styles/zoo-theme.scss
@@ -619,7 +628,7 @@ assets/js/hooks/Mapper/
 
 ### Backend (Zoo-Specific)
 
-```
+```text
 lib/wanderer_app/
 ├── external_events/
 │   ├── discord_dispatcher.ex
@@ -646,7 +655,7 @@ lib/wanderer_app_web/
 
 ### Design docs
 
-```
+```text
 docs/superpowers/
 ├── specs/2026-08-02-flyio-migration-design.md
 ├── specs/2026-08-07-deploy-approval-gate-design.md
@@ -676,10 +685,17 @@ When merging upstream, watch for conflicts in:
 
 ```bash
 git fetch upstream --prune
-git rev-list --left-right --count upstream/main...origin/guarzo/zoo   # behind / ahead
+
+# behind / ahead, against both upstream branches -- they diverge, so check each
+for ref in upstream/main upstream/develop; do
+  printf '%-18s ' "$ref"
+  git rev-list --left-right --count "$ref"...origin/guarzo/zoo   # behind<TAB>ahead
+done
 ```
 
-As of this document the fork is 0 behind both `upstream/main` and `upstream/develop`.
+The first column is how many commits the fork is **behind** that ref; the second is how many
+it is **ahead**. As of this document the fork is 0 behind both `upstream/main` and
+`upstream/develop`.
 
 ### Testing
 
