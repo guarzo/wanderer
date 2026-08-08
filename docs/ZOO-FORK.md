@@ -16,6 +16,7 @@ This document describes the zoo fork's extensions to upstream Wanderer, includin
 5. [Signature Cleanup](#signature-cleanup)
 6. [Fleet Readiness](#fleet-readiness)
 7. [Upstream PR Recommendations](#upstream-pr-recommendations)
+8. [Deployment](#deployment)
 
 ---
 
@@ -266,6 +267,40 @@ Could be generalized to a "character tags" system. Requires significant refactor
 | System Ownership | Specific to tracking wormhole space occupation |
 | Custom Flags | Generic "store anything" field lacks structure |
 | Connection Loop Type | Niche EVE mechanic |
+
+---
+
+## Deployment
+
+Production is the Fly app `wanderer` (single machine — see the constraint
+comment at the top of `fly.toml`).
+
+**How a change reaches production:**
+
+1. Merge to `guarzo/zoo`.
+2. `🧪 Test Suite` runs. If it fails, a `🚀 Zoo Deploy` run still appears in the
+   Actions tab but its only job is **skipped** — no approval is requested and
+   nothing can be deployed. Skipped deploy runs after a red suite are normal.
+3. On success, `🚀 Zoo Deploy` opens a run that **waits for approval** in the
+   `production-deploy` environment. GitHub emails an approval request; the run
+   also shows as pending in the Actions tab.
+4. Approving it deploys to Fly, then tags the commit `v<UTC timestamp>` and
+   moves `guarzo/release` to that commit.
+
+**`guarzo/release` is CI-owned.** It is a bookmark of what is in production, not
+a trigger. Direct pushes are rejected by a ruleset — resetting and pushing it by
+hand does nothing except fail. This is deliberate: it used to be the deploy
+trigger, and the change is easy to forget.
+
+**Nothing deploys without approval**, including a run that has been sitting
+pending. Pending approvals expire after 30 days.
+
+**To roll back**, run `🚀 Zoo Deploy` manually with `ref` set to a previous tag
+and approve it. Note that migrations only run forward — a rollback does not
+revert a schema change.
+
+**Approving a stale run is safe.** If `guarzo/zoo` has moved on since the run
+was created, the workflow exits without deploying and says so.
 
 ---
 
