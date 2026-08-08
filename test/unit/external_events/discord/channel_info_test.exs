@@ -17,6 +17,7 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
   @url "https://discord.com/api/webhooks/#{@webhook_id}/#{@webhook_token}"
   @other_url "https://discord.com/api/webhooks/9876543210987654321/differenttoken"
   @channel_id "1234567890123456789"
+  @guild_id "9876543210123456789"
 
   setup :set_mox_from_context
   setup :verify_on_exit!
@@ -99,7 +100,7 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
       assert {:ok, info} = ChannelInfo.resolve(@url)
       assert info.label == "Wanderer Kills"
       assert info.channel_id == @channel_id
-      assert info.source == :resolved
+      assert info.source == :webhook_name
     end
 
     test "sends no authorization header — the URL is its own credential" do
@@ -139,6 +140,38 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
       assert {:ok, %{label: "#wh-kills", channel_id: @channel_id}} = ChannelInfo.resolve(@url)
     end
 
+    test "carries the guild the channel lookup reported", %{external_events: original} do
+      # The only authoritative tie from a destination to a guild. The mention
+      # pickers key on it, so a webhook in a guild the bot does not share must
+      # not silently inherit some other guild's roles.
+      put_bot_token(original, "bot-token")
+
+      stub_get(%{
+        @url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id}),
+        channel_url(@channel_id) => json(%{"name" => "wh-kills", "guild_id" => @guild_id})
+      })
+
+      assert {:ok, %{guild_id: @guild_id, source: :channel}} = ChannelInfo.resolve(@url)
+    end
+
+    test "falls back to the guild on the webhook payload when the channel omits it", %{
+      external_events: original
+    } do
+      put_bot_token(original, "bot-token")
+
+      stub_get(%{
+        @url =>
+          json(%{
+            "name" => "Wanderer Kills",
+            "channel_id" => @channel_id,
+            "guild_id" => @guild_id
+          }),
+        channel_url(@channel_id) => json(%{"name" => "wh-kills"})
+      })
+
+      assert {:ok, %{guild_id: @guild_id, source: :channel}} = ChannelInfo.resolve(@url)
+    end
+
     test "sends the bot token only on the channel lookup", %{external_events: original} do
       put_bot_token(original, "bot-token")
 
@@ -167,7 +200,7 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
         channel_url(@channel_id) => {:ok, 403, ~s({"message":"Missing Access","code":50001})}
       })
 
-      assert {:ok, %{label: "Wanderer Kills", channel_id: @channel_id, source: :resolved}} =
+      assert {:ok, %{label: "Wanderer Kills", channel_id: @channel_id, source: :webhook_name}} =
                ChannelInfo.resolve(@url)
     end
 
@@ -274,11 +307,35 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
           id: Ecto.UUID.generate(),
           webhook_url: @url,
           channel_id: @channel_id,
-          channel_label: "#wh-kills"
+          channel_label: "#wh-kills",
+          channel_label_source: :channel
         })
 
-      assert {:ok, %{label: "#wh-kills", channel_id: @channel_id, source: :resolved}} =
+      assert {:ok, %{label: "#wh-kills", channel_id: @channel_id, source: :channel}} =
                ChannelInfo.describe(record)
+    end
+
+    test "a row written before the tier was recorded reports :unknown, not a guess" do
+      stub_get(%{})
+
+      record =
+        webhook(%{
+          id: Ecto.UUID.generate(),
+          webhook_url: @url,
+          channel_id: @channel_id,
+          # A leading "#" is what a legacy row looks like when tier 2 produced
+          # it — and also what it looks like when someone named their webhook
+          # "#kills". Inferring the tier from the label's shape is the guess
+          # `channel_label_source` exists to stop.
+          channel_label: "#wh-kills",
+          channel_label_source: nil
+        })
+
+      assert {:ok, info} = ChannelInfo.describe(record)
+
+      # The label is still shown — it is what the operator sees today.
+      assert info.label == "#wh-kills"
+      assert info.source == :unknown
     end
 
     test "returns a masked hint on a cold cache with nothing persisted" do
@@ -297,6 +354,98 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
 
       assert {:ok, %{label: "Wanderer Kills"}} = ChannelInfo.describe(record)
     end
+
+    test "a masked cache entry never displaces a real persisted label" do
+      # Discord unreachable, so the cache now holds a masked result. The row
+      # still holds a name someone can read. Preferring the cache here would
+      # drop a destination from "#kills" back to a hash hint over one bad
+      # minute — the display-side counterpart of `persist/2`'s refusal to write
+      # a hint over a stored label.
+      stub_get(%{@url => {:error, :econnrefused}})
+      assert {:ok, %{source: :masked}} = ChannelInfo.resolve(@url)
+
+      record =
+        webhook(%{
+          id: Ecto.UUID.generate(),
+          webhook_url: @url,
+          channel_id: @channel_id,
+          channel_label: "#kills",
+          channel_label_source: :channel
+        })
+
+      assert {:ok, %{label: "#kills", source: :channel}} = ChannelInfo.describe(record)
+
+      # With nothing persisted there is nothing better to show, so the hint
+      # stands.
+      assert {:ok, %{source: :masked}} =
+               ChannelInfo.describe(webhook(%{id: Ecto.UUID.generate(), webhook_url: @url}))
+    end
+  end
+
+  describe "describe/2 notify:" do
+    test "tells the caller when the background refresh lands" do
+      # The bug this closes: the tab renders a masked hint from a cold cache,
+      # the refresh resolves the real name a moment later, and nothing on screen
+      # ever changes because nothing told the LiveView to look again.
+      stub_get(%{@url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id})})
+
+      hook = insert_webhook()
+      notification_id = hook.notification_id
+
+      assert {:ok, %{source: :masked}} = ChannelInfo.describe(hook, notify: self())
+
+      assert_receive {:discord_channel_info, ^notification_id, :webhook_name}, 2_000
+    end
+
+    test "the message is a three-tuple, which is what keeps MapsLive alive" do
+      # `MapsLive` carries an unguarded `handle_info({ref, result}, socket)` that
+      # calls `Process.demonitor(ref, [:flush])`. A two-element message would
+      # match it and hand an atom to `Process.demonitor/2`, which raises
+      # `ArgumentError` — taking the whole map LiveView down on the first
+      # channel refresh. Asserted on the shape rather than left to clause
+      # ordering, which would make correctness depend on a source-file position.
+      stub_get(%{@url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id})})
+
+      hook = insert_webhook()
+
+      assert :ok = ChannelInfo.refresh_async(hook, notify: self())
+
+      assert_receive {:discord_channel_info, _notification_id, _source} = message, 2_000
+      assert tuple_size(message) == 3
+      refute is_reference(elem(message, 0))
+    end
+
+    test "reports a masked outcome too" do
+      # A refresh that could do no better than the hint is still news: the tab
+      # has been showing the hint with no way to tell whether it is still
+      # waiting on an answer.
+      stub_get(%{@url => {:error, :econnrefused}})
+
+      hook = insert_webhook()
+
+      assert :ok = ChannelInfo.refresh_async(hook, notify: self())
+
+      assert_receive {:discord_channel_info, _notification_id, :masked}, 2_000
+    end
+
+    test "sends nothing without the option" do
+      stub_get(%{@url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id})})
+
+      hook = insert_webhook()
+
+      assert {:ok, _info} = ChannelInfo.describe(hook)
+
+      await_persisted(hook, fn reloaded -> assert reloaded.channel_label == "Wanderer Kills" end)
+      refute_received {:discord_channel_info, _notification_id, _source}
+    end
+
+    test "sends nothing for a raw URL — there is no row to name" do
+      stub_get(%{@url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id})})
+
+      assert {:ok, _info} = ChannelInfo.describe(@url, notify: self())
+
+      refute_receive {:discord_channel_info, _notification_id, _source}, 300
+    end
   end
 
   describe "refresh_async/1 persistence" do
@@ -305,7 +454,7 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
 
       stub_get(%{
         @url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id}),
-        channel_url(@channel_id) => json(%{"name" => "wh-kills"})
+        channel_url(@channel_id) => json(%{"name" => "wh-kills", "guild_id" => @guild_id})
       })
 
       hook = insert_webhook()
@@ -317,6 +466,47 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
       await_persisted(hook, fn reloaded ->
         assert reloaded.channel_id == @channel_id
         assert reloaded.channel_label == "#wh-kills"
+        assert reloaded.channel_label_source == :channel
+        assert reloaded.guild_id == @guild_id
+      end)
+    end
+
+    test "records the tier when only the webhook's own name was available" do
+      stub_get(%{@url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id})})
+
+      hook = insert_webhook()
+
+      assert :ok = ChannelInfo.refresh_async(hook)
+
+      await_persisted(hook, fn reloaded ->
+        assert reloaded.channel_label == "Wanderer Kills"
+        # Not :channel. The UI wording turns on this: a nickname whoever created
+        # the webhook typed must not be presented as the channel's real name.
+        assert reloaded.channel_label_source == :webhook_name
+      end)
+    end
+
+    test "stamps the tier onto a row that already carries the right label" do
+      # Every row written before `channel_label_source` existed is in this
+      # state. There is no backfill — the tier is recorded by the first refresh
+      # that reaches the row, which is what keeps `:unknown` from being
+      # permanent.
+      stub_get(%{@url => json(%{"name" => "Wanderer Kills", "channel_id" => @channel_id})})
+
+      hook = insert_webhook()
+
+      {:ok, hook} =
+        MapDiscordWebhook.cache_channel_info(hook, %{
+          channel_id: @channel_id,
+          channel_label: "Wanderer Kills"
+        })
+
+      assert hook.channel_label_source == nil
+
+      assert :ok = ChannelInfo.refresh_async(hook)
+
+      await_persisted(hook, fn reloaded ->
+        assert reloaded.channel_label_source == :webhook_name
       end)
     end
 
@@ -328,7 +518,9 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
       {:ok, hook} =
         MapDiscordWebhook.cache_channel_info(hook, %{
           channel_id: @channel_id,
-          channel_label: "Wanderer Kills"
+          channel_label: "Wanderer Kills",
+          channel_label_source: :webhook_name,
+          guild_id: nil
         })
 
       assert :ok = ChannelInfo.refresh_async(hook)
@@ -384,33 +576,56 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
   end
 
   describe "MapDiscordWebhook.cache_channel_info/2" do
-    test "accepts the two cached identity attributes" do
+    test "accepts the four cached identity attributes" do
       hook = insert_webhook()
 
       assert {:ok, updated} =
                MapDiscordWebhook.cache_channel_info(hook, %{
                  channel_id: @channel_id,
-                 channel_label: "#wh-kills"
+                 channel_label: "#wh-kills",
+                 channel_label_source: :channel,
+                 guild_id: @guild_id
                })
 
       assert updated.channel_id == @channel_id
       assert updated.channel_label == "#wh-kills"
+      assert updated.channel_label_source == :channel
+      assert updated.guild_id == @guild_id
     end
 
-    test "clears both when a destination stops resolving to a channel" do
+    test "rejects a label source outside the two resolvable tiers" do
+      hook = insert_webhook()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               MapDiscordWebhook.cache_channel_info(hook, %{
+                 channel_label: "#wh-kills",
+                 channel_label_source: :guessed
+               })
+    end
+
+    test "clears all four when a destination stops resolving to a channel" do
       hook = insert_webhook()
 
       {:ok, hook} =
         MapDiscordWebhook.cache_channel_info(hook, %{
           channel_id: @channel_id,
-          channel_label: "#wh-kills"
+          channel_label: "#wh-kills",
+          channel_label_source: :channel,
+          guild_id: @guild_id
         })
 
       assert {:ok, cleared} =
-               MapDiscordWebhook.cache_channel_info(hook, %{channel_id: nil, channel_label: nil})
+               MapDiscordWebhook.cache_channel_info(hook, %{
+                 channel_id: nil,
+                 channel_label: nil,
+                 channel_label_source: nil,
+                 guild_id: nil
+               })
 
       assert cleared.channel_id == nil
       assert cleared.channel_label == nil
+      assert cleared.channel_label_source == nil
+      assert cleared.guild_id == nil
     end
 
     test "cannot be used to redirect where a destination posts" do
@@ -429,6 +644,34 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfoTest do
                })
 
       assert reload(hook).webhook_url == @url
+    end
+
+    # The guard that actually keeps cached identity off the settings forms is
+    # `update`'s restricted `accept` — NOT the `webhook_url` rejection above,
+    # which exists only to close the argument AshCloak re-adds to every action.
+    # The two actions are separate, so widening `cache_channel_info`'s `accept`
+    # does not widen this one. Pinned because the failure is silent: a form that
+    # could write `channel_label` could make a destination claim to post to a
+    # channel it does not post to, which is the whole reason the actions split.
+    test "the user-facing update action cannot write cached identity" do
+      hook = insert_webhook()
+
+      for {field, value} <- [
+            channel_id: @channel_id,
+            channel_label: "#not-really",
+            channel_label_source: :channel,
+            guild_id: @guild_id
+          ] do
+        assert {:error, %Ash.Error.Invalid{}} =
+                 MapDiscordWebhook.update(hook, %{field => value}),
+               "update accepted #{field}, which belongs to cache_channel_info only"
+      end
+
+      reloaded = reload(hook)
+      assert reloaded.channel_id == nil
+      assert reloaded.channel_label == nil
+      assert reloaded.channel_label_source == nil
+      assert reloaded.guild_id == nil
     end
   end
 
