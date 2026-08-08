@@ -344,10 +344,12 @@ Allows users to mark characters as "ready for fleet" operations.
 | Ash Resource | `lib/wanderer_app/api/map_user_settings.ex` (update_ready_characters action) |
 | Repository | `lib/wanderer_app/repositories/map_user_settings_repo.ex` |
 
-> **Known gap:** `WANDERER_FLEET_READINESS_ENABLED` is parsed in `config/runtime.exs` and
-> stored under `:wanderer_app, :fleet_readiness_enabled`, but **nothing reads it** — there is
-> no `Env` accessor and no call site. The feature is unconditionally on. Either wire the flag
-> up (mirroring `Env.intel_sharing_enabled?/0`) or delete it from `runtime.exs`.
+> **No feature flag.** Fleet readiness is unconditionally on. A
+> `WANDERER_FLEET_READINESS_ENABLED` variable was parsed in `config/runtime.exs` and stored
+> under `:wanderer_app, :fleet_readiness_enabled`, but no `Env` accessor or call site was ever
+> written for it in any branch, so setting it had no effect. It was removed rather than wired
+> up: gating it at the default of `false` would have switched the feature off for every
+> existing deployment.
 
 ---
 
@@ -414,7 +416,6 @@ config :wanderer_app, :signature_cleanup, max_age_hours: 24
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `WANDERER_INTEL_SHARING_ENABLED` | `false` | Enable cross-map intel sync |
-| `WANDERER_FLEET_READINESS_ENABLED` | `false` | **Currently unused — see Fleet Readiness** |
 | `WANDERER_KILLS_IPV6` | `false` | Resolve the kills websocket host over IPv6 |
 | `DISCORD_BOT_TOKEN` | — | Nostrum bot token; blank is treated as unset |
 | `DISCORD_GUILD_ID` | — | Guild for voice-participant lookups |
