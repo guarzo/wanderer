@@ -115,12 +115,19 @@ defmodule WandererApp.Api.Map do
   actions do
     defaults [:create, :read]
 
-    # Promoted out of `defaults` only to hang an after_transaction hook on it;
-    # the action is otherwise the stock primary destroy.
+    # Custom destroy so the map's Discord state is cleaned up. Hard-deleting a
+    # map never runs the notification row's own :destroy:
+    # `map_discord_notifications_v1` declares `reference :map, on_delete:
+    # :delete`, and a PostgreSQL cascade removes the child row without any Ash
+    # lifecycle hook firing. The route-alert watcher would keep running and its
+    # route_state would sit in the TTL-less :discord_route_alert_cache forever.
     destroy :destroy do
       primary? true
       require_atomic? false
 
+      # `after_transaction`, not `after_action`: an after_action hook fires
+      # while the DELETE is still uncommitted, so a rollback would leave the
+      # watcher stopped and the cache evicted for a map that still exists.
       change after_transaction(&__MODULE__.after_destroy/3)
     end
 
@@ -362,27 +369,23 @@ defmodule WandererApp.Api.Map do
   def after_destroy(_changeset, {:error, _} = result, _context), do: result
 
   # Wired to both the hard `:destroy` action and the soft-delete
-  # `:mark_as_deleted` action — the latter is the path actual users take
-  # (maps_live.ex, admin_maps_live.ex), and neither leaves Discord's cache or
-  # delivery worker cleaned up on its own.
+  # `:mark_as_deleted` action. The latter is the path users actually take
+  # (maps_live.ex, admin_maps_live.ex), and it never touches the notification
+  # row, so neither path cleans up Discord state on its own. Both helpers
+  # tolerate a cache or registry that was never started.
+  #
+  # The result is `:ok` or `{:ok, record}` depending on the action, so the id
+  # comes from the changeset either way.
   def after_destroy(changeset, result, _context) do
-    # Only the hard :destroy actually removes the row: map_discord_notifications_v1
-    # has `reference :map, on_delete: :delete`, so on that path its rows are
-    # removed by the database cascade and MapDiscordNotification's own
-    # after_destroy/3 never runs — its cache entry and delivery worker would
-    # survive the map otherwise. :mark_as_deleted never touches that row at
-    # all, so the same cleanup is needed there too. Both helpers tolerate a
-    # cache or registry that was never started.
-    #
-    # after_transaction, for the commit-window race documented in
-    # map_discord_notification.ex. It yields `:ok` or `{:ok, record}` depending
-    # on the action, so the id comes from the changeset either way.
     map_id = changeset.data.id
 
-    WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(map_id, true)
+    # Stops the map's route-alert watcher AND evicts its cached route_state
+    # (RouteWatcherSupervisor.stop_watcher/1 does both, and the eviction is
+    # deliberately outside its running?/0 guard).
+    WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor.stop_watcher(map_id)
+    WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(map_id)
     result
   end
-
   # Generate a unique slug from map name
   defp generate_unique_slug(name) do
     base_slug =

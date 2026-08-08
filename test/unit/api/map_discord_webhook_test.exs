@@ -459,4 +459,86 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
       webhook_url: "https://discord.com/api/webhooks/999/othertok"
     })
   end
+
+  test "accepts the :route role", %{notification: notification} do
+    assert {:ok, hook} =
+             MapDiscordWebhook.create(%{
+               notification_id: notification.id,
+               role: :route,
+               webhook_url: valid_url()
+             })
+
+    assert hook.role == :route
+    assert hook.mention_targets == []
+  end
+
+  test "mention_targets accepts well-formed user and role snowflakes", %{
+    notification: notification
+  } do
+    assert {:ok, hook} =
+             MapDiscordWebhook.create(%{
+               notification_id: notification.id,
+               role: :route,
+               webhook_url: valid_url(),
+               mention_targets: ["user:123456789012345678", "role:98765432109876543"]
+             })
+
+    assert hook.mention_targets == ["user:123456789012345678", "role:98765432109876543"]
+  end
+
+  test "mention_targets rejects a handle, a bare id, and an out-of-range snowflake", %{
+    notification: notification
+  } do
+    for bad <- ["@guarzo", "user:123", "role:123456789012345678901", "corp:123456789012345678"] do
+      assert {:error, %Ash.Error.Invalid{}} =
+               MapDiscordWebhook.create(%{
+                 notification_id: notification.id,
+                 role: :route,
+                 webhook_url: valid_url(),
+                 mention_targets: [bad]
+               }),
+             "expected #{inspect(bad)} to be rejected"
+    end
+  end
+
+  test "mention_targets round-trips through update", %{notification: notification} do
+    {:ok, hook} =
+      MapDiscordWebhook.create(%{
+        notification_id: notification.id,
+        role: :route,
+        webhook_url: valid_url()
+      })
+
+    assert {:ok, updated} =
+             MapDiscordWebhook.update(hook, %{mention_targets: ["role:112233445566778899"]})
+
+    assert updated.mention_targets == ["role:112233445566778899"]
+  end
+
+  test "mention_targets validation rejects a malformed target via Mentions.valid_target?/1" do
+    # Same rejection as before the fold — this asserts the behaviour survives
+    # the delegation, and the assertion below pins that there is now exactly
+    # one regex literal for mention targets in lib/.
+    assert WandererApp.ExternalEvents.Discord.Mentions.valid_target?("role:123456789012345678")
+    refute WandererApp.ExternalEvents.Discord.Mentions.valid_target?("role:123")
+
+    resource_source =
+      File.read!("lib/wanderer_app/api/map_discord_webhook.ex")
+
+    # Spelling-agnostic on purpose: pinning one literal (`~r/^(user|role):`)
+    # stopped catching a re-duplication the moment `Mentions` switched its
+    # anchors to `\A`/`\z`. Any regex construction naming both prefixes is a
+    # second definition, however its anchors are written.
+    duplicated_regex =
+      ~r/(~r|Regex\.compile!?)/
+      |> Regex.split(resource_source, trim: true)
+      |> Enum.drop(1)
+      |> Enum.any?(fn following ->
+        head = String.slice(following, 0, 120)
+        head =~ "user" and head =~ "role"
+      end)
+
+    refute duplicated_regex,
+           "ValidateMentionTargets must delegate to Mentions.valid_target?/1, not carry its own regex"
+  end
 end

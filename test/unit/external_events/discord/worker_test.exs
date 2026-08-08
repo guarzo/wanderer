@@ -480,4 +480,33 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerTest do
     assert [{sys_pid, _}] = Registry.lookup(WorkerSupervisor.registry(), sys.id)
     assert Process.alive?(sys_pid)
   end
+
+  describe "allowed_mentions hardening" do
+    test "a message with content but no allowed_mentions gets a safe default attached", %{
+      system: w
+    } do
+      WorkerSupervisor.deliver(w.id, [%{"content" => "test message"}])
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert body["allowed_mentions"] == %{"parse" => [], "users" => [], "roles" => []}
+    end
+
+    test "an explicit allowed_mentions is left untouched", %{system: w} do
+      explicit = %{"parse" => [], "users" => ["111111111111111111"], "roles" => []}
+
+      WorkerSupervisor.deliver(w.id, [
+        %{"content" => "<@111111111111111111> route opened", "allowed_mentions" => explicit}
+      ])
+
+      assert [{_url, body}] = wait_for_requests(1)
+      assert body["allowed_mentions"] == explicit
+    end
+
+    test "an embed-only message with no content is left without allowed_mentions", %{system: w} do
+      WorkerSupervisor.deliver(w.id, [message()])
+
+      assert [{_url, body}] = wait_for_requests(1)
+      refute Map.has_key?(body, "allowed_mentions")
+    end
+  end
 end
