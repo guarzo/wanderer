@@ -426,8 +426,6 @@ defmodule WandererAppWeb.Router do
     get "/", BlogController, :license
   end
 
-
-
   scope "/swaggerui" do
     pipe_through [:browser, :api_spec]
 

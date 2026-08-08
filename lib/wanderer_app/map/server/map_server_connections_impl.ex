@@ -19,13 +19,15 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
   @ns 9
   # @ccp2 10
   # @ccp3 11
-  @thera 12
+  # Wormhole classes live in WandererApp.SystemClass; kept here commented as
+  # part of the class-id reference table.
+  # @thera 12
   @c13 13
-  @sentinel 14
-  @barbican 15
-  @vidette 16
-  @conflux 17
-  @redoubt 18
+  # @sentinel 14
+  # @barbican 15
+  # @vidette 16
+  # @conflux 17
+  # @redoubt 18
   @a1 19
   @a2 20
   @a3 21
@@ -40,21 +42,9 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
 
   @jita 30_000_142
 
-  @wh_space [
-    @c1,
-    @c2,
-    @c3,
-    @c4,
-    @c5,
-    @c6,
-    @c13,
-    @thera,
-    @sentinel,
-    @barbican,
-    @vidette,
-    @conflux,
-    @redoubt
-  ]
+  # Derived, not restated: WandererApp.SystemClass owns the canonical list so
+  # the map server and server-side kill notifications cannot drift apart.
+  @wh_space WandererApp.SystemClass.wormhole_classes()
 
   @known_space [@hs, @ls, @ns, @pochven]
 
@@ -452,13 +442,18 @@ defmodule WandererApp.Map.Server.ConnectionsImpl do
     end)
   end
 
+  # Loop connections age exactly like wormholes: the auto-delete filter below
+  # already treats `@connection_type_loop` as EOL-eligible, but matching only on
+  # `@connection_type_wormhole` here meant a loop never advanced to EOL in the
+  # first place, so it was never collected.
   defp maybe_update_connection_time_status(map_id, %{
          id: connection_id,
          solar_system_source: solar_system_source_id,
          solar_system_target: solar_system_target_id,
          time_status: time_status,
-         type: @connection_type_wormhole
-       }) do
+         type: type
+       })
+       when type in [@connection_type_wormhole, @connection_type_loop] do
     connection_start_time = get_start_time(map_id, connection_id)
     new_time_status = get_new_time_status(connection_start_time, time_status)
 

@@ -49,6 +49,7 @@ defmodule WandererApp.Api.MapUserSettings do
 
     define(:update_hubs, action: :update_hubs)
     define(:read_by_map, action: :read_by_map)
+    define(:read_by_ready_character, action: :read_by_ready_character)
 
     define(:update_settings, action: :update_settings)
     define(:update_following_character, action: :update_following_character)
@@ -71,6 +72,15 @@ defmodule WandererApp.Api.MapUserSettings do
     read :read_by_map do
       argument(:map_id, :string, allow_nil?: false)
       filter(expr(map_id == ^arg(:map_id)))
+    end
+
+    # Array containment has to go through a fragment, but it still belongs in an
+    # Ash action: the repo previously hand-rolled an Ecto query against
+    # `map_user_settings_v1` and rebuilt partial structs from the result.
+    read :read_by_ready_character do
+      argument(:character_eve_id, :string, allow_nil?: false)
+
+      filter(expr(fragment("? = ANY(?)", ^arg(:character_eve_id), ready_characters)))
     end
 
     update :update_settings do

@@ -38,5 +38,7 @@ defmodule WandererApp.Api do
     resource WandererApp.Api.MapPing
     resource WandererApp.Api.MapInvite
     resource WandererApp.Api.MapWebhookSubscription
+    resource WandererApp.Api.MapDiscordNotification
+    resource WandererApp.Api.MapDiscordWebhook
   end
 end
