@@ -955,5 +955,59 @@ defmodule WandererAppWeb.MapNotificationsTest do
       route_wh = Enum.find(webhooks, &(&1.role == :route))
       assert route_wh.mention_targets == ["role:123456789012345678", "user:234567890123456789"]
     end
+
+    # The dead end `Router.route_destination/1`'s no-fallback rule creates: the
+    # form lets an owner enable route alerts, set a home system and max jumps,
+    # and save successfully while every alert is silently dropped for want of a
+    # destination. The hint is the only feedback in that state.
+    @hint "Route alerts need an enabled Route alert channel below"
+
+    test "enabling route alerts with no route channel warns that nothing will be sent", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      html =
+        view
+        |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+        |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      assert html =~ @hint
+    end
+
+    # The half that stops the hint becoming a permanent nag: once a usable
+    # destination exists it must go away.
+    test "the warning is gone once a route channel is configured", %{conn: conn, map: map} do
+      notification_with_webhooks(map, [:system, :route])
+      view = open_notifications(conn, map)
+
+      html =
+        view
+        |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+        |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      refute html =~ @hint
+    end
+
+    # A disabled `:route` row drops exactly like a missing one — `Router.usable/1`
+    # returns :drop for both — so the hint must key off usability, not existence.
+    test "a disabled route channel warns too, not just a missing one", %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system, :route])
+
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      route_wh = Enum.find(webhooks, &(&1.role == :route))
+      {:ok, _} = MapDiscordWebhook.set_enabled(route_wh, %{enabled?: false})
+
+      view = open_notifications(conn, map)
+
+      html =
+        view
+        |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+        |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      assert html =~ @hint
+    end
   end
 end

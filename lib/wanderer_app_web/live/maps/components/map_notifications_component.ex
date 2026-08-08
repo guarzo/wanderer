@@ -441,6 +441,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     assign(socket, :replacing_url?, Map.put(socket.assigns.replacing_url?, role, value))
   end
 
+  # Mirrors `Router.usable/1`, which drops on BOTH a missing `:route` row and a
+  # configured-but-disabled one. Scoping the hint to the missing-row case only
+  # would leave the disabled case as the same silent dead end, and disabling a
+  # destination is a click — much easier to do by accident than never creating
+  # one.
+  defp route_destination_ready?(nil), do: false
+  defp route_destination_ready?(%{enabled?: enabled?}), do: enabled?
+
   defp parse_role("character"), do: :character
   defp parse_role(:character), do: :character
   defp parse_role("route"), do: :route
@@ -918,6 +926,13 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             against "highsec" — only k-space systems on the path do. Enter the
             home system's numeric solar system ID; there is no name search for
             this field yet.
+          </p>
+          <p
+            :if={@notification && not route_destination_ready?(@webhooks[:route])}
+            class="text-xs text-amber-400"
+          >
+            Route alerts need an enabled Route alert channel below — they are
+            not sent to any other channel.
           </p>
         </div>
 
