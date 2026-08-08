@@ -123,7 +123,7 @@ const MapComp = ({
   const { handleRootContext, ...rootCtxProps } = useContextMenuRootHandlers({ onAddSystem, onCommand });
   const { handleConnectionContext, ...connectionCtxProps } = useContextMenuConnectionHandlers();
   const { update } = useMapState();
-  const { variant, gap, size, color } = useBackgroundVars(theme);
+  const { variant, gap, size, color, snapSizeX, snapSizeY } = useBackgroundVars(theme);
   const { isPanAndDrag, nodeComponent, connectionMode } = getBehaviorForTheme(theme || 'default');
 
   const refVars = useRef({ onChangeViewport });
@@ -241,13 +241,12 @@ const MapComp = ({
           onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
-          // TODO we need save into session all of this
-          //      and on any action do either
           defaultViewport={defaultViewport}
           edgeTypes={edgeTypes}
           nodeTypes={nodeTypes}
           connectionMode={connectionMode}
           snapToGrid
+          snapGrid={[snapSizeX, snapSizeY]}
           nodeDragThreshold={10}
           onNodeDragStop={handleDragStop}
           onSelectionDragStop={handleSelectionDragStop}

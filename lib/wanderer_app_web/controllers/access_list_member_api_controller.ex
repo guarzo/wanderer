@@ -12,6 +12,15 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
   require Logger
 
   # ------------------------------------------------------------------------
+  # V1 API Actions (for compatibility with versioned API router)
+  # ------------------------------------------------------------------------
+
+  def show_v1(conn, params), do: show(conn, params)
+  def create_v1(conn, params), do: create(conn, params)
+  def update_role_v1(conn, params), do: update_role(conn, params)
+  def delete_v1(conn, params), do: delete(conn, params)
+
+  # ------------------------------------------------------------------------
   # Inline Schemas
   # ------------------------------------------------------------------------
   @acl_member_create_request_schema %OpenApiSpex.Schema{
@@ -95,9 +104,100 @@ defmodule WandererAppWeb.AccessListMemberAPIController do
     required: ["ok"]
   }
 
+  @acl_member_show_response_schema %OpenApiSpex.Schema{
+    type: :object,
+    properties: %{
+      data: %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+          id: %OpenApiSpex.Schema{type: :string},
+          name: %OpenApiSpex.Schema{type: :string},
+          role: %OpenApiSpex.Schema{type: :string},
+          eve_character_id: %OpenApiSpex.Schema{type: :string},
+          eve_corporation_id: %OpenApiSpex.Schema{type: :string},
+          eve_alliance_id: %OpenApiSpex.Schema{type: :string},
+          inserted_at: %OpenApiSpex.Schema{type: :string, format: :date_time},
+          updated_at: %OpenApiSpex.Schema{type: :string, format: :date_time}
+        },
+        required: ["id", "name", "role"]
+      }
+    },
+    required: ["data"]
+  }
+
   # ------------------------------------------------------------------------
   # ENDPOINTS
   # ------------------------------------------------------------------------
+
+  @doc """
+  GET /api/acls/:acl_id/members/:member_id
+
+  Retrieves a specific ACL member by ACL ID and member external ID (EVE character/corp/alliance ID).
+  """
+  @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  operation(:show,
+    summary: "Get ACL Member",
+    description:
+      "Retrieves a specific ACL member identified by ACL ID and member external ID (EVE character, corporation, or alliance ID).",
+    parameters: [
+      acl_id: [
+        in: :path,
+        description: "Access List ID",
+        type: :string,
+        required: true
+      ],
+      member_id: [
+        in: :path,
+        description: "Member external ID (EVE character, corporation, or alliance ID)",
+        type: :string,
+        required: true
+      ]
+    ],
+    responses: [
+      ok: {
+        "ACL Member details",
+        "application/json",
+        @acl_member_show_response_schema
+      },
+      not_found: {
+        "Member not found",
+        "application/json",
+        %OpenApiSpex.Schema{
+          type: :object,
+          properties: %{error: %OpenApiSpex.Schema{type: :string}}
+        }
+      }
+    ]
+  )
+
+  def show(conn, %{"acl_id" => acl_id, "member_id" => external_id}) do
+    external_id_str = to_string(external_id)
+
+    membership_query =
+      AccessListMember
+      |> Ash.Query.new()
+      |> filter(access_list_id == ^acl_id)
+      |> filter(
+        eve_character_id == ^external_id_str or
+          eve_corporation_id == ^external_id_str or
+          eve_alliance_id == ^external_id_str
+      )
+
+    case Ash.read(membership_query) do
+      {:ok, [membership]} ->
+        json(conn, %{data: member_to_json(membership)})
+
+      {:ok, []} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Membership not found for given ACL and external id"})
+
+      {:error, error} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: inspect(error)})
+    end
+  end
 
   @doc """
   POST /api/acls/:acl_id/members
