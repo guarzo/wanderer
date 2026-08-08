@@ -340,8 +340,8 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
 
   defp transition(%{route_state: prev} = state, notification, {:qualifying, %{jumps: jumps} = q}) do
     case prev do
-      p when p in [:unknown, :none] -> alert(state, notification, :opened, q, jumps)
-      {:qualifying, old} when jumps < old -> alert(state, notification, :improved, q, jumps)
+      p when p in [:unknown, :none] -> alert(state, notification, :opened, q, jumps, nil)
+      {:qualifying, old} when jumps < old -> alert(state, notification, :improved, q, jumps, old)
       {:qualifying, _old} -> persist(%{state | route_state: {:qualifying, jumps}})
     end
   end
@@ -350,7 +350,12 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   # at-most-once posture (`handle_delivery_result/4`): a delivery failure loses
   # one alert rather than repeating it. `{:error, :not_running}` means nothing
   # was enqueued, so the write is reverted exactly as the dispatcher does.
-  defp alert(state, notification, kind, qualifying, jumps) do
+  # `previous_jumps` is the jump count this route is improving on, and is nil
+  # for `:opened` (there is no prior qualifying route to compare against). It
+  # exists only so the embed can say "7 → 2 jumps" instead of "2 jumps": the
+  # delta is what makes an `:improved` alert worth reading, and the transition
+  # table above is the only place that still knows it.
+  defp alert(state, notification, kind, qualifying, jumps, previous_jumps) do
     # `state` still carries the PREVIOUS route_state here — captured as
     # `prev_state` before the optimistic write, so a reverted delivery
     # restores exactly what was there before this transition, not the new
@@ -360,10 +365,19 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
 
     case Router.route_destination(notification) do
       {:ok, webhook} ->
-        deliver_alert(new_state, prev_state, notification, webhook, kind, qualifying, jumps)
+        deliver_alert(
+          new_state,
+          prev_state,
+          notification,
+          webhook,
+          kind,
+          qualifying,
+          jumps,
+          previous_jumps
+        )
 
       # Also "nothing was enqueued", so it reverts exactly like
-      # `deliver_alert/7`'s {:error, :not_running}. Keeping the optimistic
+      # `deliver_alert/8`'s {:error, :not_running}. Keeping the optimistic
       # write here would mean the same route at the same jump count takes the
       # silent `{:qualifying, _old}` branch forever once the destination is
       # usable again, and is never announced.
@@ -372,10 +386,20 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
     end
   end
 
-  defp deliver_alert(state, prev_state, notification, webhook, kind, qualifying, jumps) do
+  defp deliver_alert(
+         state,
+         prev_state,
+         notification,
+         webhook,
+         kind,
+         qualifying,
+         jumps,
+         previous_jumps
+       ) do
     alert = %{
       kind: kind,
       jumps: jumps,
+      previous_jumps: previous_jumps,
       path: qualifying.path,
       exit_system: qualifying.exit_system,
       map_id: state.map_id,
