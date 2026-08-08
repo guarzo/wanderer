@@ -153,9 +153,28 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     # values written by a background task, not user input, and keeping them off
     # the user-facing action means a crafted form submit cannot claim this
     # destination posts to `#some-innocent-channel`.
+    #
+    # `accept` alone does not achieve that. AshCloak's `SetUpEncryption`
+    # transformer rewrites *every* create/update/destroy action on this
+    # resource: it removes the cloaked attribute from `accept` and re-adds it
+    # as an action *argument* carrying the encrypting change. So `webhook_url`
+    # is submittable here no matter what `accept` lists, and the redirect this
+    # action was split out to prevent has to be rejected explicitly.
     update :cache_channel_info do
       require_atomic? false
       accept [:channel_id, :channel_label]
+
+      # Checks the argument map rather than `absent(:webhook_url)`: that builtin
+      # falls back to the attribute already on the row, so it would reject every
+      # call. Only an explicitly submitted argument lands in `arguments`.
+      validate fn changeset, _context ->
+        if Map.has_key?(changeset.arguments, :webhook_url) do
+          {:error,
+           field: :webhook_url, message: "cannot be changed while caching channel information"}
+        else
+          :ok
+        end
+      end
     end
 
     # Increments the counter from the value re-read inside the change rather

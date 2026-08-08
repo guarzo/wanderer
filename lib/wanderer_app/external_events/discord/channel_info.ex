@@ -226,11 +226,15 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   defp resolve_uncached(url) do
     case fetch_webhook(url) do
       {:ok, %{"channel_id" => channel_id} = webhook} when is_binary(channel_id) ->
-        %{
-          label: bot_channel_label(channel_id) || webhook_label(webhook) || masked_label(url),
-          channel_id: channel_id,
-          source: :resolved
-        }
+        # Reachable and it named a channel, but a name is a separate question:
+        # the bot may not share the guild and the webhook itself may be
+        # unnamed. Falling back to the masked hint here must NOT count as
+        # resolved, or the hint would be cached for the full hour and written
+        # over whatever real label the row already holds.
+        case bot_channel_label(channel_id) || webhook_label(webhook) do
+          nil -> %{label: masked_label(url), channel_id: channel_id, source: :masked}
+          label -> %{label: label, channel_id: channel_id, source: :resolved}
+        end
 
       {:ok, webhook} ->
         # Reachable, but Discord did not hand back a channel — nothing to ask
@@ -341,10 +345,20 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   defp persist(%MapDiscordWebhook{id: id} = webhook, %{source: :resolved} = info)
        when is_binary(id) do
     if webhook.channel_id != info.channel_id or webhook.channel_label != info.label do
-      MapDiscordWebhook.cache_channel_info(webhook, %{
-        channel_id: info.channel_id,
-        channel_label: info.label
-      })
+      case MapDiscordWebhook.cache_channel_info(webhook, %{
+             channel_id: info.channel_id,
+             channel_label: info.label
+           }) do
+        {:ok, _record} ->
+          :ok
+
+        {:error, error} ->
+          # A rejected write is silent otherwise: the row keeps its stale label
+          # and every refresh retries the same rejected change forever.
+          Logger.warning(
+            "[ChannelInfo] could not persist identity for webhook #{id}: #{error_summary(error)}"
+          )
+      end
     end
 
     :ok
@@ -361,6 +375,23 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   # not already imply, and writing it would overwrite a good label that a
   # single unreachable moment produced no better answer than.
   defp persist(_webhook_or_url, _info), do: :ok
+
+  # Never `inspect/1` an Ash error: `InvalidAttribute` carries the submitted
+  # value, and `sensitive? true` does not redact it. Only this action's two
+  # fields could appear here and neither is a credential, but the rule is worth
+  # keeping mechanical rather than reasoning about it at each call site — so
+  # this reports field names and messages and never a value.
+  defp error_summary(%{errors: errors}) when is_list(errors) and errors != [] do
+    Enum.map_join(errors, "; ", fn
+      %{field: field, message: message} when not is_nil(field) -> "#{field}: #{message}"
+      %{message: message} -> to_string(message)
+      other -> error_summary(other)
+    end)
+  end
+
+  defp error_summary(%struct_name{}), do: inspect(struct_name)
+  defp error_summary(error) when is_atom(error), do: to_string(error)
+  defp error_summary(_error), do: "unknown error"
 
   defp persisted(%MapDiscordWebhook{channel_label: label, channel_id: channel_id}) do
     case present(label) do

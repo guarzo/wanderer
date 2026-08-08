@@ -55,6 +55,13 @@ defmodule WandererApp.ExternalEvents.Discord.HttpClient do
     # the delivery timeout.
     @read_timeout 5_000
 
+    # Checkout must leave room for the read inside the same budget. Finch
+    # defaults `pool_timeout` to 5_000, which on this pool — shared with the
+    # far busier delivery path — would let a GET spend @read_timeout waiting
+    # for a connection and @read_timeout again reading, i.e. double the leash
+    # the identity read is supposed to have.
+    @pool_timeout 2_000
+
     @impl true
     def post(url, body) do
       headers = [{"content-type", "application/json"}]
@@ -81,7 +88,10 @@ defmodule WandererApp.ExternalEvents.Discord.HttpClient do
     def get(url, headers) do
       :get
       |> Finch.build(url, headers)
-      |> Finch.request(WandererApp.Finch.Discord, receive_timeout: @read_timeout)
+      |> Finch.request(WandererApp.Finch.Discord,
+        receive_timeout: @read_timeout,
+        pool_timeout: @pool_timeout
+      )
       |> case do
         {:ok, %Finch.Response{status: status, body: body}} when is_binary(body) ->
           {:ok, status, body}
