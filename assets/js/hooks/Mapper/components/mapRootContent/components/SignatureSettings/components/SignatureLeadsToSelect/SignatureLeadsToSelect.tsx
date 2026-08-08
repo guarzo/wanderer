@@ -8,7 +8,7 @@ import { SystemView } from '@/hooks/Mapper/components/ui-kit';
 import classes from './SignatureLeadsToSelect.module.scss';
 import { useLoadSystemStatic } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic.ts';
 import { SystemSignature } from '@/hooks/Mapper/types';
-import { WORMHOLES_ADDITIONAL_INFO_BY_CLASS_ID } from '@/hooks/Mapper/components/map/constants.ts';
+import { WORMHOLES_ADDITIONAL_INFO_BY_CLASS_ID } from '@/hooks/Mapper/components/map/constants';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 
 // @ts-ignore
