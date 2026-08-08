@@ -68,6 +68,19 @@
     stroke-dasharray: var(--rf-edge-bridge-dasharray, 10 5);
     stroke-linecap: var(--rf-edge-bridge-linecap, round);
   }
+
+  &.Loop {
+    stroke: #80a5c5;
+    stroke-dasharray: 5, 5;
+    z-index: -1;
+  }
+
+  &.RallyRoute {
+    stroke: #00d4ff;
+    stroke-width: 5px;
+    filter: drop-shadow(0 0 3px rgba(0, 212, 255, 0.5));
+    animation: pulseRally 2s ease-in-out infinite;
+  }
 }
 
 .EdgePathFront {
@@ -97,6 +110,12 @@
     stroke: var(--rf-edge-gate-inner, #1c1e15);
   }
 
+  &.Loop {
+    stroke: #2c3844;
+    stroke-dasharray: 5, 5;
+    z-index: -1;
+  }
+
   &.Hovered {
     stroke: var(--rf-edge-mass-hover, #4e5d6c);
     stroke-width: var(--rf-edge-mass-normal-width, 2px);
@@ -120,6 +139,11 @@
     &.Hovered {
       stroke-width: var(--rf-edge-mass-normal-thick-width, 3px);
     }
+  }
+
+  &.RallyRoute {
+    stroke: #0099cc;
+    stroke-width: 3px;
   }
 }
 
@@ -160,4 +184,16 @@
   width: var(--rf-edge-label-icon-size, 8px);
   height: var(--rf-edge-label-icon-size, 8px);
   font-size: var(--rf-edge-label-icon-font-size, 8px);
+}
+
+@keyframes pulseRally {
+  0% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.8;
+  }
 }
