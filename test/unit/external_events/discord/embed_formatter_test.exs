@@ -1,5 +1,5 @@
 defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
-  use WandererApp.DataCase, async: false
+  use ExUnit.Case, async: true
 
   alias WandererApp.ExternalEvents.Discord.EmbedFormatter
   alias WandererAppWeb.Factory
@@ -758,6 +758,16 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
       assert Enum.all?(with_sections, &(embed_text_total(&1["embeds"]) <= 6000))
     end
   end
+end
+
+# `format_route_alert/2` seeds real maps and map systems, so this half needs the
+# DataCase sandbox. It lives in its own module to keep the pure-formatting tests
+# above on `async: true`.
+defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
+  use WandererApp.DataCase, async: false
+
+  alias WandererApp.ExternalEvents.Discord.EmbedFormatter
+  alias WandererAppWeb.Factory
 
   describe "format_route_alert/2" do
     @home 31_000_005
