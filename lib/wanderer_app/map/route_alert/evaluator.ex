@@ -116,6 +116,14 @@ defmodule WandererApp.Map.RouteAlert.Evaluator do
           {:ok, value} -> value >= @highsec_threshold
           {:error, _reason} -> false
         end
+
+      # A static record carrying a non-wormhole class but no `:security` key at
+      # all. Fails closed for the same reason a missing record does: this module
+      # will not vouch for a system it cannot classify (design: "Failure
+      # posture"). Without this clause the `case` raises instead, which would
+      # take the whole solve down rather than disqualifying one route.
+      {:ok, _static} ->
+        false
     end
   end
 
@@ -145,9 +153,13 @@ defmodule WandererApp.Map.RouteAlert.Evaluator do
   defp parse_security(security) when is_integer(security), do: {:ok, security * 1.0}
 
   defp parse_security(security) when is_binary(security) do
-    case Float.parse(security) do
-      {value, _rest} -> {:ok, value}
-      :error -> {:error, :invalid_security}
+    # Only a fully-consumed parse counts. `Float.parse("0.9invalid")` returns
+    # {0.9, "invalid"}, so accepting the remainder would read a corrupt static
+    # record as highsec — failing OPEN on exactly the value this module exists
+    # to be careful about.
+    case Float.parse(String.trim(security)) do
+      {value, ""} -> {:ok, value}
+      _ -> {:error, :invalid_security}
     end
   end
 

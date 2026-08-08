@@ -115,6 +115,35 @@ defmodule WandererApp.Map.RouteAlert.EvaluatorTest do
 
       assert Evaluator.evaluate(result, max_jumps: 5) == :none
     end
+
+    # `Float.parse("0.9invalid")` returns {0.9, "invalid"}. Reading the value
+    # and discarding the remainder would call a corrupt static record highsec.
+    test "a security string with trailing garbage disqualifies the route" do
+      origin = 30_000_001
+      hop = 30_000_002
+      static_data = [static(origin, 0.9), static(hop, "0.9invalid")]
+
+      result = solver_result([entry(origin, [hop])], static_data)
+
+      assert Evaluator.evaluate(result, max_jumps: 5) == :none
+    end
+
+    # A non-wormhole static record with no `:security` key at all: the class
+    # guard does not fire, and there is nothing to parse. Must disqualify
+    # rather than raise a CaseClauseError that takes the whole solve down.
+    test "a non-wormhole static record with no security key disqualifies the route" do
+      origin = 30_000_001
+      hop = 30_000_002
+
+      static_data = [
+        static(origin, 0.9),
+        %{solar_system_id: hop, system_class: @hs_class}
+      ]
+
+      result = solver_result([entry(origin, [hop])], static_data)
+
+      assert Evaluator.evaluate(result, max_jumps: 5) == :none
+    end
   end
 
   describe "evaluate/2 — jump counting" do
