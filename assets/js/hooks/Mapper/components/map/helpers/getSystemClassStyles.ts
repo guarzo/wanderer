@@ -3,7 +3,7 @@ import {
   SECURITY_FOREGROUND_CLASSES,
   SYSTEM_CLASS_STYLES,
   WORMHOLE_CLASS_STYLES,
-} from '@/hooks/Mapper/components/map/constants.ts';
+} from '@/hooks/Mapper/components/map/constants';
 import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormholeSpace.ts';
 import { SolarSystemStaticInfo } from '@/hooks/Mapper/types';
 
@@ -20,4 +20,3 @@ export const getSystemClassStyles = ({ systemClass, security }: SystemClassStyle
 
   return SYSTEM_CLASS_STYLES[systemClass];
 };
-
