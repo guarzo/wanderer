@@ -812,38 +812,84 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
       alert = %{
         kind: :opened,
         jumps: 4,
+        previous_jumps: nil,
         path: [@home, @wh_hop, @exit_system, @jita],
         exit_system: @exit_system,
         map_id: map.id,
         home_system_id: @home
       }
 
-      %{alert: alert}
+      %{alert: alert, map: map}
     end
 
-    test "an opened alert is a single green embed titled with the jump count", %{alert: alert} do
+    test "an opened alert is a single blue embed titled origin → destination · jumps", %{
+      alert: alert
+    } do
       assert [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
 
-      assert embed["title"] == "Highsec route to Jita — 4 jumps"
-      assert embed["color"] == 0x2ECC71
+      assert embed["author"] == %{"name" => "Route opened"}
+      assert embed["title"] == "J115405 → Jita · 4 jumps"
+      assert embed["color"] == 0x2E9BD6
     end
 
-    test "the path renders home through Jita using map-local names for wormhole hops", %{
+    # Route alerts share a channel with kill embeds. Reusing the kill green made
+    # the stripe — the fastest signal in the message — say "kill" on a logistics
+    # alert, so the two must not converge again.
+    test "a route alert is never coloured like a kill or a loss", %{alert: alert} do
+      [%{"embeds" => [opened]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      [%{"embeds" => [improved]}] =
+        EmbedFormatter.format_route_alert(
+          %{alert | kind: :improved, previous_jumps: 7, jumps: 3},
+          []
+        )
+
+      kill_palette = [0xE74C3C, 0x2ECC71, 0xFF0000, 0xFF6600, 0xFFFF00, 0x00FF00, 0x808080]
+
+      refute opened["color"] in kill_palette
+      refute improved["color"] in kill_palette
+      refute opened["color"] == improved["color"]
+    end
+
+    test "the path renders home through Jita as the description, destination bolded", %{
       alert: alert
     } do
       [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
 
-      path_field = Enum.find(embed["fields"], &(&1["name"] == "Path"))
-      assert path_field["value"] == "J115405 → J132412 → Amarr → Jita"
+      assert embed["description"] == "J115405 → J132412 → Amarr → **Jita**"
+    end
+
+    test "the embed carries the solver guarantee and a timestamp", %{alert: alert} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      assert embed["footer"] == %{"text" => EmbedFormatter.route_guarantee()}
+      assert {:ok, _dt, _offset} = DateTime.from_iso8601(embed["timestamp"])
+    end
+
+    # The footer states a safety guarantee. If the solver's pinned settings ever
+    # relax, the footer becomes a lie that reads exactly as authoritative as it
+    # did when true — so the string is pinned to the settings it describes.
+    test "the guarantee footer matches the solver settings it claims" do
+      settings = WandererApp.Map.RouteAlert.Evaluator.solver_settings()
+
+      Enum.each(EmbedFormatter.route_guarantee_settings(), fn {key, required} ->
+        assert Map.fetch!(settings, key) == required,
+               "@route_guarantee claims #{key} == #{required}, but the solver has #{inspect(Map.get(settings, key))}"
+      end)
+
+      # No ship-class claim: `include_cruise: true` means a cruiser-sized hole
+      # qualifies, so a freighter is not guaranteed to fit.
+      assert settings.include_cruise == true
+      refute EmbedFormatter.route_guarantee() =~ ~r/freighter/i
     end
 
     # route_max_jumps tops out at 20, so a path is at most 21 systems — but
     # MapSystem's custom_name/temporary_name carry no length constraint, so an
-    # ordinary long name breaches Discord's 1024-char field bound and the POST
-    # is rejected 400 (which counts toward @max_consecutive_failures and can
+    # ordinary long name breaches Discord's description bound and the POST is
+    # rejected 400 (which counts toward @max_consecutive_failures and can
     # auto-disable the destination).
-    test "a path too long for Discord's field bound is truncated", %{alert: alert} do
-      long_name = String.duplicate("A", 60)
+    test "a path too long for Discord's description bound is truncated", %{alert: alert} do
+      long_name = String.duplicate("A", 250)
 
       ids = Enum.map(1..21, &(32_000_000 + &1))
 
@@ -860,25 +906,81 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
       [%{"embeds" => [embed]}] =
         EmbedFormatter.format_route_alert(%{alert | path: ids, jumps: 20}, [])
 
-      path_field = Enum.find(embed["fields"], &(&1["name"] == "Path"))
-
-      assert String.length(path_field["value"]) == 1024
-      assert String.ends_with?(path_field["value"], "…")
+      assert String.length(embed["description"]) == 4096
+      assert String.ends_with?(embed["description"], "…")
     end
 
-    test "the exit system gets its own field", %{alert: alert} do
+    test "the exit field names the exit and its distance from the destination", %{alert: alert} do
       [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
 
-      exit_field = Enum.find(embed["fields"], &(&1["name"] == "Exit system"))
-      assert exit_field["value"] == "Amarr"
+      exit_field = Enum.find(embed["fields"], &(&1["name"] == "Exit"))
+      assert exit_field["value"] == "Amarr · 1 gate from Jita"
     end
 
-    test "an improved alert titles with 'improved' and carries no content", %{alert: alert} do
-      improved = %{alert | kind: :improved, jumps: 3}
+    # The old embed always rendered this field, so a chain popping straight into
+    # Jita produced "Exit system: Jita" directly under a path ending in Jita.
+    test "the exit field is omitted when the exit is the destination", %{alert: alert} do
+      direct = %{alert | path: [@home, @wh_hop, @jita], jumps: 2, exit_system: @jita}
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(direct, [])
+
+      refute Map.has_key?(embed, "fields")
+      assert embed["description"] == "J115405 → J132412 → **Jita**"
+    end
+
+    test "a one-jump route says 'jump', not 'jumps'", %{alert: alert} do
+      single = %{alert | path: [@home, @jita], jumps: 1, exit_system: @jita}
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(single, [])
+
+      assert embed["title"] == "J115405 → Jita · 1 jump"
+    end
+
+    test "the title links back to the map that raised the alert", %{alert: alert, map: map} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      assert embed["url"] =~ map.slug
+      assert %URI{scheme: scheme} = URI.parse(embed["url"])
+      assert scheme in ["http", "https"]
+    end
+
+    # Env.base_url/0 falls back to the literal placeholder "<BASE_URL>" when
+    # unconfigured. Emitting "<BASE_URL>/slug" as an embed url is a 400 from
+    # Discord, which is a delivery failure — so an unusable base url must drop
+    # the link rather than produce one.
+    test "no url is emitted when the base url is not a usable http(s) url", %{alert: alert} do
+      original = Application.get_env(:wanderer_app, :web_app_url)
+      Application.put_env(:wanderer_app, :web_app_url, "<BASE_URL>")
+      on_exit(fn -> Application.put_env(:wanderer_app, :web_app_url, original) end)
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      refute Map.has_key?(embed, "url")
+    end
+
+    test "an improved alert shows the delta it improved on and carries no content", %{
+      alert: alert
+    } do
+      improved = %{alert | kind: :improved, jumps: 3, previous_jumps: 7}
 
       assert [%{"embeds" => [embed]} = message] = EmbedFormatter.format_route_alert(improved, [])
-      assert embed["title"] == "Highsec route to Jita improved — 3 jumps"
+      assert embed["author"] == %{"name" => "Route shortened"}
+      assert embed["title"] == "J115405 → Jita · 7 → 3 jumps"
+      assert embed["color"] == 0x2A6E90
       refute Map.has_key?(message, "content")
+    end
+
+    # The delta is additive, not required: an improved alert whose previous
+    # count is somehow absent still renders a correct title rather than raising
+    # inside the formatter, where the failure would cost the whole alert.
+    test "an improved alert without a previous count falls back to the plain total", %{
+      alert: alert
+    } do
+      improved = %{alert | kind: :improved, jumps: 3, previous_jumps: nil}
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(improved, [])
+
+      assert embed["title"] == "J115405 → Jita · 3 jumps"
     end
 
     test "an opened alert with configured targets carries a content ping and allowed_mentions", %{
@@ -951,8 +1053,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
 
       [%{"embeds" => [embed]}] = [message]
 
-      assert embed["fields"] |> Enum.find(&(&1["name"] == "Path")) |> Map.get("value") =~
-               "@everyone"
+      assert embed["description"] =~ "@everyone"
     end
 
     # `Env.discord_mentions_enabled?/0` reads a nested `:discord_mentions_enabled`
