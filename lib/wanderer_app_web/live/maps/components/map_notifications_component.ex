@@ -2,9 +2,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   @moduledoc """
   Settings tab for per-map Discord kill notifications.
 
-  A map has one notification record and up to two destinations: a `:system`
-  webhook (kills in systems on the map) and an optional `:character` webhook
-  (kills involving characters tracked on the map). Each destination has its own
+  A map has one notification record and up to three destinations: a `:system`
+  webhook (kills in systems on the map), an optional `:character` webhook
+  (kills involving characters tracked on the map) and an optional `:route`
+  webhook (highsec-route-to-Jita alerts). Each destination has its own
   URL, enable flag, delivery status and test button, because an owner needs to
   be able to diagnose one channel without touching the other.
 
@@ -20,13 +21,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   alias WandererApp.Api.MapDiscordWebhook
   alias WandererApp.Api.MapSolarSystem
   alias WandererApp.Esi.CorporationSearch
+  alias WandererApp.ExternalEvents.Discord.Mentions
 
   @excluded_select_id "excluded_system_live_select_component"
   @focus_corp_select_id "focus_corp_live_select_component"
   @min_search_length 2
   @max_search_results 20
 
-  @roles [:system, :character]
+  @roles [:system, :character, :route]
 
   # Shown under the corporation box when the lookup itself failed, as opposed to
   # succeeding with no matches.
@@ -95,7 +97,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     # rendered field always submits a value and Phoenix keeps the last one.
     attrs = %{
       wh_only: checked?(params["wh_only"]),
-      enabled?: checked?(params["enabled"])
+      enabled?: checked?(params["enabled"]),
+      route_alerts_enabled?: checked?(params["route_alerts_enabled"]),
+      home_system_id: parse_home_system_id(params["home_system_id"]),
+      route_max_jumps: parse_route_max_jumps(params["route_max_jumps"])
     }
 
     result =
@@ -127,6 +132,16 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     {:noreply, put_replacing(socket, parse_role(role), true)}
   end
 
+  # Purely client-display state: which fields are visually shown, driven by
+  # the CHECKBOX's own `phx-change` (not the whole form's) so ticking or
+  # unticking this one box is the only thing that round-trips — typing in the
+  # numeric fields below it does not. Nothing here is persisted; the actual
+  # value is only ever written by "save", same as every other field on this
+  # form.
+  def handle_event("toggle-route-alerts", %{"notification" => params}, socket) do
+    {:noreply, assign(socket, :route_toggle, checked?(params["route_alerts_enabled"]))}
+  end
+
   def handle_event("save-webhook", %{"role" => role, "webhook" => params}, socket) do
     role = parse_role(role)
 
@@ -147,19 +162,22 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   end
 
   def handle_event("remove-webhook", %{"role" => role}, socket) do
-    # Only the `:character` destination is removable. `:system` is required —
+    # `:character` and `:route` are removable; `:system` is required —
     # removing notifications entirely means deleting the parent record.
+    # Removing `:character` falls back to `:system`; removing `:route` does
+    # NOT — route alerts stop entirely, because the Router deliberately has no
+    # fallback for chain topology.
     role = parse_role(role)
 
     case {role, socket.assigns.webhooks[role]} do
-      {:character, %{} = webhook} ->
+      {role, %{} = webhook} when role in [:character, :route] ->
         case MapDiscordWebhook.destroy(webhook) do
           :ok ->
             {:noreply,
              socket
              |> assign_notification(reload_notification(socket.assigns.map_id))
              |> assign(:error, nil)
-             |> assign(:flash_message, "Character destination removed.")}
+             |> assign(:flash_message, "#{role_label(role)} destination removed.")}
 
           {:error, error} ->
             {:noreply,
@@ -340,23 +358,70 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     end
   end
 
-  defp save_webhook(rec, nil, role, %{"webhook_url" => url}) when is_binary(url) and url != "" do
-    MapDiscordWebhook.create(%{notification_id: rec.id, role: role, webhook_url: url})
+  defp save_webhook(rec, nil, role, %{"webhook_url" => url} = params)
+       when is_binary(url) and url != "" do
+    with {:ok, targets} <- parse_mention_targets(params["mention_targets"]) do
+      MapDiscordWebhook.create(%{
+        notification_id: rec.id,
+        role: role,
+        webhook_url: url,
+        mention_targets: targets
+      })
+    end
   end
 
   defp save_webhook(_rec, nil, _role, _params), do: {:error, "Enter a webhook URL first."}
 
   defp save_webhook(_rec, webhook, _role, %{"webhook_url" => url} = params)
        when is_binary(url) and url != "" do
-    MapDiscordWebhook.update(webhook, %{
-      webhook_url: url,
-      enabled?: checked?(params["enabled"])
-    })
+    with {:ok, targets} <- parse_mention_targets(params["mention_targets"]) do
+      MapDiscordWebhook.update(webhook, %{
+        webhook_url: url,
+        enabled?: checked?(params["enabled"]),
+        mention_targets: targets
+      })
+    end
   end
 
+  # This branch used to call `MapDiscordWebhook.set_enabled/2`, whose accept
+  # list is `[:enabled?]` only. Now that this row can also carry
+  # `mention_targets`, it goes through the general `update` action instead so
+  # a mention-only edit (no URL change) still saves — `set_enabled` itself is
+  # untouched and still used by other callers (see `router_test.exs`,
+  # `worker_test.exs`, etc.), this is only this handler's own dispatch.
   defp save_webhook(_rec, webhook, _role, params) do
-    MapDiscordWebhook.set_enabled(webhook, %{enabled?: checked?(params["enabled"])})
+    with {:ok, targets} <- parse_mention_targets(params["mention_targets"]) do
+      MapDiscordWebhook.update(webhook, %{
+        enabled?: checked?(params["enabled"]),
+        mention_targets: targets
+      })
+    end
   end
+
+  # Empty/whitespace entries are dropped silently — that is not "the silent
+  # drop" the task warns against, which is about a MALFORMED entry (one that
+  # does not match `Mentions.valid_target?/1`) disappearing without telling
+  # the user. A blank entry from "role:123, " trailing-comma typing is not
+  # malformed input, it is nothing.
+  defp parse_mention_targets(raw) when is_binary(raw) do
+    targets =
+      raw
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    case Enum.find(targets, &(not Mentions.valid_target?(&1))) do
+      nil ->
+        {:ok, targets}
+
+      bad ->
+        {:error,
+         "\"#{bad}\" is not a valid mention target. Use user:<id> or role:<id> with the " <>
+           "Discord id (17-20 digits) — handles like @name do not work here."}
+    end
+  end
+
+  defp parse_mention_targets(_), do: {:ok, []}
 
   # Creating the config and its required `:system` destination is one user
   # action. Task 2's `create` takes `webhook_url` as a required argument and
@@ -377,9 +442,22 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     assign(socket, :replacing_url?, Map.put(socket.assigns.replacing_url?, role, value))
   end
 
+  # Mirrors `Router.usable/1`, which drops on BOTH a missing `:route` row and a
+  # configured-but-disabled one. Scoping the hint to the missing-row case only
+  # would leave the disabled case as the same silent dead end, and disabling a
+  # destination is a click — much easier to do by accident than never creating
+  # one.
+  defp route_destination_ready?(nil), do: false
+  defp route_destination_ready?(%{enabled?: enabled?}), do: enabled?
+
   defp parse_role("character"), do: :character
   defp parse_role(:character), do: :character
+  defp parse_role("route"), do: :route
+  defp parse_role(:route), do: :route
   defp parse_role(_), do: :system
+
+  defp role_label(:character), do: "Character"
+  defp role_label(:route), do: "Route"
 
   defp reload_notification(map_id) do
     case MapDiscordNotification.by_map(map_id) do
@@ -417,6 +495,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     socket
     |> assign(:notification, notification)
     |> assign(:webhooks, webhooks)
+    |> assign(:route_toggle, !is_nil(notification) and notification.route_alerts_enabled?)
     |> assign(:excluded_systems, excluded_system_labels(notification))
     |> assign(:focus_corps, focus_corp_labels(notification))
     |> assign(:form, notification_form(notification))
@@ -438,7 +517,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     assign(socket, :replacing_url?, replacing)
   end
 
-  defp load_webhooks(nil), do: %{system: nil, character: nil}
+  defp load_webhooks(nil), do: %{system: nil, character: nil, route: nil}
 
   defp load_webhooks(%{id: notification_id}) do
     records =
@@ -455,10 +534,44 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       %{
         "webhook_url" => "",
         "wh_only" => is_nil(notification) or notification.wh_only,
-        "enabled" => is_nil(notification) or notification.enabled?
+        "enabled" => is_nil(notification) or notification.enabled?,
+        # Unlike wh_only/enabled, this one defaults OFF (Task 3: `default:
+        # false`) — `is_nil(notification) or ...` would default it ON, which
+        # is backwards for this field.
+        "route_alerts_enabled" => !is_nil(notification) and notification.route_alerts_enabled?,
+        "home_system_id" => home_system_id_value(notification),
+        "route_max_jumps" => route_max_jumps_value(notification)
       },
       as: :notification
     )
+  end
+
+  defp home_system_id_value(nil), do: ""
+  defp home_system_id_value(%{home_system_id: nil}), do: ""
+  defp home_system_id_value(%{home_system_id: id}), do: to_string(id)
+
+  defp route_max_jumps_value(nil), do: 5
+  defp route_max_jumps_value(%{route_max_jumps: n}), do: n
+
+  # Blank or non-numeric input clears the home system rather than raising —
+  # the Ash "required when enabled" validation is what reports that, not this
+  # parse step, matching how `add-excluded`/`add-focus-corp` already leave
+  # rejection to a later stage rather than crashing on bad input here.
+  defp parse_home_system_id(raw) do
+    case Integer.parse(to_string(raw || "")) do
+      {id, ""} -> id
+      _ -> nil
+    end
+  end
+
+  # Falls back to the column default (5) on blank/non-numeric input rather
+  # than sending `nil` into an `allow_nil?: false` attribute, which Ash would
+  # reject outright.
+  defp parse_route_max_jumps(raw) do
+    case Integer.parse(to_string(raw || "")) do
+      {n, ""} -> n
+      _ -> 5
+    end
   end
 
   defp webhook_forms(webhooks) do
@@ -469,7 +582,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         to_form(
           %{
             "webhook_url" => "",
-            "enabled" => is_nil(webhook) or webhook.enabled?
+            "enabled" => is_nil(webhook) or webhook.enabled?,
+            "mention_targets" => mention_targets_value(webhook)
           },
           as: :webhook
         )
@@ -477,6 +591,9 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       {role, form}
     end)
   end
+
+  defp mention_targets_value(nil), do: ""
+  defp mention_targets_value(%{mention_targets: targets}), do: Enum.join(targets, ", ")
 
   # Mirrors the ACL live_select pattern in maps_live: search server-side, feed
   # `{label, value}` options back into the component.
@@ -650,6 +767,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   attr :form, :any, required: true
   attr :replacing?, :boolean, required: true
   attr :removable?, :boolean, required: true
+  attr :show_mentions?, :boolean, default: false
   attr :myself, :any, required: true
 
   defp webhook_row(assigns) do
@@ -684,6 +802,23 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         </div>
 
         <.input :if={@webhook} field={wf[:enabled]} type="checkbox" label="Enabled" />
+
+        <div class={if @show_mentions?, do: "flex flex-col gap-1", else: "hidden"}>
+          <.input
+            field={wf[:mention_targets]}
+            type="text"
+            label="Mentions (optional)"
+            placeholder="role:123456789012345678, user:234567890123456789"
+          />
+          <p class="text-xs opacity-70">
+            Comma-separated <code>user:&lt;id&gt;</code>
+            or <code>role:&lt;id&gt;</code>
+            Discord snowflakes to ping when a route
+            opens. Handles like <code>@name</code>
+            do not work — Discord
+            requires the numeric id. Leave empty to post with no ping.
+          </p>
+        </div>
 
         <.button type="submit" class="self-start">{if @webhook, do: "Save", else: "Add"}</.button>
       </.form>
@@ -764,6 +899,44 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         <.input field={f[:wh_only]} type="checkbox" label="Only wormhole kills" />
         <.input field={f[:enabled]} type="checkbox" label="Enabled for this map" />
 
+        <.input
+          field={f[:route_alerts_enabled]}
+          type="checkbox"
+          label="Route alerts (highsec route to Jita)"
+          phx-change="toggle-route-alerts"
+          phx-target={@myself}
+        />
+
+        <div class={if @route_toggle, do: "flex flex-col gap-2", else: "hidden"}>
+          <.input
+            field={f[:home_system_id]}
+            type="number"
+            label="Home system (solar system ID)"
+            placeholder="e.g. 31000005"
+          />
+          <.input
+            field={f[:route_max_jumps]}
+            type="number"
+            min="1"
+            max="20"
+            label="Max jumps to Jita (inclusive)"
+          />
+          <p class="text-xs opacity-70">
+            Posts when a highsec-only route this length or shorter opens from
+            the home system to Jita. Wormhole hops on the way don't count
+            against "highsec" — only k-space systems on the path do. Enter the
+            home system's numeric solar system ID; there is no name search for
+            this field yet.
+          </p>
+          <p
+            :if={@notification && not route_destination_ready?(@webhooks[:route])}
+            class="text-xs text-amber-400"
+          >
+            Route alerts need an enabled Route alert channel below — they are
+            not sent to any other channel.
+          </p>
+        </div>
+
         <.button type="submit" class="self-start">Save</.button>
       </.form>
 
@@ -791,6 +964,24 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         form={@webhook_forms[:character]}
         replacing?={@replacing_url?[:character]}
         removable?={true}
+        myself={@myself}
+      />
+
+      <.webhook_row
+        :if={@notification}
+        role={:route}
+        title="Route alert channel (optional)"
+        help={
+          "Receives an alert when a highsec-only route opens from the home system to Jita. " <>
+            "This message names every system on the route in order — treat this channel as " <>
+            "trusted, there is no redacted version of it. Route alerts are sent here and " <>
+            "nowhere else: leave it unset and no route alerts are sent at all."
+        }
+        webhook={@webhooks[:route]}
+        form={@webhook_forms[:route]}
+        replacing?={@replacing_url?[:route]}
+        removable?={true}
+        show_mentions?={true}
         myself={@myself}
       />
 
