@@ -177,4 +177,10 @@ if Mix.env() == :test do
   Mox.defmock(Test.WebSocketClientMock,
     for: WandererApp.Kills.Transport.WebSocketClientAdapter.MockBehaviour
   )
+
+  # The Discord HTTP seam. `config/test.exs` points `:discord_http_client` at
+  # `HttpStub` for the delivery tests, which need a shared scripted queue; this
+  # mock is for tests that want per-call expectations instead, and swaps the
+  # config for their duration.
+  Mox.defmock(Test.DiscordHttpClientMock, for: WandererApp.ExternalEvents.Discord.HttpClient)
 end

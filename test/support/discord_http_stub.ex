@@ -26,7 +26,7 @@ defmodule WandererApp.ExternalEvents.Discord.HttpStub do
 
   def reset, do: Agent.update(@agent, fn _ -> new_state() end) == :ok
 
-  defp new_state, do: %{responses: [], by_url: %{}, requests: []}
+  defp new_state, do: %{responses: [], by_url: %{}, requests: [], gets: %{}}
 
   @doc "Queues responses for ANY url, consumed in order. Each is {:ok, status, headers} or {:error, term}."
   def set_responses(responses), do: Agent.update(@agent, &%{&1 | responses: responses})
@@ -45,6 +45,23 @@ defmodule WandererApp.ExternalEvents.Discord.HttpStub do
 
   @doc "Returns the {url, body} tuples sent to one url, in order."
   def requests_for(url), do: Enum.filter(requests(), fn {u, _body} -> u == url end)
+
+  @doc """
+  Scripts a reply for one GET url as `{:ok, status, body}` or `{:error, term}`.
+
+  Unscripted GETs return `{:error, :not_stubbed}` rather than a success: every
+  test that renders the notifications settings tab reaches `ChannelInfo`
+  incidentally, and those tests assert on the tab, not on Discord. An error is
+  the input that exercises the masked-hint fallback, which is what an offline
+  test environment genuinely is.
+  """
+  def set_get_response(url, response),
+    do: Agent.update(@agent, &%{&1 | gets: Map.put(&1.gets, url, response)})
+
+  @impl true
+  def get(url, _headers) do
+    Agent.get(@agent, &Map.get(&1.gets, url, {:error, :not_stubbed}))
+  end
 
   @impl true
   def post(url, body) do
