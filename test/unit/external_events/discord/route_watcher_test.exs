@@ -211,6 +211,17 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
                wait_until(fn ->
                  length(HttpStub.requests_for(@route_url)) == 2
                end)
+
+      # The delta is the whole point of an :improved alert — "2 jumps" alone
+      # cannot distinguish a shrug from news. The transition table is the only
+      # place that still knows the previous count, so this asserts it survives
+      # all the way into the delivered payload rather than being dropped at the
+      # `alert/6` boundary.
+      [_opened, {_url, improved_body}] = HttpStub.requests_for(@route_url)
+
+      assert %{"embeds" => [%{"title" => title, "author" => author}]} = improved_body
+      assert title =~ "4 → 2 jumps"
+      assert author == %{"name" => "Route shortened"}
     end
 
     test "qualifying(2) -> qualifying(4) is silent but still stores 4", %{map: map, pid: pid} do
@@ -271,7 +282,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
     end
 
     # A dropped destination is "nothing was enqueued", exactly like
-    # `deliver_alert/7`'s {:error, :not_running}. If the optimistic
+    # `deliver_alert/8`'s {:error, :not_running}. If the optimistic
     # {:qualifying, N} write survives the drop, the SAME route at the SAME jump
     # count takes the silent `{:qualifying, _old}` branch forever after the
     # destination becomes usable again — it is never announced.
@@ -521,7 +532,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
     assert %{route_state: :unknown} = :sys.get_state(pid)
 
     # No telemetry fires for a failed delivery — only the `:ok` branch of
-    # `deliver_alert/7` emits it — so this proves the alert was never actually
+    # `deliver_alert/8` emits it — so this proves the alert was never actually
     # posted, not merely that route_state reverted.
     refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
     refute_receive {:route_alert_telemetry, _, %{outcome: :improved}}
@@ -568,7 +579,7 @@ end
 defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest.FailingWorkerSupervisor do
   @moduledoc """
   Stands in for `WorkerSupervisor` to script a delivery-enqueue failure whose
-  reason is something other than `:not_running` — exercising `deliver_alert/7`'s
+  reason is something other than `:not_running` — exercising `deliver_alert/8`'s
   general `{:error, reason}` catch-all, which the real `WorkerSupervisor` has no
   practical, deterministic way to trigger from a test (its only non-`:ok` return
   values are `:not_running` or a `DynamicSupervisor.start_child/2` failure that
