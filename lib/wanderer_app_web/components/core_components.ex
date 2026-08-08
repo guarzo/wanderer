@@ -272,6 +272,28 @@ defmodule WandererAppWeb.CoreComponents do
     """
   end
 
+  # Structural PrimeReact classes every button carries, kept separate from the
+  # variant modifier so the composed string for the default variant is
+  # byte-for-byte what this component rendered before variants existed.
+  @button_base_class "phx-submit-loading:opacity-75 p-button p-component"
+  @button_size_class "p-button-sm"
+
+  # Variant -> PrimeReact severity modifier. The app loads the full PrimeReact
+  # theme (assets/css/app.css) on top of the local overrides in
+  # assets/js/hooks/Mapper/common-styles/prime-fixes/theme.scss, so these
+  # classes are already themed and stay in step with every React button on the
+  # map canvas. A parallel Tailwind palette here would drift from both.
+  #
+  # :primary carries no modifier on purpose — bare `.p-button` *is* PrimeReact's
+  # filled primary style. (`p-button-primary`, passed ad hoc at a few call
+  # sites, is not defined by either stylesheet and styles nothing.)
+  @button_variant_classes %{
+    primary: nil,
+    secondary: "p-button-outlined",
+    ghost: "p-button-text p-button-plain",
+    danger: "p-button-danger"
+  }
+
   @doc """
   Renders a button.
 
@@ -279,9 +301,31 @@ defmodule WandererAppWeb.CoreComponents do
 
       <.button>Send!</.button>
       <.button phx-click="go" class="ml-2">Send!</.button>
+      <.button variant={:primary} type="submit">Save</.button>
+      <.button variant={:danger} phx-click="delete-everything">Remove all</.button>
+      <.button outlined={false} severity="error">Delete</.button>
+
+  Two styling APIs coexist: the fork's `variant` and upstream's
+  `outlined`/`severity`. When `variant` is set it decides the modifier and
+  `outlined`/`severity` are ignored; when it is not set, `outlined` (default
+  true) and `severity` apply exactly as upstream renders them. The default
+  button is the same outlined button either way.
   """
   attr(:type, :string, default: nil)
   attr(:class, :string, default: nil)
+
+  attr(:variant, :atom,
+    values: [nil, :primary, :secondary, :ghost, :danger],
+    default: nil,
+    doc: """
+    visual weight of the button: `:primary` is filled and belongs on a form's
+    single submit; `:secondary` is the outlined style (also what an unset
+    variant renders by default); `:ghost` is for
+    inline row actions such as Replace or removing a chip; `:danger` is
+    reserved for actions that destroy persisted state
+    """
+  )
+
   attr(:data, :any, default: nil)
   attr(:outlined, :boolean, default: true)
   attr(:severity, :string, default: nil)
@@ -290,24 +334,33 @@ defmodule WandererAppWeb.CoreComponents do
   slot(:inner_block, required: true)
 
   def button(assigns) do
+    assigns = assign(assigns, :variant_class, button_class(assigns))
+
     ~H"""
-    <button
-      type={@type}
-      class={[
-        "phx-submit-loading:opacity-75 p-button p-component p-button-sm",
-        classes(
-          "p-button-outlined": @outlined,
-          "p-button-warning": @severity == "warning",
-          "p-button-danger": @severity == "error"
-        ),
-        @class
-      ]}
-      data={@data}
-      {@rest}
-    >
+    <button type={@type} class={[@variant_class, @class]} data={@data} {@rest}>
       {render_slot(@inner_block)}
     </button>
     """
+  end
+
+  defp button_class(%{variant: nil} = assigns) do
+    severity = Map.get(assigns, :severity)
+
+    [
+      @button_base_class,
+      Map.get(assigns, :outlined, true) && "p-button-outlined",
+      severity == "warning" && "p-button-warning",
+      severity == "error" && "p-button-danger",
+      @button_size_class
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" ")
+  end
+
+  defp button_class(%{variant: variant}) do
+    [@button_base_class, Map.fetch!(@button_variant_classes, variant), @button_size_class]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
   end
 
   @doc """
