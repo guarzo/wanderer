@@ -16,8 +16,9 @@ on:
         required: false
         type: string
 
-# Default token is read-only; the job scopes itself up because it pushes a tag
-# and moves a branch.
+# Default token is read-only; the job scopes itself up because it pushes a tag.
+# The tag is the ONLY record of what is in production — no branch tracks it, by
+# design (see docs/ZOO-FORK.md, "Deployment").
 permissions:
   contents: read
 
@@ -55,8 +56,9 @@ jobs:
     # NEVER set cancel-in-progress: true here. Cancellation applies to running
     # jobs, not just to runs awaiting approval: a merge landing mid-deploy would
     # kill this job while Fly's builder keeps going, changing production with no
-    # tag and no bookmark. That is the exact failure this workflow exists to
-    # prevent. `false` also serializes deploys onto the single machine.
+    # tag — and the tag is the only record of what is live. That is the exact
+    # failure this workflow exists to prevent. `false` also serializes deploys
+    # onto the single machine.
     concurrency:
       group: zoo-deploy-run
       cancel-in-progress: false
@@ -155,7 +157,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           # Convergent, not merely collision-safe. A recovery re-run (deploy
-          # succeeded, bookmark push failed) must reuse the tag the first run
+          # succeeded, tag push failed) must reuse the tag the first run
           # created, not mint a second one for the same commit — the tag name is
           # generated from the clock, so checking only the new name would always
           # miss the existing one.
@@ -175,15 +177,6 @@ jobs:
             echo "Tagged ${SHA} as ${TAG}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-
-      # Force-push: guarzo/zoo is rebased regularly, so this is not a
-      # fast-forward. Requires the ruleset bypass from Task 1 Step 9.
-      - name: Move the guarzo/release bookmark
-        if: steps.guard.outputs.proceed == 'true'
-        run: |
-          set -euo pipefail
-          git push --force origin "HEAD:refs/heads/guarzo/release"
-          echo "guarzo/release now points at $(git rev-parse HEAD)"
 
       - name: Summarize
         if: steps.guard.outputs.proceed == 'true'
