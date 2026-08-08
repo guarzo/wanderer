@@ -394,12 +394,24 @@ The fork deploys to Fly.io; upstream's VM release pipeline was dropped (`ce58765
 > `/welcome`. Its pipeline is deliberately minimal — no `CheckApiDisabled`, no auth, no rate
 > limiting — because Fly kills a machine that fails its health check and there is one machine.
 
-### Gated deploy
+### Automatic deploy
 
-`.github/workflows/zoo-deploy.yml` implements an approval-gated deploy for `guarzo/zoo`.
-Design and plan: `docs/superpowers/specs/2026-08-07-deploy-approval-gate-design.md` and
-`docs/superpowers/plans/2026-08-07-deploy-approval-gate.md`. The Fly credential is read from
-`FLY_DEPLOY_TOKEN` (not `FLY_API_TOKEN`), and the release number is read from `.Version`.
+`.github/workflows/zoo-deploy.yml` deploys `guarzo/zoo` to Fly automatically: a push whose
+test suite goes green deploys with no human in the loop. The `production-deploy` environment
+still exists and the workflow still references it, but it carries **no approval rule** — the
+rule was removed once CI was trusted enough to be the only gate.
+
+> Do not remove `environment: production-deploy` from the workflow to "clean up" the now-empty
+> environment. `FLY_DEPLOY_TOKEN` is an **environment** secret, not a repository secret, so
+> dropping that line makes it resolve to the empty string and every deploy fails at
+> `flyctl deploy` with an auth error. The scoping is also what keeps the production credential
+> unreadable from `advanced-test.yml`.
+
+The Fly credential is read from `FLY_DEPLOY_TOKEN` (not `FLY_API_TOKEN`), and the release
+number is read from `.Version`. Design and plan documents for the original approval-gated
+version — `docs/superpowers/specs/2026-08-07-deploy-approval-gate-design.md` and
+`docs/superpowers/plans/2026-08-07-deploy-approval-gate.md` — are retained as history; they
+describe the approval flow, which no longer applies.
 
 ---
 
