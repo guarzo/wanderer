@@ -217,9 +217,10 @@ defmodule WandererAppWeb.PresenceGracePeriodManager do
 
       _timer_ref ->
         # Grace period expired and is still valid - perform atomic removal
-        Logger.info(fn ->
-          "[PresenceGracePeriod] Grace period expired for character #{character_id} on map #{map_id} - " <>
-            "removing from tracking after #{div(@grace_period_ms, 60_000)} minutes of inactivity"
+        Logger.warning(fn ->
+          "[PresenceGracePeriod] Removing character #{character_id} from map #{map_id} " <>
+            "after #{div(@grace_period_ms, 60_000)}min grace period, " <>
+            "reason=grace_period_expired"
         end)
 
         # Remove from pending removals state
