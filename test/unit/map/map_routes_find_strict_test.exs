@@ -214,9 +214,64 @@ defmodule WandererApp.Map.RoutesFindStrictTest do
                false
              )
 
-    # The origin still hydrated; the unresolvable hub came back as nil, which
-    # `Evaluator.index_static_data/1` already rejects and then fails closed on.
-    assert origin in Enum.map(Enum.reject(static_data, &is_nil/1), & &1.solar_system_id)
-    refute hub in Enum.map(Enum.reject(static_data, &is_nil/1), & &1.solar_system_id)
+    # The origin still hydrated; the unresolvable hub is absent from the list
+    # rather than present as `nil` — `RoutesWidget.tsx:60` and `PingRoute.tsx:28`
+    # dereference every element while searching by id, so a `null` there throws.
+    refute Enum.any?(static_data, &is_nil/1)
+    assert origin in Enum.map(static_data, & &1.solar_system_id)
+    refute hub in Enum.map(static_data, & &1.solar_system_id)
+  end
+
+  # `Task.async_stream`'s default `on_timeout: :exit` kills the CALLING process
+  # when a lookup overruns. A cold `get_system_static_info/1` scans the entire
+  # MapSolarSystem table and repopulates the cache row by row
+  # (cached_info.ex:101-141), so overrunning the 5s default is realistic on any
+  # restart or TTL expiry.
+  #
+  # Exercised through `find_strict/5` because it is the entry point with a
+  # seam this test can drive, but the severe case is `find/5`: it runs inside a
+  # `Task.async` linked to the LiveView (map_routes_event_handler.ex:98,142),
+  # which does not trap exits, so one slow lookup remounted the whole map. The
+  # collector is shared, so covering it here covers both.
+  #
+  # Squeezing the per-system budget to 1ms forces the overrun deterministically:
+  # reaching the assertion at all is the point, because under `on_timeout:
+  # :exit` this test process simply exited instead.
+  test "find_strict/5 survives a static lookup that overruns its timeout" do
+    hub = unique_system_id()
+    origin = unique_system_id()
+
+    original_timeout = Application.get_env(:wanderer_app, :route_static_info_timeout_ms)
+    Application.put_env(:wanderer_app, :route_static_info_timeout_ms, 1)
+
+    on_exit(fn ->
+      case original_timeout do
+        nil -> Application.delete_env(:wanderer_app, :route_static_info_timeout_ms)
+        value -> Application.put_env(:wanderer_app, :route_static_info_timeout_ms, value)
+      end
+    end)
+
+    stub(WandererApp.Esi.Mock, :get_routes_custom, fn hubs, origin, _params ->
+      {:ok,
+       Enum.map(hubs, fn hub ->
+         %{"origin" => origin, "destination" => hub, "systems" => [hub], "success" => true}
+       end)}
+    end)
+
+    assert {:ok, %{routes: [%{success: true}], systems_static_data: static_data}} =
+             Routes.find_strict(
+               Ecto.UUID.generate(),
+               [Integer.to_string(hub)],
+               Integer.to_string(origin),
+               @routes_settings,
+               false
+             )
+
+    # A timed-out system is omitted, exactly like any other unresolvable one, so
+    # the frontend's `.find(sd => sd.solar_system_id === id)` never meets a
+    # `null`. Whether the cached origin wins the race at a 1ms budget is not
+    # asserted — pinning that would be flaky.
+    assert length(static_data) <= 2
+    assert Enum.all?(static_data, &is_map/1)
   end
 end
