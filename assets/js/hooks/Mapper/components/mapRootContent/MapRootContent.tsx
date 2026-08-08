@@ -12,6 +12,7 @@ import { CharacterActivity } from '@/hooks/Mapper/components/mapRootContent/comp
 import { WormholeSignaturesDialog } from '@/hooks/Mapper/components/mapRootContent/components/WormholeSignaturesDialog';
 import { useCharacterActivityHandlers } from './hooks/useCharacterActivityHandlers';
 import { TrackingDialog } from '@/hooks/Mapper/components/mapRootContent/components/TrackingDialog';
+import { FleetReadiness } from '@/hooks/Mapper/components/mapRootContent/components/FleetReadiness/FleetReadiness';
 import { useMapEventListener } from '@/hooks/Mapper/events';
 import { Commands } from '@/hooks/Mapper/types';
 import { PingsInterface } from '@/hooks/Mapper/components/mapInterface/components';
@@ -48,6 +49,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
   const [showTrackingDialog, setShowTrackingDialog] = useState(false);
   const [showWormholeList, setShowWormholeList] = useState(false);
   const [jumpPlannerState, setJumpPlannerState] = useState<JumpPlannerDialogState>(CLOSED_JUMP_PLANNER_STATE);
+  const [showFleetReadiness, setShowFleetReadiness] = useState(false);
 
   /* Important Notice - this solution needs for use one instance of MapInterface */
   const mapInterface = isReady ? <MapInterface /> : null;
@@ -65,6 +67,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
   const handleHideJumpPlanner = useCallback(() => {
     setJumpPlannerState(CLOSED_JUMP_PLANNER_STATE);
   }, []);
+  const handleShowFleetReadiness = useCallback(() => setShowFleetReadiness(true), []);
 
   useMapEventListener(event => {
     if (event.name === Commands.showTracking) {
@@ -96,6 +99,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
                 onShowTrackingDialog={handleShowTrackingDialog}
                 onShowWormholesReference={handleShowWormholesReference}
                 onShowJumpPlanner={handleShowJumpPlanner}
+                onShowFleetReadiness={handleShowFleetReadiness}
                 additionalContent={<PingsInterface hasLeftOffset />}
               />
             </div>
@@ -112,6 +116,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
                   onShowTrackingDialog={handleShowTrackingDialog}
                   onShowWormholesReference={handleShowWormholesReference}
                   onShowJumpPlanner={handleShowJumpPlanner}
+                  onShowFleetReadiness={handleShowFleetReadiness}
                 />
               </div>
             </Topbar>
@@ -134,6 +139,9 @@ export const MapRootContent = ({}: MapRootContentProps) => {
         />
 
         {hasOldSettings && <OldSettingsDialog />}
+        {showFleetReadiness && (
+          <FleetReadiness visible={showFleetReadiness} onHide={() => setShowFleetReadiness(false)} />
+        )}
       </Layout>
     </div>
   );
