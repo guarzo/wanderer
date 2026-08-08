@@ -5,7 +5,6 @@ defmodule WandererApp.Structure do
 
   require Logger
   alias WandererApp.Api.MapSystemStructure
-  alias WandererApp.Character
 
   def update_structures(system, added, updated, removed, main_character_eve_id, user_id \\ nil) do
     Logger.info("[Structure] update_structures called by user_id=#{inspect(user_id)}")
@@ -23,14 +22,6 @@ defmodule WandererApp.Structure do
 
     :ok
   end
-
-  def search_corporation_names([], _search), do: {:ok, []}
-
-  def search_corporation_names([first_char | _], search) when is_binary(search) do
-    Character.search(first_char.id, params: [search: search, categories: "corporation"])
-  end
-
-  def search_corporation_names(_user_chars, _search), do: {:ok, []}
 
   defp parse_structures(list_of_maps, character_eve_id, system) do
     Logger.debug(fn ->
