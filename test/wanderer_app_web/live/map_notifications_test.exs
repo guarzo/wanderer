@@ -33,6 +33,42 @@ defmodule WandererAppWeb.MapNotificationsTest do
     view
   end
 
+  @home_select "home_system_live_select_component"
+  @route_checkbox "input[name='notification[route_alerts_enabled]'][type='checkbox']"
+
+  defp insert_jita do
+    Factory.insert(:solar_system, %{
+      solar_system_id: 30_000_142,
+      solar_system_name: "Jita",
+      region_name: "The Forge"
+    })
+  end
+
+  # Drives the home-system typeahead the way a user does: type, then click the
+  # first result. Both steps go through the component (`with_target/2` routes
+  # the same way `phx-target={@myself}` does at runtime) because LiveSelect
+  # installs its dropdown click handler from JS — there is no DOM click for
+  # LiveViewTest to fire.
+  defp pick_home_system(view, text) do
+    view
+    |> with_target("##{@home_select}")
+    |> render_change("change", %{"text" => text})
+
+    view
+    |> with_target("#map-notifications")
+    |> render_change("live_select_change", %{
+      "id" => @home_select,
+      "text" => text,
+      "field" => "home_system_id"
+    })
+
+    view
+    |> with_target("##{@home_select}")
+    |> render_change("option_click", %{"idx" => "0"})
+
+    view
+  end
+
   # Task 2's `create` takes `webhook_url` as a required argument and seeds the
   # `:system` child in the same transaction, so `roles` here only controls
   # whether a `:character` row is added on top. Passing `:system` in `roles`
@@ -849,16 +885,25 @@ defmodule WandererAppWeb.MapNotificationsTest do
       conn: conn,
       map: map
     } do
+      insert_jita()
       notification_with_webhooks(map, [:system])
       view = open_notifications(conn, map)
 
+      view
+      |> element(@route_checkbox)
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      pick_home_system(view, "Jita")
+
+      # Only `route_max_jumps` is supplied. The home system comes from the
+      # DOM — LiveSelect's hidden input, holding the id behind the name the
+      # user picked — which is the whole point of the picker.
       view
       |> form("#discord-notification-form", %{
         "notification" => %{
           "enabled" => "true",
           "wh_only" => "true",
           "route_alerts_enabled" => "true",
-          "home_system_id" => "30000142",
           "route_max_jumps" => "3"
         }
       })
@@ -931,27 +976,45 @@ defmodule WandererAppWeb.MapNotificationsTest do
       conn: conn,
       map: map
     } do
+      insert_jita()
       notification_with_webhooks(map, [:system])
       view = open_notifications(conn, map)
 
+      view
+      |> element(@route_checkbox)
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      pick_home_system(view, "Jita")
+
       # A real browser posts every input in the form with the change event, so
       # a re-render that rebuilds the form from anything BUT those params
-      # silently discards whatever the user had already typed.
+      # silently discards the system already picked and the jumps already typed.
       view
-      |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
+      |> element(@route_checkbox)
       |> render_change(%{
         "notification" => %{
           "route_alerts_enabled" => "true",
           "home_system_id" => "30000142",
+          "home_system_id_text_input" => "Jita (The Forge)",
           "route_max_jumps" => "4"
         }
       })
 
       assert has_element?(view, "input[name='notification[home_system_id]'][value='30000142']")
       assert has_element?(view, "input[name='notification[route_max_jumps]'][value='4']")
+
+      # And the picker still shows the NAME. LiveSelect re-derives its selection
+      # from the form value on every re-render and can only label a value it has
+      # seen as an option, so a form value that no longer matches the option it
+      # came from leaves the user staring at a bare id.
+      assert has_element?(
+               view,
+               "input[name='notification[home_system_id_text_input]'][value='Jita (The Forge)']"
+             )
     end
 
     test "ticking the box and saving persists the toggle", %{conn: conn, map: map} do
+      insert_jita()
       notification_with_webhooks(map, [:system])
       view = open_notifications(conn, map)
 
@@ -959,17 +1022,199 @@ defmodule WandererAppWeb.MapNotificationsTest do
       |> element("input[name='notification[route_alerts_enabled]'][type='checkbox']")
       |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
 
-      # Only `home_system_id` is supplied — the value the user types. Everything
-      # else, the checkbox included, comes from the rendered DOM, which is the
-      # whole point: this is what the browser actually posts.
+      pick_home_system(view, "Jita")
+
+      # No params at all — the checkbox and the picked home system both come
+      # from the rendered DOM, which is the whole point: this is what the
+      # browser actually posts.
+      view |> form("#discord-notification-form") |> render_submit()
+
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      assert rec.route_alerts_enabled? == true
+      assert rec.home_system_id == 30_000_142
+    end
+
+    test "picking a system by name persists its integer id", %{conn: conn, map: map} do
+      insert_jita()
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> element(@route_checkbox)
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      # Nobody knows solar system ids. Typing the NAME must be enough, and the
+      # dropdown labels it with its region so near-identical names can be told
+      # apart.
+      view
+      |> with_target("##{@home_select}")
+      |> render_change("change", %{"text" => "Jita"})
+
+      view
+      |> with_target("#map-notifications")
+      |> render_change("live_select_change", %{
+        "id" => @home_select,
+        "text" => "Jita",
+        "field" => "home_system_id"
+      })
+
+      assert render(view) =~ "Jita (The Forge)"
+
+      view
+      |> with_target("##{@home_select}")
+      |> render_change("option_click", %{"idx" => "0"})
+
       view
       |> form("#discord-notification-form", %{
-        "notification" => %{"home_system_id" => "30000142"}
+        "notification" => %{"route_alerts_enabled" => "true"}
+      })
+      |> render_submit()
+
+      # Storage is unchanged: the resource still holds an integer id, and the
+      # route watcher and dispatcher still read it as one.
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      assert rec.home_system_id == 30_000_142
+
+      # Reopened, the saved id renders as the name again rather than as itself.
+      reopened = open_notifications(conn, map)
+
+      assert has_element?(
+               reopened,
+               "input[name='notification[home_system_id_text_input]'][value='Jita (The Forge)']"
+             )
+    end
+
+    test "a typed name that matches no system is rejected with a visible error", %{
+      conn: conn,
+      map: map
+    } do
+      insert_jita()
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> element(@route_checkbox)
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      # Typed, never picked from the dropdown, so the hidden id is empty and
+      # only the text survives. Submitting `nil` here would come back as the
+      # resource's generic "is required when route alerts are enabled", which
+      # says nothing about the name that was actually typed.
+      html =
+        view
+        |> form("#discord-notification-form", %{
+          "notification" => %{
+            "route_alerts_enabled" => "true",
+            "home_system_id_text_input" => "Jitaaa"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "No solar system is named"
+      assert html =~ "Jitaaa"
+      refute html =~ "is required when route alerts are enabled"
+
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      refute rec.route_alerts_enabled?
+      assert rec.home_system_id == nil
+    end
+
+    test "a fully typed system name saves without opening the dropdown", %{conn: conn, map: map} do
+      insert_jita()
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> element(@route_checkbox)
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      view
+      |> form("#discord-notification-form", %{
+        "notification" => %{
+          "route_alerts_enabled" => "true",
+          "home_system_id_text_input" => "jita"
+        }
       })
       |> render_submit()
 
       assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
-      assert rec.route_alerts_enabled? == true
+      assert rec.home_system_id == 30_000_142
+    end
+
+    # `find_by_name` is a substring search, so "Jita" also matches "Jitanenba".
+    # Guessing between them would silently watch a system the user never named.
+    test "a typed prefix with several matches is rejected rather than guessed", %{
+      conn: conn,
+      map: map
+    } do
+      insert_jita()
+
+      Factory.insert(:solar_system, %{
+        solar_system_id: 30_000_143,
+        solar_system_name: "Jitanenba",
+        region_name: "The Forge"
+      })
+
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> element(@route_checkbox)
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      html =
+        view
+        |> form("#discord-notification-form", %{
+          "notification" => %{
+            "route_alerts_enabled" => "true",
+            "home_system_id_text_input" => "Jit"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "No solar system is named"
+
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      assert rec.home_system_id == nil
+    end
+
+    # The other half of the picker's state: LiveSelect holds the selection in
+    # its own component state and re-derives it from the form value on every
+    # re-render, so a parent re-render while `@form` still says "" blanks the
+    # hidden input and Save posts nothing. The form's own `phx-change` — which
+    # LiveSelect's hook fires by dispatching an input event on that hidden
+    # input — is what keeps `@form` in step.
+    test "a picked home system survives a re-render caused by another widget", %{
+      conn: conn,
+      map: map
+    } do
+      insert_jita()
+      notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      view
+      |> element(@route_checkbox)
+      |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
+
+      pick_home_system(view, "Jita")
+
+      # What the browser does on selection: post the form as the DOM now has it.
+      view |> form("#discord-notification-form") |> render_change()
+
+      # An unrelated widget re-renders the component.
+      view
+      |> with_target("#map-notifications")
+      |> render_change("live_select_change", %{
+        "id" => "excluded_system_live_select_component",
+        "text" => "Jita",
+        "field" => "excluded_system"
+      })
+
+      assert has_element?(view, "input[name='notification[home_system_id]'][value='30000142']")
+
+      view |> form("#discord-notification-form") |> render_submit()
+
+      assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
       assert rec.home_system_id == 30_000_142
     end
 
