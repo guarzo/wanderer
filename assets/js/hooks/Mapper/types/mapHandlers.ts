@@ -45,6 +45,8 @@ export enum Commands {
   pingAdded = 'ping_added',
   pingCancelled = 'ping_cancelled',
   pingBlocked = 'ping_blocked',
+  readyCharactersUpdated = 'ready_characters_updated',
+  allReadyCharactersCleared = 'all_ready_characters_cleared',
 }
 
 export type Command =
@@ -84,7 +86,9 @@ export type Command =
   | Commands.refreshTrackingData
   | Commands.pingAdded
   | Commands.pingCancelled
-  | Commands.pingBlocked;
+  | Commands.pingBlocked
+  | Commands.readyCharactersUpdated
+  | Commands.allReadyCharactersCleared;
 
 export type ClientEnv = {
   intelSharingEnabled: boolean;
@@ -186,6 +190,17 @@ export type CommandPingCancelled = Pick<PingData, 'type' | 'id'>;
 export type CommandPingBlocked = {
   reason: string;
   message: string;
+};  
+export type CommandUpdateReadyCharacters = {
+  ready_character_eve_ids: string[];
+};
+export type CommandReadyCharactersUpdated = {
+  user_id: string;
+  user_name: string;
+  ready_character_eve_ids: string[];
+};
+export type CommandAllReadyCharactersCleared = {
+  cleared_by_user_id: string;
 };
 
 export interface UserSettings {
@@ -241,6 +256,8 @@ export interface CommandData {
   [Commands.pingAdded]: CommandPingAdded;
   [Commands.pingCancelled]: CommandPingCancelled;
   [Commands.pingBlocked]: CommandPingBlocked;
+  [Commands.readyCharactersUpdated]: CommandReadyCharactersUpdated;
+  [Commands.allReadyCharactersCleared]: CommandAllReadyCharactersCleared;
 }
 
 export interface MapHandlers {
@@ -271,6 +288,7 @@ export enum OutCommand {
   updateSignatures = 'update_signatures',
   updateSystemName = 'update_system_name',
   updateSystemTemporaryName = 'update_system_temporary_name',
+  updateSystemOwner = 'update_system_owner',
   updateSystemDescription = 'update_system_description',
   updateSystemLabels = 'update_system_labels',
   updateSystemLocked = 'update_system_locked',
@@ -302,6 +320,9 @@ export enum OutCommand {
   updateCharacterTracking = 'updateCharacterTracking',
   updateFollowingCharacter = 'updateFollowingCharacter',
   updateMainCharacter = 'updateMainCharacter',
+  updateReadyCharacters = 'updateReadyCharacters',
+  getAllReadyCharacters = 'getAllReadyCharacters',
+  clearAllReadyCharacters = 'clearAllReadyCharacters',
   addPing = 'add_ping',
   cancelPing = 'cancel_ping',
   startTracking = 'startTracking',
@@ -310,6 +331,9 @@ export enum OutCommand {
   setIntelSourceMap = 'set_intel_source_map',
   syncIntel = 'sync_intel',
 
+  updateSystemCustomFlags = 'update_system_custom_flags',
+  getAllianceNames = 'get_alliance_names',
+  getAllianceTicker = 'get_alliance_ticker',
   // Only UI commands
   openSettings = 'open_settings',
   showActivity = 'show_activity',

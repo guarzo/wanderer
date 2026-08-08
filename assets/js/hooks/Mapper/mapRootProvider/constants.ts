@@ -19,13 +19,13 @@ export const DEFAULT_KILL_NOTIFICATION_SCOPES = Object.values(KillNotificationSc
 export const DEFAULT_KILL_NOTIFICATION_TOAST_LIFETIME_SECONDS = 0;
 
 export const STORED_INTERFACE_DEFAULT_VALUES: InterfaceStoredSettings = {
-  isShowMenu: false,
-  isShowKSpace: false,
+  isShowMenu: true,
+  isShowKSpace: true,
   isThickConnections: false,
   isShowUnsplashedSignatures: false,
   isShowBackgroundPattern: true,
-  isSoftBackground: false,
-  theme: AvailableThemes.default,
+  isSoftBackground: true,
+  theme: AvailableThemes.zoo,
   pingsPlacement: PingsPlacement.rightTop,
   minimapPlacement: MiniMapPlacement.rightBottom,
   hideBookmarkWarning: false,
