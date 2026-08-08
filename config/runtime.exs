@@ -83,11 +83,6 @@ intel_sharing_enabled =
   |> get_var_from_path_or_env("WANDERER_INTEL_SHARING_ENABLED", "false")
   |> String.to_existing_atom()
 
-fleet_readiness_enabled =
-  config_dir
-  |> get_var_from_path_or_env("WANDERER_FLEET_READINESS_ENABLED", "false")
-  |> String.to_existing_atom()
-
 map_subscription_characters_limit =
   config_dir
   |> get_int_from_path_or_env("WANDERER_MAP_SUBSCRIPTION_CHARACTERS_LIMIT", 10_000)
@@ -199,7 +194,6 @@ config :wanderer_app,
   intel_sharing_enabled: intel_sharing_enabled,
   restrict_maps_creation: restrict_maps_creation,
   restrict_acls_creation: restrict_acls_creation,
-  fleet_readiness_enabled: fleet_readiness_enabled,
   subscription_settings: %{
     plans: [
       %{

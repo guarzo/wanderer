@@ -7,17 +7,18 @@ import { FaIndustry, FaHourglassEnd, FaExclamationTriangle, FaSkull } from 'reac
  * The zoo fork repurposes upstream's generic labels (A/B/C/1/2/3) with
  * EVE Online wormhole-specific meanings:
  *
- * | Key    | Upstream | Zoo Meaning        | Use Case                           |
- * |--------|----------|--------------------|------------------------------------|
- * | la/de  | Label A  | Dead End           | System with no exit wormholes      |
- * | lb/gas | Label B  | Gas Site           | System has harvestable gas sites   |
- * | lc/eol | Label C  | End of Life        | Wormhole about to collapse (<4h)   |
- * | l1/crit| Label 1  | Critical Mass      | Wormhole at mass verge             |
- * | l2/structure | Label 2 | Structure     | System has attackable structure    |
- * | l3/steve | Label 3 | Steve/Danger      | High danger (historic: player named Steve) |
+ * | Stored key | Enum member | Upstream | Zoo Meaning   | Use Case                           |
+ * |------------|-------------|----------|---------------|------------------------------------|
+ * | de         | la          | Label A  | Dead End      | System with no exit wormholes      |
+ * | gas        | lb          | Label B  | Gas Site      | System has harvestable gas sites   |
+ * | eol        | lc          | Label C  | End of Life   | Wormhole about to collapse (<4h)   |
+ * | crit       | l1          | Label 1  | Critical Mass | Wormhole at mass verge             |
+ * | structure  | l2          | Label 2  | Structure     | System has attackable structure    |
+ * | steve      | l3          | Label 3  | Steve/Danger  | High danger (historic: player named Steve) |
  *
- * Note: These labels are stored in the database using the original keys (la, lb, etc.)
- * but displayed with zoo-specific names and icons.
+ * Note: it is the enum *value* that is persisted, so `system.labels` contains `de`, `gas`,
+ * `eol`, `crit`, `structure`, `steve` -- never `la`, `lb`, `lc`. The `la`..`l3` member names
+ * exist only to keep the mapping back to upstream legible and never leave the frontend.
  *
  * @see constants.ts for MARKER_BOOKMARK_BG_STYLES using these labels
  * @see zoo-theme.scss for corresponding CSS classes

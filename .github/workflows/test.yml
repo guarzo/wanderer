@@ -121,6 +121,32 @@ jobs:
       - name: Run tests
         run: mix test --partitions ${{ env.PARTITIONS }}
 
+  # Two migration files defining the same module is not a compile error: the
+  # later definition replaces the earlier one, so a migration silently never
+  # runs and the schema drift only surfaces much later. That happened once
+  # already (#122). Pure shell with no BEAM or deps, so it reports in seconds
+  # instead of waiting on `setup`.
+  migrations:
+    name: Migration hygiene
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for duplicate migration module names
+        run: |
+          dupes=$(grep -h '^defmodule' priv/repo/migrations/*.exs \
+            | awk '{print $2}' | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate migration module names found"
+            printf '%s\n' "$dupes" | while read -r mod; do
+              echo "$mod is defined in:"
+              grep -lF "defmodule $mod do" priv/repo/migrations/*.exs | sed 's/^/  /'
+            done
+            exit 1
+          fi
+          echo "No duplicate migration module names."
+
   static:
     name: Static analysis
     runs-on: ubuntu-latest
@@ -344,15 +370,18 @@ jobs:
   gate:
     name: Test Suite
     runs-on: ubuntu-latest
-    needs: [tests, static]
+    needs: [tests, static, migrations]
     if: always()
 
     steps:
       - name: Verify required jobs succeeded
         run: |
-          echo "tests:  ${{ needs.tests.result }}"
-          echo "static: ${{ needs.static.result }}"
-          if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.static.result }}" != "success" ]; then
+          echo "tests:      ${{ needs.tests.result }}"
+          echo "static:     ${{ needs.static.result }}"
+          echo "migrations: ${{ needs.migrations.result }}"
+          if [ "${{ needs.tests.result }}" != "success" ] || \
+             [ "${{ needs.static.result }}" != "success" ] || \
+             [ "${{ needs.migrations.result }}" != "success" ]; then
             echo "::error::Required jobs did not pass"
             exit 1
           fi
