@@ -175,15 +175,30 @@ defmodule WandererApp.CachedInfo do
 
         case WandererApp.Api.MapSolarSystem.read() do
           {:ok, systems} ->
-            Enum.each(systems, fn system ->
-              Cachex.put(
-                :system_static_info_cache,
-                system.solar_system_id,
-                Map.take(system, @system_static_info_attrs)
-              )
-            end)
+            # A discarded write is worse here than anywhere else: the caller
+            # re-reads the key straight after this returns, so a silently failed
+            # put surfaces as `{:error, :not_found}` — "this system does not
+            # exist" — for a system that does. Halt on the first failure rather
+            # than grinding through thousands more writes into a cache that has
+            # already told us it is not accepting them.
+            Enum.reduce_while(systems, {:ignore, :ok}, fn system, acc ->
+              case Cachex.put(
+                     :system_static_info_cache,
+                     system.solar_system_id,
+                     Map.take(system, @system_static_info_attrs)
+                   ) do
+                {:ok, true} ->
+                  {:cont, acc}
 
-            {:ignore, :ok}
+                error ->
+                  Logger.error(
+                    "Failed to cache static info for solar system " <>
+                      "#{system.solar_system_id}: #{inspect(error)}"
+                  )
+
+                  {:halt, {:ignore, {:error, :cache_error}}}
+              end
+            end)
 
           {:error, reason} ->
             Logger.error("Failed to read solar systems from API: #{inspect(reason)}")

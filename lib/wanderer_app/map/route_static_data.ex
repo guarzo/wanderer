@@ -40,12 +40,13 @@ defmodule WandererApp.Map.RouteStaticData do
   @spec hydrate([integer()]) :: [map()]
   def hydrate(system_ids) do
     system_ids = Enum.uniq(system_ids)
+    lookup = lookup_fun()
 
     {static_data, timed_out_system_ids} =
       system_ids
       |> Task.async_stream(
         fn system_id ->
-          case WandererApp.CachedInfo.get_system_static_info(system_id) do
+          case lookup.(system_id) do
             {:ok, nil} ->
               nil
 
@@ -125,4 +126,18 @@ defmodule WandererApp.Map.RouteStaticData do
         :route_static_info_timeout_ms,
         @default_static_info_timeout
       )
+
+  # Resolved once per `hydrate/1` rather than per system, and only overridden by
+  # tests: the timeout path is otherwise unreachable on demand, because a real
+  # `get_system_static_info/1` is either a microsecond cache hit or a full table
+  # scan whose duration nothing here controls. Squeezing the budget alone does
+  # not prove the fix — that assertion passes whether or not a timeout actually
+  # fired. Blocking a named system does.
+  defp lookup_fun do
+    Application.get_env(
+      :wanderer_app,
+      :route_static_info_lookup,
+      &WandererApp.CachedInfo.get_system_static_info/1
+    )
+  end
 end

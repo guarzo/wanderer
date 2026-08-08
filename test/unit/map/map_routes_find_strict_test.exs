@@ -234,21 +234,30 @@ defmodule WandererApp.Map.RoutesFindStrictTest do
   # which does not trap exits, so one slow lookup remounted the whole map. The
   # collector is shared, so covering it here covers both.
   #
-  # Squeezing the per-system budget to 1ms forces the overrun deterministically:
-  # reaching the assertion at all is the point, because under `on_timeout:
-  # :exit` this test process simply exited instead.
-  test "find_strict/5 survives a static lookup that overruns its timeout" do
+  # `hub` is blocked outright rather than merely raced against a tight budget:
+  # a budget alone makes the outcome timing-dependent, and an assertion that
+  # tolerates either outcome would pass just as happily with the bug present.
+  # Blocking one named system pins exactly which one must go missing. The
+  # blocked task is never released explicitly — `on_timeout: :kill_task`
+  # killing it IS the behaviour under test, and the kill is what stops
+  # `sleep(:infinity)` from leaking.
+  test "find_strict/5 drops only the system whose static lookup overruns its budget" do
     hub = unique_system_id()
     origin = unique_system_id()
+    stub_static_info(hub)
+    stub_static_info(origin)
 
-    original_timeout = Application.get_env(:wanderer_app, :route_static_info_timeout_ms)
-    Application.put_env(:wanderer_app, :route_static_info_timeout_ms, 1)
+    test_pid = self()
 
-    on_exit(fn ->
-      case original_timeout do
-        nil -> Application.delete_env(:wanderer_app, :route_static_info_timeout_ms)
-        value -> Application.put_env(:wanderer_app, :route_static_info_timeout_ms, value)
-      end
+    put_test_env(:route_static_info_timeout_ms, 50)
+
+    put_test_env(:route_static_info_lookup, fn
+      ^hub ->
+        send(test_pid, :hub_lookup_started)
+        Process.sleep(:infinity)
+
+      system_id ->
+        WandererApp.CachedInfo.get_system_static_info(system_id)
     end)
 
     stub(WandererApp.Esi.Mock, :get_routes_custom, fn hubs, origin, _params ->
@@ -267,11 +276,27 @@ defmodule WandererApp.Map.RoutesFindStrictTest do
                false
              )
 
-    # A timed-out system is omitted, exactly like any other unresolvable one, so
-    # the frontend's `.find(sd => sd.solar_system_id === id)` never meets a
-    # `null`. Whether the cached origin wins the race at a 1ms budget is not
-    # asserted — pinning that would be flaky.
-    assert length(static_data) <= 2
-    assert Enum.all?(static_data, &is_map/1)
+    # Reaching this line at all is half the point: under `on_timeout: :exit`
+    # this test process exited instead of returning.
+    assert_received :hub_lookup_started
+
+    # The blocked system is omitted rather than passed through as `nil` — the
+    # frontend searches this list by id and dereferences every element — and
+    # the system that resolved is untouched by its neighbour's timeout.
+    assert [%{solar_system_id: ^origin}] = static_data
+  end
+
+  # Both knobs are read at call time by `RouteStaticData`, so they must be
+  # restored even when a test fails partway through.
+  defp put_test_env(key, value) do
+    original = Application.fetch_env(:wanderer_app, key)
+    Application.put_env(:wanderer_app, key, value)
+
+    on_exit(fn ->
+      case original do
+        {:ok, previous} -> Application.put_env(:wanderer_app, key, previous)
+        :error -> Application.delete_env(:wanderer_app, key)
+      end
+    end)
   end
 end
