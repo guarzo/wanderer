@@ -373,8 +373,13 @@ jobs:
           # Recorded in the tag message so a tag can be matched to a Fly release
           # without the dashboard. Best-effort: a lookup failure must not fail a
           # deploy that already succeeded.
-          VERSION="$(flyctl releases --app wanderer --json | jq -r '.[0].version' || echo unknown)"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # The key is `Version`, capital V — flyctl serializes Go field names.
+          # A lowercase `.version` does not error, it yields null, which reaches
+          # the tag message as the literal "release vnull". Hence the explicit
+          # `// "unknown"` and the empty-string guard: every failure mode here
+          # is silent, so each one needs its own fallback.
+          VERSION="$(flyctl releases --app wanderer --json | jq -r '.[0].Version // "unknown"' || echo unknown)"
+          echo "version=${VERSION:-unknown}" >> "$GITHUB_OUTPUT"
 
       # Everything below runs only after a healthy deploy. That ordering is what
       # makes the tag mean "this commit served production traffic".
