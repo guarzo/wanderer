@@ -284,13 +284,21 @@ comment at the top of `fly.toml`).
 3. On success, `🚀 Zoo Deploy` opens a run that **waits for approval** in the
    `production-deploy` environment. GitHub emails an approval request; the run
    also shows as pending in the Actions tab.
-4. Approving it deploys to Fly, then tags the commit `v<UTC timestamp>` and
-   moves `guarzo/release` to that commit.
+4. Approving it deploys to Fly, then tags the commit `v<UTC timestamp>`.
 
-**`guarzo/release` is CI-owned.** It is a bookmark of what is in production, not
-a trigger. Direct pushes are rejected by a ruleset — resetting and pushing it by
-hand does nothing except fail. This is deliberate: it used to be the deploy
-trigger, and the change is easy to forget.
+**The newest `v20*` tag is the record of what is in production.** No branch
+tracks it. To see what you have written but not yet deployed:
+
+```bash
+git fetch origin --tags
+git log --oneline "$(git tag -l 'v20*' | sort | tail -1)"..guarzo/zoo
+```
+
+**`guarzo/release` is retired.** It used to be the deploy trigger — hard-resetting
+and pushing it was how you shipped. It no longer moves, deploys nothing, and is
+frozen by a ruleset that rejects pushes to it, so the old habit fails loudly
+instead of silently doing nothing. It survives only as a marker of where the
+old process stopped.
 
 **Nothing deploys without approval**, including a run that has been sitting
 pending. Pending approvals expire after 30 days.
@@ -302,22 +310,21 @@ revert a schema change.
 **Approving a stale run is safe.** If `guarzo/zoo` has moved on since the run
 was created, the workflow exits without deploying and says so.
 
-**If a deploy half-succeeded.** The deploy, the tag push, and the
-`guarzo/release` bookmark move are three separate steps, not one atomic
-operation. If the deploy step fails, nothing else runs and production is
-unchanged (or partially migrated if the `release_command` succeeded before the
-health check failed — see `fly.toml`). If the tag push fails after a successful
-deploy, that is the dangerous case: production is now running a new commit that
-carries **no tag** and a **stale `guarzo/release` bookmark**. If `guarzo/zoo` is
-rebased or squashed before this is fixed, that commit becomes unreachable from
-any branch — the exact loss this whole mechanism exists to prevent. Recover by
-running `🚀 Zoo Deploy` manually (`workflow_dispatch`) with `ref` set to the
-deployed commit's explicit SHA and approving it: this skips the staleness
-guard, so it works even after `guarzo/zoo` has moved on, and it redeploys and
-tags the commit. The only cost is one extra machine restart, because the app
-runs exactly one machine. Simply re-running (or re-approving) the automatic
-path does **not** recover this — once `guarzo/zoo` has moved, the staleness
-guard blocks it.
+**If a deploy half-succeeded.** The deploy and the tag push are two separate
+steps, not one atomic operation. If the deploy step fails, nothing else runs and
+production is unchanged (or partially migrated if the `release_command`
+succeeded before the health check failed — see `fly.toml`). If the tag push
+fails after a successful deploy, that is the dangerous case: production is now
+running a commit that carries **no tag**, and the tag is the only record of what
+is live. If `guarzo/zoo` is rebased or squashed before this is fixed, that commit
+becomes unreachable from any ref — the exact loss this whole mechanism exists to
+prevent. Recover by running `🚀 Zoo Deploy` manually (`workflow_dispatch`) with
+`ref` set to the deployed commit's explicit SHA and approving it: this skips the
+staleness guard, so it works even after `guarzo/zoo` has moved on, and it
+redeploys and tags the commit. The only cost is one extra machine restart,
+because the app runs exactly one machine. Simply re-running (or re-approving)
+the automatic path does **not** recover this — once `guarzo/zoo` has moved, the
+staleness guard blocks it.
 
 **`FLY_API_TOKEN` must stay an environment secret on `production-deploy`, never
 a repository secret** — an environment secret is released only to a job that
