@@ -2,9 +2,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   @moduledoc """
   Settings tab for per-map Discord kill notifications.
 
-  A map has one notification record and up to two destinations: a `:system`
-  webhook (kills in systems on the map) and an optional `:character` webhook
-  (kills involving characters tracked on the map). Each destination has its own
+  A map has one notification record and up to three destinations: a `:system`
+  webhook (kills in systems on the map), an optional `:character` webhook
+  (kills involving characters tracked on the map) and an optional `:route`
+  webhook (highsec-route-to-Jita alerts). Each destination has its own
   URL, enable flag, delivery status and test button, because an owner needs to
   be able to diagnose one channel without touching the other.
 
