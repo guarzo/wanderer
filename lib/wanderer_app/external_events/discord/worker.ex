@@ -66,6 +66,7 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
 
   alias WandererApp.Api.MapDiscordWebhook
   alias WandererApp.ExternalEvents.Discord.HttpClient
+  alias WandererApp.ExternalEvents.Discord.Mentions
 
   @idle_timeout :timer.seconds(60)
   @max_queue 100
@@ -265,6 +266,7 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   # bounded state queue — the same defect as sleeping, just harder to see.
   defp do_post(%{current: current} = state, webhook) do
     [message | _rest] = current.pending
+    message = attach_allowed_mentions(message)
     url = webhook.webhook_url
 
     task =
@@ -274,6 +276,21 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
       )
 
     put_current(state, %{current | task_ref: task.ref})
+  end
+
+  # Every message that carries `"content"` must also carry `allowed_mentions`,
+  # or Discord defaults to parsing @everyone/@here/user/role mentions found in
+  # the text — see the design doc's "Mention injection is a real risk". A
+  # caller that already set one (Task 6's route alerts, with real configured
+  # targets) is left untouched; this only fills the gap for callers that
+  # never think about mentions at all (the static test message, the overflow
+  # string, voice-mention prefixes).
+  defp attach_allowed_mentions(message) do
+    if Map.has_key?(message, "content") and not Map.has_key?(message, "allowed_mentions") do
+      Map.put(message, "allowed_mentions", Mentions.allowed_mentions([]))
+    else
+      message
+    end
   end
 
   defp handle_post_result(state, result) do

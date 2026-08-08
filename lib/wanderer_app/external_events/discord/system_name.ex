@@ -23,7 +23,7 @@ defmodule WandererApp.ExternalEvents.Discord.SystemName do
 
   alias WandererApp.Api.MapSystem
 
-  @type role :: :system | :character
+  @type role :: :system | :character | :route
 
   @doc """
   The system name to render for `role`.
@@ -35,6 +35,14 @@ defmodule WandererApp.ExternalEvents.Discord.SystemName do
   def display_name(_map_id, solar_system_id, :character), do: canonical_name(solar_system_id)
 
   def display_name(map_id, solar_system_id, :system) do
+    map_local_name(map_id, solar_system_id) || canonical_name(solar_system_id)
+  end
+
+  # Route alerts carry the same map-local-names privacy boundary as :system:
+  # the whole message is the map's own chain, so the resolution order matches
+  # :system exactly rather than falling through to :character's canonical-only
+  # behavior.
+  def display_name(map_id, solar_system_id, :route) do
     map_local_name(map_id, solar_system_id) || canonical_name(solar_system_id)
   end
 

@@ -93,7 +93,24 @@ defmodule WandererApp.Api.Map do
   end
 
   actions do
-    defaults [:create, :read, :destroy]
+    defaults [:create, :read]
+
+    # Custom destroy so the map's route-alert watcher is stopped. The
+    # notification row's own :destroy already does this, but hard-deleting a map
+    # never runs it: `map_discord_notifications_v1` declares
+    # `reference :map, on_delete: :delete`, and a PostgreSQL cascade removes the
+    # child row without any Ash lifecycle hook firing. The watcher would keep
+    # running against a map that no longer exists, and its route_state would sit
+    # in the TTL-less :discord_route_alert_cache forever.
+    destroy :destroy do
+      primary? true
+      require_atomic? false
+
+      # `after_transaction`, not `after_action`: an after_action hook fires
+      # while the DELETE is still uncommitted, so a rollback would leave the
+      # watcher stopped and the cache evicted for a map that still exists.
+      change after_transaction(&__MODULE__.after_destroy/3)
+    end
 
     read :by_slug do
       get? true
@@ -324,6 +341,18 @@ defmodule WandererApp.Api.Map do
              end)
     end
   end
+
+  @doc false
+  def after_destroy(_changeset, {:ok, record}, _context) do
+    # Stops the map's route-alert watcher AND evicts its cached route_state
+    # (RouteWatcherSupervisor.stop_watcher/1 does both, and the eviction is
+    # deliberately outside its running?/0 guard).
+    WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor.stop_watcher(record.id)
+
+    {:ok, record}
+  end
+
+  def after_destroy(_changeset, other, _context), do: other
 
   # Generate a unique slug from map name
   defp generate_unique_slug(name) do
