@@ -5,6 +5,45 @@
 **Replaces:** Fly GitHub integration auto-deploying on push to `guarzo/release`
 **Related:** `docs/superpowers/specs/2026-08-02-flyio-migration-design.md`, `ce58765b` (ci: drop the VM release pipeline)
 
+## Amendment — 2026-08-07, during implementation
+
+**`guarzo/release` is retired, not retained as a CI-owned bookmark.** Everything
+below describing the workflow force-pushing that branch as its final step no
+longer holds. The workflow deploys and tags; the newest `v20*` tag is the sole
+record of what is in production, and `guarzo/release` is frozen by a ruleset with
+an empty bypass list.
+
+Two things forced the change:
+
+1. **The Actions bypass actor is unavailable on user-owned repositories.**
+   `guarzo/wanderer` is owned by a user, not an org. Creating the ruleset with
+   `{"actor_type": "Integration", "actor_id": 15368}` returns HTTP 422:
+   *"Actor GitHub Actions integration must be part of the ruleset source or
+   owner organization."* This invalidates the section *Permissions and the
+   `guarzo/release` ruleset* below, whose open question — whether a bypass actor
+   can force-push — turns out to be unanswerable as posed. A `DeployKey` bypass
+   actor **is** accepted (verified against a disposable probe ruleset), but it
+   costs a long-lived SSH key with write access to every branch, stored beside
+   the Fly deploy token.
+2. **Given that, the bookmark was not worth its own credential.** Its only
+   consumers were `git diff guarzo/release..guarzo/zoo` and human reassurance —
+   both of which the tag already serves. Retiring it removes a ref that is
+   authoritative-looking but only conditionally accurate, and removes the last
+   thing in the design that needed write access beyond `GITHUB_TOKEN`.
+
+**What this costs:** `git diff guarzo/release..guarzo/zoo` is replaced by
+`git diff "$(git tag -l 'v20*' | sort | tail -1)"..guarzo/zoo`.
+
+**What it does not cost:** tag reachability across rebases — the original reason
+tags matter — was always the tag's job, never the branch's. The section *A failed
+deploy produces no tag and does not move the bookmark* still holds with the
+bookmark clause dropped; the partial-failure window narrows from three steps to
+two.
+
+The runbook in `docs/ZOO-FORK.md` and the plan at
+`docs/superpowers/plans/2026-08-07-deploy-approval-gate.md` reflect the amended
+design. Where they disagree with the text below, they govern.
+
 ## Problem
 
 Two problems, discovered together.
