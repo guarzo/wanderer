@@ -375,7 +375,9 @@ Design and plan: `docs/superpowers/specs/2026-08-07-deploy-approval-gate-design.
 monolithic job into:
 
 - `setup` — one dependency install/compile, cached for the rest
-- `tests` — 4-way `mix test --partitions` matrix (`PARTITIONS` env must match `config/test.exs`)
+- `tests` — 4-way `mix test --partitions` matrix (the `PARTITIONS` env var must match the
+  `partition` matrix list; `config/test.exs` already suffixes the database name with
+  `MIX_TEST_PARTITION`, which is upstream's default)
 - `static` — format, warning count, Credo
 - `dialyzer` — PLT build + run
 - `coverage` — coverage report and PR comment
