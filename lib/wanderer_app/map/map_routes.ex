@@ -19,17 +19,6 @@ defmodule WandererApp.Map.Routes do
     avoid: []
   }
 
-  @minimum_route_attrs [
-    :system_class,
-    :class_title,
-    :security,
-    :triglavian_invasion_status,
-    :solar_system_id,
-    :solar_system_name,
-    :region_name,
-    :is_shattered
-  ]
-
   @get_link_pairs_advanced_params [
     :include_mass_crit,
     :include_eol,
@@ -79,7 +68,7 @@ defmodule WandererApp.Map.Routes do
   Route alerts always pass `false`.
   """
   @spec find_strict(binary(), [binary()], binary(), map(), boolean()) ::
-          {:ok, %{routes: [map()], systems_static_data: [map() | nil]}} | {:error, term()}
+          {:ok, %{routes: [map()], systems_static_data: [map()]}} | {:error, term()}
   def find_strict(map_id, hubs, origin, routes_settings, false) do
     case do_find_routes(map_id, origin, hubs, routes_settings, strict: true) do
       {:ok, routes} ->
@@ -121,29 +110,7 @@ defmodule WandererApp.Map.Routes do
         route_info.systems
       end
     end)
-    |> Enum.uniq()
-    |> Task.async_stream(
-      fn system_id ->
-        case WandererApp.CachedInfo.get_system_static_info(system_id) do
-          {:ok, nil} ->
-            nil
-
-          {:ok, system} ->
-            system |> Map.take(@minimum_route_attrs)
-
-          # `get_system_static_info/1` also returns {:error, :not_found},
-          # {:error, :api_error} and {:error, :cache_error}. Without this clause
-          # any of them raises CaseClauseError inside the task, and because
-          # `Task.async_stream` LINKS its tasks, that kills this process rather
-          # than surfacing as `{:exit, _}` below. A system we cannot resolve is
-          # missing static data, which every caller already handles as `nil`.
-          {:error, _reason} ->
-            nil
-        end
-      end,
-      max_concurrency: System.schedulers_online() * 4
-    )
-    |> Enum.map(fn {:ok, val} -> val end)
+    |> WandererApp.Map.RouteStaticData.hydrate()
   end
 
   defp do_find_routes(map_id, origin, hubs, routes_settings, opts \\ []) do

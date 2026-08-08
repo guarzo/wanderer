@@ -5,17 +5,6 @@ defmodule WandererApp.Map.RoutesBy do
 
   require Logger
 
-  @minimum_route_attrs [
-    :system_class,
-    :class_title,
-    :security,
-    :triglavian_invasion_status,
-    :solar_system_id,
-    :solar_system_name,
-    :region_name,
-    :is_shattered
-  ]
-
   @default_routes_settings %{
     path_type: "shortest",
     include_mass_crit: true,
@@ -159,19 +148,8 @@ defmodule WandererApp.Map.RoutesBy do
 
   defp fetch_systems_static_data(routes) do
     routes
-    |> Enum.map(fn route_info -> route_info.systems end)
-    |> List.flatten()
-    |> Enum.uniq()
-    |> Task.async_stream(
-      fn system_id ->
-        case WandererApp.CachedInfo.get_system_static_info(system_id) do
-          {:ok, nil} -> nil
-          {:ok, system} -> system |> Map.take(@minimum_route_attrs)
-        end
-      end,
-      max_concurrency: System.schedulers_online() * 4
-    )
-    |> Enum.map(fn {:ok, val} -> val end)
+    |> Enum.flat_map(fn route_info -> route_info.systems end)
+    |> WandererApp.Map.RouteStaticData.hydrate()
   end
 
   defp build_avoidance_list(routes_settings) do
