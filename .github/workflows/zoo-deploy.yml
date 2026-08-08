@@ -46,7 +46,7 @@ jobs:
 
     # The gate AND the work live in one job on purpose. A protected environment
     # gates every job that references it, so splitting them would prompt twice;
-    # and FLY_API_TOKEN is an environment secret, readable only by a job inside
+    # and FLY_DEPLOY_TOKEN is an environment secret, readable only by a job inside
     # the environment. Secrets cannot be passed between jobs.
     environment: production-deploy
 
@@ -134,7 +134,12 @@ jobs:
         if: steps.guard.outputs.proceed == 'true'
         id: deploy
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          # Repository secret name is FLY_DEPLOY_TOKEN, deliberately NOT
+          # FLY_API_TOKEN: advanced-test.yml reads a secret of that name with no
+          # environment gate, for the separate wanderer-test app. Distinct names
+          # mean this production credential can never be picked up there. The
+          # env var flyctl itself reads is still FLY_API_TOKEN.
+          FLY_API_TOKEN: ${{ secrets.FLY_DEPLOY_TOKEN }}
         run: |
           set -euo pipefail
           flyctl deploy --app wanderer --remote-only
