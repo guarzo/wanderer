@@ -5,19 +5,51 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   Only `killmail_id`, `kill_time` and `solar_system_id` are guaranteed present
   on a killmail (see `WandererApp.Kills.MessageHandler`), so every other field
   is rendered defensively.
+
+  Each kill arrives paired with the involvement verdict from
+  `WandererApp.ExternalEvents.Discord.Matcher.involvement/3`. The verdict, not
+  the payload, decides the colour and the author line.
   """
+
+  @type verdict :: {:involved, :victim} | {:involved, :attacker} | :not_involved
 
   @max_embeds_per_message 10
   @max_kills_per_event 30
-  @max_message_text 6000
-  @max_title 256
-  @max_field_value 1024
-  # Keeps a single embed below the aggregate budget even with all five fields.
-  @max_footer 256
-  @color 0xD9534F
 
-  @zkill_base "https://zkillboard.com/kill/"
+  # Discord's documented embed limits. Exceeding any of them is a 400, not a
+  # truncation, and a 400 counts as a delivery failure — so ten kills in a
+  # system whose map-local name is long enough would trip
+  # `@max_consecutive_failures` and auto-disable the destination. `custom_name`
+  # and `temporary_name` carry no length constraint on `MapSystem`, so the
+  # title bound is reachable from ordinary user input, not just malice.
+  @max_title_length 256
+  @max_description_length 4096
+  # The per-message ceiling counts the text of every embed in the message
+  # together, so it can be breached by a batch that satisfies each field bound
+  # individually.
+  @max_message_text 6000
+
+  @color_loss 0xE74C3C
+  @color_kill 0x2ECC71
+
+  # ISK tiers for kills involving nobody we track, largest first.
+  #
+  # NOTE: @color_kill (0x2ECC71) and the 10M tier (0x00FF00) are both green.
+  # They are *distinct meanings* that happen to share a hue — "you killed
+  # something" versus "a bystander kill worth 10M-100M" — and they are
+  # disambiguated by the author line, which is present on a kill and absent on
+  # an uninvolved embed. Do not collapse these two constants into one.
+  @value_colors [
+    {5_000_000_000, 0xFF0000},
+    {1_000_000_000, 0xFF6600},
+    {100_000_000, 0xFFFF00},
+    {10_000_000, 0x00FF00}
+  ]
+  @color_default 0x808080
+
+  @zkill_base "https://zkillboard.com"
   @image_base "https://images.evetech.net"
+  @thumbnail_size 1024
 
   # ISK magnitude table, largest first: {threshold, divisor, unit, next_unit}.
   # `next_unit` is what a value promotes to when rounding pushes it to >= 1000
@@ -38,36 +70,59 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   @spec max_kills_per_event() :: pos_integer()
   def max_kills_per_event, do: @max_kills_per_event
 
-  @spec format_batch([map()], String.t() | nil) :: [map()]
+  @spec format_batch([{map(), verdict()}], String.t() | nil) :: [map()]
   def format_batch([], _system_name), do: []
 
-  def format_batch(killmails, system_name) do
-    total = length(killmails)
-    shown = Enum.take(killmails, @max_kills_per_event)
+  def format_batch(entries, system_name) do
+    total = length(entries)
+    shown = Enum.take(entries, @max_kills_per_event)
     overflow = total - length(shown)
 
     messages =
       shown
-      |> Enum.map(&format_kill(&1, system_name))
-      |> Enum.chunk_while(
-        {[], 0},
-        fn embed, {embeds, size} ->
-          next_size = embed_length(embed)
-
-          if length(embeds) >= @max_embeds_per_message or size + next_size > @max_message_text do
-            {:cont, Enum.reverse(embeds), {[embed], next_size}}
-          else
-            {:cont, {[embed | embeds], size + next_size}}
-          end
-        end,
-        fn
-          {[], _} -> {:cont, []}
-          {embeds, _} -> {:cont, Enum.reverse(embeds), {[], 0}}
-        end
-      )
-      |> Enum.map(&%{"embeds" => &1, "allowed_mentions" => %{"parse" => []}})
+      |> Enum.map(fn {kill, verdict} -> format_kill(kill, verdict, system_name) end)
+      |> chunk_messages()
+      |> Enum.map(&%{"embeds" => &1})
 
     append_overflow(messages, overflow)
+  end
+
+  # Two bounds at once: at most @max_embeds_per_message embeds, and at most
+  # @max_message_text characters of embed text across them. Each embed is
+  # already within the per-field limits by construction, so a single embed can
+  # never exceed the message total on its own and this always terminates.
+  defp chunk_messages(embeds) do
+    embeds
+    |> Enum.reduce([], fn embed, acc ->
+      size = embed_text_length(embed)
+
+      case acc do
+        [{chunk, chunk_size} | rest]
+        when length(chunk) < @max_embeds_per_message and chunk_size + size <= @max_message_text ->
+          [{[embed | chunk], chunk_size + size} | rest]
+
+        _ ->
+          [{[embed], size} | acc]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.map(fn {chunk, _size} -> Enum.reverse(chunk) end)
+  end
+
+  # Discord counts title, description, field names and values, footer text and
+  # author name toward the per-message total. URLs and colours do not count.
+  defp embed_text_length(embed) do
+    fields =
+      embed
+      |> Map.get("fields", [])
+      |> Enum.map(&(String.length(&1["name"] || "") + String.length(&1["value"] || "")))
+      |> Enum.sum()
+
+    String.length(embed["title"] || "") +
+      String.length(embed["description"] || "") +
+      String.length(get_in(embed, ["footer", "text"]) || "") +
+      String.length(get_in(embed, ["author", "name"]) || "") +
+      fields
   end
 
   defp append_overflow(messages, overflow) when overflow <= 0, do: messages
@@ -77,90 +132,233 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
     init ++ [Map.put(last, "content", "…and #{overflow} more kills not shown.")]
   end
 
-  @spec format_kill(map(), String.t() | nil) :: map()
-  def format_kill(kill, system_name) do
-    victim = present(kill["victim_char_name"]) || "Unknown pilot"
-    ship = present(kill["victim_ship_name"]) || "Unknown ship"
-
+  @spec format_kill(map(), verdict(), String.t() | nil) :: map()
+  def format_kill(kill, verdict, system_name) do
     %{
-      "title" => limit_text("#{victim} lost a #{ship}", @max_title),
+      "title" => truncate(title(kill, system_name), @max_title_length),
       "url" => zkill_url(kill["killmail_id"]),
-      "color" => @color,
-      "timestamp" => iso8601(kill["kill_time"]),
-      "fields" => fields(kill, system_name)
+      "color" => color(verdict, kill["total_value"]),
+      "description" => truncate(description(kill), @max_description_length),
+      "fields" => fields(kill)
     }
-    |> maybe_put("thumbnail", thumbnail(kill["victim_ship_type_id"]))
+    |> maybe_put("author", author(kill, verdict))
+    |> maybe_put("thumbnail", thumbnail(kill))
     |> maybe_put("footer", footer(kill))
     |> drop_nils()
   end
 
-  defp fields(kill, system_name) do
+  # Ellipsis rather than a hard cut, so a clipped name reads as clipped instead
+  # of as a differently-named system. Measured in graphemes, matching how
+  # Discord counts: a name of emoji or non-Latin script would otherwise pass a
+  # byte-based check and still be rejected.
+  defp truncate(nil, _limit), do: nil
+
+  defp truncate(text, limit) when is_binary(text) do
+    if String.length(text) <= limit,
+      do: text,
+      else: String.slice(text, 0, limit - 1) <> "…"
+  end
+
+  defp title(kill, system_name) do
+    ship = present(kill["victim_ship_name"]) || "Unknown ship"
+    system = present(system_name) || "Unknown system"
+    "#{ship} destroyed in #{system}"
+  end
+
+  defp color({:involved, :victim}, _value), do: @color_loss
+  defp color({:involved, :attacker}, _value), do: @color_kill
+
+  defp color(:not_involved, value) when is_number(value) do
+    Enum.find_value(@value_colors, @color_default, fn {threshold, color} ->
+      if value >= threshold, do: color
+    end)
+  end
+
+  defp color(:not_involved, _value), do: @color_default
+
+  # Omitted entirely when we are not involved: neither "Kill" nor "Loss" would
+  # be a true statement about a fight none of our pilots were in.
+  defp author(_kill, :not_involved), do: nil
+  defp author(kill, {:involved, :victim}), do: author_line("Loss", kill["victim_corp_id"])
+  defp author(kill, {:involved, :attacker}), do: author_line("Kill", kill["final_blow_corp_id"])
+
+  defp author_line(label, corp_id) when is_integer(corp_id) or is_binary(corp_id) do
+    %{
+      "name" => label,
+      "icon_url" => "#{@image_base}/corporations/#{corp_id}/logo?size=64"
+    }
+  end
+
+  defp author_line(label, _corp_id), do: %{"name" => label}
+
+  # Prose, not a field grid. Each clause carries its own leading separator and
+  # returns nil when the underlying data is absent, so an NPC kill simply reads
+  # "X lost their Y." rather than naming a placeholder attacker.
+  defp description(kill) do
     [
-      field("System", present(system_name) || "Unknown system", true),
+      victim_clause(kill),
+      final_blow_clause(kill),
+      top_damage_clause(kill),
+      others_clause(kill)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join()
+    |> Kernel.<>(".")
+  end
+
+  defp victim_clause(kill) do
+    pilot =
+      character_link(kill["victim_char_id"], present(kill["victim_char_name"]) || "Unknown pilot")
+
+    ship = present(kill["victim_ship_name"]) || "Unknown ship"
+
+    case corporation_link(kill["victim_corp_id"], present(kill["victim_corp_ticker"])) do
+      nil -> "#{pilot} lost their **#{ship}**"
+      corp -> "#{pilot} (#{corp}) lost their **#{ship}**"
+    end
+  end
+
+  defp final_blow_clause(kill) do
+    case present(kill["final_blow_char_name"]) do
+      nil ->
+        nil
+
+      name ->
+        pilot = character_link(kill["final_blow_char_id"], name)
+
+        case corporation_link(kill["final_blow_corp_id"], present(kill["final_blow_corp_ticker"])) do
+          nil -> " to #{pilot}"
+          corp -> " to #{pilot} (#{corp})"
+        end
+    end
+  end
+
+  defp top_damage_clause(kill) do
+    with name when not is_nil(name) <- present(kill["top_damage_char_name"]),
+         true <- distinct_from_final_blow?(kill) do
+      ", top damage by #{character_link(kill["top_damage_char_id"], name)}"
+    else
+      _ -> nil
+    end
+  end
+
+  # Ids are authoritative when both are present; names are the fallback for
+  # payloads that carry one without the other. Compared as strings because the
+  # two ids do not have to arrive as the same type: `collect_ids/2` normalizes
+  # to integers on the nested branch only, so a flat payload can pair an
+  # integer with a binary. Matching only `is_integer/1` on both would drop such
+  # a pair to the name comparison, which is exactly the case the ids exist to
+  # settle.
+  defp distinct_from_final_blow?(kill) do
+    case {kill["final_blow_char_id"], kill["top_damage_char_id"]} do
+      {fb, td} when (is_integer(fb) or is_binary(fb)) and (is_integer(td) or is_binary(td)) ->
+        to_string(fb) != to_string(td)
+
+      _ ->
+        present(kill["final_blow_char_name"]) != present(kill["top_damage_char_name"])
+    end
+  end
+
+  # Relative to whichever pilot(s) got named in the clauses above — final blow,
+  # top damage, or both. With nobody named at all there is no antecedent for
+  # "others" to modify, so a wholly anonymous fight (e.g. an NPC final blow
+  # with no top-damage pilot either) renders no others-clause at all rather
+  # than a dangling ", and 1 other." An NPC final blow with a *named*
+  # top-damage pilot still gets an others-clause, since something was named.
+  defp others_clause(kill) do
+    named = named_attacker_count(kill)
+
+    if named > 0 do
+      case kill["attacker_count"] do
+        count when is_integer(count) and count - named == 1 -> ", and 1 other"
+        count when is_integer(count) and count - named > 1 -> ", and #{count - named} others"
+        _ -> nil
+      end
+    end
+  end
+
+  defp named_attacker_count(kill) do
+    final_blow = if present(kill["final_blow_char_name"]), do: 1, else: 0
+
+    top_damage =
+      if present(kill["top_damage_char_name"]) && distinct_from_final_blow?(kill), do: 1, else: 0
+
+    final_blow + top_damage
+  end
+
+  defp character_link(id, name) when is_integer(id) or is_binary(id),
+    do: "**[#{name}](#{@zkill_base}/character/#{id}/)**"
+
+  defp character_link(_id, name), do: "**#{name}**"
+
+  defp corporation_link(_id, nil), do: nil
+
+  defp corporation_link(id, ticker) when is_integer(id) or is_binary(id),
+    do: "**[#{ticker}](#{@zkill_base}/corporation/#{id}/)**"
+
+  defp corporation_link(_id, ticker), do: "**#{ticker}**"
+
+  defp fields(kill) do
+    [
       field("Value", format_isk(kill["total_value"]), true),
-      field("Final blow", final_blow(kill), true),
-      field("Corp", present(kill["victim_corp_name"]), true),
-      field("Alliance", present(kill["victim_alliance_name"]), true)
+      field("When", relative_time(kill["kill_time"]), true)
     ]
     |> Enum.reject(&is_nil/1)
   end
 
   defp field(_name, nil, _inline), do: nil
+  defp field(name, value, inline), do: %{"name" => name, "value" => value, "inline" => inline}
 
-  defp field(name, value, inline),
-    do: %{"name" => name, "value" => limit_text(value, @max_field_value), "inline" => inline}
-
-  defp embed_length(embed) do
-    text_length(embed["title"]) +
-      text_length(get_in(embed, ["footer", "text"]) || "") +
-      Enum.sum(
-        Enum.map(embed["fields"], fn field ->
-          text_length(field["name"]) + text_length(field["value"])
-        end)
-      )
+  # `<t:unix:R>` renders client-side as "3 hours ago", in the reader's own
+  # timezone. An unparseable kill_time drops the field rather than guessing.
+  defp relative_time(kill_time) when is_binary(kill_time) do
+    case DateTime.from_iso8601(kill_time) do
+      {:ok, datetime, _offset} -> "<t:#{DateTime.to_unix(datetime)}:R>"
+      _ -> nil
+    end
   end
 
-  # Counting UTF-16 units is conservative for Discord and handles astral
-  # characters/combining marks, unlike String.length's grapheme count.
-  defp text_length(text) do
-    text |> :unicode.characters_to_binary(:utf8, {:utf16, :little}) |> byte_size() |> div(2)
-  end
+  defp relative_time(%DateTime{} = datetime), do: "<t:#{DateTime.to_unix(datetime)}:R>"
 
-  defp limit_text(text, limit) do
-    {chars, _} =
-      text
-      |> String.to_charlist()
-      |> Enum.reduce_while({[], limit}, fn char, {chars, remaining} ->
-        units = if char > 0xFFFF, do: 2, else: 1
+  defp relative_time(%NaiveDateTime{} = naive),
+    do: relative_time(DateTime.from_naive!(naive, "Etc/UTC"))
 
-        if units <= remaining,
-          do: {:cont, {[char | chars], remaining - units}},
-          else: {:halt, {chars, remaining}}
-      end)
+  defp relative_time(unix) when is_integer(unix), do: "<t:#{unix}:R>"
+  defp relative_time(_), do: nil
 
-    chars |> Enum.reverse() |> List.to_string()
-  end
+  # Selection is on FIELD PRESENCE ONLY. This is *not* a 404 fallback: Discord
+  # fetches the image itself when it renders the embed, so a failed fetch is
+  # never observable from here and cannot be reacted to. If the ship type id is
+  # present we use the ship render even if that render happens not to exist
+  # upstream; the character portrait is only for kills that carry no ship type.
+  defp thumbnail(kill) do
+    cond do
+      is_integer(kill["victim_ship_type_id"]) or is_binary(kill["victim_ship_type_id"]) ->
+        %{
+          "url" =>
+            "#{@image_base}/types/#{kill["victim_ship_type_id"]}/render?size=#{@thumbnail_size}"
+        }
 
-  defp final_blow(kill) do
-    case {present(kill["final_blow_char_name"]), kill["attacker_count"]} do
-      {nil, _} -> nil
-      {name, count} when is_integer(count) and count > 1 -> "#{name} (+#{count - 1})"
-      {name, _} -> name
+      is_integer(kill["victim_char_id"]) or is_binary(kill["victim_char_id"]) ->
+        %{
+          "url" =>
+            "#{@image_base}/characters/#{kill["victim_char_id"]}/portrait?size=#{@thumbnail_size}"
+        }
+
+      true ->
+        nil
     end
   end
 
   defp footer(kill) do
-    case present(kill["victim_corp_ticker"]) do
+    case kill["killmail_id"] do
       nil -> nil
-      ticker -> %{"text" => limit_text("[#{ticker}]", @max_footer)}
+      id -> %{"text" => "Killmail ID: #{id}"}
     end
   end
 
-  defp thumbnail(nil), do: nil
-  defp thumbnail(type_id), do: %{"url" => "#{@image_base}/types/#{type_id}/render?size=64"}
-
   defp zkill_url(nil), do: nil
-  defp zkill_url(id), do: "#{@zkill_base}#{id}/"
+  defp zkill_url(id), do: "#{@zkill_base}/kill/#{id}/"
 
   @doc false
   def format_isk(nil), do: nil
@@ -190,7 +388,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   # Format a float to avoid scientific notation (e.g., 1.0e3 -> "1000.0")
   defp format_float(float) when is_float(float) do
-    # Use format/2 to avoid scientific notation, keeping 1 decimal place
+    # `:decimals` avoids scientific notation, keeping 1 decimal place
     :erlang.float_to_list(float, [{:decimals, 1}])
     |> List.to_string()
   end
@@ -201,40 +399,6 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   defp present(""), do: nil
   defp present(value) when is_binary(value), do: value
   defp present(value), do: to_string(value)
-
-  # Discord rejects the *entire* message with HTTP 400 on a malformed embed
-  # timestamp, so one bad kill_time would drop a batch of up to 10 kills.
-  # Nothing upstream enforces a format: MessageHandler forwards the field
-  # verbatim and ExternalEvents.broadcast/3 accepts arbitrary payload maps, so
-  # this arrives as a DateTime, a NaiveDateTime, or a string of unknown shape.
-  # An unparseable value yields nil, which drop_nils/1 strips — the embed still
-  # renders, just without a timestamp.
-  defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
-
-  # Naive values carry no offset; Discord requires one. Kill times are UTC
-  # everywhere in this codebase, so stamping "Z" is the faithful reading.
-  defp iso8601(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt) <> "Z"
-
-  defp iso8601(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} ->
-        DateTime.to_iso8601(dt)
-
-      # An offsetless string is the serialized form of the %NaiveDateTime{}
-      # clause above and gets the same treatment, rather than losing the
-      # timestamp over a detail of how the value happened to be encoded.
-      {:error, :missing_offset} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> NaiveDateTime.to_iso8601(ndt) <> "Z"
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp iso8601(_), do: nil
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

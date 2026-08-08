@@ -3,60 +3,64 @@ defmodule WandererApp.ExternalEvents.Discord.HttpStub do
   Test double for Discord HTTP delivery.
 
   State lives in ONE named Agent shared by every test, so any test using this
-  stub must be `async: false`. The Agent is unlinked and outlives the test that
-  first started it. Call `start/0` in setup (it resets the state if the Agent is
-  already up), `set_responses/1` to script replies, and `requests/0` to assert
-  on what was sent.
+  stub must be `async: false`. Call `start/0` in setup (it resets the state if
+  the Agent is already up), `set_responses/1` to script replies, and
+  `requests/0` to assert on what was sent.
   """
   @behaviour WandererApp.ExternalEvents.Discord.HttpClient
 
   @agent __MODULE__.Agent
 
   def start do
-    # Deliberately unlinked. Under Agent.start_link the Agent belongs to
-    # whichever test process called start/0 first and dies when that test ends.
-    # Because the registered name is released asynchronously, the next test's
-    # start/0 can be handed a pid that is already on its way out: the reset
-    # succeeds, start/0 returns, and the Agent then dies mid-test, exiting the
-    # caller with an opaque :noproc from whatever it queried next. Monitoring
-    # around the reset does not close that window, because the failure mode is
-    # a reset that *succeeds* against a doomed process. Unlinked, the Agent
-    # outlives every test and setup only has to reset it.
-    case Agent.start(fn -> %{responses: [], requests: []} end, name: @agent) do
-      {:ok, pid} ->
-        {:ok, pid}
-
-      {:error, {:already_started, pid}} ->
-        :ok = Agent.update(@agent, fn _ -> %{responses: [], requests: []} end)
-        {:ok, pid}
-
-      # Without this the case raises CaseClauseError, which says nothing about
-      # what actually went wrong.
-      {:error, reason} ->
-        raise "Discord HttpStub agent failed to start: #{inspect(reason)}"
+    # `Agent.start`, not `start_link`: linking would tie the shared Agent to
+    # whichever test process happened to call `start/0` first, so it would die
+    # with that test. A worker Task still in flight afterwards would then hit a
+    # dead Agent, exit `:noproc`, and record a spurious delivery failure instead
+    # of the scripted response.
+    case Agent.start(fn -> new_state() end, name: @agent) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> reset() && {:ok, pid}
+      {:error, reason} -> raise "could not start #{inspect(@agent)}: #{inspect(reason)}"
     end
   end
 
-  def reset, do: Agent.update(@agent, fn _ -> %{responses: [], requests: []} end) == :ok
+  def reset, do: Agent.update(@agent, fn _ -> new_state() end) == :ok
 
-  @doc "Queues responses, consumed in order. Each is {:ok, status, headers} or {:error, term}."
+  defp new_state, do: %{responses: [], by_url: %{}, requests: []}
+
+  @doc "Queues responses for ANY url, consumed in order. Each is {:ok, status, headers} or {:error, term}."
   def set_responses(responses), do: Agent.update(@agent, &%{&1 | responses: responses})
+
+  @doc """
+  Queues responses for ONE url, consumed in order and checked before the global
+  queue. Needed once a map has two webhooks: with a single global queue the two
+  destinations race for the scripted reply, so "404 the character webhook" would
+  land on whichever request happened to arrive first.
+  """
+  def set_responses_for(url, responses),
+    do: Agent.update(@agent, &%{&1 | by_url: Map.put(&1.by_url, url, responses)})
 
   @doc "Returns {url, body} tuples in the order they were sent."
   def requests, do: Agent.get(@agent, & &1.requests) |> Enum.reverse()
 
+  @doc "Returns the {url, body} tuples sent to one url, in order."
+  def requests_for(url), do: Enum.filter(requests(), fn {u, _body} -> u == url end)
+
   @impl true
   def post(url, body) do
-    response =
-      Agent.get_and_update(@agent, fn state ->
-        state = %{state | requests: [{url, body} | state.requests]}
+    Agent.get_and_update(@agent, fn state ->
+      state = %{state | requests: [{url, body} | state.requests]}
 
-        case state.responses do
-          [] -> {{:ok, 204, []}, state}
-          [resp | rest] -> {resp, %{state | responses: rest}}
-        end
-      end)
+      case Map.get(state.by_url, url) do
+        [resp | rest] ->
+          {resp, %{state | by_url: Map.put(state.by_url, url, rest)}}
 
-    if is_function(response, 2), do: response.(url, body), else: response
+        _ ->
+          case state.responses do
+            [] -> {{:ok, 204, []}, state}
+            [resp | rest] -> {resp, %{state | responses: rest}}
+          end
+      end
+    end)
   end
 end
