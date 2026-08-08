@@ -30,9 +30,17 @@ jobs:
     # skipped, so no environment is referenced, no approval is requested, and no
     # credential is released. Expect skipped runs in the Actions tab after every
     # failed suite; that is the mechanism working, not a misfire.
+    #
+    # The `event == 'push'` clause guards a narrower hole: workflow_run's
+    # `branches:` filter (above) matches the triggering run's head_branch, and
+    # this is a public fork whose default branch is itself named `guarzo/zoo`.
+    # Without this clause, a fork PR whose source branch is also named
+    # `guarzo/zoo` would match the filter and, if its tests pass, raise a
+    # production-deploy approval request for a commit the requester controls.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
 
     # The gate AND the work live in one job on purpose. A protected environment
@@ -98,6 +106,15 @@ jobs:
           HERE="$(git rev-parse HEAD)"
           if [ "$TIP" != "$HERE" ]; then
             echo "::notice title=Superseded::guarzo/zoo has moved to ${TIP}; this run was approved for ${HERE}. Nothing was deployed."
+            # Also write to the job summary, not just the notice: a notice
+            # requires opening the run to see, so without this the summary
+            # pane stays blank and a superseded run reads identically to a
+            # real deploy in the Actions list.
+            {
+              echo "### Not deployed — superseded"
+              echo ""
+              echo "guarzo/zoo has moved to \`${TIP}\`; this run was approved for \`${HERE}\`. Nothing was deployed."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "proceed=false" >> "$GITHUB_OUTPUT"
           else
             echo "proceed=true" >> "$GITHUB_OUTPUT"
@@ -130,6 +147,8 @@ jobs:
       - name: Tag the deployed commit
         if: steps.guard.outputs.proceed == 'true'
         id: tag
+        env:
+          DEPLOY_VERSION: ${{ steps.deploy.outputs.version }}
         run: |
           set -euo pipefail
           SHA="$(git rev-parse --short HEAD)"
@@ -141,13 +160,17 @@ jobs:
           # generated from the clock, so checking only the new name would always
           # miss the existing one.
           # Tags are present because checkout used fetch-depth: 0.
-          EXISTING="$(git tag --points-at HEAD --list 'v[0-9]*' | head -n1)"
+          # 'v20[0-9]*' (not 'v[0-9]*') excludes upstream semver release tags
+          # like v1.2.3 — git tag sorts lexicographically, so head -n1 would
+          # otherwise prefer an upstream tag over a timestamped deploy tag on
+          # any commit carrying both.
+          EXISTING="$(git tag --points-at HEAD --list 'v20[0-9]*' | head -n1)"
           if [ -n "${EXISTING}" ]; then
             TAG="${EXISTING}"
             echo "Commit is already tagged ${TAG}; reusing it."
           else
-            TAG="v$(date +%Y%m%d%H%M%S)"
-            git tag -a "${TAG}" -m "Deployed ${SHA} to Fly app wanderer (release v${{ steps.deploy.outputs.version }})"
+            TAG="v$(date -u +%Y%m%d%H%M%S)"
+            git tag -a "${TAG}" -m "Deployed ${SHA} to Fly app wanderer (release v${DEPLOY_VERSION})"
             git push origin "${TAG}"
             echo "Tagged ${SHA} as ${TAG}"
           fi
@@ -164,11 +187,13 @@ jobs:
 
       - name: Summarize
         if: steps.guard.outputs.proceed == 'true'
+        env:
+          DEPLOY_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           {
             echo "### Deployed"
             echo ""
             echo "- commit: \`$(git rev-parse HEAD)\`"
-            echo "- tag: \`${{ steps.tag.outputs.tag }}\`"
+            echo "- tag: \`${DEPLOY_TAG}\`"
             echo "- app: \`wanderer\`"
           } >> "$GITHUB_STEP_SUMMARY"
