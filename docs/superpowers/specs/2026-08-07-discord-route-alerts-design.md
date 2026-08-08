@@ -46,7 +46,15 @@ Facts established by inspection, with the constraints each imposes.
 
 ### 1. Trigger — any topology change, debounced
 
-Re-evaluate on `:add_system`, `:connection_added`, and `:connection_updated`.
+Re-evaluate on `:add_system`, `:connection_added`, `:connection_updated`,
+`:connection_removed`, and `:deleted_system`.
+
+The two removal events are load-bearing, not symmetry for its own sake: the
+transition table only runs during an evaluation, and an evaluation only happens
+on one of these events. Without them a closed route leaves the stored state at
+`{:qualifying, N}` indefinitely, so a route that closes and later re-opens at the
+same or a worse jump count never alerts again — only a strictly shorter re-open
+gets through.
 
 Adding a system never creates a route by itself: a system appears with no edges,
 and the path only becomes reachable when the connection is added — usually
@@ -349,9 +357,6 @@ covered by eviction instead — the notification's update hook calls
 `RouteWatcherSupervisor.stop_watcher/1` whenever the record lands with route
 alerts off, which stops the watcher and drops its cache entry, so re-enabling
 starts from `:unknown`.
-
-Disabling route alerts clears the state outright. Re-enabling therefore starts at
-`:unknown` by the same rule, with no special case.
 
 The config change itself does not trigger an evaluation — the watcher is
 event-driven and will pick it up on the next topology event. Alerting on save
