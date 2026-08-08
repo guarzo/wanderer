@@ -214,9 +214,89 @@ defmodule WandererApp.Map.RoutesFindStrictTest do
                false
              )
 
-    # The origin still hydrated; the unresolvable hub came back as nil, which
-    # `Evaluator.index_static_data/1` already rejects and then fails closed on.
-    assert origin in Enum.map(Enum.reject(static_data, &is_nil/1), & &1.solar_system_id)
-    refute hub in Enum.map(Enum.reject(static_data, &is_nil/1), & &1.solar_system_id)
+    # The origin still hydrated; the unresolvable hub is absent from the list
+    # rather than present as `nil` — `RoutesWidget.tsx:60` and `PingRoute.tsx:28`
+    # dereference every element while searching by id, so a `null` there throws.
+    refute Enum.any?(static_data, &is_nil/1)
+    assert origin in Enum.map(static_data, & &1.solar_system_id)
+    refute hub in Enum.map(static_data, & &1.solar_system_id)
+  end
+
+  # `Task.async_stream`'s default `on_timeout: :exit` kills the CALLING process
+  # when a lookup overruns. A cold `get_system_static_info/1` scans the entire
+  # MapSolarSystem table and repopulates the cache row by row
+  # (cached_info.ex:101-141), so overrunning the 5s default is realistic on any
+  # restart or TTL expiry.
+  #
+  # Exercised through `find_strict/5` because it is the entry point with a
+  # seam this test can drive, but the severe case is `find/5`: it runs inside a
+  # `Task.async` linked to the LiveView (map_routes_event_handler.ex:98,142),
+  # which does not trap exits, so one slow lookup remounted the whole map. The
+  # collector is shared, so covering it here covers both.
+  #
+  # `hub` is blocked outright rather than merely raced against a tight budget:
+  # a budget alone makes the outcome timing-dependent, and an assertion that
+  # tolerates either outcome would pass just as happily with the bug present.
+  # Blocking one named system pins exactly which one must go missing. The
+  # blocked task is never released explicitly — `on_timeout: :kill_task`
+  # killing it IS the behaviour under test, and the kill is what stops
+  # `sleep(:infinity)` from leaking.
+  test "find_strict/5 drops only the system whose static lookup overruns its budget" do
+    hub = unique_system_id()
+    origin = unique_system_id()
+    stub_static_info(hub)
+    stub_static_info(origin)
+
+    test_pid = self()
+
+    put_test_env(:route_static_info_timeout_ms, 50)
+
+    put_test_env(:route_static_info_lookup, fn
+      ^hub ->
+        send(test_pid, :hub_lookup_started)
+        Process.sleep(:infinity)
+
+      system_id ->
+        WandererApp.CachedInfo.get_system_static_info(system_id)
+    end)
+
+    stub(WandererApp.Esi.Mock, :get_routes_custom, fn hubs, origin, _params ->
+      {:ok,
+       Enum.map(hubs, fn hub ->
+         %{"origin" => origin, "destination" => hub, "systems" => [hub], "success" => true}
+       end)}
+    end)
+
+    assert {:ok, %{routes: [%{success: true}], systems_static_data: static_data}} =
+             Routes.find_strict(
+               Ecto.UUID.generate(),
+               [Integer.to_string(hub)],
+               Integer.to_string(origin),
+               @routes_settings,
+               false
+             )
+
+    # Reaching this line at all is half the point: under `on_timeout: :exit`
+    # this test process exited instead of returning.
+    assert_received :hub_lookup_started
+
+    # The blocked system is omitted rather than passed through as `nil` — the
+    # frontend searches this list by id and dereferences every element — and
+    # the system that resolved is untouched by its neighbour's timeout.
+    assert [%{solar_system_id: ^origin}] = static_data
+  end
+
+  # Both knobs are read at call time by `RouteStaticData`, so they must be
+  # restored even when a test fails partway through.
+  defp put_test_env(key, value) do
+    original = Application.fetch_env(:wanderer_app, key)
+    Application.put_env(:wanderer_app, key, value)
+
+    on_exit(fn ->
+      case original do
+        {:ok, previous} -> Application.put_env(:wanderer_app, key, previous)
+        :error -> Application.delete_env(:wanderer_app, key)
+      end
+    end)
   end
 end
