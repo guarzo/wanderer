@@ -275,25 +275,47 @@ wormhole-specific meanings.
 
 ### Label Mappings
 
-| Key | Upstream | Zoo Meaning | Icon | Use Case |
-|-----|----------|-------------|------|----------|
-| `la`/`de` | Label A | Dead End | Block | System with no exit wormholes |
-| `lb`/`gas` | Label B | Gas Site | Industry | System has harvestable gas sites |
-| `lc`/`eol` | Label C | End of Life | Hourglass | Wormhole about to collapse (<4h) |
-| `l1`/`crit` | Label 1 | Critical Mass | Fire | Wormhole at mass verge |
-| `l2`/`structure` | Label 2 | Structure | Warning | System has attackable structure |
-| `l3`/`steve` | Label 3 | Steve/Danger | Skull | High danger (historic name) |
+`Key` is the value actually written to `system.labels`. `Enum` is the TypeScript member name
+in `LABELS`, which never leaves the frontend. `Badge` is the `shortName` rendered on the node.
+
+| Key | Enum | Upstream | Zoo Meaning | Badge | Icon (`react-icons`) | Use Case |
+|-----|------|----------|-------------|-------|----------------------|----------|
+| `de` | `la` | Label A | Dead End | `DE` | `MdOutlineBlock` | System with no exit wormholes |
+| `gas` | `lb` | Label B | Gas Site | `GAS` | `FaIndustry` | System has harvestable gas sites |
+| `eol` | `lc` | Label C | End of Life | `EOL` | `FaHourglassEnd` | Wormhole about to collapse (<4h) |
+| `crit` | `l1` | Label 1 | Critical Mass | `CRIT` | `FaExclamationTriangle` | Wormhole at mass verge |
+| `structure` | `l2` | Label 2 | Structure | `LP` | `MdLocalFireDepartment` | System has attackable structure |
+| `steve` | `l3` | Label 3 | Steve/Danger | `DB` | `FaSkull` | High danger (historic name) |
+
+The `LP` and `DB` badges are inherited oddities, not typos. `LP` is "low power" — the
+`structure` label is commented as "Low Power Structure" in `labelIconMap.tsx`. `DB` has no
+expansion anywhere in the source; treat it as historic. The `name` field in `LABELS_INFO`
+("Structure", "Steve") is what the context menu shows; `shortName` is what the node badge
+shows.
 
 ### Storage
 
-Labels are stored in the database using the original upstream keys (`la`, `lb`, etc.) but
-displayed with zoo-specific names and icons when the zoo theme is active.
+Labels are stored as the **zoo keys** — `de`, `gas`, `eol`, `crit`, `structure`, `steve` —
+not the upstream `la`/`lb`/`lc` keys. `LABELS` is a TypeScript enum whose *member names* are
+`la`…`l3` but whose *values* are the zoo keys, and it is the value that
+`LabelsManager.toggleLabel/1` stores and `LabelsManager.toString/0` serializes into the JSON
+written to `system.labels`. Querying the database for `la` will not match anything.
+
+The backend treats `labels` as an opaque string; the frontend is the only producer and
+consumer of these keys.
 
 ### Files
 
-- **Definition:** `assets/js/hooks/Mapper/components/map/labelIconMap.tsx`
-- **Styles:** `assets/js/hooks/Mapper/components/map/constants.ts` (MARKER_BOOKMARK_BG_STYLES)
+- **Definition:** `assets/js/hooks/Mapper/components/map/labelIconMap.tsx` — `LABELS`,
+  `LABELS_INFO`, `LABELS_ORDER`, `LABEL_ICON_MAP`
+- **Zoo styles:** `assets/js/hooks/Mapper/components/map/zooConstants.ts` —
+  `ZOO_BOOKMARK_STYLES` / `ZOO_TEXT_STYLES`, spread into `MARKER_BOOKMARK_BG_STYLES` by
+  `constants.ts`. Note these cover `de`, `gas`, `eol` and `crit` only; `structure` and
+  `steve` fall through to the upstream `wd-marker-bookmark-color-l2`/`-l3` classes.
+- **Re-export:** `assets/js/hooks/Mapper/components/map/constants.ts` — merges the above
 - **CSS:** `assets/js/hooks/Mapper/components/map/styles/zoo-theme.scss`
+- **Serialization:** `assets/js/hooks/Mapper/utils/labelsManager.ts`
+- **Render:** `SolarSystemNodeZoo.tsx` (node badges), `useLabelsMenu.ts` (context menu)
 
 ---
 
