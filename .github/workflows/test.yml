@@ -170,6 +170,15 @@ jobs:
           echo "warnings=${warnings:-0}" >> "$GITHUB_OUTPUT"
           exit $status
 
+      # Gating, like formatting above. Runs after the compile step so a genuine
+      # compile error reports as a compile error rather than as codegen noise.
+      # Catches resources that have drifted from priv/resource_snapshots —
+      # typically after a dependency bump changes how a default is serialized,
+      # which is otherwise invisible until someone runs `mix ash.codegen`
+      # locally and gets an unrelated diff mixed into their feature branch.
+      - name: Check Ash codegen is up to date
+        run: mix ash.codegen --check
+
       - name: Run Credo
         id: credo
         continue-on-error: true
