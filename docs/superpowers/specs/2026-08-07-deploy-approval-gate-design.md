@@ -57,7 +57,7 @@ desired property, not a limitation to remove.
 | Fly GitHub integration | Disconnected — replaced, not run alongside |
 | Tag timing | **After** a verified-healthy deploy, never before |
 | `guarzo/release` | Retained as a CI-owned bookmark of what is in production |
-| Concurrency | Two groups: approvals coalesce and cancel; deploys serialize and are **not** cancellable |
+| Concurrency | One non-cancellable deploy job (`cancel-in-progress: false`); stale approvals are neutralized by a post-approval staleness guard, not by cancellation |
 | Deploy credential | Stored as an **environment** secret on `production-deploy`, not a repository secret |
 | Rollback | `workflow_dispatch` with a `ref` input (tag or SHA) |
 
@@ -81,7 +81,12 @@ desired property, not a limitation to remove.
 - **A single concurrency group with `cancel-in-progress: true`.** Also from the
   first draft. It correctly coalesces pending approvals but also cancels a run
   that is mid-deploy, which changes production without tagging or bookmarking
-  it. Replaced by two groups.
+  it. Replaced by a non-cancellable job plus a staleness guard.
+- **Two jobs: a gate job and a separate deploy job.** Proposed while applying
+  the review findings, then rejected: a protected environment gates every job
+  referencing it (two approval prompts), and the environment-scoped
+  `FLY_API_TOKEN` cannot be read by a job outside the environment or passed in
+  from one. Replaced by a single gated job.
 
 ## Architecture
 
@@ -129,26 +134,46 @@ any conclusion other than `success` (`failure`, `cancelled`, `timed_out`,
 `skipped`) produces no deploy run. Silence therefore means "not shippable",
 never "shipped without checking".
 
-### Concurrency: coalesce approvals, serialize deploys
+### Concurrency: one non-cancellable job, with a staleness guard
 
-Two jobs with **different** concurrency groups. Collapsing them into one group
-is a correctness bug, not a simplification.
+A **single** `deploy` job carries both the environment gate and all the work,
+with job-level `concurrency: {group: zoo-deploy-run, cancel-in-progress: false}`.
 
-| Job | Concurrency | Rationale |
-|---|---|---|
-| `await-approval` (gate only) | `group: zoo-deploy-approval`, `cancel-in-progress: true` | Merging three PRs before approving leaves one pending approval for the newest SHA, not three stale runs queued in order. Deploying an already-superseded intermediate commit is never the intent. |
-| `deploy` (everything after approval) | `group: zoo-deploy-run`, `cancel-in-progress: false` | Once approved, the run must not be interruptible. |
+**Why not split gate and deploy into two jobs.** Two reasons compound:
 
-**Why `cancel-in-progress` must not cover the deploy job.** GitHub's
-cancellation applies to *running* jobs, not only to runs waiting on approval. A
-merge landing mid-`flyctl deploy` would cancel the workflow while Fly's builder
-continues remotely — production changes, and the tag and bookmark steps never
-run. That is precisely the failure this design exists to prevent, reintroduced
-by the mechanism meant to tidy the approval queue.
+1. A protected environment gates **every job that references it**, so a
+   `await-approval` job plus a `deploy` job produces two approval prompts per
+   release.
+2. `FLY_API_TOKEN` is an environment secret (see Rollout), readable only by a
+   job declaring `environment: production-deploy`. The deploy job must therefore
+   reference the environment — it cannot delegate the gate to a predecessor.
+   Secrets cannot be passed between jobs via outputs.
 
-`cancel-in-progress: false` on the deploy group also serializes deploys: a
-second approved run queues behind the first rather than racing it onto the
-single machine.
+The approval-scoped credential is what forces the deploy work inside the gated
+job. Accepting two prompts to keep a tidy job graph is the wrong trade.
+
+**Why `cancel-in-progress: false`.** GitHub's cancellation applies to *running*
+jobs, not only to runs waiting on approval. A merge landing mid-`flyctl deploy`
+would cancel the workflow while Fly's builder continues remotely — production
+changes, and the tag and bookmark steps never run. That is precisely the failure
+this design exists to prevent, reintroduced by the mechanism meant to tidy the
+approval queue. `false` also serializes deploys: a second approved run queues
+behind the first rather than racing it onto the single machine.
+
+**Staleness guard replaces cancellation.** Because runs are never cancelled,
+approving an old pending run would otherwise deploy a superseded commit. The
+first step after approval compares the resolved SHA against the current
+`origin/guarzo/zoo` tip and **exits successfully without deploying** when they
+differ. Approving a stale run is then a no-op rather than a regression.
+
+The guard applies to `workflow_run` runs only. Under `workflow_dispatch` it is
+skipped entirely — deploying a ref that is *not* the branch tip is exactly what
+rollback is for.
+
+**Accepted cost:** stale pending approvals accumulate in the Actions tab instead
+of auto-cancelling, and are dismissed manually. In exchange: one approval per
+deploy, and no cancellation path into a running deploy.
+
 
 ### The approval gate
 
@@ -342,6 +367,11 @@ the current process resumes unchanged.
 - **Unverified: that a ruleset bypass actor can force-push to `guarzo/release`.**
   Required by step 5, and failing there leaves production deployed but
   unbookmarked. Also in the validation checklist.
+- **Unverified: that a protected environment gates every job referencing it.**
+  The single-job design assumes it does. If one approval in fact covers all jobs
+  in a run, splitting gate and deploy becomes viable again — but the
+  environment-scoped credential would still force the deploy work inside the
+  gated job, so the single-job shape stands either way. Low-stakes to confirm.
 - **Assumed: `flyctl deploy` exits non-zero when the release fails its health
   check.** Steps 4 and 5 depend on this. To be confirmed during validation; if
   it does not hold, an explicit `flyctl status` / `/health` poll is needed
