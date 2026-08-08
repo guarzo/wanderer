@@ -43,21 +43,24 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
 
   Do not "fix" this into a reroute. `RouterTest` asserts it deliberately.
 
-  ## Route alerts have their own destination
+  ## Route alerts have their own destination, and no fallback
 
-  `route_destination/1` resolves a route alert to the `:route` webhook,
-  falling back to the `:system` webhook when no `:route` row exists — the same
-  fallback pattern rule 3 uses for `:character`. Existing maps therefore need
-  no configuration change to keep receiving route alerts once the feature is
-  enabled.
+  `route_destination/1` resolves a route alert to the `:route` webhook and
+  nothing else. Unlike rule 3's `:character` → `:system` fallback, a missing
+  `:route` row drops.
 
-  A route alert *is* the chain topology: the path field names every system a
-  scout has found, in order, from the map's home system to Jita. There is no
-  redacted version of that message. A configured-but-disabled `:route` webhook
-  therefore drops rather than falling back to `:system` — the same
-  disabled-drops-never-reroutes rule above, for the same reason: silence must
-  mean silence, not misdirection into a channel the user did not pick for a
-  message this sensitive.
+  A route alert *is* the chain topology: the Path field names every system a
+  scout has found, in order, from the map's home system to Jita. A channel the
+  user configured to receive killmails has not consented to receive that. The
+  fallback would hand full chain topology to a channel chosen for a different
+  and much less sensitive purpose, with no user action and no way to notice —
+  which makes "no configuration change needed" a leak, not a convenience.
+  Route alerts are opt-in by configuring a `:route` webhook.
+
+  This is the same reasoning as the disabled-drops rule above: a destination
+  the user did not pick for *this* message is misdirection, and silence is the
+  safe failure. A configured-but-disabled `:route` webhook drops for the same
+  reason a missing one does.
   """
 
   alias WandererApp.SystemClass
@@ -97,10 +100,12 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
   @doc """
   Resolves a route alert to a destination. `notification` must have
   `:webhooks` loaded.
+
+  No fallback: without a `:route` webhook this drops. See the moduledoc.
   """
   @spec route_destination(struct()) :: {:ok, struct()} | :drop
   def route_destination(notification) do
-    usable(webhook(notification, :route) || webhook(notification, :system))
+    usable(webhook(notification, :route))
   end
 
   # Guarded on `is_list`: `:webhooks` is a relationship, so an unloaded

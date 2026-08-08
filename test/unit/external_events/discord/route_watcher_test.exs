@@ -2,10 +2,12 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
   use WandererApp.DataCase, async: false
 
   alias WandererApp.Api.MapDiscordNotification
+  alias WandererApp.Api.MapDiscordWebhook
   alias WandererApp.ExternalEvents.Discord.{HttpStub, RouteWatcher, WorkerSupervisor}
   alias WandererAppWeb.Factory
 
   @jita 30_000_142
+  @route_url "https://discord.com/api/webhooks/2/route"
 
   setup do
     HttpStub.start()
@@ -52,6 +54,18 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
         home_system_id: 30_000_001,
         route_max_jumps: 5
       })
+
+    # Required, not incidental: `Router.route_destination/1` has no `:system`
+    # fallback, so without this row every alert here would take the `:drop`
+    # branch and these transition tests would assert nothing.
+    {:ok, _route_wh} =
+      MapDiscordWebhook.create(%{
+        notification_id: notification.id,
+        role: :route,
+        webhook_url: @route_url
+      })
+
+    {:ok, notification} = MapDiscordNotification.by_id(notification.id)
 
     %{map: map, notification: notification}
   end
@@ -165,7 +179,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       assert :ok =
                wait_until(fn ->
-                 HttpStub.requests_for("https://discord.com/api/webhooks/1/tok") != []
+                 HttpStub.requests_for(@route_url) != []
                end)
     end
 
@@ -195,7 +209,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       assert :ok =
                wait_until(fn ->
-                 length(HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")) == 2
+                 length(HttpStub.requests_for(@route_url)) == 2
                end)
     end
 
@@ -227,7 +241,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
       refute_receive {:route_alert_telemetry, _, %{outcome: :improved}}
 
-      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
+      assert [_one_request] = HttpStub.requests_for(@route_url)
     end
 
     test "qualifying(4) -> qualifying(4) is silent", %{map: map, pid: pid} do
@@ -253,7 +267,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
       refute_receive {:route_alert_telemetry, _, %{outcome: :improved}}
 
-      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
+      assert [_one_request] = HttpStub.requests_for(@route_url)
     end
 
     # A dropped destination is "nothing was enqueued", exactly like
@@ -264,7 +278,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
     test "a dropped destination does not silence the route once it is usable again",
          %{map: map, notification: notification, pid: pid} do
       {:ok, notification} = Ash.load(notification, :webhooks)
-      [webhook] = notification.webhooks
+      webhook = Enum.find(notification.webhooks, &(&1.role == :route))
       {:ok, webhook} = WandererApp.Api.MapDiscordWebhook.update(webhook, %{enabled?: false})
 
       Application.put_env(
@@ -277,7 +291,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       await_settled(pid)
 
       # Nothing was posted, and nothing was recorded as posted.
-      assert [] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
+      assert [] = HttpStub.requests_for(@route_url)
       refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}
       assert %{route_state: :unknown} = :sys.get_state(pid)
 
@@ -293,7 +307,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       assert :ok =
                wait_until(fn ->
-                 HttpStub.requests_for("https://discord.com/api/webhooks/1/tok") != []
+                 HttpStub.requests_for(@route_url) != []
                end)
     end
 
@@ -332,7 +346,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       assert %{route_state: :none} = :sys.get_state(pid)
 
       assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :none}}
-      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
+      assert [_one_request] = HttpStub.requests_for(@route_url)
     end
 
     test "a solver error keeps prior state and does not alert", %{map: map, pid: pid} do
@@ -354,7 +368,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       assert %{route_state: {:qualifying, 4}} = :sys.get_state(pid)
 
       assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :unknown}}
-      assert [_one_request] = HttpStub.requests_for("https://discord.com/api/webhooks/1/tok")
+      assert [_one_request] = HttpStub.requests_for(@route_url)
     end
 
     test "a route_max_jumps change discards the stored state and the next qualifying result opens",

@@ -171,7 +171,7 @@ it off means every alert is genuinely caused by the map's own chain.
 | `Map.RouteAlert.Evaluator` | Pure function: solver output + settings -> `{:qualifying, %{jumps:, path:, exit_system:}}` \| `:none` \| `:unknown`. All security and jump-counting rules live here. Its three return values are exactly the watcher's three states, so the watcher does no translation. |
 | `Map.MapRoutes.find_strict/5` | New sibling of `find/5` in an existing module. Identical params assembly and caching; returns `{:error, reason}` instead of falling back to the `get_routes_eve/4` stub. The only change to existing source. |
 | `Discord.EmbedFormatter.format_route_alert/2` | New function on the existing formatter. |
-| `Discord.Router.route_destination/1` | `:route` webhook, falling back to `:system`, with the existing disabled-drops rule. |
+| `Discord.Router.route_destination/1` | `:route` webhook only, with the existing disabled-drops rule. No `:system` fallback: the Path field is full chain topology, and a killmail channel has not consented to receive it. |
 
 Keeping the Evaluator separate from the Watcher is the main structural call: it
 means every rule in the request is verified with synthetic input, without

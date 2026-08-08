@@ -162,10 +162,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   def handle_event("remove-webhook", %{"role" => role}, socket) do
     # `:character` and `:route` are removable; `:system` is required —
-    # removing notifications entirely means deleting the parent record. A
-    # removed `:route` destination simply falls back to `:system` per the
-    # design's Router rule, exactly like a removed `:character` destination
-    # has no fallback of its own to break.
+    # removing notifications entirely means deleting the parent record.
+    # Removing `:character` falls back to `:system`; removing `:route` does
+    # NOT — route alerts stop entirely, because the Router deliberately has no
+    # fallback for chain topology.
     role = parse_role(role)
 
     case {role, socket.assigns.webhooks[role]} do
@@ -958,8 +958,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         help={
           "Receives an alert when a highsec-only route opens from the home system to Jita. " <>
             "This message names every system on the route in order — treat this channel as " <>
-            "trusted, there is no redacted version of it. Leave it unset and route alerts go " <>
-            "to the system channel instead."
+            "trusted, there is no redacted version of it. Route alerts are sent here and " <>
+            "nowhere else: leave it unset and no route alerts are sent at all."
         }
         webhook={@webhooks[:route]}
         form={@webhook_forms[:route]}

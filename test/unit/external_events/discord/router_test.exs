@@ -252,15 +252,15 @@ defmodule WandererApp.ExternalEvents.Discord.RouterTest do
       assert id == route_wh.id
     end
 
-    # Compatibility guarantee, mirroring rule 3's fallback: every map with only
-    # a :system webhook keeps working with no user action once route alerts
-    # ship.
-    test "falls back to the system webhook when no :route row exists", %{
-      notification: n,
-      system_wh: system_wh
+    # NO fallback, deliberately — unlike rule 3's :character -> :system. The
+    # Path field names every system between the map's home and Jita, and a
+    # channel configured for killmails has not consented to receive chain
+    # topology. Inheriting the :system webhook would leak it with no user
+    # action. Route alerts are opt-in by configuring a :route webhook.
+    test "drops when no :route row exists, rather than inheriting :system", %{
+      notification: n
     } do
-      assert {:ok, %{id: id}} = Router.route_destination(with_webhooks(n))
-      assert id == system_wh.id
+      assert Router.route_destination(with_webhooks(n)) == :drop
     end
 
     # DROP, NOT REROUTE — the same rule `RouterTest` asserts for the character
@@ -268,7 +268,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouterTest do
     # A route alert *is* the chain topology (see the Router moduledoc); posting
     # it to a channel the user did not choose for this purpose is a privacy
     # violation, not a convenience.
-    test "a disabled :route webhook drops rather than falling back to :system", %{
+    test "a disabled :route webhook drops", %{
       notification: n
     } do
       route_wh = add_route_webhook(n)
