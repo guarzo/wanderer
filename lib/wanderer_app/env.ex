@@ -2,6 +2,8 @@ defmodule WandererApp.Env do
   @moduledoc false
   use Nebulex.Caching
 
+  require Logger
+
   @app :wanderer_app
 
   @decorate cacheable(
@@ -92,6 +94,43 @@ defmodule WandererApp.Env do
   def webhooks_enabled?() do
     Application.get_env(@app, :external_events, [])
     |> Keyword.get(:webhooks_enabled, false)
+  end
+
+  @default_discord_max_killmail_age_seconds 3600
+
+  @doc """
+  Killmails older than this are dropped at the Discord dispatcher.
+
+  Guards against an upstream replay burst on reconnect posting hours of history
+  into a chat channel. Deliberately not cached: it is read once per killmail
+  batch, and `Application.get_env/3` on a keyword list is cheaper than the cache
+  round trip.
+
+  The declared contract is `pos_integer()`. A non-positive configured value is
+  a misconfiguration, not a valid setting. `kill_fresh?/3` keeps a kill when
+  `age <= max_age_seconds`, and a kill that has already happened always has a
+  non-negative age, so `0` drops every real killmail and a negative value is
+  stricter still — it would keep only kills timestamped in the future (see
+  `WandererApp.ExternalEvents.DiscordDispatcher.kill_fresh?/3`). Both fail in
+  the same direction, silently suppressing every notification, and both are
+  otherwise invisible. So both fall back to the default with a loud warning
+  rather than being honoured.
+  """
+  def discord_max_killmail_age_seconds() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:discord_max_killmail_age_seconds, @default_discord_max_killmail_age_seconds)
+    |> validate_max_killmail_age()
+  end
+
+  defp validate_max_killmail_age(seconds) when is_integer(seconds) and seconds > 0, do: seconds
+
+  defp validate_max_killmail_age(seconds) do
+    Logger.warning(
+      "[Discord] discord_max_killmail_age_seconds must be a positive integer, " <>
+        "got #{inspect(seconds)}; falling back to #{@default_discord_max_killmail_age_seconds}"
+    )
+
+    @default_discord_max_killmail_age_seconds
   end
 
   @decorate cacheable(

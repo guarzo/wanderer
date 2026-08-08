@@ -2,24 +2,31 @@ defmodule WandererApp.Api.MapSystem do
   @moduledoc false
 
   @derive {Jason.Encoder,
-           only: [
-             :id,
-             :map_id,
-             :name,
-             :solar_system_id,
-             :position_x,
-             :position_y,
-             :status,
-             :visible,
-             :locked,
-             :custom_name,
-             :description,
-             :tag,
-             :temporary_name,
-             :labels,
-             :added_at,
-             :linked_sig_eve_id
-           ]}
+   only: [
+     :id,
+     :map_id,
+     :name,
+     :solar_system_id,
+     :position_x,
+     :position_y,
+     :status,
+     :visible,
+     :locked,
+     :custom_name,
+     :description,
+     :tag,
+     :temporary_name,
+     :labels,
+     :added_at,
+     :linked_sig_eve_id,
+     # Zoo-specific fields — present in the create/update accept list
+     # and consumed by the frontend, so they must survive serialization
+     # too.
+     :owner_id,
+     :owner_type,
+     :owner_ticker,
+     :custom_flags
+   ]}
 
   use Ash.Resource,
     domain: WandererApp.Api,
@@ -51,7 +58,11 @@ defmodule WandererApp.Api.MapSystem do
       :description,
       :tag,
       :temporary_name,
-      :labels
+      :labels,
+      :owner_id,
+      :owner_type,
+      :owner_ticker,
+      :custom_flags
     ])
 
     derive_filter?(true)
