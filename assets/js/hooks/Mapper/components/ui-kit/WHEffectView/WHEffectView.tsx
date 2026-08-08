@@ -1,7 +1,7 @@
 import classes from './WHEffectView.module.scss';
 import clsx from 'clsx';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
-import { EFFECT_FOREGROUND_STYLES, EFFECT_NAME } from '@/hooks/Mapper/components/map/constants.ts';
+import { EFFECT_FOREGROUND_STYLES, EFFECT_NAME } from '@/hooks/Mapper/components/map/constants';
 import { EffectRaw } from '@/hooks/Mapper/types/effect.ts';
 import { Fragment, useMemo } from 'react';
 import { FixedTooltip } from '@/hooks/Mapper/components/ui-kit';
