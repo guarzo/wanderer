@@ -202,6 +202,7 @@ consumes the same external-events stream.
 | `discord/notable_items.ex` | Enriches embeds with high-value dropped items (ESI, concurrent) |
 | `discord/corp_tickers.ex` | Resolves missing corporation tickers from ESI |
 | `discord/mentions.ex` | Mention budget and formatting |
+| `discord/guild.ex` | Reads a guild's roles and members for the mention pickers |
 | `discord/voice_gateway.ex`, `voice_participants.ex` | Nostrum gateway; mentions users in voice |
 | `discord/route_watcher.ex`, `route_watcher_supervisor.ex` | Proximity route alerts |
 | `discord/system_name.ex` | System name resolution for embeds |
@@ -219,6 +220,28 @@ in `:test` — the suite must stay hermetic.
 `lib/wanderer_app/map/route_alert/evaluator.ex` computes jump distance from the map's
 configured `home_system_id`; `route_watcher.ex` drives the per-map watch loop and posts to
 the route-alert webhook role when a kill lands within `route_max_jumps`.
+
+### Kill filter semantics
+
+The Notifications settings tab keeps its help text to one or two sentences per control. The
+full routing rules, which are too long to render next to an input, are here.
+
+**Character channel.** Receives kills involving characters tracked on this map, wherever
+they happen. With no character webhook configured, those kills go to the system channel
+instead.
+
+**Corporation filter** (`map_discord_notifications_v1.focus_corp_ids`). When empty, the
+character channel is driven by this map's tracked characters. When set, it replaces that
+membership test entirely: only kills involving one of the listed corporations are routed to
+the character channel, and the map's tracked characters no longer select kills on their own.
+Kills selected by a corporation match bypass both the excluded-system list and the
+wormhole-only flag — the point of the filter is to follow a corporation everywhere, so a
+space-based exclusion would silently defeat it.
+
+**Excluded systems** and **wormhole-only** apply to the system channel, and to the character
+channel only when no corporation filter is set.
+
+None of these apply to route alerts, which have their own channel and their own trigger.
 
 ---
 
