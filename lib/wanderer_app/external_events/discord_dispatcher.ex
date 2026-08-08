@@ -269,7 +269,46 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     end
   end
 
+  # No DB or HTTP work of its own: fetch_config/1 reads the already-cached
+  # notification (a cache miss costs one Ecto query, same as the kill path
+  # pays on any cache-cold map), and RouteWatcherSupervisor.notify/1 is a cast
+  # into a different process. This dispatcher is a SINGLETON shared by every
+  # map's kill batches — the solve, the embed, and the HTTP post all belong to
+  # Discord.RouteWatcher, one GenServer per map, never to this clause.
+  # Removals are in this list for the same reason additions are: the transition
+  # table only runs during an evaluation, and an evaluation only happens on a
+  # notify. Without a notify on removal the state stays `{:qualifying, N}`
+  # indefinitely, so a route that closes and later re-opens at the same or a
+  # worse jump count takes the silent `jumps < old` branch and is never
+  # announced. Solver load stays bounded by the watcher's debounce and the
+  # 15-minute route cache, which is what bounds it for the additions too.
+  defp do_dispatch(map_id, %{type: type})
+       when type in [
+              :add_system,
+              :connection_added,
+              :connection_updated,
+              :connection_removed,
+              :deleted_system
+            ] do
+    with true <- enabled_globally?(),
+         {:ok, notification} <- fetch_config(map_id),
+         true <- notification.route_alerts_enabled?,
+         home_system_id when not is_nil(home_system_id) <- notification.home_system_id do
+      route_watcher_supervisor().notify(map_id)
+    end
+
+    :ok
+  end
+
   defp do_dispatch(_map_id, _event), do: :ok
+
+  defp route_watcher_supervisor,
+    do:
+      Application.get_env(
+        :wanderer_app,
+        :route_watcher_supervisor,
+        WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor
+      )
 
   # Routing is per kill, so a single `:map_kill` batch can now contain kills
   # bound for different destinations, or for none. Kills that drop belong to no
@@ -695,8 +734,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # when configured. `nil` count means "feature off" and keeps the
   # measurement out of telemetry entirely, so 0 always means "enabled but
   # nobody taggable" — the distinction operators need.
+  #
+  # `discord_mentions_enabled?/0` is the instance-wide incident switch and
+  # gates this path too, not just route alerts: .env.example documents it as
+  # silencing "role and user pings on kill and route notifications". It is
+  # checked HERE rather than folded into `discord_voice_mentions_enabled?/0`,
+  # which also decides whether `VoiceGateway` connects at boot — flipping the
+  # switch must silence pings immediately, not require a redeploy to undo.
   defp voice_mention_prefix(:system) do
-    if Env.discord_voice_mentions_enabled?() do
+    if Env.discord_mentions_enabled?() and Env.discord_voice_mentions_enabled?() do
       VoiceParticipants.get_active_voice_mentions()
       |> VoiceParticipants.mention_prefix()
     else

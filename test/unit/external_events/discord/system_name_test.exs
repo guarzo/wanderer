@@ -170,4 +170,26 @@ defmodule WandererApp.ExternalEvents.Discord.SystemNameTest do
       assert SystemName.display_name(atom_map_id, @wh_system, :system) == "J115405"
     end
   end
+
+  describe "display_name/3 for :route" do
+    # Route alerts render the map's own chain, so they carry the same privacy
+    # boundary as the :system webhook — map-local names are the point, not a
+    # leak. This is why the Router passes the atom :route literally rather
+    # than threading a variable: see the Router moduledoc's "Role resolution
+    # is literal" note.
+    test "resolves map-local names, same as :system", %{map: map} do
+      Factory.insert(:map_system, %{
+        map_id: map.id,
+        solar_system_id: @wh_system,
+        name: "J115405",
+        temporary_name: "HOME"
+      })
+
+      assert SystemName.display_name(map.id, @wh_system, :route) == "HOME"
+    end
+
+    test "falls through to the canonical name when no map-local name is set", %{map: map} do
+      assert SystemName.display_name(map.id, @ks_system, :route) == "Jita"
+    end
+  end
 end

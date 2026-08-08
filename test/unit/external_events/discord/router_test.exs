@@ -232,4 +232,66 @@ defmodule WandererApp.ExternalEvents.Discord.RouterTest do
     assert Router.route(kill(@ks_system), unloaded, :not_involved) == :drop
     assert Router.route(kill(@wh_system), unloaded, {:involved, :kill}) == :drop
   end
+
+  describe "route_destination/1" do
+    defp add_route_webhook(notification) do
+      {:ok, wh} =
+        MapDiscordWebhook.create(%{
+          notification_id: notification.id,
+          role: :route,
+          webhook_url: "https://discord.com/api/webhooks/3/route"
+        })
+
+      wh
+    end
+
+    test "a :route webhook is selected when present and enabled", %{notification: n} do
+      route_wh = add_route_webhook(n)
+
+      assert {:ok, %{id: id}} = Router.route_destination(with_webhooks(n))
+      assert id == route_wh.id
+    end
+
+    # NO fallback, deliberately — unlike rule 3's :character -> :system. The
+    # Path field names every system between the map's home and Jita, and a
+    # channel configured for killmails has not consented to receive chain
+    # topology. Inheriting the :system webhook would leak it with no user
+    # action. Route alerts are opt-in by configuring a :route webhook.
+    test "drops when no :route row exists, rather than inheriting :system", %{
+      notification: n
+    } do
+      assert Router.route_destination(with_webhooks(n)) == :drop
+    end
+
+    # DROP, NOT REROUTE — the same rule `RouterTest` asserts for the character
+    # webhook in "a disabled character webhook drops rather than rerouting".
+    # A route alert *is* the chain topology (see the Router moduledoc); posting
+    # it to a channel the user did not choose for this purpose is a privacy
+    # violation, not a convenience.
+    test "a disabled :route webhook drops", %{
+      notification: n
+    } do
+      route_wh = add_route_webhook(n)
+      {:ok, _} = MapDiscordWebhook.set_enabled(route_wh, %{enabled?: false})
+
+      assert Router.route_destination(with_webhooks(n)) == :drop
+    end
+
+    test "drops when neither :route nor :system exists" do
+      # `MapDiscordNotification.create/1` always seeds a :system webhook
+      # (see the module setup), so simulate "neither configured" the same way
+      # the unloaded-relationship test does: a notification struct whose
+      # webhooks list is empty rather than absent.
+      empty = %{webhooks: []}
+
+      assert Router.route_destination(empty) == :drop
+    end
+
+    test "an unloaded :webhooks relationship drops instead of raising", %{notification: n} do
+      {:ok, unloaded} = MapDiscordNotification.by_id(n.id)
+      assert %Ash.NotLoaded{} = unloaded.webhooks
+
+      assert Router.route_destination(unloaded) == :drop
+    end
+  end
 end
