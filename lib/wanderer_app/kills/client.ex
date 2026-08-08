@@ -12,8 +12,18 @@ defmodule WandererApp.Kills.Client do
   alias WandererApp.Kills.Subscription.{Manager, MapIntegration}
   alias Phoenix.Channels.GenSocketClient
 
-  # Simple retry configuration - inline like character module
-  @retry_delays [5_000, 10_000, 30_000, 60_000]
+  # Reconnect backoff: exponential from 1s to a 60s ceiling, plus ~30% jitter.
+  # The jitter matters operationally — without it every instance that lost the
+  # upstream at the same moment reconnects at the same moment, turning one blip
+  # into a synchronized thundering herd against the kills service.
+  @retry_base_delay_ms 1_000
+  @retry_max_delay_ms 60_000
+  @retry_jitter_fraction 0.3
+  # A floor, so a pathological jitter draw can never schedule an immediate retry.
+  @retry_min_delay_ms 100
+  # Caps the exponent so `Integer.pow/2` cannot blow up if retry_count is ever
+  # raised well above @max_retries. 2^16 * 1s is already far past the ceiling.
+  @retry_max_exponent 16
   @max_retries 10
   # Check every 30 seconds
   @health_check_interval :timer.seconds(30)
@@ -83,6 +93,44 @@ defmodule WandererApp.Kills.Client do
   def force_health_check do
     send(__MODULE__, :health_check)
     :ok
+  end
+
+  @doc """
+  Delay before the next reconnect attempt, in milliseconds.
+
+  Exponential from #{@retry_base_delay_ms}ms, capped at #{@retry_max_delay_ms}ms,
+  with a jitter offset of up to ±#{trunc(@retry_jitter_fraction * 100)}%.
+
+  ## Why `rand_fun` is an argument
+
+  Public and injectable on purpose. With the random source pinned a test can
+  assert the *exact* delay sequence; a function that called `:rand.uniform/1`
+  internally could only be range-asserted, and a range assertion does not
+  distinguish a ceiling applied before jitter from one applied after. The
+  before-jitter version silently schedules retries past the ceiling.
+
+  `rand_fun` follows the `:rand.uniform/1` contract: given `n`, it returns an
+  integer in `1..n`.
+  """
+  @spec retry_delay_ms(non_neg_integer(), (pos_integer() -> pos_integer())) :: pos_integer()
+  def retry_delay_ms(retry_count, rand_fun \\ &:rand.uniform/1)
+      when is_integer(retry_count) and retry_count >= 0 and is_function(rand_fun, 1) do
+    base =
+      @retry_base_delay_ms
+      |> Kernel.*(Integer.pow(2, min(retry_count, @retry_max_exponent)))
+      |> min(@retry_max_delay_ms)
+
+    span = trunc(base * @retry_jitter_fraction)
+
+    # rand_fun.(2 * span + 1) is in 1..2*span+1, so the offset is in -span..span.
+    # The +1 keeps the argument positive when span is 0.
+    offset = rand_fun.(2 * span + 1) - span - 1
+
+    # The ceiling is re-applied HERE, after the offset. Applying it only to
+    # `base` above would let the top of the jitter range exceed it.
+    (base + offset)
+    |> min(@retry_max_delay_ms)
+    |> max(@retry_min_delay_ms)
   end
 
   # Server callbacks
@@ -392,7 +440,21 @@ defmodule WandererApp.Kills.Client do
 
       {:error, reason} ->
         Logger.error("[Client] Connection failed: #{inspect(reason)}")
-        schedule_retry(%{state | connecting: false, last_error: reason})
+        state = %{state | connecting: false, last_error: reason}
+
+        # Gated on `should_retry?/1` for the same reason the async failure path
+        # at `handle_info({:socket_error, ...})` is: scheduling unconditionally
+        # means an exhausted retry budget still queues another reconnect, so the
+        # 15-minute retry-cycle cooldown in `check_health/1` never gets to run.
+        if should_retry?(state) do
+          schedule_retry(state)
+        else
+          Logger.error(
+            "[Client] Max retry attempts (#{@max_retries}) reached. Will not retry automatically."
+          )
+
+          state
+        end
     end
   end
 
@@ -484,7 +546,10 @@ defmodule WandererApp.Kills.Client do
         state
       end
 
-    delay = Enum.at(@retry_delays, min(state.retry_count, length(@retry_delays) - 1))
+    # `state.retry_count` is the PRE-increment value, matching the previous
+    # `Enum.at/2` indexing: the first retry after a disconnect backs off by one
+    # base interval, not two.
+    delay = retry_delay_ms(state.retry_count)
 
     timer_ref = Process.send_after(self(), :retry_connection, delay)
     %{state | retry_timer_ref: timer_ref, retry_count: new_retry_count}

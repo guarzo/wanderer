@@ -2,8 +2,8 @@ defmodule WandererApp.SystemClass do
   @moduledoc """
   Canonical wormhole classification for EVE solar systems.
 
-  Single source of truth for "is this class wormhole space", so callers needing
-  the classification derive it from here rather than restating the list. Mirrors
+  Single source of truth for "is this class wormhole space", shared by the map
+  server's connection scoping and by server-side kill notifications. Mirrors
   `assets/js/hooks/Mapper/components/map/helpers/isWormholeSpace.ts`.
   """
 
