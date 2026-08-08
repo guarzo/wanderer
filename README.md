@@ -84,6 +84,12 @@ long those lookups may hold up a batch, and `WANDERER_CORP_TICKERS_ENABLED`
 deploy — turning it off means embeds lose the ticker again. A failure omits the
 ticker; the kill is still posted.
 
+Mentions are a per-map, per-webhook opt-in, so an instance with nothing
+configured pings nobody. `WANDERER_DISCORD_MENTIONS_ENABLED` (default `true`)
+is the instance-wide incident switch for them: turning it off silences every
+role and user ping — on kill and route notifications alike — without touching
+per-map configuration or waiting for a deploy.
+
 The webhook URL is stored encrypted and is never displayed in full after it is
 saved — the settings tab shows only a masked hint. Pointing a destination at a
 different channel means entering the full URL again.

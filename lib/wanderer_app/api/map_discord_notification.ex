@@ -29,7 +29,16 @@ defmodule WandererApp.Api.MapDiscordNotification do
   end
 
   actions do
-    default_accept [:map_id, :enabled?, :wh_only, :excluded_systems, :focus_corp_ids]
+    default_accept [
+      :map_id,
+      :enabled?,
+      :wh_only,
+      :excluded_systems,
+      :focus_corp_ids,
+      :route_alerts_enabled?,
+      :home_system_id,
+      :route_max_jumps
+    ]
 
     defaults [:read]
 
@@ -88,9 +97,20 @@ defmodule WandererApp.Api.MapDiscordNotification do
 
       # Explicit, so `default_accept` cannot expose `:map_id`: re-parenting a
       # notification would move it and its webhook children to another map.
-      accept [:enabled?, :wh_only, :excluded_systems, :focus_corp_ids]
+      # The three route fields ARE deliberately in this list — unlike
+      # `:map_id` there is no re-parenting risk, and route alert config is
+      # meant to be editable the same way the kill-switch fields are.
+      accept [
+        :enabled?,
+        :wh_only,
+        :excluded_systems,
+        :focus_corp_ids,
+        :route_alerts_enabled?,
+        :home_system_id,
+        :route_max_jumps
+      ]
 
-      change after_transaction(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.after_update/3)
     end
 
     read :by_map do
@@ -103,6 +123,10 @@ defmodule WandererApp.Api.MapDiscordNotification do
       # %Ash.NotLoaded{} instead of destinations.
       prepare build(load: [:webhooks])
     end
+  end
+
+  validations do
+    validate &__MODULE__.validate_home_system_required/2
   end
 
   attributes do
@@ -123,6 +147,30 @@ defmodule WandererApp.Api.MapDiscordNotification do
     attribute :focus_corp_ids, {:array, :integer} do
       default []
       allow_nil? false
+    end
+
+    # Route alerts — separate switch from `enabled?`, which gates kills. Ships
+    # off: an operator must opt a map in, not discover it firing unannounced.
+    attribute :route_alerts_enabled?, :boolean, default: false, allow_nil?: false
+
+    # No "home system" concept exists anywhere else in the codebase (see the
+    # design doc's repository-evidence table) — this is where it is defined,
+    # scoped to this feature. Nullable: a map with route alerts off need not
+    # have one set, and `validate_home_system_required/2` below is what
+    # enforces the combination that matters.
+    attribute :home_system_id, :integer
+
+    # Inclusive upper bound (design decision 5): "less than 6 jumps" means
+    # "at most 5", so the stored number and the UI copy agree.
+    attribute :route_max_jumps, :integer do
+      default 5
+      allow_nil? false
+      # 1 is the trivial floor (a route of zero jumps is "already there", not
+      # an alert). 20 is a generous ceiling: it is nowhere near a real hauling
+      # route in this feature's wormhole-plus-highsec shape, but it stops a
+      # typo (e.g. an extra digit) from asking the solver to treat every
+      # multi-region path as "qualifying" and firing constantly.
+      constraints min: 1, max: 20
     end
 
     create_timestamp :inserted_at
@@ -163,6 +211,46 @@ defmodule WandererApp.Api.MapDiscordNotification do
 
   def invalidate_cache(_changeset, other, _context), do: other
 
+  # Update runs the same invalidation, plus one thing the create path does not
+  # need: when the record lands with route alerts OFF, the map's watcher must
+  # go away. Nothing else evicts it — the dispatcher stops calling notify/1 for
+  # a disabled map (discord_dispatcher.ex), so the watcher's own
+  # "clear state when disabled" branch never runs, and `config_version/1`
+  # deliberately excludes `route_alerts_enabled?` so the stale
+  # `{:qualifying, N}` rehydrates byte-identical on re-enable. The result would
+  # be a permanently silent map: the route is still open at the same jump
+  # count, so the transition table takes the silent branch forever.
+  # `stop_watcher/1` stops the process AND evicts the cache entry, which is
+  # what makes the next enable start fresh at `:unknown`.
+  @doc false
+  def after_update(changeset, {:ok, record} = result, context) do
+    {:ok, _} = invalidate_cache(changeset, result, context)
+
+    unless record.route_alerts_enabled? do
+      WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor.stop_watcher(record.map_id)
+    end
+
+    {:ok, record}
+  end
+
+  def after_update(_changeset, other, _context), do: other
+
+  @doc false
+  def validate_home_system_required(changeset, _context) do
+    # get_attribute/2 reads the value the changeset WOULD produce — the new
+    # value if it is being set, otherwise the record's current one — so this
+    # catches both "enable with no home system yet" and "clear the home
+    # system while alerts are still on" in one check.
+    enabled? = Ash.Changeset.get_attribute(changeset, :route_alerts_enabled?)
+    home_system_id = Ash.Changeset.get_attribute(changeset, :home_system_id)
+
+    if enabled? && is_nil(home_system_id) do
+      {:error, field: :home_system_id, message: "is required when route alerts are enabled"}
+    else
+      :ok
+    end
+  end
+
   @doc false
   def stash_webhook_ids(changeset, _context) do
     ids =
@@ -188,6 +276,14 @@ defmodule WandererApp.Api.MapDiscordNotification do
     |> Enum.each(fn id ->
       WandererApp.ExternalEvents.Discord.WorkerSupervisor.stop_worker(id)
     end)
+
+    # Stops the map's route-alert watcher AND evicts its cached route_state
+    # (RouteWatcherSupervisor.stop_watcher/1 does both): without the eviction
+    # a deleted notification's route_state would outlive the process in the
+    # TTL-less :discord_route_alert_cache, and a later
+    # `MapDiscordNotification.create/1` for the same map would rehydrate that
+    # stale state instead of starting fresh at :unknown.
+    WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor.stop_watcher(record.map_id)
 
     {:ok, record}
   end
