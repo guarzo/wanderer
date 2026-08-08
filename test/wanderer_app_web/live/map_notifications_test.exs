@@ -6,6 +6,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
   alias WandererApp.Api.MapDiscordNotification
   alias WandererApp.Api.MapDiscordWebhook
+  alias WandererApp.ExternalEvents.Discord.ChannelInfo
   alias WandererAppWeb.Factory
 
   setup %{conn: conn} do
@@ -1402,46 +1403,69 @@ defmodule WandererAppWeb.MapNotificationsTest do
       assert has_element?(view, "#webhook-row-route button[phx-click='remove-webhook']")
     end
 
-    test "an invalid mention target shows an inline error and does not persist the webhook", %{
+    # Mentions left the webhook form in this rework: they are chip state saved
+    # by their own events. With no bot token and no resolved guild — the state
+    # every test runs in — the pickers degrade to the manual add-by-id forms,
+    # which is what these drive.
+    test "a mention id that is not a snowflake shows an inline error and saves nothing", %{
       conn: conn,
       map: map
     } do
-      rec = notification_with_webhooks(map, [:system])
+      rec = notification_with_webhooks(map, [:system, :route])
       view = open_notifications(conn, map)
 
       html =
         view
-        |> form("#webhook-form-route", %{
-          "webhook" => %{
-            "webhook_url" => "https://discord.com/api/webhooks/999/routetok",
-            "mention_targets" => "role:123456789012345678, not-a-target"
-          }
-        })
+        |> form("#mention-manual-role", %{"mention_id" => %{"value" => "not-a-target"}})
         |> render_submit()
 
-      assert html =~ "not-a-target"
-      assert html =~ "not a valid mention target"
+      assert html =~ "not a Discord id"
 
       {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
-      refute Enum.any?(webhooks, &(&1.role == :route))
+      assert Enum.find(webhooks, &(&1.role == :route)).mention_targets == []
     end
 
-    test "valid mention targets are saved, comma-separated and trimmed", %{conn: conn, map: map} do
-      rec = notification_with_webhooks(map, [:system])
+    test "roles and users are saved as one prefixed list and render as chips", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system, :route])
       view = open_notifications(conn, map)
 
       view
-      |> form("#webhook-form-route", %{
-        "webhook" => %{
-          "webhook_url" => "https://discord.com/api/webhooks/999/routetok",
-          "mention_targets" => "role:123456789012345678,  user:234567890123456789 "
-        }
-      })
+      |> form("#mention-manual-role", %{"mention_id" => %{"value" => " 123456789012345678 "}})
       |> render_submit()
+
+      html =
+        view
+        |> form("#mention-manual-user", %{"mention_id" => %{"value" => "234567890123456789"}})
+        |> render_submit()
 
       {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
       route_wh = Enum.find(webhooks, &(&1.role == :route))
-      assert route_wh.mention_targets == ["role:123456789012345678", "user:234567890123456789"]
+
+      assert route_wh.mention_targets == ["user:234567890123456789", "role:123456789012345678"]
+
+      # No name is known for either id without a guild, so the chip falls back
+      # to the id rather than rendering blank.
+      assert html =~ "123456789012345678"
+      assert html =~ "234567890123456789"
+    end
+
+    test "removing a mention chip rewrites the list", %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system, :route])
+      view = open_notifications(conn, map)
+
+      view
+      |> form("#mention-manual-role", %{"mention_id" => %{"value" => "123456789012345678"}})
+      |> render_submit()
+
+      view
+      |> element("button[phx-click='remove-mention'][phx-value-id='123456789012345678']")
+      |> render_click()
+
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      assert Enum.find(webhooks, &(&1.role == :route)).mention_targets == []
     end
 
     # The dead end `Router.route_destination/1`'s no-fallback rule creates: the
@@ -1496,6 +1520,226 @@ defmodule WandererAppWeb.MapNotificationsTest do
         |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
 
       assert html =~ @hint
+    end
+  end
+
+  # Every one of these messages used to be scoped `:filters` and rendered
+  # inside the filters disclosure. That disclosure now starts collapsed
+  # unconditionally and no longer auto-expands on a problem (D2), so a message
+  # left in the old place would be invisible: the owner sees their click do
+  # nothing. `#panel-message-kills` is at card level, above the disclosure —
+  # the assertions check the LOCATION, which is the actual regression risk,
+  # not merely that the text exists somewhere in the document.
+  describe "kill-filter messages render on the card, not inside the collapsed body" do
+    defp assert_in_kills_card(view, text) do
+      assert has_element?(view, "#panel-message-kills", text)
+
+      # Not swallowed by the collapsed body...
+      refute has_element?(view, "#filters-disclosure-body #panel-message-kills")
+      # ...and not misfiled onto the peer card, where it would describe the
+      # wrong feature entirely.
+      refute has_element?(view, "#panel-message-route")
+    end
+
+    setup %{conn: conn, map: map} do
+      notification_with_webhooks(map, [:system])
+      %{view: open_notifications(conn, map), map: map}
+    end
+
+    test "an unparseable excluded system", %{view: view} do
+      view
+      |> with_target("#map-notifications")
+      |> render_submit("add-excluded", %{"excluded" => %{"excluded_system" => "not-a-system"}})
+
+      assert_in_kills_card(view, "Pick a system from the list.")
+    end
+
+    test "an unparseable excluded-system removal", %{view: view} do
+      view
+      |> with_target("#map-notifications")
+      |> render_click("remove-excluded", %{"system_id" => "not-a-system"})
+
+      assert_in_kills_card(view, "Could not remove that system.")
+    end
+
+    test "an unparseable focus corporation", %{view: view} do
+      view
+      |> with_target("#map-notifications")
+      |> render_submit("add-focus-corp", %{"focus_corp" => %{"focus_corp" => "not-a-corp"}})
+
+      assert_in_kills_card(view, "Pick a corporation from the list.")
+    end
+
+    test "an unparseable focus-corporation removal", %{view: view} do
+      view
+      |> with_target("#map-notifications")
+      |> render_click("remove-focus-corp", %{"corp_id" => "not-a-corp"})
+
+      assert_in_kills_card(view, "Could not remove that corporation.")
+    end
+
+    # The two save-failure paths. Deleting the record out from under the
+    # mounted view makes the Ash update fail on a stale record, the same trick
+    # the destroy test uses.
+    test "a failed excluded-systems save", %{view: view, map: map} do
+      {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      :ok = Ash.destroy(rec)
+
+      view
+      |> with_target("#map-notifications")
+      |> render_submit("add-excluded", %{"excluded" => %{"excluded_system" => "30000142"}})
+
+      assert_in_kills_card(view, "Something went wrong. Please try again.")
+    end
+
+    test "a failed focus-corporation save", %{view: view, map: map} do
+      {:ok, rec} = MapDiscordNotification.by_map(map.id)
+      :ok = Ash.destroy(rec)
+
+      view
+      |> with_target("#map-notifications")
+      |> render_submit("add-focus-corp", %{"focus_corp" => %{"focus_corp" => "98000001"}})
+
+      assert_in_kills_card(view, "Something went wrong. Please try again.")
+    end
+  end
+
+  describe "channel identity in a destination row" do
+    test "a resolved channel name is what identifies the destination", %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system])
+
+      {:ok, _} =
+        MapDiscordWebhook.cache_channel_info(system_webhook(rec), %{
+          channel_id: "987650001234500777",
+          channel_label: "#kill-feed",
+          channel_label_source: :channel,
+          guild_id: "112233445566778899"
+        })
+
+      html = conn |> open_notifications(map) |> render()
+
+      assert html =~ "Channel: #kill-feed"
+      # The card-level status line is built from the same identity.
+      assert html =~ "Posting to channel #kill-feed"
+      # Neither snowflake is a label.
+      refute html =~ "987650001234500777"
+      refute html =~ "112233445566778899"
+    end
+
+    # The bug this rework exists partly to fix: Discord's webhook object carries
+    # the webhook's own NICKNAME, which an operator can set to anything and
+    # which has nothing to do with the channel. The old UI stamped "Channel:"
+    # on it regardless, so the two were indistinguishable on screen.
+    test "a webhook nickname is labelled as one, not asserted to be the channel", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system])
+
+      {:ok, _} =
+        MapDiscordWebhook.cache_channel_info(system_webhook(rec), %{
+          channel_id: "987650001234500777",
+          channel_label: "Kill bot",
+          channel_label_source: :webhook_name
+        })
+
+      html = conn |> open_notifications(map) |> render()
+
+      assert html =~ "Webhook: Kill bot"
+      assert html =~ "Posting to webhook Kill bot"
+      refute html =~ "Channel: Kill bot"
+      # And it says why it could not do better than the nickname.
+      # HEEx escapes the apostrophe, so match the half either side of it.
+      assert html =~ "This is the webhook"
+      assert html =~ "s own name."
+    end
+
+    # A row written before `channel_label_source` existed. The label is still
+    # worth showing, but nothing is known about where it came from, so the UI
+    # must claim neither — guessing from a leading "#" is exactly the inference
+    # the source column exists to stop.
+    test "a legacy label with no recorded source is shown with no claim", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system])
+
+      {:ok, _} =
+        MapDiscordWebhook.cache_channel_info(system_webhook(rec), %{
+          channel_id: "987650001234500777",
+          channel_label: "#kill-feed",
+          channel_label_source: nil
+        })
+
+      html = conn |> open_notifications(map) |> render()
+
+      assert html =~ "#kill-feed"
+      refute html =~ "Channel: #kill-feed"
+      refute html =~ "Webhook: #kill-feed"
+    end
+
+    # No identity at all — the ordinary state on an instance with no bot token,
+    # which is every test run and many real installs. `ChannelInfo` still
+    # produces a masked hint rather than nothing, so the row identifies the
+    # destination and the status line never renders an empty channel clause.
+    test "an unresolved destination falls back to a masked hint, never a blank label", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system])
+      hint = String.slice(ChannelInfo.fingerprint(system_webhook(rec).webhook_url), 0, 4)
+
+      html = conn |> open_notifications(map) |> render()
+
+      assert html =~ "Posting to •••• #{hint}"
+      # A masked hint makes no claim about being a channel or a webhook name.
+      refute html =~ "Channel: ••••"
+      refute html =~ "Webhook: ••••"
+      # A blank label would render as the separator with nothing before it.
+      refute html =~ "Posting to  "
+    end
+
+    test "the route row says route alerts, not kills, when nothing has been sent", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system, :route])
+
+      html = conn |> open_notifications(map) |> render()
+
+      assert html =~ "No route alerts delivered yet."
+    end
+  end
+
+  describe "mention pickers degrade" do
+    # With no bot token configured — the state of the test environment and of
+    # any instance that has not set one up — `Discord.Guild` answers
+    # `:no_bot_token`, which `unavailable?/1` treats as "cannot search this
+    # guild". The section must then stay usable by id rather than disappearing,
+    # because typing an id is the whole feature.
+    test "to manual entry, with a reason, when the guild cannot be read", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system, :route])
+
+      view = open_notifications(conn, map)
+
+      assert has_element?(view, "#mention-manual-role")
+      assert has_element?(view, "#mention-manual-user")
+      refute has_element?(view, "#mention-role-form")
+      refute has_element?(view, "#mention-user-form")
+    end
+
+    test "and the section is absent entirely with no route destination", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+
+      view = open_notifications(conn, map)
+
+      refute has_element?(view, "#route-mentions")
     end
   end
 end
