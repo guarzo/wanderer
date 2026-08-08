@@ -188,4 +188,35 @@ defmodule WandererApp.Map.RoutesFindStrictTest do
     refute origin in find_system_ids
     assert hub in find_system_ids
   end
+
+  # The counterpart to `stub_static_info/1`'s comment above: a system with no
+  # cache entry and no `MapSolarSystem` row resolves to an error, not `{:ok,
+  # nil}`. That must degrade to missing static data, not take the solve down.
+  test "find_strict/5 survives a system whose static record does not resolve" do
+    hub = unique_system_id()
+    origin = unique_system_id()
+    # `hub` is deliberately NOT stubbed.
+    stub_static_info(origin)
+
+    stub(WandererApp.Esi.Mock, :get_routes_custom, fn hubs, origin, _params ->
+      {:ok,
+       Enum.map(hubs, fn hub ->
+         %{"origin" => origin, "destination" => hub, "systems" => [hub], "success" => true}
+       end)}
+    end)
+
+    assert {:ok, %{routes: [%{success: true}], systems_static_data: static_data}} =
+             Routes.find_strict(
+               Ecto.UUID.generate(),
+               [Integer.to_string(hub)],
+               Integer.to_string(origin),
+               @routes_settings,
+               false
+             )
+
+    # The origin still hydrated; the unresolvable hub came back as nil, which
+    # `Evaluator.index_static_data/1` already rejects and then fails closed on.
+    assert origin in Enum.map(Enum.reject(static_data, &is_nil/1), & &1.solar_system_id)
+    refute hub in Enum.map(Enum.reject(static_data, &is_nil/1), & &1.solar_system_id)
+  end
 end

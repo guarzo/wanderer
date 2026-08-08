@@ -130,6 +130,15 @@ defmodule WandererApp.Map.Routes do
 
           {:ok, system} ->
             system |> Map.take(@minimum_route_attrs)
+
+          # `get_system_static_info/1` also returns {:error, :not_found},
+          # {:error, :api_error} and {:error, :cache_error}. Without this clause
+          # any of them raises CaseClauseError inside the task, and because
+          # `Task.async_stream` LINKS its tasks, that kills this process rather
+          # than surfacing as `{:exit, _}` below. A system we cannot resolve is
+          # missing static data, which every caller already handles as `nil`.
+          {:error, _reason} ->
+            nil
         end
       end,
       max_concurrency: System.schedulers_online() * 4
