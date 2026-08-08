@@ -519,10 +519,11 @@ end
 defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest.StubSolver do
   @moduledoc """
   Stands in for `WandererApp.Map.Routes.find_strict/5`. Reads its canned answer
-  from the process dictionary of whichever process calls it — that process is
-  the Task the watcher spawns, not the test process, so the value is seeded via
-  `Application.put_env/3` instead (read once per call, mutated between phases
-  of a single test).
+  from `Application.get_env/3` rather than the process dictionary: it runs
+  inside the Task the watcher spawns, not the test process, so a
+  process-dictionary value seeded by the test would not be visible here. Tests
+  seed and mutate it with `Application.put_env/3` between phases of a single
+  test; it is read once per call.
   """
   def find_strict(_map_id, _hubs, _origin, _settings, _hubs_limit_reached?) do
     Application.get_env(

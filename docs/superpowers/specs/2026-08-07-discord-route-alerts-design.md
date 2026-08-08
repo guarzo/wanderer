@@ -196,8 +196,11 @@ Considered and rejected:
 1. `map_server_systems_impl.ex:943` / `map_server_connections_impl.ex:779`
    broadcast the topology events (unchanged).
 2. `MapEventRelay` fans them to `DiscordDispatcher` (unchanged).
-3. A new `do_dispatch/2` clause matches the three topology types, checks the
-   global gate and the **already-cached** notification config for
+3. A new `do_dispatch/2` clause matches the five topology types
+   (`:add_system`, `:connection_added`, `:connection_updated`,
+   `:connection_removed`, `:deleted_system` — removals included, so a route
+   that closes and later re-opens at the same jump count is still announced),
+   checks the global gate and the **already-cached** notification config for
    `route_alerts_enabled?` and a non-nil `home_system_id`, then casts
    `RouteWatcherSupervisor.notify(map_id)`. No DB hit, no HTTP; the singleton
    never blocks.

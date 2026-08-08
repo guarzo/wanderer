@@ -27,6 +27,21 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   result handler discards the in-flight answer and starts a fresh evaluation
   immediately when it lands with `rerun?` set, rather than publishing a result
   that may already be stale.
+
+  ## What `rehydrate/1` does and does not survive
+
+  `persist/1` writes to `:discord_route_alert_cache`, a plain in-memory Cachex
+  table with no TTL and no disk backing. Route-alert state therefore survives
+  only a **watcher process restart** (a crash, or a supervisor restart) on a
+  running node. It does NOT survive a node restart or a deployment — the cache
+  starts empty, `rehydrate/1` finds nothing, and every watcher begins at
+  `:unknown`.
+
+  The visible consequence: a route that was already open before a restart is
+  announced again as `:opened` on the first evaluation after it, because
+  `:unknown -> {:qualifying, _}` is the "opened" transition. That is the
+  deliberate trade — the alternative is persisting alert state to the database
+  on every evaluation to suppress one duplicate message per map per deploy.
   """
 
   use GenServer, restart: :transient
