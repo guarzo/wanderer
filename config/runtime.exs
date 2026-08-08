@@ -83,6 +83,11 @@ legacy_characters_page_enabled =
   |> get_var_from_path_or_env("WANDERER_LEGACY_CHARACTERS_PAGE_ENABLED", "false")
   |> String.to_existing_atom()
 
+intel_sharing_enabled =
+  config_dir
+  |> get_var_from_path_or_env("WANDERER_INTEL_SHARING_ENABLED", "false")
+  |> String.to_existing_atom()
+
 map_subscription_characters_limit =
   config_dir
   |> get_int_from_path_or_env("WANDERER_MAP_SUBSCRIPTION_CHARACTERS_LIMIT", 10_000)
@@ -203,6 +208,7 @@ config :wanderer_app,
   map_connection_auto_eol_hours: map_connection_auto_eol_hours,
   map_connection_eol_expire_timeout_mins: map_connection_eol_expire_timeout_mins,
   wallet_tracking_enabled: wallet_tracking_enabled,
+  intel_sharing_enabled: intel_sharing_enabled,
   restrict_maps_creation: restrict_maps_creation,
   restrict_acls_creation: restrict_acls_creation,
   subscription_settings: %{

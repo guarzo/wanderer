@@ -20,11 +20,12 @@ interface SystemSettingsDialog {
 
 export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSettingsDialog) => {
   const {
-    data: { systems, systemCustomLabelMaxLength },
+    data: { systems, systemCustomLabelMaxLength, options: mapOptions },
     outCommand,
   } = useMapRootState();
 
   const isTempSystemNameEnabled = useMapGetOption('show_temp_system_name') === 'true';
+  const hasIntelSource = !!mapOptions?.intel_source_map_id;
 
   const system = getSystemById(systems, systemId);
   const systemStaticInfo = getSystemStaticInfo(systemId);
@@ -35,49 +36,89 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
   const [description, setDescription] = useState('');
   const inputRef = useRef<HTMLInputElement>();
 
-  const ref = useRef({ name, description, temporaryName, label, outCommand, systemId, system, systemStaticInfo });
-  ref.current = { name, description, label, temporaryName, outCommand, systemId, system, systemStaticInfo };
+  const ref = useRef({
+    name,
+    description,
+    temporaryName,
+    label,
+    outCommand,
+    systemId,
+    system,
+    systemStaticInfo,
+    hasIntelSource,
+  });
+  ref.current = {
+    name,
+    description,
+    label,
+    temporaryName,
+    outCommand,
+    systemId,
+    system,
+    systemStaticInfo,
+    hasIntelSource,
+  };
 
-  const handleSave = useCallback(() => {
-    const { name, description, label, temporaryName, outCommand, systemId, system, systemStaticInfo } = ref.current;
+  const handleSave = useCallback(
+    (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      const {
+        name,
+        description,
+        label,
+        temporaryName,
+        outCommand,
+        systemId,
+        system,
+        systemStaticInfo,
+        hasIntelSource,
+      } = ref.current;
 
-    const outLabel = new LabelsManager(system?.labels ?? '');
-    outLabel.updateCustomLabel(label);
+      // The Save button is disabled under an intel source, but the form still
+      // submits on Enter — drop the write here rather than let it reach the server.
+      if (hasIntelSource) {
+        return;
+      }
 
-    outCommand({
-      type: OutCommand.updateSystemLabels,
-      data: {
-        system_id: systemId,
-        value: outLabel.toString(),
-      },
-    });
+      const outLabel = new LabelsManager(system?.labels ?? '');
+      outLabel.updateCustomLabel(label);
 
-    outCommand({
-      type: OutCommand.updateSystemTemporaryName,
-      data: {
-        system_id: systemId,
-        value: temporaryName,
-      },
-    });
+      outCommand({
+        type: OutCommand.updateSystemLabels,
+        data: {
+          system_id: systemId,
+          value: outLabel.toString(),
+        },
+      });
 
-    outCommand({
-      type: OutCommand.updateSystemName,
-      data: {
-        system_id: systemId,
-        value: name.trim() || systemStaticInfo?.solar_system_name,
-      },
-    });
+      outCommand({
+        type: OutCommand.updateSystemTemporaryName,
+        data: {
+          system_id: systemId,
+          value: temporaryName,
+        },
+      });
 
-    outCommand({
-      type: OutCommand.updateSystemDescription,
-      data: {
-        system_id: systemId,
-        value: description,
-      },
-    });
+      outCommand({
+        type: OutCommand.updateSystemName,
+        data: {
+          system_id: systemId,
+          value: name.trim() || systemStaticInfo?.solar_system_name,
+        },
+      });
 
-    setVisible(false);
-  }, [setVisible]);
+      outCommand({
+        type: OutCommand.updateSystemDescription,
+        data: {
+          system_id: systemId,
+          value: description,
+        },
+      });
+
+      setVisible(false);
+    },
+    [setVisible],
+  );
 
   const handleResetSystemName = useCallback(() => {
     const { systemStaticInfo } = ref.current;
@@ -125,14 +166,20 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
         setVisible(false);
       }}
     >
-      <form onSubmit={handleSave}>
+      <form onSubmit={handleSave} action="#">
         <div className="flex flex-col gap-3 px-2">
+          {hasIntelSource && (
+            <div className="text-stone-400 text-[11px] bg-blue-900/20 border border-blue-500/30 rounded px-2 py-1">
+              <i className="pi pi-info-circle mr-1" />
+              These fields are managed by the intel source map and cannot be edited here.
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-1">
               <label htmlFor="username">Custom name</label>
 
               <IconField>
-                {name !== systemStaticInfo?.solar_system_name && (
+                {!hasIntelSource && name !== systemStaticInfo?.solar_system_name && (
                   <WdImgButton
                     className="pi pi-undo"
                     textSize={WdImageSize.large}
@@ -149,6 +196,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   aria-describedby="name"
                   autoComplete="off"
                   value={name}
+                  disabled={hasIntelSource}
                   // @ts-expect-error
                   ref={inputRef}
                   onChange={e => setName(e.target.value)}
@@ -160,7 +208,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
               <label htmlFor="label">Custom label</label>
 
               <IconField>
-                {label !== '' && (
+                {!hasIntelSource && label !== '' && (
                   <WdImgButton
                     className="pi pi-trash text-red-400"
                     textSize={WdImageSize.large}
@@ -178,6 +226,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                   autoComplete="off"
                   value={label}
                   maxLength={systemCustomLabelMaxLength ?? SYSTEM_CUSTOM_LABEL_MAX_LENGTH}
+                  disabled={hasIntelSource}
                   onChange={e => setLabel(e.target.value)}
                   onInput={handleInput}
                 />
@@ -189,7 +238,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                 <label htmlFor="username">Temporary Name</label>
 
                 <IconField>
-                  {temporaryName !== '' && (
+                  {!hasIntelSource && temporaryName !== '' && (
                     <WdImgButton
                       className="pi pi-trash text-red-400"
                       textSize={WdImageSize.large}
@@ -207,6 +256,7 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
                     autoComplete="off"
                     value={temporaryName}
                     maxLength={12}
+                    disabled={hasIntelSource}
                     onChange={e => setTemporaryName(e.target.value)}
                   />
                 </IconField>
@@ -216,13 +266,18 @@ export const SystemSettingsDialog = ({ systemId, visible, setVisible }: SystemSe
             <div className="flex flex-col gap-1">
               <label htmlFor="username">Description</label>
               <div className="h-[200px]">
-                <MarkdownEditor value={description} onChange={e => setDescription(e)} height="180px" />
+                <MarkdownEditor
+                  value={description}
+                  onChange={e => setDescription(e)}
+                  height="180px"
+                  readOnly={hasIntelSource}
+                />
               </div>
             </div>
           </div>
 
           <div className="flex gap-2 justify-end">
-            <WdButton onClick={handleSave} outlined size="small" label="Save" type="submit" />
+            <WdButton onClick={handleSave} outlined size="small" label="Save" type="submit" disabled={hasIntelSource} />
           </div>
         </div>
       </form>
