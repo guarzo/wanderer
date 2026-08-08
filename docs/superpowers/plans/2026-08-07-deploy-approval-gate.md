@@ -17,7 +17,7 @@
 - **Exactly one machine.** `fly.toml:1-11` documents this as an architectural constraint: map state lives in node-local Cachex tables and a node-local Registry. Do not add autoscaling, raise machine counts, or change `[deploy].strategy` from `rolling`. Every deploy is a full restart with a user-visible gap.
 - **Tag format:** `v$(date +%Y%m%d%H%M%S)` — matches the tags the deleted `release.yml` produced (e.g. `v20260805165448`). Do not switch to semver.
 - **Deploy credential:** `FLY_API_TOKEN` is an **environment** secret on `production-deploy`, never a repository secret.
-- **Pin every third-party action to a full commit SHA** with the version in a trailing comment. This matches the deleted `release.yml` and the surviving workflows.
+- **Pin every third-party action to a full commit SHA** with the version in a trailing comment. This matches the deleted `release.yml` (`git show ce58765b^:.github/workflows/release.yml`), which pinned all four of its actions. It deliberately does **not** match `test.yml`, which uses floating version tags throughout (`test.yml:34`, `:87`, `:133`, `:210`, `:291`) — this workflow holds a production deploy credential, so it takes the stricter posture rather than the local majority one.
 - **Never cancel a running deploy.** `cancel-in-progress` must be `false` on the deploy job.
 - **Do not modify** `.github/workflows/test.yml`, `build.yml`, `build-develop.yml`, `advanced-test.yml`, `release_actions.yml`, or `flaky-test-detection.yml`. The last four are upstream's.
 
@@ -234,9 +234,12 @@ permissions:
 jobs:
   deploy:
     name: Deploy to Fly
-    # Any conclusion other than success — failure, cancelled, timed_out,
-    # skipped — produces no deploy run at all. Silence means "not shippable",
-    # never "shipped without checking".
+    # workflow_run fires on EVERY completion of the test suite — GitHub offers
+    # no conclusion filter on the trigger itself, so a red suite still creates a
+    # Zoo Deploy run. This condition is what makes it inert: the single job is
+    # skipped, so no environment is referenced, no approval is requested, and no
+    # credential is released. Expect skipped runs in the Actions tab after every
+    # failed suite; that is the mechanism working, not a misfire.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -339,20 +342,26 @@ jobs:
         id: tag
         run: |
           set -euo pipefail
-          TAG="v$(date +%Y%m%d%H%M%S)"
           SHA="$(git rev-parse --short HEAD)"
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          # Idempotent: a workflow_dispatch re-run recovering from a failed
-          # bookmark push must converge, not error.
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "Tag ${TAG} already exists; leaving it alone."
+          # Convergent, not merely collision-safe. A recovery re-run (deploy
+          # succeeded, bookmark push failed) must reuse the tag the first run
+          # created, not mint a second one for the same commit — the tag name is
+          # generated from the clock, so checking only the new name would always
+          # miss the existing one.
+          # Tags are present because checkout used fetch-depth: 0.
+          EXISTING="$(git tag --points-at HEAD --list 'v[0-9]*' | head -n1)"
+          if [ -n "${EXISTING}" ]; then
+            TAG="${EXISTING}"
+            echo "Commit is already tagged ${TAG}; reusing it."
           else
+            TAG="v$(date +%Y%m%d%H%M%S)"
             git tag -a "${TAG}" -m "Deployed ${SHA} to Fly app wanderer (release v${{ steps.deploy.outputs.version }})"
             git push origin "${TAG}"
+            echo "Tagged ${SHA} as ${TAG}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Tagged ${SHA} as ${TAG}"
 
       # Force-push: guarzo/zoo is rebased regularly, so this is not a
       # fast-forward. Requires the ruleset bypass from Task 1 Step 9.
@@ -433,6 +442,8 @@ Merge once `Test Suite` is green.
 
 **This merge is a hard prerequisite for Task 3.** Both `workflow_run` and `workflow_dispatch` only see workflow files that exist on the default branch. Until this is merged, the workflow cannot be triggered at all — it will not even appear in the Actions tab.
 
+**The merge arms the automatic path immediately.** `test.yml:6-7` triggers on pushes to `guarzo/zoo`, so merging runs the suite; when it goes green, `workflow_run` fires against the now-present workflow file and opens a **pending deploy run for the merge commit**. Step 9 deals with it — do not skip ahead to Task 3 while it is outstanding.
+
 - [ ] **Step 8: Verify the workflow is registered**
 
 Run:
@@ -444,6 +455,36 @@ gh workflow list | grep -i "Zoo Deploy"
 Expected: one row, state `active`.
 
 If it does not appear, the file is not on `guarzo/zoo` or the YAML failed to parse server-side.
+
+- [ ] **Step 9: Cancel the automatic pending run created by the merge**
+
+Wait for `Test Suite` to finish on the merge commit, then:
+
+```bash
+gh run list --workflow "🚀 Zoo Deploy" --limit 3
+```
+
+If a run is in state `waiting`, cancel it:
+
+```bash
+gh run cancel <RUN_ID>
+```
+
+**Do not approve it, and do not leave it pending.** It targets the same SHA Task 3 will dispatch, so the staleness guard cannot tell the two apart — it compares against the branch tip, and both *are* the branch tip. Approving both deploys the same commit twice: two full restarts of the single machine for one release, with the second appearing uncaused.
+
+Cancelling rather than approving keeps Task 3 as the validation run. Task 3 exercises `workflow_dispatch`, which is also the rollback path, so it is the trigger worth proving deliberately; the automatic path gets its own coverage in Task 4.
+
+- [ ] **Step 10: Verify nothing is left pending**
+
+Run:
+
+```bash
+gh run list --workflow "🚀 Zoo Deploy" --limit 5
+```
+
+Expected: no run in state `waiting`. Anything `completed` or `cancelled` is fine.
+
+Task 3 starts from a clean queue, so that the run it approves is unambiguously the one it triggered.
 
 ---
 
@@ -548,19 +589,21 @@ Substitute the real public hostname if the app is served from a custom domain.
 
 ### Task 4: Trigger validation
 
-`workflow_dispatch` cannot exercise the trigger itself. This task proves the property the whole design rests on: a deploy run appears **only** after a green suite.
+`workflow_dispatch` cannot exercise the trigger itself. This task proves the property the whole design rests on: a deploy run **requests approval** only after a green suite.
+
+Note the precise claim. A red suite does not suppress the run — `workflow_run` has no conclusion filter, so GitHub creates a Zoo Deploy run for every completion and the job-level `if:` skips it. What a red suite suppresses is the approval request and everything downstream of it. The verifications below check for that, not for the absence of a run.
 
 **Files:** none (uses a throwaway commit).
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–3.
-- Produces: confirmation that `workflow_run` fires correctly and that a red suite produces no deploy run.
+- Produces: confirmation that `workflow_run` fires correctly and that a red suite produces a skipped run rather than an approvable one.
 
 - [ ] **Step 1: Push a trivial commit to `guarzo/zoo`**
 
 Any no-op change is fine — a comment or a whitespace fix in a file that does not affect behavior. Merge it the normal way.
 
-- [ ] **Step 2: Verify the deploy run does NOT appear immediately**
+- [ ] **Step 2: Verify no deploy run appears while the suite is still running**
 
 Immediately after the merge:
 
@@ -571,7 +614,7 @@ gh run list --workflow "🧪 Test Suite" --limit 3
 
 Expected: the `Test Suite` run is `in_progress`; **no** new Zoo Deploy run yet.
 
-A Zoo Deploy run appearing here means the trigger is wrong — likely reverted to `on: push` — and a commit could be approved before its tests finish.
+`workflow_run` fires on `completed`, so nothing should exist until the suite finishes. A Zoo Deploy run appearing here means the trigger is wrong — likely reverted to `on: push` — and a commit could be approved before its tests finish.
 
 - [ ] **Step 3: Verify it appears after the suite goes green**
 
@@ -595,19 +638,28 @@ This is the behavior that replaces cancellation. If the older run deploys, the g
 
 Either approve the newest pending run to ship the trivial commits, or cancel the pending runs to leave production where it is. Both are valid; just do not leave the queue ambiguous.
 
-- [ ] **Step 6: Confirm a red suite produces no deploy run**
+- [ ] **Step 6: Confirm a red suite produces a skipped run, not an approvable one**
 
-Push a commit that fails the suite — a deliberately broken test is simplest — to a branch, open a PR, and merge only if you are willing to ship it. **Safer alternative:** verify from history instead, by finding any past `Test Suite` run on `guarzo/zoo` with a `failure` conclusion and confirming no Zoo Deploy run shares its head SHA:
+Verify from history rather than by breaking the suite deliberately. Find past `Test Suite` runs on `guarzo/zoo` that concluded `failure`, then check what the corresponding Zoo Deploy runs did:
 
 ```bash
 gh run list --workflow "🧪 Test Suite" --branch guarzo/zoo --status failure --limit 5 \
   --json headSha,conclusion,createdAt
-gh run list --workflow "🚀 Zoo Deploy" --limit 20 --json headSha,createdAt
+gh run list --workflow "🚀 Zoo Deploy" --limit 20 \
+  --json headSha,conclusion,status,createdAt
 ```
 
-Expected: no overlap between the two `headSha` sets.
+Expected: for any head SHA appearing in both lists, the Zoo Deploy run has conclusion `skipped` (or `success` with the job skipped) and **never** reached `waiting`. Confirm on one such run:
 
-Prefer the history check. Deliberately merging a broken commit to the default branch to test a guard is not worth the risk on a fork that is regularly rebased.
+```bash
+gh run view <RUN_ID> --json jobs --jq '.jobs[] | {name, conclusion}'
+```
+
+Expected: the `Deploy to Fly` job's conclusion is `skipped`.
+
+A run in state `waiting` against a red SHA is the failure that matters — it means the `if:` condition is wrong and a red commit is one click from production. A *skipped* run against a red SHA is the design working.
+
+**If no failed `Test Suite` run exists on `guarzo/zoo` yet,** this check has nothing to read. Record that it was not exercised rather than marking it done; do not merge a deliberately broken commit to the default branch to manufacture one, on a fork that is regularly rebased.
 
 ---
 
@@ -635,7 +687,9 @@ comment at the top of `fly.toml`).
 **How a change reaches production:**
 
 1. Merge to `guarzo/zoo`.
-2. `🧪 Test Suite` runs. If it fails, nothing else happens.
+2. `🧪 Test Suite` runs. If it fails, a `🚀 Zoo Deploy` run still appears in the
+   Actions tab but its only job is **skipped** — no approval is requested and
+   nothing can be deployed. Skipped deploy runs after a red suite are normal.
 3. On success, `🚀 Zoo Deploy` opens a run that **waits for approval** in the
    `production-deploy` environment. GitHub emails an approval request; the run
    also shows as pending in the Actions tab.
