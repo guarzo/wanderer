@@ -734,8 +734,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # when configured. `nil` count means "feature off" and keeps the
   # measurement out of telemetry entirely, so 0 always means "enabled but
   # nobody taggable" — the distinction operators need.
+  #
+  # `discord_mentions_enabled?/0` is the instance-wide incident switch and
+  # gates this path too, not just route alerts: .env.example documents it as
+  # silencing "role and user pings on kill and route notifications". It is
+  # checked HERE rather than folded into `discord_voice_mentions_enabled?/0`,
+  # which also decides whether `VoiceGateway` connects at boot — flipping the
+  # switch must silence pings immediately, not require a redeploy to undo.
   defp voice_mention_prefix(:system) do
-    if Env.discord_voice_mentions_enabled?() do
+    if Env.discord_mentions_enabled?() and Env.discord_voice_mentions_enabled?() do
       VoiceParticipants.get_active_voice_mentions()
       |> VoiceParticipants.mention_prefix()
     else

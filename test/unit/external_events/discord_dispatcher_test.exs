@@ -653,6 +653,32 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       refute Map.has_key?(body, "content")
     end
 
+    # .env.example documents WANDERER_DISCORD_MENTIONS_ENABLED as silencing
+    # "role and user pings on kill and route notifications" — it gated only the
+    # route path until this was wired, so a fully-configured voice guild still
+    # pinged on kills with the incident switch off.
+    test "the instance-wide mentions kill switch silences configured voice mentions",
+         %{map: map, system: w} do
+      enable_voice_mentions()
+
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :discord_mentions_enabled, false)
+      )
+
+      on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
+      event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+      DiscordDispatcher.dispatch_event(map.id, event)
+      settle(w.id)
+
+      assert [{@system_url, body}] = wait_for_requests(1)
+      refute Map.has_key?(body, "content")
+    end
+
     test "a raising guild fetch still delivers the kill, without mentions",
          %{map: map, system: w} do
       enable_voice_mentions(fn _guild_id -> raise "cache boom" end)

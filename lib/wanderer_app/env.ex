@@ -270,6 +270,12 @@ defmodule WandererApp.Env do
   every mention silenced immediately (a runaway role ping, a compromised
   mention target) flips this without touching per-map config or waiting for
   a deploy.
+
+  Gates BOTH mention paths: route-alert pings (`EmbedFormatter.route_ping/2`)
+  and kill-message voice mentions (`DiscordDispatcher.voice_mention_prefix/1`).
+  Deliberately not folded into `discord_voice_mentions_enabled?/0`, which also
+  decides whether `VoiceGateway` connects at boot — this must take effect on
+  the next message, not on the next deploy.
   """
   def discord_mentions_enabled?() do
     Application.get_env(@app, :external_events, [])
