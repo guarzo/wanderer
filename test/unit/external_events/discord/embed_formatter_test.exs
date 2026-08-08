@@ -827,6 +827,35 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterTest do
       assert path_field["value"] == "J115405 → J132412 → Amarr → Jita"
     end
 
+    # route_max_jumps tops out at 20, so a path is at most 21 systems — but
+    # MapSystem's custom_name/temporary_name carry no length constraint, so an
+    # ordinary long name breaches Discord's 1024-char field bound and the POST
+    # is rejected 400 (which counts toward @max_consecutive_failures and can
+    # auto-disable the destination).
+    test "a path too long for Discord's field bound is truncated", %{alert: alert} do
+      long_name = String.duplicate("A", 60)
+
+      ids = Enum.map(1..21, &(32_000_000 + &1))
+
+      Enum.each(ids, fn id ->
+        Cachex.put(:system_static_info_cache, id, %{
+          solar_system_id: id,
+          solar_system_name: long_name,
+          system_class: 0
+        })
+      end)
+
+      on_exit(fn -> Enum.each(ids, &Cachex.del(:system_static_info_cache, &1)) end)
+
+      [%{"embeds" => [embed]}] =
+        EmbedFormatter.format_route_alert(%{alert | path: ids, jumps: 20}, [])
+
+      path_field = Enum.find(embed["fields"], &(&1["name"] == "Path"))
+
+      assert String.length(path_field["value"]) == 1024
+      assert String.ends_with?(path_field["value"], "…")
+    end
+
     test "the exit system gets its own field", %{alert: alert} do
       [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
 

@@ -28,6 +28,11 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # title bound is reachable from ordinary user input, not just malice.
   @max_title_length 256
   @max_description_length 4096
+  # Discord's per-field value bound. The route path is the one field built from
+  # an unbounded number of unbounded names (up to route_max_jumps + 1 systems,
+  # each of which may carry a length-unconstrained custom_name), so it is the
+  # one that can reach this from ordinary user input.
+  @max_field_length 1024
   # The per-message ceiling counts the text of every embed in the message
   # together, so it can be breached by a batch that satisfies each field bound
   # individually.
@@ -122,10 +127,14 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
       "title" => route_title(alert),
       "color" => @color_route,
       "fields" => [
-        %{"name" => "Path", "value" => route_path_text(alert), "inline" => false},
+        %{
+          "name" => "Path",
+          "value" => truncate(route_path_text(alert), @max_field_length),
+          "inline" => false
+        },
         %{
           "name" => "Exit system",
-          "value" => route_system_name(alert, alert.exit_system),
+          "value" => truncate(route_system_name(alert, alert.exit_system), @max_field_length),
           "inline" => true
         }
       ]
