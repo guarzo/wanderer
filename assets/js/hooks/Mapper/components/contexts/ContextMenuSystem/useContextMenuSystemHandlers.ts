@@ -168,8 +168,11 @@ export const useContextMenuSystemHandlers = ({
       type: OutCommand.updateSystemOwner,
       data: {
         system_id: system,
-        ownerId: ownerId,
-        ownerType: ownerType,
+        // Snake_case: the server reads these with `Map.get(params, "owner_id")`
+        // / `"owner_type"`. Sent as ownerId/ownerType they were silently
+        // dropped, so setting an owner from the context menu always cleared it.
+        owner_id: ownerId,
+        owner_type: ownerType,
       },
     });
     setSystem(undefined);

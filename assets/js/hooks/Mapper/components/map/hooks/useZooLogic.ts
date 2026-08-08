@@ -117,39 +117,60 @@ export function useNodeOwnerTicker(ownerId?: string | null, ownerType?: string |
     // If we have a ticker already, just use that
     if (ownerTicker) {
       setTicker(ownerTicker);
-      // Set URL if we have owner info
+      // Clear the URL when the new owner is ticker-only: leaving it set kept a
+      // link pointing at the *previous* owner's zKillboard page.
       if (ownerId && ownerType) {
         const url = `${zkillboardBaseURL}/${ownerType === 'corp' ? 'corporation' : 'alliance'}/${ownerId}`;
         setOwnerURL(url);
+      } else {
+        setOwnerURL('');
       }
       return;
     }
 
     // Only fetch if we have owner ID and type but no ticker
     if (ownerId && ownerType) {
+      // A rejected lookup has to clear the display too, or the node keeps
+      // rendering the previous owner's ticker and link.
+      const clearOwner = () => {
+        if (isMounted) {
+          setTicker(null);
+          setOwnerURL('');
+        }
+      };
+
+      // Clear BEFORE the lookup, not only on rejection. The owner changed the
+      // moment this effect ran; leaving the previous ticker and zKillboard URL
+      // on screen until the response lands means the user can click through to
+      // the wrong corporation. A response with no ticker also has to leave the
+      // display empty rather than reverting to the stale value.
+      clearOwner();
+
       if (ownerType === 'corp') {
         outCommand({
           type: OutCommand.getCorporationTicker,
           data: { corp_id: ownerId },
-        }).then(({ ticker: fetchedTicker }) => {
-          if (isMounted && fetchedTicker) {
-            setTicker(fetchedTicker);
-            setOwnerURL(`${zkillboardBaseURL}/corporation/${ownerId}`);
-          }
-        });
+        })
+          .then(({ ticker: fetchedTicker }) => {
+            if (isMounted && fetchedTicker) {
+              setTicker(fetchedTicker);
+              setOwnerURL(`${zkillboardBaseURL}/corporation/${ownerId}`);
+            }
+          })
+          .catch(clearOwner);
       } else if (ownerType === 'alliance') {
         outCommand({
           type: OutCommand.getAllianceTicker,
           data: { alliance_id: ownerId },
-        }).then(({ ticker: fetchedTicker }) => {
-          if (isMounted && fetchedTicker) {
-            setTicker(fetchedTicker);
-            setOwnerURL(`${zkillboardBaseURL}/alliance/${ownerId}`);
-          }
-        });
+        })
+          .then(({ ticker: fetchedTicker }) => {
+            if (isMounted && fetchedTicker) {
+              setTicker(fetchedTicker);
+              setOwnerURL(`${zkillboardBaseURL}/alliance/${ownerId}`);
+            }
+          })
+          .catch(clearOwner);
       }
-    } else if (ownerTicker) {
-      setTicker(ownerTicker);
     }
 
     return () => {
@@ -246,12 +267,21 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
       return ts > max ? ts : max;
     }, 0);
 
-    let signatureAgeHours = 0;
-    if (newestTimestamp > 0) {
-      const ageMs = now - newestTimestamp;
-      signatureAgeHours = Math.round(ageMs / (1000 * 60 * 60));
-      signatureAgeHours = Math.max(0, signatureAgeHours);
+    // No unlinked wormhole signature: report a negative age so the consumer's
+    // `signatureAgeHours >= 0` guard suppresses the bookmark. Returning 0 made
+    // a system whose signatures are all linked or non-wormhole render "0h", as
+    // if it had a brand-new unlinked wormhole.
+    if (newestTimestamp === 0) {
+      return {
+        newestUpdatedAt: 0,
+        signatureAgeHours: -1,
+        bookmarkColor: '#388E3C',
+        now,
+      };
     }
+
+    const ageMs = now - newestTimestamp;
+    const signatureAgeHours = Math.max(0, Math.round(ageMs / (1000 * 60 * 60)));
 
     const { color: bookmarkColor, age: computedAge } = getBookmarkColor(signatureAgeHours);
 

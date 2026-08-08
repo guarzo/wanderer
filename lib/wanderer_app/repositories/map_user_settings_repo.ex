@@ -106,17 +106,9 @@ defmodule WandererApp.MapUserSettingsRepo do
   """
   def get_by_map(map_id) when is_binary(map_id) and map_id != "" do
     try do
-      case WandererApp.Api.MapUserSettings.read_by_map!(%{map_id: map_id}) do
-        settings_list when is_list(settings_list) ->
-          {:ok, settings_list}
-
-        nil ->
-          {:ok, []}
-
-        error ->
-          Logger.error("Unexpected result from read_by_map: #{inspect(error)}")
-          {:error, :unexpected_result}
-      end
+      # `read_by_map!/1` returns a list or raises; the former `nil` and
+      # unexpected-result branches were unreachable.
+      {:ok, WandererApp.Api.MapUserSettings.read_by_map!(%{map_id: map_id})}
     rescue
       error ->
         Logger.error("Database error in get_by_map: #{inspect(error)}")
@@ -130,51 +122,35 @@ defmodule WandererApp.MapUserSettingsRepo do
   """
   def get_settings_with_ready_character(character_eve_id)
       when is_binary(character_eve_id) and character_eve_id != "" do
-    # Use raw Ecto query since Ash may not support array operations well
-    import Ecto.Query
+    # Ash action rather than the raw Ecto query this used to run: that query
+    # rebuilt partial `%MapUserSettings{}` structs by hand, so every field it
+    # forgot to select silently came back as the struct default.
+    case WandererApp.Api.MapUserSettings.read_by_ready_character(%{
+           character_eve_id: character_eve_id
+         }) do
+      {:ok, settings_list} ->
+        {:ok, settings_list}
 
-    query =
-      from(settings in "map_user_settings_v1",
-        where: fragment("? = ANY(?)", ^character_eve_id, settings.ready_characters),
-        select: %{
-          id: settings.id,
-          map_id: settings.map_id,
-          user_id: settings.user_id,
-          ready_characters: settings.ready_characters,
-          settings: settings.settings,
-          main_character_eve_id: settings.main_character_eve_id,
-          following_character_eve_id: settings.following_character_eve_id,
-          hubs: settings.hubs
-        }
-      )
-
-    try do
-      case WandererApp.Repo.all(query) do
-        results when is_list(results) ->
-          # Convert to Ash structs
-          ash_results =
-            Enum.map(results, fn result ->
-              struct(WandererApp.Api.MapUserSettings, result)
-            end)
-
-          {:ok, ash_results}
-
-        error ->
-          Logger.error(
-            "Unexpected result from Repo.all in get_settings_with_ready_character: #{inspect(error)}"
-          )
-
-          {:error, :unexpected_result}
-      end
-    rescue
-      error ->
-        Logger.error("Database error in get_settings_with_ready_character: #{inspect(error)}")
-        {:error, error}
+      {:error, reason} ->
+        Logger.error("Failed to read settings by ready character: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
   def get_settings_with_ready_character(character_eve_id) do
-    Logger.error("Invalid character_eve_id provided: #{inspect(character_eve_id)}")
+    Logger.warning(
+      "Invalid character_eve_id provided (#{inspect(typeof(character_eve_id))}): " <>
+        "expected a non-empty binary"
+    )
+
     {:error, :invalid_character_eve_id}
   end
+
+  defp typeof(value) when is_binary(value), do: :binary
+  defp typeof(value) when is_nil(value), do: nil
+  defp typeof(value) when is_atom(value), do: :atom
+  defp typeof(value) when is_integer(value), do: :integer
+  defp typeof(value) when is_list(value), do: :list
+  defp typeof(value) when is_map(value), do: :map
+  defp typeof(_value), do: :other
 end

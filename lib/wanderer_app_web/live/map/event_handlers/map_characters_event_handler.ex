@@ -51,13 +51,13 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
   # Uses the characters from the payload instead of fetching all from database
   def handle_server_event(
         %{event: :characters_updated, payload: %{characters: characters}},
-        socket
+        %{assigns: %{map_id: map_id}} = socket
       ),
       do:
         socket
         |> MapEventHandler.push_map_event(
           "characters_updated",
-          characters |> Enum.map(&map_ui_character/1)
+          map_ui_characters_with_ready(characters, map_id)
         )
 
   # Legacy handler for :characters_updated without payload (backwards compatibility)
@@ -70,19 +70,10 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
           }
         } = socket
       ) do
-    # Get all ready characters for this map from all users
-    all_ready_characters = get_all_ready_characters_for_map(map_id)
-
     characters =
       map_id
       |> WandererApp.Map.list_characters()
-      |> Enum.map(fn character ->
-        ui_character = map_ui_character(character)
-        # Add ready status to character data
-        is_ready = character.eve_id in all_ready_characters
-        ui_character_with_ready = Map.put(ui_character, :ready, is_ready)
-        ui_character_with_ready
-      end)
+      |> map_ui_characters_with_ready(map_id)
 
     socket
     |> MapEventHandler.push_map_event(
@@ -374,15 +365,22 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
         "updateReadyCharacters",
         %{"ready_character_eve_ids" => ready_character_eve_ids},
         %{assigns: %{map_id: map_id, current_user: %{id: current_user_id}}} = socket
-      ) do
-    # Not a clear all operation, proceed normally
+      )
+      when is_list(ready_character_eve_ids) do
     perform_update_ready_characters(
       ready_character_eve_ids,
       map_id,
       current_user_id,
-      socket,
-      false
+      socket
     )
+  end
+
+  # Anything that is not a list of ids — a JSON object, a bare string — is
+  # rejected here rather than reaching `Enum.filter/2` in
+  # `validate_ready_characters/3`, where a map would silently iterate as
+  # key/value tuples.
+  def handle_ui_event("updateReadyCharacters", _event, socket) do
+    {:reply, %{error: "Invalid ready_character_eve_ids"}, socket}
   end
 
   def handle_ui_event(
@@ -391,8 +389,8 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
         %{assigns: %{map_id: map_id, current_user: %{id: current_user_id}}} = socket
       ) do
     # Check rate limiting for clear all operation
-    case check_clear_all_rate_limit(map_id) do
-      {:ok, remaining_cooldown} when remaining_cooldown > 0 ->
+    case claim_clear_all_slot(map_id) do
+      {:rate_limited, remaining_cooldown} ->
         {:reply,
          %{
            error: "rate_limited",
@@ -400,8 +398,8 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
            remaining_cooldown: remaining_cooldown
          }, socket}
 
-      {:ok, _} ->
-        # Rate limit passed, continue with the operation
+      :ok ->
+        # Slot claimed, continue with the operation
         perform_clear_all_ready_characters(map_id, current_user_id, socket)
 
       {:error, reason} ->
@@ -433,8 +431,12 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
 
   defp perform_clear_all_ready_characters(map_id, current_user_id, socket) do
     try do
-      # Get all user settings for this map using Ash action
-      {:ok, map_user_settings} = WandererApp.Api.MapUserSettings.read_by_map(map_id)
+      # `%{map_id: ...}`, not a bare id: `read_by_map` declares `map_id` as an
+      # action argument and its `code_interface` define has no `args:`, so the
+      # positional form does not resolve. Every other call site in the app
+      # already passes the map form.
+      {:ok, map_user_settings} =
+        WandererApp.Api.MapUserSettings.read_by_map(%{map_id: map_id})
 
       # Clear ready characters for all users
       results =
@@ -458,17 +460,15 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
       failed_operations = Enum.filter(results, &(&1 != :ok))
 
       if Enum.empty?(failed_operations) do
-        # Set rate limit for clear all operation
-        set_clear_all_rate_limit(map_id)
-
-        # Broadcast to all users that ready characters have been cleared
-        WandererAppWeb.Endpoint.broadcast!(
-          "map:#{map_id}",
-          "all_ready_characters_cleared",
-          %{
-            cleared_by_user_id: current_user_id
-          }
-        )
+        # Broadcast to all users that ready characters have been cleared.
+        # PubSub on the bare `map_id` topic, which is what `MapCoreEventHandler`
+        # subscribes to — `Endpoint.broadcast!("map:#{map_id}", ...)` went to a
+        # topic with no subscribers (this app defines no Phoenix channels), so
+        # other users' clients never saw the clear.
+        Phoenix.PubSub.broadcast!(WandererApp.PubSub, map_id, %{
+          event: :all_ready_characters_cleared,
+          payload: %{cleared_by_user_id: current_user_id}
+        })
 
         # Build and return updated tracking data for current user
         {:ok, tracking_data} =
@@ -493,16 +493,34 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
          ready_character_eve_ids,
          map_id,
          current_user_id,
-         socket,
-         is_clear_all
+         socket
        ) do
     # Validate ready characters exist, are owned by user, and are tracked
-    {:ok, valid_ready_characters} =
-      validate_ready_characters(map_id, current_user_id, ready_character_eve_ids)
+    with {:ok, valid_ready_characters} <-
+           validate_ready_characters(map_id, current_user_id, ready_character_eve_ids),
+         {:ok, map_user_settings} <-
+           WandererApp.MapUserSettingsRepo.get(map_id, current_user_id) do
+      do_update_ready_characters(
+        valid_ready_characters,
+        map_user_settings,
+        map_id,
+        current_user_id,
+        socket
+      )
+    else
+      {:error, reason} ->
+        Logger.error("Failed to update ready characters: #{inspect(reason)}")
+        {:reply, %{error: "Failed to update ready characters"}, socket}
+    end
+  end
 
-    # Get or create user settings and update ready characters
-    {:ok, map_user_settings} = WandererApp.MapUserSettingsRepo.get(map_id, current_user_id)
-
+  defp do_update_ready_characters(
+         valid_ready_characters,
+         map_user_settings,
+         map_id,
+         current_user_id,
+         socket
+       ) do
     result =
       case map_user_settings do
         nil ->
@@ -549,71 +567,80 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
 
     case result do
       :ok ->
-        # If this was a clear all operation, update the rate limit cache
-        if is_clear_all do
-          set_clear_all_rate_limit(map_id)
-        end
-
         # Broadcast ready status changes to other users in the map
         broadcast_ready_status_change(map_id, current_user_id, valid_ready_characters)
-
-        # Build and return updated tracking data immediately
-        {:ok, tracking_data} =
-          WandererApp.Character.TrackingUtils.build_tracking_data(map_id, current_user_id)
 
         # Send characters_updated event to update all character data including ready status
         Process.send_after(self(), %{event: :characters_updated}, @refresh_delay + 10)
 
-        {:reply, %{data: tracking_data}, socket}
+        # Build and return updated tracking data immediately. Not strict-matched:
+        # the write already succeeded, so a failure here costs the caller its
+        # immediate refresh, not the update.
+        case WandererApp.Character.TrackingUtils.build_tracking_data(map_id, current_user_id) do
+          {:ok, tracking_data} ->
+            {:reply, %{data: tracking_data}, socket}
+
+          {:error, reason} ->
+            Logger.error("Failed to build tracking data: #{inspect(reason)}")
+            {:reply, %{error: "Failed to load tracking data"}, socket}
+        end
 
       {:error, reason} ->
-        {:noreply, socket |> put_flash(:error, reason)}
+        # The client pushed `updateReadyCharacters` and is awaiting a reply, so
+        # a bare `{:noreply, ...}` leaves that push permanently unsettled. Keep
+        # the flash and settle the push, as the sibling failure path in
+        # `perform_update_ready_characters/4` already does.
+        {:reply, %{error: reason}, socket |> put_flash(:error, reason)}
     end
   end
 
-  defp check_clear_all_rate_limit(map_id) do
-    cache_key = "map:#{map_id}:clear_all_ready_last_used"
+  # Both `characters_updated` paths must enrich with `:ready`. The payload path
+  # previously did not, so any broadcast carrying characters cleared the ready
+  # flag on the client until the next full refresh.
+  defp map_ui_characters_with_ready(characters, map_id) do
+    # MapSet, not a list: this is a membership test per character.
+    ready_eve_ids = map_id |> get_all_ready_characters_for_map() |> MapSet.new()
 
-    case WandererApp.Cache.get(cache_key) do
-      nil ->
-        # No previous clear all operation recorded
-        {:ok, 0}
-
-      last_clear_time when is_integer(last_clear_time) ->
-        current_time = System.system_time(:millisecond)
-        time_since_last_clear = current_time - last_clear_time
-        remaining_cooldown = max(0, @clear_all_cooldown - time_since_last_clear)
-        {:ok, remaining_cooldown}
-
-      _ ->
-        # Invalid cache value, treat as no rate limit
-        {:ok, 0}
-    end
-  rescue
-    error ->
-      Logger.error("Error checking clear all rate limit: #{inspect(error)}")
-      {:error, :cache_error}
+    Enum.map(characters, fn character ->
+      character
+      |> map_ui_character()
+      |> Map.put(:ready, MapSet.member?(ready_eve_ids, character.eve_id))
+    end)
   end
 
-  defp set_clear_all_rate_limit(map_id) do
+  # Claims the cooldown slot rather than reading it and writing later: a
+  # read-then-write pair let two concurrent clear-alls both observe "no
+  # previous run" and both proceed. `put_new/3` is a single atomic ETS
+  # operation, so exactly one caller wins.
+  #
+  # Nebulex's `:ttl` is in MILLISECONDS. Dividing the cooldown down to
+  # seconds made the entry expire after 360ms, so the rate limit never
+  # actually held and every request looked like the first one.
+  defp claim_clear_all_slot(map_id) do
     cache_key = "map:#{map_id}:clear_all_ready_last_used"
     current_time = System.system_time(:millisecond)
 
-    # Set with TTL slightly longer than the cooldown to ensure cleanup
-    ttl_seconds = div(@clear_all_cooldown, 1000) + 60
-
-    case WandererApp.Cache.put(cache_key, current_time, ttl: ttl_seconds) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to set clear all rate limit: #{inspect(reason)}")
-        {:error, reason}
+    if WandererApp.Cache.put_new(cache_key, current_time, ttl: @clear_all_cooldown) do
+      :ok
+    else
+      {:rate_limited, remaining_cooldown(cache_key, current_time)}
     end
   rescue
     error ->
-      Logger.error("Error setting clear all rate limit: #{inspect(error)}")
+      Logger.error("Error claiming clear all rate limit slot: #{inspect(error)}")
       {:error, :cache_error}
+  end
+
+  # The entry can expire between the failed claim and this read, in which case
+  # the caller simply sees a zero cooldown and can retry.
+  defp remaining_cooldown(cache_key, current_time) do
+    case WandererApp.Cache.get(cache_key) do
+      last_clear_time when is_integer(last_clear_time) ->
+        max(0, @clear_all_cooldown - (current_time - last_clear_time))
+
+      _ ->
+        0
+    end
   end
 
   def map_ui_character(character),
@@ -765,20 +792,35 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
   end
 
   # Broadcasts ready status changes to other users in the map.
-  defp broadcast_ready_status_change(map_id, current_user_id, ready_character_eve_ids) do
-    # Get current user info for the broadcast
-    {:ok, current_user} = WandererApp.Api.User.by_id(current_user_id)
+  defp broadcast_ready_status_change(map_id, current_user_id, _ready_character_eve_ids) do
+    # Not strict-matched: a failed user lookup must not take the LiveView down
+    # after the write has already committed.
+    case WandererApp.Api.User.by_id(current_user_id) do
+      {:ok, current_user} ->
+        # PubSub on the bare `map_id` topic (what `MapCoreEventHandler`
+        # subscribes to), not `Endpoint.broadcast!("map:#{map_id}", ...)` —
+        # this app defines no Phoenix channels, so that topic had no
+        # subscribers and the event never reached anyone.
+        #
+        # The payload carries the map-wide ready set, not just this user's:
+        # the client applies `ready_character_eve_ids` to every character it
+        # holds, so sending one user's list cleared everybody else's flags.
+        Phoenix.PubSub.broadcast!(WandererApp.PubSub, map_id, %{
+          event: :ready_characters_updated,
+          payload: %{
+            user_id: current_user_id,
+            user_name: current_user.name,
+            ready_character_eve_ids: get_all_ready_characters_for_map(map_id)
+          }
+        })
 
-    # Broadcast to all users in the map
-    WandererAppWeb.Endpoint.broadcast!(
-      "map:#{map_id}",
-      "ready_characters_updated",
-      %{
-        user_id: current_user_id,
-        user_name: current_user.name,
-        ready_character_eve_ids: ready_character_eve_ids
-      }
-    )
+      {:error, reason} ->
+        Logger.warning(
+          "Skipping ready_characters_updated broadcast, user #{current_user_id} not found: #{inspect(reason)}"
+        )
+
+        :ok
+    end
   end
 
   # Builds data for all ready characters from all users in the map.
@@ -820,13 +862,13 @@ defmodule WandererAppWeb.MapCharactersEventHandler do
   defp get_tracked_characters_with_settings(map_id) do
     case WandererApp.Api.MapCharacterSettings.read_by_map(%{map_id: map_id}) do
       {:ok, map_character_settings} ->
-        # Load character relationships
-        settings_with_chars =
-          Enum.map(map_character_settings, fn setting ->
-            Ash.load!(setting, :character)
-          end)
-
-        {:ok, settings_with_chars}
+        # Batch-loaded: `Enum.map(&Ash.load!(&1, :character))` issued one query
+        # per setting, and `Ash.load!` raises rather than returning the error
+        # tuple this function's contract promises.
+        case Ash.load(map_character_settings, :character) do
+          {:ok, settings_with_chars} -> {:ok, settings_with_chars}
+          {:error, reason} -> {:error, reason}
+        end
 
       {:error, reason} ->
         {:error, reason}

@@ -249,20 +249,19 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   def update_system_owner(map_id, update) do
     require Logger
 
-    # Convert string keys to atoms if needed
+    # Convert string keys to atoms if needed. All three owner fields, not just
+    # `owner_ticker`: the `Map.put_new/3` defaults below would otherwise overwrite
+    # a string-keyed `"owner_id"` / `"owner_type"` with nil and clear the owner.
     update =
-      case update do
-        %{owner_ticker: _} ->
-          update
+      Enum.reduce([:owner_id, :owner_type, :owner_ticker], update, fn key, acc ->
+        string_key = Atom.to_string(key)
 
-        %{"owner_ticker" => ticker} ->
-          update
-          |> Map.put(:owner_ticker, ticker)
-          |> Map.delete("owner_ticker")
-
-        _ ->
-          update
-      end
+        case acc do
+          %{^key => _} -> acc
+          %{^string_key => value} -> acc |> Map.put(key, value) |> Map.delete(string_key)
+          _ -> acc
+        end
+      end)
 
     # Ensure all owner fields are present
     update =
@@ -1135,10 +1134,34 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     else
       {:error, error} ->
         Logger.error("Failed to update system: #{inspect(error, pretty: true)}")
+        restore_system_cache(map_id, update, attributes)
         :ok
 
       error ->
         Logger.error("Failed to update system: #{inspect(error, pretty: true)}")
+        restore_system_cache(map_id, update, attributes)
+        :ok
+    end
+  end
+
+  # The cache is written before the database, so a failed repository update left
+  # the in-memory map advertising a value that was never persisted — and the
+  # `:ok` return hid it from the caller. Re-read the persisted row and put the
+  # affected attributes back so the cache converges on what is actually stored.
+  defp restore_system_cache(map_id, update, attributes) do
+    case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
+           map_id,
+           update.solar_system_id
+         ) do
+      {:ok, system} ->
+        restore =
+          Enum.reduce(attributes, %{solar_system_id: update.solar_system_id}, fn attribute, acc ->
+            Map.put(acc, attribute, Map.get(system, attribute))
+          end)
+
+        WandererApp.Map.update_system_by_solar_system_id(map_id, restore)
+
+      _error ->
         :ok
     end
   end
