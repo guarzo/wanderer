@@ -90,19 +90,23 @@ defmodule WandererApp.Api.MapChainPassages do
               p.solar_system_source_id == ^input.arguments.from and
               p.solar_system_target_id == ^input.arguments.to and
               p.inserted_at >= ^input.arguments.after,
-          select: [p, c]
+          select: %{
+            id: p.id,
+            ship_type_id: p.ship_type_id,
+            ship_name: p.ship_name,
+            mass: p.mass,
+            inserted_at: p.inserted_at,
+            character: %{
+              eve_id: c.eve_id,
+              name: c.name,
+              corporation_id: c.corporation_id,
+              corporation_ticker: c.corporation_ticker,
+              alliance_id: c.alliance_id,
+              alliance_ticker: c.alliance_ticker
+            }
+          }
         )
         |> WandererApp.Repo.all()
-        |> Enum.map(fn [passage, character] ->
-          %{
-            id: passage.id,
-            ship_type_id: passage.ship_type_id,
-            ship_name: passage.ship_name,
-            mass: passage.mass,
-            inserted_at: passage.inserted_at,
-            character: character
-          }
-        end)
         |> Enum.sort_by(& &1.inserted_at, :desc)
         |> then(&{:ok, &1})
       end
