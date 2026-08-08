@@ -144,8 +144,8 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     # renders a real channel name on open instead of waiting on two HTTP calls
     # per destination.
     #
-    # Like `record_success`, deliberately no cache invalidation: neither
-    # attribute feeds a routing decision — routing reads `enabled?` and
+    # Like `record_success`, deliberately no cache invalidation: none of these
+    # attributes feeds a routing decision — routing reads `enabled?` and
     # `webhook_url` — so evicting here would drop the routing cache every time a
     # background refresh confirmed a name that had not changed.
     #
@@ -162,7 +162,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     # action was split out to prevent has to be rejected explicitly.
     update :cache_channel_info do
       require_atomic? false
-      accept [:channel_id, :channel_label]
+      accept [:channel_id, :channel_label, :channel_label_source, :guild_id]
 
       # Checks the argument map rather than `absent(:webhook_url)`: that builtin
       # falls back to the attribute already on the row, so it would reject every
@@ -265,17 +265,42 @@ defmodule WandererApp.Api.MapDiscordWebhook do
 
     # Cached Discord identity for this destination, resolved by
     # `WandererApp.ExternalEvents.Discord.ChannelInfo` and refreshed in the
-    # background. Neither is a credential and neither is `sensitive?`: the whole
+    # background. None is a credential and none is `sensitive?`: the whole
     # point is that they are safe to render on a screen that gets screenshotted,
     # unlike the webhook id the settings tab used to show. `channel_id` is a
     # public guild snowflake, and `channel_label` is the channel or webhook name
     # the operator already sees in Discord.
     #
     # Nullable and always re-derivable: an instance with no bot token, or a
-    # webhook Discord will not answer for, simply leaves both nil and renders a
-    # masked hint. Nothing routes off either value.
+    # webhook Discord will not answer for, simply leaves them nil and renders a
+    # masked hint. Nothing routes off any of these values.
     attribute :channel_id, :string
     attribute :channel_label, :string, constraints: [max_length: @max_channel_label_length]
+
+    # Guild this destination's channel belongs to, decoded from the same
+    # `GET /channels/{id}` response that yields `channel_label`. Cached here so
+    # the mention typeahead can scope its role/member search on tab open without
+    # a round trip. A public snowflake, never a credential.
+    #
+    # nil whenever the bot could not answer for the channel — which is exactly
+    # when the typeahead is unavailable anyway, so the same nil drives the
+    # manual-entry fallback.
+    attribute :guild_id, :string
+
+    # Which tier produced `channel_label`: `:channel` for a real `#name` read
+    # from `GET /channels/{id}`, `:webhook` for the webhook's own nickname.
+    #
+    # Persisted rather than inferred from a leading "#", because a webhook may
+    # legitimately be named "#anything" and the UI must not claim that is a
+    # channel. nil means the row predates this column: unknowable after the
+    # fact, so `ChannelInfo` reports it as `:unknown`, makes no claim in the UI,
+    # and schedules a refresh that fills it in.
+    #
+    # `:atom` with `one_of` follows `role` above; a bare `:string` cannot carry
+    # the constraint (Ash's string type takes only length/match options).
+    attribute :channel_label_source, :atom do
+      constraints one_of: [:channel, :webhook_name]
+    end
 
     # Guild-scoped snowflakes to ping on this destination — see the design
     # doc's "Where configured targets live": these belong on the webhook row,
