@@ -35,8 +35,8 @@ export const WdCharStateWrapper = ({
         {
           ['border-stone-800/90']: !isExpired && !isOnline && !isReady,
           ['border-lime-600/70']: !isExpired && isOnline && !isReady,
-          ['border-orange-500/90']: isReady && isOnline,
-          ['border-orange-700/70']: isReady && !isOnline,
+          ['border-orange-500/90']: !isExpired && isReady && isOnline,
+          ['border-orange-700/70']: !isExpired && isReady && !isOnline,
           ['border-red-600/70']: isExpired,
         },
       )}

@@ -258,8 +258,11 @@ config :wanderer_app,
   finch_webhooks_pool_count:
     System.get_env("WANDERER_FINCH_WEBHOOKS_POOL_COUNT", "2") |> String.to_integer(),
   # Discord pool - isolated so a slow Discord cannot exhaust shared pools
+  # WANDERER_DISCORD_POOL_SIZE is the fork's older name, still read as a fallback.
   finch_discord_pool_size:
-    System.get_env("WANDERER_FINCH_DISCORD_POOL_SIZE", "10") |> String.to_integer(),
+    (System.get_env("WANDERER_FINCH_DISCORD_POOL_SIZE") ||
+       System.get_env("WANDERER_DISCORD_POOL_SIZE", "10"))
+    |> String.to_integer(),
   finch_discord_pool_count:
     System.get_env("WANDERER_FINCH_DISCORD_POOL_COUNT", "1") |> String.to_integer(),
   # Default pool - everything else (email, license manager, etc.)
@@ -516,4 +519,17 @@ config :wanderer_app, :external_events,
     config_dir
     |> get_var_from_path_or_env("WANDERER_WEBHOOKS_ENABLED", "false")
     |> String.to_existing_atom(),
-  webhook_timeout_ms: config_dir |> get_int_from_path_or_env("WANDERER_WEBHOOK_TIMEOUT_MS", 15000)
+  webhook_timeout_ms:
+    config_dir |> get_int_from_path_or_env("WANDERER_WEBHOOK_TIMEOUT_MS", 15000),
+  discord_max_killmail_age_seconds:
+    config_dir
+    |> get_int_from_path_or_env("WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS", 3600)
+
+# Signature expiration — evaluated at boot so the deployment's env vars win over
+# whatever was set when the release was built. Defaults mirror config.exs.
+config :wanderer_app, :signatures,
+  wormhole_expiration_hours:
+    config_dir |> get_int_from_path_or_env("SIGNATURE_WORMHOLE_EXPIRATION_HOURS", 24),
+  default_expiration_hours:
+    config_dir |> get_int_from_path_or_env("SIGNATURE_DEFAULT_EXPIRATION_HOURS", 72),
+  preserve_connected: true

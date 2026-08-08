@@ -7,6 +7,11 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   alias WandererApp.Map.Server.Impl
   alias WandererApp.Character
 
+  # Alliance hits are enriched with one ESI ticker lookup each, so this bounds
+  # network work, not just list length. Matches the cap
+  # `WandererApp.Esi.CorporationSearch` applies to the corporation dropdown.
+  @max_search_results 20
+
   def handle_server_event(%{event: :add_system, payload: system}, socket) do
     # Schedule kill update for the new system after a short delay to allow subscription
     Process.send_after(
@@ -236,6 +241,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
         %{
           assigns: %{
             map_id: map_id,
+            map_loaded?: true,
             current_user: current_user,
             tracked_characters: tracked_characters,
             user_permissions: user_permissions
@@ -272,9 +278,20 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     if can_update_system?(:owner, user_permissions) do
       system_id_int =
         case sid do
-          id when is_integer(id) -> id
-          id when is_binary(id) -> String.to_integer(id)
-          _ -> nil
+          id when is_integer(id) ->
+            id
+
+          # `String.to_integer/1` raises on anything non-numeric, and `sid`
+          # comes straight off the wire — a malformed value took the whole
+          # LiveView down instead of falling through to the nil guard below.
+          id when is_binary(id) ->
+            case Integer.parse(id) do
+              {int, ""} -> int
+              _ -> nil
+            end
+
+          _ ->
+            nil
         end
 
       if system_id_int do
@@ -295,15 +312,17 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
           end
 
         if main_character_id do
-          {:ok, _} =
-            WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
-              character_id: main_character_id,
-              user_id: current_user.id,
-              map_id: map_id,
-              solar_system_id: system_id_int,
-              key: :owner,
-              value: %{owner_id: oid, owner_type: otype, ticker: ticker}
-            })
+          # Not strict-matched: activity tracking is best-effort telemetry, and
+          # a failure here must not roll back an owner update that already
+          # succeeded or crash the LiveView.
+          WandererApp.User.ActivityTracker.track_map_event(:system_updated, %{
+            character_id: main_character_id,
+            user_id: current_user.id,
+            map_id: map_id,
+            solar_system_id: system_id_int,
+            key: :owner,
+            value: %{owner_id: oid, owner_type: otype, ticker: ticker}
+          })
         end
       end
     end
@@ -483,7 +502,7 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
     user_chars = socket.assigns.current_user.characters
 
     response =
-      case search_corporation_names(user_chars, search) do
+      case WandererApp.Esi.CorporationSearch.search(user_chars, search) do
         {:ok, results} -> %{results: results}
         _ -> %{results: []}
       end
@@ -577,9 +596,10 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
   # Catch-all for UI events NOT handled by specific clauses above
   def handle_ui_event(event, params, socket) do
-    Logger.warning(
-      "[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}, Params: #{inspect(params)}, Assigns: #{inspect(socket.assigns)}"
-    )
+    # Deliberately does NOT log `socket.assigns`: it carries `current_user`
+    # (with its characters and tokens) and the whole map state, which is both
+    # a credential-leak risk and megabytes of noise in the log.
+    Logger.warning("[MapSystemsEventHandler - UNMATCHED] Received event: #{inspect(event)}")
 
     # Forward to the core event handler as a fallback
     MapCoreEventHandler.handle_ui_event(event, params, socket)
@@ -633,49 +653,6 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
   defp update_system_position(_map_id, _position), do: :ok
 
-  defp search_corporation_names([], _search), do: {:ok, []}
-
-  defp search_corporation_names([first_char | _], search) when is_binary(search) do
-    if String.length(search) < 3 do
-      {:ok, []}
-    else
-      result =
-        Character.search(first_char.id, params: [search: search, categories: "corporation"])
-
-      case result do
-        {:ok, results} ->
-          formatted_results =
-            Enum.map(results, fn item ->
-              name = Map.get(item, :label, "")
-              corp_id = Map.get(item, :value, "")
-
-              ticker =
-                case WandererApp.Esi.get_corporation_info(corp_id) do
-                  {:ok, %{"ticker" => ticker}} -> ticker
-                  _ -> ""
-                end
-
-              formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
-
-              Map.merge(item, %{
-                formatted: formatted_label,
-                name: name,
-                ticker: ticker,
-                id: item.value,
-                type: "corp"
-              })
-            end)
-
-          {:ok, formatted_results}
-
-        other ->
-          other
-      end
-    end
-  end
-
-  defp search_corporation_names(_user_chars, _search), do: {:ok, []}
-
   defp search_alliance_names([], _search), do: {:ok, []}
 
   defp search_alliance_names([first_char | _], search) when is_binary(search) do
@@ -687,26 +664,25 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
 
       case result do
         {:ok, results} ->
+          # ESI ticker lookups run concurrently and bounded: sequentially, a
+          # cold cache meant one blocking round-trip per search hit inside the
+          # LiveView process, so a broad prefix stalled the whole session.
+          #
+          # `max_concurrency` bounds how many run at once, not how many run.
+          # Truncate first — otherwise a broad prefix still costs one ESI call
+          # per match and blocks this process until the whole stream drains.
+          # Same cap the system search applies above.
           formatted_results =
-            Enum.map(results, fn item ->
-              name = Map.get(item, :label, "")
-              alliance_id = Map.get(item, :value, "")
-
-              ticker =
-                case WandererApp.Esi.get_alliance_info(alliance_id) do
-                  {:ok, %{"ticker" => ticker}} -> ticker
-                  _ -> ""
-                end
-
-              formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
-
-              Map.merge(item, %{
-                formatted: formatted_label,
-                name: name,
-                ticker: ticker,
-                id: item.value,
-                type: "alliance"
-              })
+            results
+            |> Enum.take(@max_search_results)
+            |> Task.async_stream(&format_alliance_result/1,
+              max_concurrency: 10,
+              timeout: :timer.seconds(10),
+              on_timeout: :kill_task
+            )
+            |> Enum.flat_map(fn
+              {:ok, item} -> [item]
+              {:exit, _reason} -> []
             end)
 
           {:ok, formatted_results}
@@ -718,4 +694,25 @@ defmodule WandererAppWeb.MapSystemsEventHandler do
   end
 
   defp search_alliance_names(_user_chars, _search), do: {:ok, []}
+
+  defp format_alliance_result(item) do
+    name = Map.get(item, :label, "")
+    alliance_id = Map.get(item, :value, "")
+
+    ticker =
+      case WandererApp.Esi.get_alliance_info(alliance_id) do
+        {:ok, %{"ticker" => ticker}} -> ticker
+        _ -> ""
+      end
+
+    formatted_label = if ticker && ticker != "", do: "[#{ticker}] #{name}", else: name
+
+    Map.merge(item, %{
+      formatted: formatted_label,
+      name: name,
+      ticker: ticker,
+      id: item.value,
+      type: "alliance"
+    })
+  end
 end
