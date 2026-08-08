@@ -178,6 +178,28 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherSupervisorTest do
       assert [{new_pid, _}] = Registry.lookup(RouteWatcher.registry(), map.id)
       assert %{route_state: :unknown} = :sys.get_state(new_pid)
     end
+
+    # The gap the notification's own :destroy hook cannot cover.
+    # `map_discord_notifications_v1` declares `reference :map, on_delete:
+    # :delete`, so hard-destroying the MAP removes the notification row as a
+    # PostgreSQL referential action — no Ash action runs on it, and its
+    # after_destroy hook never fires. The watcher would keep running for a map
+    # that no longer exists, with its route_state parked in the TTL-less
+    # :discord_route_alert_cache.
+    test "destroying the map stops its route watcher and evicts the cached state", %{map: map} do
+      RouteWatcherSupervisor.notify(map.id)
+      assert [{pid, _}] = Registry.lookup(RouteWatcher.registry(), map.id)
+
+      Cachex.put(:discord_route_alert_cache, map.id, %{
+        route_state: {:qualifying, 5},
+        config_version: "stale"
+      })
+
+      :ok = Ash.destroy!(map)
+
+      refute Process.alive?(pid)
+      assert {:ok, nil} = Cachex.get(:discord_route_alert_cache, map.id)
+    end
   end
 
   defp await_condition(fun, timeout \\ 2_000) do
