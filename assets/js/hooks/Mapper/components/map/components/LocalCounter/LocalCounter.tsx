@@ -56,6 +56,7 @@ export const LocalCounter = ({
         classes.TooltipActive,
         {
           [classes.Pathfinder]: theme === AvailableThemes.pathfinder,
+          [classes.Zoo]: theme === AvailableThemes.zoo,
         },
         className,
       )}
