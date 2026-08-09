@@ -23,6 +23,32 @@ defmodule WandererApp.ExternalEvents.DiscordKillmailAgeTest do
     :ok
   end
 
+  defp put_key(key, value) do
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.put(original, key, value)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+    :ok
+  end
+
+  defp delete_key(key) do
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.delete(original, key)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+    :ok
+  end
+
   describe "Env.discord_max_killmail_age_seconds/0" do
     test "defaults to 3600 when the key is absent" do
       original = Application.get_env(:wanderer_app, :external_events, [])
@@ -83,6 +109,97 @@ defmodule WandererApp.ExternalEvents.DiscordKillmailAgeTest do
         end)
 
       assert log =~ "discord_max_killmail_age_seconds"
+    end
+  end
+
+  describe "Env.discord_startup_grace_seconds/0" do
+    test "defaults to 600 when the key is absent" do
+      delete_key(:discord_startup_grace_seconds)
+
+      assert Env.discord_startup_grace_seconds() == 600
+    end
+
+    test "returns the configured value, not only the default" do
+      put_key(:discord_startup_grace_seconds, 90)
+
+      assert Env.discord_startup_grace_seconds() == 90
+    end
+
+    # THE test for this key. `0` means "no startup window" and must be honoured
+    # rather than treated as a misconfiguration. Routing this key through
+    # `validate_positive_integer/3` would return 600 here and turn an operator's
+    # "disabled" into ten minutes of tightened freshness -- and would break
+    # config/test.exs, which uses exactly this value.
+    test "honours zero as 'window disabled' rather than falling back" do
+      put_key(:discord_startup_grace_seconds, 0)
+
+      log =
+        capture_log(fn ->
+          assert Env.discord_startup_grace_seconds() == 0
+        end)
+
+      refute log =~ "discord_startup_grace_seconds"
+    end
+
+    test "falls back to the default and warns when configured as negative" do
+      put_key(:discord_startup_grace_seconds, -1)
+
+      log =
+        capture_log(fn ->
+          assert Env.discord_startup_grace_seconds() == 600
+        end)
+
+      assert log =~ "discord_startup_grace_seconds"
+    end
+
+    test "falls back to the default and warns when configured as a non-integer" do
+      put_key(:discord_startup_grace_seconds, "ten minutes")
+
+      log =
+        capture_log(fn ->
+          assert Env.discord_startup_grace_seconds() == 600
+        end)
+
+      assert log =~ "discord_startup_grace_seconds"
+    end
+  end
+
+  describe "Env.discord_startup_max_killmail_age_seconds/0" do
+    test "defaults to 120 when the key is absent" do
+      delete_key(:discord_startup_max_killmail_age_seconds)
+
+      assert Env.discord_startup_max_killmail_age_seconds() == 120
+    end
+
+    test "returns the configured value, not only the default" do
+      put_key(:discord_startup_max_killmail_age_seconds, 45)
+
+      assert Env.discord_startup_max_killmail_age_seconds() == 45
+    end
+
+    # The opposite of the grace key: here `0` IS a misconfiguration, because a
+    # kill that has already happened always has a non-negative age and the guard
+    # keeps a kill only when `age <= max`.
+    test "falls back to the default and warns when configured as zero" do
+      put_key(:discord_startup_max_killmail_age_seconds, 0)
+
+      log =
+        capture_log(fn ->
+          assert Env.discord_startup_max_killmail_age_seconds() == 120
+        end)
+
+      assert log =~ "discord_startup_max_killmail_age_seconds"
+    end
+
+    test "falls back to the default and warns when configured as a non-integer" do
+      put_key(:discord_startup_max_killmail_age_seconds, :soon)
+
+      log =
+        capture_log(fn ->
+          assert Env.discord_startup_max_killmail_age_seconds() == 120
+        end)
+
+      assert log =~ "discord_startup_max_killmail_age_seconds"
     end
   end
 
