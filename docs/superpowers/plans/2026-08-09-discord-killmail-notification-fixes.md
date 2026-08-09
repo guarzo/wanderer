@@ -4,7 +4,7 @@
 
 **Goal:** Stop Discord kill notifications firing for systems removed from a map, and stop already-posted killmails being posted again after a restart.
 
-**Architecture:** Two independent fixes. Defect 1 adds the missing `visible` filter to the kill fan-out index and backs it with a fail-open membership guard in the Discord dispatcher. Defect 2 tightens the freshness filter for a grace window after the dedup cache loses its marks, armed from a sentinel stored in that cache so the window tracks the cache's lifecycle rather than the dispatcher's.
+**Architecture:** Two independent fixes. Defect 1 adds the missing `visible` filter to the kill fan-out index and backs it with a fail-open membership guard in the Discord dispatcher. Defect 2 tightens the freshness filter for a grace window after the dedup cache loses its marks. The window is derived from a sentinel stored **in that cache**, read **once per kill batch** rather than at dispatcher start, so it tracks the cache's lifecycle rather than the dispatcher's.
 
 **Tech Stack:** Elixir, Ash Framework, Cachex, `:telemetry`, ExUnit.
 
@@ -29,7 +29,9 @@
 | `test/unit/kills/subscription/system_map_index_test.exs` | **New.** Index visibility regression | 1 |
 | `lib/wanderer_app/external_events/discord_dispatcher.ex` | Membership guard, startup window, drop telemetry | 2, 4, 5 |
 | `lib/wanderer_app/env.ex` | Two new config accessors + non-negative validator | 3 |
+| `config/runtime.exs` | Env-var wiring for both new keys | 3 |
 | `config/test.exs` | Disable the startup window under test | 3 |
+| `.env.example`, `README.md` | Operator documentation for both env vars | 3 |
 | `test/unit/external_events/discord_dispatcher_test.exs` | Guard behaviour | 2 |
 | `test/unit/external_events/discord_killmail_age_test.exs` | New `Env` accessor coverage | 3 |
 | `test/unit/external_events/discord_startup_window_test.exs` | **New.** Window behaviour, lifecycle, telemetry | 4, 5 |
@@ -42,9 +44,27 @@ Three, all discovered by reading the code while writing this plan. Each is delib
 
 1. **Telemetry event name.** The spec names `[:wanderer_app, :discord, :killmail_dropped]`. This plan uses **`[:wanderer_app, :discord_dispatcher, :killmail_dropped]`**. The `:discord` prefix in this module is used for *enrichment* events (`:notable_items`, `:corp_tickers` — `discord_dispatcher.ex:521,671`), while dispatch-outcome events use `:discord_dispatcher` (`:dispatched`, `:not_delivered` — `:762,795`). A drop is a dispatch outcome and shares their `%{count: n}` measurement shape and `map_id` metadata.
 
-2. **The sentinel needs two Cachex calls, not one.** The spec says the sentinel is written "with no TTL". `:discord_dedup_cache` is created with `default_ttl: :timer.hours(24)` (`lib/wanderer_app/application.ex:150-154`), and `Cachex.Actions.Put` only honours an **integer** `:ttl` — anything else, `nil` included, falls back to the cache default (`deps/cachex/lib/cachex/actions/put.ex:29-30`, `deps/cachex/lib/cachex/services/janitor.ex:43-47`). So `Cachex.put/3` cannot write a never-expiring entry here. The fix is `Cachex.put/3` followed by `Cachex.persist/2`, which clears the expiration. Without the `persist`, the sentinel would silently expire after 24 hours of uptime and a later dispatcher-only restart would spuriously re-arm the window.
+2. **The sentinel needs two Cachex calls, not one.** The spec says the sentinel is written "with no TTL". `:discord_dedup_cache` is created with `default_ttl: :timer.hours(24)` (`lib/wanderer_app/application.ex:150-154`), and `Cachex.Actions.Put.execute/4` only honours an **integer** `:ttl` — anything else, `nil` included, falls back to the cache default. So `Cachex.put/3` cannot write a never-expiring entry here. The fix is `Cachex.put/3` followed by `Cachex.persist/2`, which clears the expiration. Without the `persist`, the sentinel would silently expire after 24 hours of uptime and a later restart would spuriously re-arm the window.
+
+   (Cachex is pinned at **3.6.0** through Hex — `mix.lock:12`. The behaviour above is in that package's `lib/cachex/actions/put.ex`; there is no vendored copy in the repository, so it is not reachable by a path relative to this worktree. Read it from the resolved dependency tree if you want to confirm it.)
 
 3. **Line numbers.** The spec cites `system_map_index.ex:98` for the unfiltered query; it is actually **line 103**. The spec's `map_integration.ex` citations are likewise a few lines off. Trust this plan's line numbers, which were re-read from the working tree.
+
+---
+
+## Revisions after independent review
+
+An independent review of this plan against the code found five defects. All five are folded in below; this section records what changed so a reader of an earlier draft is not misled.
+
+1. **The sentinel is read per batch, not in `init/1`.** The original Task 4 cached the deadline in dispatcher state at start-up. That gets lifecycle row 2 — the case the sentinel design exists for — exactly as wrong as the design it replaced: a dedup-cache-only crash loses every mark while the dispatcher keeps running with a stale deadline, and nothing ever re-arms. Reading the sentinel once per `:map_kill` batch fixes it and is a net simplification. It removes the `init/1` change, the state field, and the `do_dispatch/2` → `/3` arity change across three clauses. Cost: one ETS read per batch, against work that already includes a DB read and an HTTP post.
+
+2. **Both new config keys are wired in `config/runtime.exs`.** The original Task 3 added accessors and test config but no env-var wiring, so a release could not configure either key. Task 3 now wires, documents, and tests them alongside the sibling `WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS` (`config/runtime.exs:497-499`).
+
+3. **Drop reasons are classified per kill against both thresholds.** The original Task 5 labelled every age drop `:startup_age` whenever the window was open, so a two-hour-old kill — one the pre-existing 3600-second limit would have dropped anyway — was reported as new suppression. That overstates the window's impact in precisely the metric an operator would use to decide the window is too aggressive.
+
+4. **Two classes of test that could pass for the wrong reason are tightened.** Deadline comparisons no longer depend on millisecond resolution around an immediate re-arm, and the "delivered" assertions now require an actual HTTP request rather than only the absence of drop telemetry.
+
+5. **Citations corrected.** The Cachex claim is cited to the Hex package rather than a `deps/` path that does not resolve from a worktree (see Deviation 2).
 
 ---
 
@@ -314,13 +334,16 @@ Two new keys in the `:external_events` keyword list. They do **not** share a val
 
 **Files:**
 - Modify: `lib/wanderer_app/env.ex` (add two accessors + one validator, after `discord_max_killmail_age_seconds/0` at `:120-127`)
+- Modify: `config/runtime.exs:497-499` (env-var wiring, beside the sibling key)
 - Modify: `config/test.exs:36`
+- Modify: `.env.example:24-27`, `README.md:60-61` (operator documentation)
 - Test: `test/unit/external_events/discord_killmail_age_test.exs`
 
 **Interfaces:**
 - Produces: `WandererApp.Env.discord_startup_grace_seconds/0` → `non_neg_integer()`, default `600`.
 - Produces: `WandererApp.Env.discord_startup_max_killmail_age_seconds/0` → `pos_integer()`, default `120`.
 - Both are read by Task 4. Neither is cached, matching `discord_max_killmail_age_seconds/0`.
+- Produces: two release-configurable environment variables, `WANDERER_DISCORD_STARTUP_GRACE_SECONDS` and `WANDERER_DISCORD_STARTUP_MAX_KILLMAIL_AGE_SECONDS`. An accessor without runtime wiring is not configurable in a release — `config/runtime.exs` is the only file read at boot — so the wiring is part of this task, not of the final documentation sweep.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -557,17 +580,61 @@ In `config/test.exs`, change line 36:
   ],
 ```
 
-- [ ] **Step 5: Run the tests and confirm they pass**
+- [ ] **Step 5: Wire both keys into the release runtime configuration**
+
+`config/test.exs` and `config/dev.exs` are compile-time files; a release reads **only** `config/runtime.exs`. Without this step both keys are permanently pinned to their defaults in production and the operator-facing documentation added below would describe variables that do nothing.
+
+In `config/runtime.exs`, inside the existing `config :wanderer_app, :external_events,` block, add both keys directly after `discord_max_killmail_age_seconds` (line 497-499) so the three age-related settings stay together:
+
+```elixir
+  discord_startup_grace_seconds:
+    config_dir
+    |> get_int_from_path_or_env("WANDERER_DISCORD_STARTUP_GRACE_SECONDS", 600),
+  discord_startup_max_killmail_age_seconds:
+    config_dir
+    |> get_int_from_path_or_env("WANDERER_DISCORD_STARTUP_MAX_KILLMAIL_AGE_SECONDS", 120),
+```
+
+Repeat the defaults here rather than reaching for the `Env` module attributes: `runtime.exs` runs before the application is loaded and cannot call into `WandererApp.Env`. The two defaults are therefore stated twice, and the final gate checks that they still agree.
+
+`get_int_from_path_or_env/3` returns an integer or the default, so a non-numeric value never reaches the accessor. The accessors still validate, because `config/test.exs`, `dev.exs`, and any operator calling `Application.put_env/3` bypass this path entirely.
+
+- [ ] **Step 6: Document both variables**
+
+In `.env.example`, after the `WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS` block (lines 24-27):
+
+```bash
+# After the in-memory Discord dedup marks are lost, the tighter age limit below
+# applies for this many seconds, so an upstream replay of already-posted kills
+# is dropped for being old. 0 disables the window. (optional, default 600)
+# export WANDERER_DISCORD_STARTUP_GRACE_SECONDS="600"
+# Maximum killmail age while that window is armed. (optional, default 120)
+# export WANDERER_DISCORD_STARTUP_MAX_KILLMAIL_AGE_SECONDS="120"
+```
+
+In `README.md`, after the `WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS` sentence (line 60-61):
+
+```markdown
+The dedup marks that stop a killmail being posted twice are held in memory, so a
+restart loses them and the upstream service then replays recent kills. For
+`WANDERER_DISCORD_STARTUP_GRACE_SECONDS` (default `600`) after the marks are
+lost, `WANDERER_DISCORD_STARTUP_MAX_KILLMAIL_AGE_SECONDS` (default `120`)
+applies instead of the hour above, so the replayed history is dropped for being
+old while a kill that genuinely happens during the window still posts. Set the
+grace to `0` to disable the window.
+```
+
+- [ ] **Step 7: Run the tests and confirm they pass**
 
 Run: `mix test test/unit/external_events/discord_killmail_age_test.exs`
 
 Expected: PASS, including the pre-existing `discord_max_killmail_age_seconds/0` tests.
 
-- [ ] **Step 6: Format and commit**
+- [ ] **Step 8: Format and commit**
 
 ```bash
 mix format
-git add lib/wanderer_app/env.ex config/test.exs test/unit/external_events/discord_killmail_age_test.exs
+git add lib/wanderer_app/env.ex config/runtime.exs config/test.exs .env.example README.md test/unit/external_events/discord_killmail_age_test.exs
 git commit -m "feat(discord): config for the killmail startup grace window
 
 Two keys, deliberately not sharing a validator.
@@ -579,6 +646,10 @@ turn that into 600 seconds plus a warning.
 discord_startup_max_killmail_age_seconds (default 120) keeps the
 positive-integer validator, for the same reason the ordinary max age
 does: 0 would silently suppress every notification.
+
+Both are wired through config/runtime.exs, which is the only config file
+a release reads -- an Env accessor alone would leave them pinned to
+their defaults in production.
 
 config/test.exs sets the grace to 0 so existing dispatcher tests are not
 silently pulled inside a live window."
@@ -599,18 +670,25 @@ silently pulled inside a live window."
 
 Keying the window off `DiscordDispatcher.init/1` gets row 2 exactly backwards: every mark is gone and the window never arms — precisely the duplicate-post scenario this exists to prevent. So the window is derived from a sentinel stored **in the dedup cache itself**: absent means the cache is new, so its marks are gone.
 
-The sentinel carries an **absolute deadline**, not a TTL. An expired window is still a *present* sentinel, so a dispatcher-only restart cannot re-arm it. Monotonic time, because the cache and the dispatcher share a VM and it is immune to wall-clock adjustment.
+**And the sentinel is read once per kill batch, not once at dispatcher start.** This is the same argument applied a second time, and an earlier draft of this plan got it wrong in the same way the design did. Caching the deadline in dispatcher state reintroduces the dispatcher's lifecycle through the back door: in row 2 the cache restarts alone, so nothing calls `init/1`, and a long-lived dispatcher holds a stale deadline — or `:never` — forever while every mark is gone. Reading it per batch makes row 2 work, and it is *simpler*: no state field, no `init/1` change, and `do_dispatch/2` keeps its arity across all three clauses.
+
+The cost is one `Cachex.get/2` per `:map_kill` batch — an ETS read on a path that already does a database read and an HTTP post. It does not violate the once-per-batch config constraint: `Env.discord_startup_grace_seconds/0` is read only on the arming branch, which runs once per cache lifetime, not once per batch.
+
+A second consequence is a small improvement. The window now starts when kills actually begin flowing rather than at boot, so a slow kills-client handshake no longer eats into it.
+
+The sentinel carries an **absolute deadline**, not a TTL. An expired window is still a *present* sentinel, so nothing can re-arm it while the cache lives. Monotonic time, because the cache and the dispatcher share a VM and it is immune to wall-clock adjustment.
 
 **Files:**
-- Modify: `lib/wanderer_app/external_events/discord_dispatcher.ex` (`init/1` at `:90`, `handle_cast/2` at `:212-215`, all three `do_dispatch` clauses at `:223`, `:285`, `:303`)
+- Modify: `lib/wanderer_app/external_events/discord_dispatcher.ex` (the `:map_kill` clause at `:223` only)
 - Test: `test/unit/external_events/discord_startup_window_test.exs` (create)
 
 **Interfaces:**
 - Consumes: `Env.discord_startup_grace_seconds/0` and `Env.discord_startup_max_killmail_age_seconds/0` from Task 3.
-- Consumes: `Cachex.persist/2`, which clears an entry's expiration (`deps/cachex/lib/cachex.ex:990-991`). Required — see Deviation 2 above.
+- Consumes: `Cachex.persist/2`, which clears an entry's expiration. Required — see Deviation 2 above.
 - Produces: `DiscordDispatcher.startup_sentinel_key/0` → `String.t()`, public so tests derive the key instead of hardcoding it, matching `dedup_key/2` and `dedup_cache/0` (`discord_dispatcher.ex:899-905`).
-- Produces: dispatcher state changes from `%{}` to `%{startup_arm_until: integer() | :never}`.
-- Produces: `do_dispatch/3` — all three clauses gain a third argument. The two non-`:map_kill` clauses ignore it.
+- Produces: `DiscordDispatcher.arm_startup_grace/0` → `integer() | :never`. **Public**, and read-or-write rather than write: it returns the stored deadline when a sentinel is present and writes one only when it is absent. Public because it is the unit under test here — a test that drives it directly exercises the real cache-only-restart path, which a test that restarts the dispatcher cannot reach.
+- Produces: `DiscordDispatcher.within_startup_grace?/1` → `boolean()`.
+- **No state change and no arity change.** Dispatcher state stays `%{}`, `init/1` is untouched, `handle_cast/2` is untouched, and all three `do_dispatch/2` clauses keep their arity. Nothing outside the `:map_kill` clause moves — including the `do_dispatch/2` reference in the `start_enrichment` comment at `:425`, which stays correct.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -652,72 +730,73 @@ defmodule WandererApp.ExternalEvents.DiscordStartupWindowTest do
     :ok
   end
 
-  defp arm_until do
-    :sys.get_state(DiscordDispatcher).startup_arm_until
-  end
-
   describe "arming" do
+    # These drive `arm_startup_grace/0` directly rather than through
+    # `start_supervised!(DiscordDispatcher)`. That is the point: the window is
+    # armed per batch, so its behaviour has nothing to do with the dispatcher's
+    # lifecycle, and a test that restarted the dispatcher would be asserting
+    # against the wrong lifecycle -- the exact mistake an earlier draft made.
     test "arms when the dedup cache carries no sentinel" do
       put_keys(discord_startup_grace_seconds: 600)
       clear_sentinel()
 
-      start_supervised!(DiscordDispatcher)
+      arm_until = DiscordDispatcher.arm_startup_grace()
 
-      assert is_integer(arm_until())
-      assert arm_until() > System.monotonic_time(:millisecond)
+      assert is_integer(arm_until)
+      assert arm_until > System.monotonic_time(:millisecond)
     end
 
     # Row 3 of the lifecycle table, and the case an earlier draft of the design
-    # got backwards. The marks survived a dispatcher-only crash, so the window
-    # must NOT re-arm -- otherwise every dispatcher restart silently tightens
-    # freshness for ten minutes with no duplicates to prevent.
+    # got backwards. The marks survived, so the window must NOT re-arm --
+    # otherwise every batch silently pushes the deadline further out and the
+    # window never closes at all.
+    #
+    # The grace is RAISED tenfold between the two calls, so a re-arm would move
+    # the deadline by about 5,400,000 ms. Comparing two calls made under the
+    # same grace would instead hinge on millisecond resolution, and would pass
+    # by coincidence whenever both landed in the same millisecond.
     test "does not re-arm when the sentinel is already present" do
       put_keys(discord_startup_grace_seconds: 600)
       clear_sentinel()
 
-      start_supervised!(DiscordDispatcher)
-      first = arm_until()
+      first = DiscordDispatcher.arm_startup_grace()
 
-      :ok = stop_supervised!(DiscordDispatcher)
-      start_supervised!(DiscordDispatcher)
+      put_keys(discord_startup_grace_seconds: 6000)
 
-      assert arm_until() == first
+      assert DiscordDispatcher.arm_startup_grace() == first
     end
 
-    # Row 2: the dedup cache crashed alone, taking every mark with it. The
-    # dispatcher never restarted, but the next one to start must arm.
+    # Row 2: the dedup cache crashed alone, taking every mark with it. Nothing
+    # restarted the dispatcher. Same tenfold grace change, so the assertion
+    # cannot pass on a same-millisecond coincidence in either direction.
     test "re-arms after the sentinel is cleared" do
       put_keys(discord_startup_grace_seconds: 600)
       clear_sentinel()
 
-      start_supervised!(DiscordDispatcher)
-      first = arm_until()
+      first = DiscordDispatcher.arm_startup_grace()
 
-      :ok = stop_supervised!(DiscordDispatcher)
       Cachex.del(DiscordDispatcher.dedup_cache(), DiscordDispatcher.startup_sentinel_key())
-      start_supervised!(DiscordDispatcher)
+      put_keys(discord_startup_grace_seconds: 6000)
 
-      refute arm_until() == first
+      assert DiscordDispatcher.arm_startup_grace() - first > 5_000_000
     end
 
     test "a zero grace period leaves the window closed immediately" do
       put_keys(discord_startup_grace_seconds: 0)
       clear_sentinel()
 
-      start_supervised!(DiscordDispatcher)
-
-      refute DiscordDispatcher.within_startup_grace?(arm_until())
+      refute DiscordDispatcher.within_startup_grace?(DiscordDispatcher.arm_startup_grace())
     end
 
     # Guards Deviation 2: `:discord_dedup_cache` has a 24h default_ttl, and
     # `Cachex.put/4` honours only an integer `:ttl`, so a bare put would leave
-    # the sentinel expiring after a day -- after which a dispatcher-only
-    # restart would spuriously re-arm.
+    # the sentinel expiring after a day -- after which the window would
+    # spuriously re-arm on a healthy cache that never lost a mark.
     test "the sentinel never expires" do
       put_keys(discord_startup_grace_seconds: 600)
       clear_sentinel()
 
-      start_supervised!(DiscordDispatcher)
+      DiscordDispatcher.arm_startup_grace()
 
       assert Cachex.ttl(
                DiscordDispatcher.dedup_cache(),
@@ -751,7 +830,7 @@ Run: `mix test test/unit/external_events/discord_startup_window_test.exs`
 
 Expected: FAIL with `UndefinedFunctionError` on `DiscordDispatcher.startup_sentinel_key/0`.
 
-- [ ] **Step 3: Add the sentinel and the window predicate**
+- [ ] **Step 3: Add the sentinel, the arming function, and the window predicate**
 
 In `lib/wanderer_app/external_events/discord_dispatcher.ex`, add the attribute next to `@dedup_ttl` (after line 70):
 
@@ -767,7 +846,7 @@ In `lib/wanderer_app/external_events/discord_dispatcher.ex`, add the attribute n
   @startup_sentinel "discord-startup-grace-until"
 ```
 
-Add the public accessors and the predicate beside `dedup_cache/0` (after line 905):
+Add the three public functions beside `dedup_cache/0` (after line 905):
 
 ```elixir
   @doc "Name of the startup-window sentinel key, so tests do not hardcode it."
@@ -775,41 +854,41 @@ Add the public accessors and the predicate beside `dedup_cache/0` (after line 90
   def startup_sentinel_key, do: @startup_sentinel
 
   @doc """
-  Whether a batch is inside the startup grace window.
+  Reads the startup-window deadline from the dedup cache, writing one if it is
+  absent. Idempotent, and called once per kill batch.
 
-  `:never` rather than a sentinel integer for the unarmed case: Erlang
-  monotonic time may be negative, so no integer is reliably "in the past".
+  ABSENT means the cache is new and its marks are gone, so arm. PRESENT means
+  the cache survived, so honour the stored deadline as it is -- including an
+  expired one. The deadline is absolute, not a TTL, precisely so that an expired
+  window is still a *present* sentinel and nothing re-arms it while the cache
+  lives.
+
+  Called per batch rather than from `init/1` because the cache and the
+  dispatcher are independent children of a `:one_for_one` supervisor. A
+  dedup-cache-only crash never runs `init/1`, so a deadline cached in dispatcher
+  state would go stale in exactly the scenario this window exists for.
+
+  Public because it is the unit under test: driving it directly is the only way
+  to exercise a cache-only restart, which restarting the dispatcher cannot
+  reach.
   """
-  @spec within_startup_grace?(integer() | :never) :: boolean()
-  def within_startup_grace?(:never), do: false
-
-  def within_startup_grace?(arm_until) when is_integer(arm_until),
-    do: System.monotonic_time(:millisecond) < arm_until
-```
-
-Add the arming function beside the other private helpers (above `defp enabled_globally?`):
-
-```elixir
-  # Reads the sentinel from the dedup cache, writing one if it is absent.
-  #
-  # ABSENT means the cache is new and its marks are gone, so arm. PRESENT means
-  # the cache survived, so honour the stored deadline as it is -- including an
-  # expired one. The deadline is absolute, not a TTL, precisely so that an
-  # expired window is still a *present* sentinel and a dispatcher-only restart
-  # cannot re-arm it.
-  defp arm_startup_grace do
+  @spec arm_startup_grace() :: integer() | :never
+  def arm_startup_grace do
     case Cachex.get(@dedup_cache, @startup_sentinel) do
       {:ok, nil} ->
+        # The only `Env` read on this path, and it runs once per cache
+        # lifetime, not once per batch -- so the once-per-batch config
+        # constraint holds.
         arm_until =
           System.monotonic_time(:millisecond) + Env.discord_startup_grace_seconds() * 1000
 
         Cachex.put(@dedup_cache, @startup_sentinel, arm_until)
         # REQUIRED, not belt-and-braces. This cache is created with
         # `default_ttl: :timer.hours(24)` (`application.ex:150-154`), and
-        # `Cachex.Actions.Put` honours only an INTEGER `:ttl` -- `nil` falls
-        # back to the cache default. Without this the sentinel would expire
-        # after a day of uptime and a later dispatcher-only restart would
-        # spuriously re-arm the window.
+        # `Cachex.Actions.Put.execute/4` honours only an INTEGER `:ttl` --
+        # `nil` falls back to the cache default. Without this the sentinel
+        # would expire after a day of uptime and the window would spuriously
+        # re-arm on a healthy cache that never lost a mark.
         Cachex.persist(@dedup_cache, @startup_sentinel)
 
         arm_until
@@ -827,39 +906,36 @@ Add the arming function beside the other private helpers (above `defp enabled_gl
     # killmails. Fail-open here means "do not suppress".
     _ -> :never
   end
+
+  @doc """
+  Whether a batch is inside the startup grace window.
+
+  `:never` rather than a sentinel integer for the unarmed case: Erlang
+  monotonic time may be negative, so no integer is reliably "in the past".
+  """
+  @spec within_startup_grace?(integer() | :never) :: boolean()
+  def within_startup_grace?(:never), do: false
+
+  def within_startup_grace?(arm_until) when is_integer(arm_until),
+    do: System.monotonic_time(:millisecond) < arm_until
 ```
 
-- [ ] **Step 4: Thread the deadline through state and dispatch**
+- [ ] **Step 4: Resolve the window once per batch in the `:map_kill` clause**
 
-Change `init/1` (line 90):
+Everything in this step is inside the one `do_dispatch/2` clause at line 223. `init/1`, `handle_cast/2`, and the other two `do_dispatch/2` clauses are **not** touched, and no arity changes.
 
-```elixir
-  @impl true
-  def init(_opts), do: {:ok, %{startup_arm_until: arm_startup_grace()}}
-```
-
-Change `handle_cast/2` (lines 211-215):
-
-```elixir
-  @impl true
-  def handle_cast({:dispatch_event, map_id, event}, state) do
-    do_dispatch(map_id, event, state.startup_arm_until)
-    {:noreply, state}
-  end
-```
-
-In the `:map_kill` clause, take the third argument and use it where the max age is resolved. Replace the head:
-
-```elixir
-  defp do_dispatch(map_id, %{type: :map_kill, payload: payload}, startup_arm_until) do
-```
-
-Then **move** the `max_killmail_age_seconds` binding out of the `with` chain and above it, alongside `now`. It has to move rather than change in place: a multi-line `if/do/end` cannot be a `with` clause, and neither can the one-line `if cond, do: a, else: b` — the trailing comma that separates `with` clauses is swallowed by the `if`'s keyword list, and the compiler rejects it with *"unexpected expression after keyword list"*. Both forms were verified against `elixir 1.17.3`. Neither depends on anything the `with` binds, so hoisting is free.
+**Move** the `max_killmail_age_seconds` binding out of the `with` chain and above it, alongside `now`. It has to move rather than change in place: a multi-line `if/do/end` cannot be a `with` clause, and neither can the one-line `if cond, do: a, else: b` — the trailing comma that separates `with` clauses is swallowed by the `if`'s keyword list, and the compiler rejects it with *"unexpected expression after keyword list"*. Both forms were verified against `elixir 1.17.3`. Neither depends on anything the `with` binds, so hoisting is free.
 
 Delete the `max_killmail_age_seconds = Env.discord_max_killmail_age_seconds(),` clause (line 237) but **keep the long comment above it** — move it up with the binding. The result, replacing `now = DateTime.utc_now()` at line 224:
 
 ```elixir
     now = DateTime.utc_now()
+
+    # One ETS read per batch, deliberately NOT cached in dispatcher state: the
+    # dedup cache and this GenServer are independent children of a
+    # `:one_for_one` supervisor, so a cache-only crash would leave cached state
+    # stale in exactly the scenario the window exists for.
+    startup_arm_until = arm_startup_grace()
     startup? = within_startup_grace?(startup_arm_until)
 
     # Resolved ONCE per batch, not per kill: `kill_fresh?/3` runs once per
@@ -874,27 +950,21 @@ Delete the `max_killmail_age_seconds = Env.discord_max_killmail_age_seconds(),` 
     # The branch picks WHICH accessor to call. It does not move the call
     # per-kill, and it is deliberately outside the `with` chain -- an `if`
     # cannot be a `with` clause in either its block or its keyword form.
+    ordinary_max_age_seconds = Env.discord_max_killmail_age_seconds()
+
     max_killmail_age_seconds =
       if startup? do
         Env.discord_startup_max_killmail_age_seconds()
       else
-        Env.discord_max_killmail_age_seconds()
+        ordinary_max_age_seconds
       end
 ```
 
+`ordinary_max_age_seconds` is bound unconditionally, and inside the window it is bound *in addition to* the tighter limit. Task 5 needs both to tell a kill the window suppressed from one the ordinary limit would have dropped anyway. Outside the window the two are the same value and the second `if` is a no-op.
+
 Trim the surviving in-chain comment above `recent` so it no longer refers to a binding that is not there — it keeps only the "filtered BEFORE dedup" paragraph, which is still about the clause it sits on.
 
-Give the other two clauses the argument and ignore it (lines 285 and 303):
-
-```elixir
-  defp do_dispatch(map_id, %{type: type}, _startup_arm_until)
-```
-
-```elixir
-  defp do_dispatch(_map_id, _event, _startup_arm_until), do: :ok
-```
-
-Finally, update the two moduledoc/`@doc` references to `do_dispatch/2` at lines 923 and 928 to read `do_dispatch/3`, and add one line to `kill_fresh?/3`'s doc after the `max_age_seconds` paragraph:
+Finally, add one line to `kill_fresh?/3`'s doc after the `max_age_seconds` paragraph:
 
 ```elixir
   During the startup grace window the caller passes
@@ -902,6 +972,8 @@ Finally, update the two moduledoc/`@doc` references to `do_dispatch/2` at lines 
   unchanged by that: it already takes the maximum as an explicit argument, so
   both call paths flow through the same comparison.
 ```
+
+Leave every `do_dispatch/2` reference in the module's comments alone — the arity has not changed.
 
 - [ ] **Step 5: Run the new tests and confirm they pass**
 
@@ -933,13 +1005,17 @@ For a grace window after the marks are lost, the freshness filter uses a
 much tighter maximum age instead. Replayed history is dropped because it
 is old; a killmail that genuinely occurs during the window still posts.
 
-The window is armed from a sentinel in the dedup cache, not from the
-dispatcher's own lifecycle. The two are separate children of a
-one_for_one supervisor: a dedup-cache-only crash loses every mark while
-the dispatcher keeps running, and a dispatcher-lifecycle window would
-miss exactly that case. The sentinel holds an absolute monotonic
-deadline rather than a TTL, so an expired window is still a present
-sentinel and a dispatcher-only restart cannot re-arm it."
+The window is derived from a sentinel in the dedup cache, not from the
+dispatcher's own lifecycle, and it is read once per kill batch rather
+than at dispatcher start. The cache and the dispatcher are separate
+children of a one_for_one supervisor: a dedup-cache-only crash loses
+every mark while the dispatcher keeps running, so anything keyed to the
+dispatcher's lifecycle -- including a deadline cached in its state at
+init -- goes stale in exactly that case.
+
+The sentinel holds an absolute monotonic deadline rather than a TTL, so
+an expired window is still a present sentinel and nothing re-arms it
+while the cache lives."
 ```
 
 ---
@@ -950,12 +1026,14 @@ A killmail dropped by the startup window currently leaves **no trace at all**: t
 
 Three reasons, not one: conflating them defeats the purpose. `:startup_age` is the new suppression, `:age` is the pre-existing hour limit, `:duplicate` is ordinary dedup.
 
+**A drop is classified per kill, against both thresholds — not by whether the window happens to be open.** During the window a kill can fail the tighter limit for either of two reasons, and they are not the same event: a five-minute-old kill is one the window suppressed, while a two-hour-old kill would have been dropped by the pre-existing 3600-second limit with or without the window. Labelling both `:startup_age` would inflate the count of "kills the window suppressed" with kills it had nothing to do with — in exactly the metric an operator would read to decide the window is too aggressive, and at exactly the moment they would read it. So each dropped kill is re-tested against the ordinary limit: passes it, `:startup_age`; fails it too, `:age`. Outside the window the two limits are the same value, so every drop classifies as `:age` and the branch costs nothing.
+
 **Files:**
 - Modify: `lib/wanderer_app/external_events/discord_dispatcher.ex` (the `:map_kill` clause, and near `reject_duplicates/2` at `:854-873`)
 - Test: `test/unit/external_events/discord_startup_window_test.exs`
 
 **Interfaces:**
-- Consumes: `startup_arm_until` and the `startup?` binding from Task 4.
+- Consumes: the `startup_arm_until`, `startup?`, `max_killmail_age_seconds`, and `ordinary_max_age_seconds` bindings from Task 4.
 - Produces: telemetry event `[:wanderer_app, :discord_dispatcher, :killmail_dropped]`, measurements `%{count: pos_integer()}`, metadata `%{map_id: String.t(), reason: :startup_age | :age | :duplicate}`. Emitted only when `count > 0`.
 - Note the event prefix is `:discord_dispatcher`, matching `:dispatched` and `:not_delivered` — see Deviation 1.
 - Produces: one `Logger.info` per batch when `:startup_age` drops anything, carrying the count and the **remaining** window in seconds. Not asserted by the tests below — the telemetry event is the contract; the log line is for a human reading a boot log.
@@ -989,15 +1067,14 @@ Module-level helpers:
     :ok
   end
 
-  # Restarts the dispatcher with the window closed. The sentinel must be
-  # deleted as well as the grace period zeroed: a present sentinel would make
-  # the restart reuse the ALREADY-ARMED 600s deadline from `setup` and the
-  # config change would do nothing.
-  defp restart_with_window_closed do
+  # Closes the window without touching the dispatcher. Because the sentinel is
+  # read per batch, a zero grace plus a cleared sentinel means the NEXT batch
+  # arms a deadline that is already in the past. Both halves are needed: a
+  # surviving sentinel would make the batch reuse the already-armed 600s
+  # deadline from `setup` and the config change would do nothing.
+  defp close_window do
     put_keys(discord_startup_grace_seconds: 0)
-    :ok = stop_supervised!(DiscordDispatcher)
     Cachex.del(DiscordDispatcher.dedup_cache(), DiscordDispatcher.startup_sentinel_key())
-    start_supervised!(DiscordDispatcher)
     :ok
   end
 
@@ -1023,6 +1100,28 @@ Module-level helpers:
     after
       :telemetry.detach(handler_id)
       Agent.stop(agent)
+    end
+  end
+
+  # Mirrors discord_dispatcher_test.exs:325-342. Absence of a drop event is NOT
+  # evidence of delivery -- a kill silently lost anywhere else on the path would
+  # satisfy `drops == []` just as well. The tests that claim a kill was
+  # delivered assert an actual outbound request.
+  defp wait_for_requests(count, timeout \\ 2_000) do
+    do_wait(count, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  defp do_wait(count, deadline) do
+    cond do
+      length(HttpStub.requests()) >= count ->
+        HttpStub.requests()
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("expected #{count} requests, got #{length(HttpStub.requests())}")
+
+      true ->
+        Process.sleep(25)
+        do_wait(count, deadline)
     end
   end
 
@@ -1083,31 +1182,50 @@ The tests:
       drops = capture_drops(fn -> dispatch(map.id, [aged_kill(5001, 300)]) end)
 
       assert drops == [{:startup_age, 1}]
+      assert HttpStub.requests() == []
     end
 
     # The same kill, with the window closed, is delivered -- proving the drop
-    # above is the window's doing and not the ordinary limit.
+    # above is the window's doing and not the ordinary limit. Asserting the
+    # request, not merely the absence of a drop event: a kill lost anywhere
+    # else on the path would satisfy `drops == []` and make this test vacuous.
     test "the same kill is not dropped once the window has closed", %{map: map} do
-      restart_with_window_closed()
+      close_window()
 
       drops = capture_drops(fn -> dispatch(map.id, [aged_kill(5002, 300)]) end)
 
       assert drops == []
+      assert length(wait_for_requests(1)) == 1
     end
 
-    # Two hours old: outside BOTH limits. The reason must stay `:age`, or the
-    # two become indistinguishable and the telemetry cannot answer the question
-    # it exists for.
-    test "a kill older than the ordinary limit reports :age, not :startup_age", %{map: map} do
-      restart_with_window_closed()
+    # Two hours old: outside BOTH limits. THE test for per-kill classification
+    # -- it runs with the window WIDE OPEN, because that is the only condition
+    # under which the two reasons can be confused. Classifying by `startup?`
+    # alone reports `:startup_age` here and inflates the window's apparent
+    # impact with a kill the pre-existing hour limit would have dropped anyway.
+    test "a kill older than the ordinary limit reports :age even inside the window",
+         %{map: map} do
+      assert DiscordDispatcher.within_startup_grace?(DiscordDispatcher.arm_startup_grace())
 
       drops = capture_drops(fn -> dispatch(map.id, [aged_kill(5003, 7200)]) end)
 
       assert drops == [{:age, 1}]
     end
 
+    # Both reasons in one batch, so the counts cannot be right by accident:
+    # a single classification for the whole batch produces `[{:startup_age, 2}]`
+    # or `[{:age, 2}]`, never this.
+    test "a mixed batch splits the two age reasons", %{map: map} do
+      drops =
+        capture_drops(fn ->
+          dispatch(map.id, [aged_kill(5006, 300), aged_kill(5007, 7200)])
+        end)
+
+      assert Enum.sort(drops) == [{:age, 1}, {:startup_age, 1}]
+    end
+
     test "a repeated kill reports :duplicate", %{map: map} do
-      restart_with_window_closed()
+      close_window()
       kill = aged_kill(5004, 10)
 
       on_exit(fn ->
@@ -1115,6 +1233,10 @@ The tests:
       end)
 
       capture_drops(fn -> dispatch(map.id, [kill]) end)
+      # The first dispatch must actually have been delivered and marked, or the
+      # second one is not a duplicate of anything.
+      assert length(wait_for_requests(1)) == 1
+
       drops = capture_drops(fn -> dispatch(map.id, [kill]) end)
 
       assert drops == [{:duplicate, 1}]
@@ -1123,11 +1245,12 @@ The tests:
     # No event at all when nothing is dropped: a counter that fires with
     # `count: 0` on every healthy batch is noise that buries the real signal.
     test "a fresh kill emits no drop event", %{map: map} do
-      restart_with_window_closed()
+      close_window()
 
       drops = capture_drops(fn -> dispatch(map.id, [aged_kill(5005, 10)]) end)
 
       assert drops == []
+      assert length(wait_for_requests(1)) == 1
     end
   end
 ```
@@ -1136,25 +1259,25 @@ The tests:
 
 Run: `mix test test/unit/external_events/discord_startup_window_test.exs`
 
-Expected: exactly three FAIL — `:startup_age`, `:age`, and `:duplicate` each assert an event where nothing is emitted yet.
+Expected: exactly four FAIL — `:startup_age`, `:age`-inside-the-window, the mixed batch, and `:duplicate` each assert an event where nothing is emitted yet.
 
-The two that assert `drops == []` PASS at this stage, trivially: nothing emits anything. They are regression pins, not drivers, and their passing now is expected — do not "fix" them.
+The two that assert `drops == []` PASS at this stage: nothing emits anything, and Task 4 already delivers those kills, so their `wait_for_requests(1)` is satisfied too. They are regression pins, not drivers, and their passing now is expected — do not "fix" them.
 
 - [ ] **Step 3: Extract the two filters and emit**
 
 In `lib/wanderer_app/external_events/discord_dispatcher.ex`, both filters sit inline in the `with` chain. Move each behind a helper that counts what it removed.
 
-First, beside `startup?` above the `with` (added in Task 4), bind what the log needs. The spec asks the log line to carry the **remaining** window, not the configured maximum — "how much longer will this keep happening?" is the operator's actual next question — and that is only derivable from the deadline:
+First, beside `startup?` above the `with` (added in Task 4), bind what the age filter needs beyond the limit it enforces. Two things: the **ordinary** limit, so a drop can be classified against both thresholds rather than by `startup?` alone, and the **remaining** window, because the spec asks the log line to carry it — "how much longer will this keep happening?" is the operator's actual next question, and it is only derivable from the deadline:
 
 ```elixir
-    window = {startup?, startup_grace_remaining_ms(startup_arm_until)}
+    drop_context = {ordinary_max_age_seconds, startup_grace_remaining_ms(startup_arm_until)}
 ```
 
 Then change the two filter clauses in the chain:
 
 ```elixir
          [_ | _] = recent <-
-           filter_fresh(map_id, killmails, now, max_killmail_age_seconds, window),
+           filter_fresh(map_id, killmails, now, max_killmail_age_seconds, drop_context),
          [_ | _] = fresh <- reject_duplicates_counted(map_id, recent) do
 ```
 
@@ -1177,20 +1300,36 @@ Add the two wrappers and the emitter beside `reject_duplicates/2` (after line 87
   # otherwise falls out of the `with` chain into its catch-all `:ok` and leaves
   # no trace whatsoever, which makes "did we suppress it, or did we never
   # receive it?" unanswerable during an incident.
-  defp filter_fresh(map_id, killmails, now, max_age_seconds, {startup?, remaining_ms}) do
-    kept = Enum.filter(killmails, &kill_fresh?(&1, now, max_age_seconds))
-    dropped = length(killmails) - length(kept)
+  defp filter_fresh(map_id, killmails, now, max_age_seconds, drop_context) do
+    {ordinary_max_age_seconds, remaining_ms} = drop_context
 
-    emit_dropped(map_id, dropped, if(startup?, do: :startup_age, else: :age))
+    {kept, dropped} = Enum.split_with(killmails, &kill_fresh?(&1, now, max_age_seconds))
 
-    # At info, not debug: this fires at most once per batch, only while the
-    # startup window is armed, and it is the line an operator searches for when
-    # a restart looks too quiet. Ordinary age and dedup drops stay
-    # telemetry-only -- they are steady-state behaviour, not an event.
-    if startup? and dropped > 0 do
+    # Classified PER KILL against the ORDINARY limit, not by whether the window
+    # is open. Inside the window a kill can fail the tighter limit for either
+    # of two reasons: the window suppressed it, or it was old enough that the
+    # pre-existing hour limit would have dropped it anyway. Labelling both
+    # `:startup_age` inflates "kills the window suppressed" with kills the
+    # window had nothing to do with -- in exactly the metric an operator reads
+    # to judge whether the window is too aggressive.
+    #
+    # Outside the window `max_age_seconds == ordinary_max_age_seconds`, so
+    # every dropped kill fails this second test too and classifies as `:age`.
+    # No branch on `startup?` is needed to get that: it falls out.
+    {startup_age, age} =
+      Enum.split_with(dropped, &kill_fresh?(&1, now, ordinary_max_age_seconds))
+
+    emit_dropped(map_id, length(startup_age), :startup_age)
+    emit_dropped(map_id, length(age), :age)
+
+    # At info, not debug: this fires at most once per batch, only when the
+    # window actually suppressed something, and it is the line an operator
+    # searches for when a restart looks too quiet. Ordinary age and dedup drops
+    # stay telemetry-only -- they are steady-state behaviour, not an event.
+    if startup_age != [] do
       Logger.info(fn ->
-        "[Discord] startup grace window suppressed #{dropped} replayed killmail(s); " <>
-          "#{div(remaining_ms, 1000)}s of the window remain"
+        "[Discord] startup grace window suppressed #{length(startup_age)} " <>
+          "replayed killmail(s); #{div(remaining_ms, 1000)}s of the window remain"
       end)
     end
 
@@ -1253,6 +1392,12 @@ reasons rather than one, because conflating the new suppression with the
 pre-existing hour limit would defeat the point. Silent when nothing was
 dropped.
 
+The two age reasons are classified PER KILL against both thresholds, not
+by whether the window is open. Inside the window a kill old enough to
+fail the pre-existing hour limit would have been dropped anyway, and
+reporting it as :startup_age would inflate the window's apparent impact
+in the one metric used to judge whether the window is too aggressive.
+
 Prefix is :discord_dispatcher, matching :dispatched and :not_delivered
 -- a drop is a dispatch outcome. The :discord prefix in this module
 belongs to the enrichment events.
@@ -1281,7 +1426,7 @@ mix credo --strict
 mix dialyzer
 ```
 
-Expected: clean. Dialyzer matters here specifically: `do_dispatch/2` became `do_dispatch/3` across three clauses, and a missed clause is exactly the kind of arity mismatch it catches.
+Expected: clean.
 
 - [ ] **Step 3: Confirm the invariants survived**
 
@@ -1289,25 +1434,32 @@ Read the final diff of `discord_dispatcher.ex` and check by eye:
 
 - No `Env.` call sits inside a per-killmail loop. The once-per-batch comments at `:230-237` and in `kill_fresh?/3`'s doc are intact and still accurate.
 - `system_on_map?/2` and `arm_startup_grace/0` both still have their `rescue`, and both still fail in the *permissive* direction.
+- `arm_startup_grace/0` is called from the `:map_kill` clause, **not** from `init/1`, and nothing caches its result in dispatcher state. A deadline cached at start-up goes stale precisely when the dedup cache restarts alone, which is the case the sentinel exists for.
 - `reject_duplicates/2`'s `seen` accumulator is unchanged.
 - Nothing moved a dedup mark to after delivery confirmation.
+- `do_dispatch/2` still has arity 2 in all three clauses, and every reference to it in the module's comments — including the one in `start_enrichment` at `:425` — still reads `/2`.
 
-- [ ] **Step 4: Document the new configuration**
+- [ ] **Step 4: Confirm the configuration is reachable end to end**
 
-Check whether `.env.example`, `README.md`, or `docs/` document `DISCORD_MAX_KILLMAIL_AGE_SECONDS` or the `:external_events` keys:
+Task 3 wires and documents both keys; this is the check that nothing was lost between there and here. Each accessor must trace all the way back to an environment variable:
 
 ```bash
-grep -rn "discord_max_killmail_age_seconds\|DISCORD_MAX_KILLMAIL_AGE" --include=*.md --include=*.exs --include=.env.example .
+grep -rn "discord_startup_grace_seconds\|discord_startup_max_killmail_age_seconds" lib/ config/
+grep -rn "WANDERER_DISCORD_STARTUP" config/runtime.exs .env.example README.md
 ```
 
-If the existing key is documented anywhere, add the two new ones alongside it in the same style, with their defaults and the meaning of `0` for the grace period. If it is documented nowhere, skip this step — do not start a new convention as a side effect of a bug fix.
+Expected, and each line is a distinct failure if missing:
+
+- Both keys appear in `lib/wanderer_app/env.ex` (the accessors) **and** in `config/runtime.exs` (the wiring). An accessor without wiring is pinned to its default in every release.
+- Both `WANDERER_DISCORD_STARTUP_*` variables appear in all three of `config/runtime.exs`, `.env.example`, and `README.md`.
+- The defaults in `config/runtime.exs` (`600` and `120`) match the `@default_discord_startup_*` attributes in `env.ex`. They are stated in two places because `runtime.exs` cannot call into the application, so they can drift.
 
 - [ ] **Step 5: Final commit**
+
+Only if Steps 1-4 turned up something to fix:
 
 ```bash
 mix format
 git add -A
-git commit -m "chore(discord): document the startup grace configuration"
+git commit -m "chore(discord): final-gate fixes for the startup grace window"
 ```
-
-Skip this commit entirely if Step 4 found nothing to document.
