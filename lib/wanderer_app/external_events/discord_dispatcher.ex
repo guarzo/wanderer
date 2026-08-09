@@ -227,6 +227,10 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
          {:ok, system_id, killmails} <- extract_kills(payload),
+         # Before the age filter and dedup on purpose: a kill dropped here was
+         # never marked attempted, so it stays eligible if the same batch
+         # arrives again once the map cache says the system is present.
+         true <- system_on_map?(map_id, system_id),
          # Resolved ONCE per batch, not per kill: `kill_fresh?/3` runs once per
          # killmail below, and re-reading (and re-validating) config on every
          # one of potentially dozens of kills would turn a single misconfigured
@@ -797,6 +801,31 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
       %{count: length(kills)},
       %{map_id: map_id, role: role, reason: reason}
     )
+  end
+
+  # Bounds the `SystemMapIndex` staleness window: the index refreshes on a
+  # 5-minute timer when the kills client is disconnected, so a system removed
+  # from a map keeps producing kill broadcasts until the next refresh. The live
+  # map cache is dropped by `WandererApp.Map.remove_system/2` immediately, so it
+  # is strictly fresher.
+  #
+  # FAIL-OPEN, and this is the whole reason the guard is safe to add: it returns
+  # false ONLY on a positive "this map is readable and does not have that
+  # system". A map with no live GenServer has no `:map_cache` entry, which is
+  # not evidence of removal. `systems` is keyed by `solar_system_id`
+  # (`WandererApp.Map` defstruct, and `add_system/2`).
+  defp system_on_map?(map_id, system_id) do
+    case WandererApp.Map.get_map(map_id) do
+      {:ok, %{systems: systems}} when is_map(systems) -> Map.has_key?(systems, system_id)
+      _ -> true
+    end
+  rescue
+    # `Cachex.get/2` RAISES against an unstarted cache rather than returning an
+    # error tuple, and `get_map/1` has no catch-all clause, so a non-`{:ok, _}`
+    # return raises CaseClauseError. Either would crash the dispatcher and lose
+    # the whole batch — the opposite of failing open. Same contract
+    # `Matcher.tracked_eve_ids/1` rescues (`discord/matcher.ex:53-60`).
+    _ -> true
   end
 
   defp enabled_globally?, do: WandererApp.Env.webhooks_enabled?()

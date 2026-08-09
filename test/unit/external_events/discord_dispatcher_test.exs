@@ -363,6 +363,62 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     assert url == @system_url
   end
 
+  # Seeds the live map cache the guard reads. `:map_cache` is a global Cachex
+  # table, NOT sandboxed per test, so every seed must be torn down.
+  defp seed_map_systems(map_id, solar_system_ids) do
+    systems =
+      Map.new(solar_system_ids, fn id -> {id, %{solar_system_id: id}} end)
+
+    WandererApp.Map.update_map(map_id, %{systems: systems})
+    on_exit(fn -> Cachex.del(:map_cache, map_id) end)
+    :ok
+  end
+
+  test "delivers a kill for a system that is on the map", %{map: map, system: w} do
+    seed_map_systems(map.id, [@wh_system])
+
+    event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+
+    DiscordDispatcher.dispatch_event(map.id, event)
+    settle(w.id)
+
+    assert [{url, _body}] = wait_for_requests(1)
+    assert url == @system_url
+  end
+
+  test "drops a kill for a system absent from a readable map cache", %{map: map, system: w} do
+    # Readable, and positively does not contain @wh_system.
+    seed_map_systems(map.id, [@ks_system])
+
+    kill = killmail(4001, %{"solar_system_id" => @wh_system})
+
+    event =
+      kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system, killmails: [kill]}))
+
+    DiscordDispatcher.dispatch_event(map.id, event)
+
+    refute_delivery(w.id)
+
+    # The kill must NOT be marked: it was never attempted, so it stays eligible
+    # if the same kill arrives again once the map cache says otherwise.
+    refute marked?(map.id, 4001)
+  end
+
+  # The fail-open case, and the reason this guard is safe to add at all. A map
+  # with no live GenServer has no `:map_cache` entry, and that is not evidence
+  # the system was removed.
+  test "delivers a kill when the map is not in the cache at all", %{map: map, system: w} do
+    Cachex.del(:map_cache, map.id)
+
+    event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+
+    DiscordDispatcher.dispatch_event(map.id, event)
+    settle(w.id)
+
+    assert [{url, _body}] = wait_for_requests(1)
+    assert url == @system_url
+  end
+
   test "ignores kill_count events", %{map: map, system: w} do
     event = kill_event(Factory.build(:kill_count_event, %{solar_system_id: @wh_system}))
 
