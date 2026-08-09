@@ -67,25 +67,42 @@ defmodule WandererApp.Api.MapDiscordNotification do
       change after_transaction(&__MODULE__.after_destroy/3)
     end
 
-    # Creates the policy row and its :system destination in one transaction.
-    # The "a system webhook always exists" invariant cannot be declared — the
-    # child's unique identity gives at most one webhook per role, not at least
-    # one — so it is enforced here: either both rows exist or neither does.
+    # Creates the policy row, optionally with its :system destination in the
+    # same transaction.
+    #
+    # `webhook_url` used to be required, which encoded a "a system webhook
+    # always exists" invariant. That invariant was never true after the fact —
+    # nothing stops the row being destroyed later — and it had a real cost in
+    # the settings UI: route alerts are a separate feature that borrows the
+    # same plumbing, and requiring a kill webhook up front meant an operator
+    # who only wanted route alerts had to configure a kill channel first.
+    #
+    # Routing already tolerates the absence. `Router.route/3` resolves the
+    # `:system` destination through `usable/1`, which drops on `nil`, so a
+    # policy row with no kill destination simply posts no kills.
     create :create do
       primary? true
-      argument :webhook_url, :string, allow_nil?: false
+      argument :webhook_url, :string, allow_nil?: true
 
       # `manage_relationship`'s `transform:` option isn't available on the
       # installed Ash version (3.9.0) — its opts schema has no such key. This
       # explicit form builds the input map itself instead: one :system child,
-      # written in the same transaction as the parent.
+      # written in the same transaction as the parent. Skipped entirely when no
+      # URL was supplied, rather than passing `[]` — an empty list with
+      # `type: :create` is a no-op either way, but the branch says why.
       change fn changeset, _context ->
-        Ash.Changeset.manage_relationship(
-          changeset,
-          :webhooks,
-          [%{webhook_url: Ash.Changeset.get_argument(changeset, :webhook_url), role: :system}],
-          type: :create
-        )
+        case Ash.Changeset.get_argument(changeset, :webhook_url) do
+          url when is_binary(url) and url != "" ->
+            Ash.Changeset.manage_relationship(
+              changeset,
+              :webhooks,
+              [%{webhook_url: url, role: :system}],
+              type: :create
+            )
+
+          _absent ->
+            changeset
+        end
       end
 
       change after_transaction(&__MODULE__.invalidate_cache/3)
@@ -245,7 +262,13 @@ defmodule WandererApp.Api.MapDiscordNotification do
     home_system_id = Ash.Changeset.get_attribute(changeset, :home_system_id)
 
     if enabled? && is_nil(home_system_id) do
-      {:error, field: :home_system_id, message: "is required when route alerts are enabled"}
+      # The field is NAMED in the message, not left to the `field:` key. The
+      # settings tab renders Ash validation errors as a sentence in its own
+      # message region (`humanize_error/1`), so a field-scoped message alone
+      # surfaced as the orphan "is required when route alerts are enabled" —
+      # with no indication of which of the three route fields it meant.
+      {:error,
+       field: :home_system_id, message: "Home system is required when route alerts are enabled"}
     else
       :ok
     end
