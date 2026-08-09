@@ -23,6 +23,7 @@ import {
   LABEL_ICON_MAP,
 } from '@/hooks/Mapper/components/map/constants';
 import { WormholeClassComp } from '@/hooks/Mapper/components/map/components/WormholeClassComp';
+import { formatSignatureAge } from '@/hooks/Mapper/components/map/helpers/signatureAge';
 import { KillsCounter } from '../KillsCounter/KillsCounter';
 import { LocalCounter } from '../LocalCounter/LocalCounter';
 import { TooltipSize } from '@/hooks/Mapper/components/ui-kit/WdTooltipWrapper/utils';
@@ -138,7 +139,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
             </div>
           )}
 
-          {updatedSignatures.length > 0 && signatureAgeHours >= 0 && (
+          {signatureAgeHours >= 0 && (
             <div className={clsx(classes.Bookmark)} style={{ backgroundColor: bookmarkColor }}>
               <span
                 className={clsx(classes.text)}
@@ -146,7 +147,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                   color: '#FFFFFF',
                 }}
               >
-                {signatureAgeHours}h
+                {formatSignatureAge(signatureAgeHours)}
               </span>
             </div>
           )}
