@@ -33,7 +33,16 @@ config :wanderer_app,
   wanderer_kills_service_enabled: false,
   websocket_client_module: Test.WebSocketClientMock,
   sse: [enabled: false],
-  external_events: [webhooks_enabled: false],
+  external_events: [
+    webhooks_enabled: false,
+    # `0` disables the startup window, which the non-negative validator honours.
+    # Without this, every test calling `start_supervised!(DiscordDispatcher)`
+    # (discord_dispatcher_test.exs:110) would begin inside a live 600-second
+    # grace period, and the existing age assertions in
+    # discord_killmail_age_test.exs would quietly start measuring against 120
+    # seconds instead of 3600. Tests that exercise the window set it explicitly.
+    discord_startup_grace_seconds: 0
+  ],
   discord_http_client: WandererApp.ExternalEvents.Discord.HttpStub,
   # No test may reach real ESI. Enrichment tests override this per test.
   esi_client: WandererApp.Esi.OfflineStub
