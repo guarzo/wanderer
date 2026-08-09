@@ -261,6 +261,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
         ordinary_max_age_seconds
       end
 
+    drop_context = {ordinary_max_age_seconds, startup_grace_remaining_ms(startup_arm_until)}
+
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
@@ -275,8 +277,8 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
          # It is also upstream of every partition, so no partition can mark a
          # stale kill.
          [_ | _] = recent <-
-           Enum.filter(killmails, &kill_fresh?(&1, now, max_killmail_age_seconds)),
-         [_ | _] = fresh <- reject_duplicates(map_id, recent) do
+           filter_fresh(map_id, killmails, now, max_killmail_age_seconds, drop_context),
+         [_ | _] = fresh <- reject_duplicates_counted(map_id, recent) do
       # System-level filtering used to happen here for the whole batch. It now
       # lives in `Router.route/3`, because `excluded_systems` and `wh_only` have
       # per-kill carve-outs for kills involving this map's own pilots.
@@ -930,6 +932,68 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     Enum.reverse(kept)
   end
 
+  # Wraps the age filter purely so the drop is counted. A kill dropped for age
+  # otherwise falls out of the `with` chain into its catch-all `:ok` and leaves
+  # no trace whatsoever, which makes "did we suppress it, or did we never
+  # receive it?" unanswerable during an incident.
+  defp filter_fresh(map_id, killmails, now, max_age_seconds, drop_context) do
+    {ordinary_max_age_seconds, remaining_ms} = drop_context
+
+    {kept, dropped} = Enum.split_with(killmails, &kill_fresh?(&1, now, max_age_seconds))
+
+    # Classified PER KILL against the ORDINARY limit, not by whether the window
+    # is open. Inside the window a kill can fail the tighter limit for either
+    # of two reasons: the window suppressed it, or it was old enough that the
+    # pre-existing hour limit would have dropped it anyway. Labelling both
+    # `:startup_age` inflates "kills the window suppressed" with kills the
+    # window had nothing to do with -- in exactly the metric an operator reads
+    # to judge whether the window is too aggressive.
+    #
+    # Outside the window `max_age_seconds == ordinary_max_age_seconds`, so
+    # every dropped kill fails this second test too and classifies as `:age`.
+    # No branch on `startup?` is needed to get that: it falls out.
+    {startup_age, age} =
+      Enum.split_with(dropped, &kill_fresh?(&1, now, ordinary_max_age_seconds))
+
+    emit_dropped(map_id, length(startup_age), :startup_age)
+    emit_dropped(map_id, length(age), :age)
+
+    # At info, not debug: this fires at most once per batch, only when the
+    # window actually suppressed something, and it is the line an operator
+    # searches for when a restart looks too quiet. Ordinary age and dedup drops
+    # stay telemetry-only -- they are steady-state behaviour, not an event.
+    if startup_age != [] do
+      Logger.info(fn ->
+        "[Discord] startup grace window suppressed #{length(startup_age)} " <>
+          "replayed killmail(s); #{div(remaining_ms, 1000)}s of the window remain"
+      end)
+    end
+
+    kept
+  end
+
+  defp reject_duplicates_counted(map_id, killmails) do
+    kept = reject_duplicates(map_id, killmails)
+
+    emit_dropped(map_id, length(killmails) - length(kept), :duplicate)
+
+    kept
+  end
+
+  # Silent when nothing was dropped: a counter that fires with `count: 0` on
+  # every healthy batch buries the signal it exists to carry.
+  defp emit_dropped(_map_id, 0, _reason), do: :ok
+
+  defp emit_dropped(map_id, count, reason) do
+    :telemetry.execute(
+      [:wanderer_app, :discord_dispatcher, :killmail_dropped],
+      %{count: count},
+      %{map_id: map_id, reason: reason}
+    )
+
+    :ok
+  end
+
   # Records that we have *attempted* this killmail, not that Discord accepted
   # it. Named accordingly so the at-most-once semantics are not misread.
   defp mark_attempted(map_id, killmails) do
@@ -1031,6 +1095,14 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   def within_startup_grace?(arm_until) when is_integer(arm_until),
     do: System.monotonic_time(:millisecond) < arm_until
+
+  # Clamped at zero: a batch can land microseconds after the deadline while
+  # `startup?` was computed just before it, and a negative "seconds remaining"
+  # in a log line reads as a bug in the window rather than a rounding artifact.
+  defp startup_grace_remaining_ms(:never), do: 0
+
+  defp startup_grace_remaining_ms(arm_until) when is_integer(arm_until),
+    do: max(arm_until - System.monotonic_time(:millisecond), 0)
 
   @doc """
   Whether a killmail is recent enough to post.
