@@ -126,6 +126,65 @@ defmodule WandererApp.Env do
     )
   end
 
+  @default_discord_startup_grace_seconds 600
+  @default_discord_startup_max_killmail_age_seconds 120
+
+  @doc """
+  How long after the Discord dedup marks are lost the tighter startup maximum
+  age applies, in seconds. `0` disables the window.
+
+  The marks live in `:discord_dedup_cache`, which is memory-only, so a restart
+  loses every one of them. The kills client then rejoins its channel and the
+  upstream service replays recent killmails, which the ordinary 3600-second
+  freshness limit happily admits — an hour of already-posted kills, posted
+  again. During this window `discord_startup_max_killmail_age_seconds/0`
+  applies instead.
+
+  Ten minutes rather than two because a long window is nearly free: it only
+  ever drops *old* killmails. The replay burst arrives when the kills client
+  joins the channel, which can be minutes after boot when the upstream service
+  is slow to accept the connection, and a short window would miss it.
+
+  Validated as NON-NEGATIVE, unlike its sibling below. `0` is a legitimate
+  setting meaning "no startup window", and `validate_positive_integer/3` would
+  turn an operator's "disabled" into #{@default_discord_startup_grace_seconds}
+  seconds plus a warning — the opposite of what they asked for.
+  """
+  def discord_startup_grace_seconds() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(:discord_startup_grace_seconds, @default_discord_startup_grace_seconds)
+    |> validate_non_negative_integer(
+      :discord_startup_grace_seconds,
+      @default_discord_startup_grace_seconds
+    )
+  end
+
+  @doc """
+  Maximum killmail age, in seconds, while the startup window is armed.
+
+  Validated as POSITIVE, like `discord_max_killmail_age_seconds/0` and for the
+  same reason: a kill that has already happened always has a non-negative age
+  and the guard keeps a kill only when `age <= max`, so `0` or a negative value
+  would silently and invisibly suppress every notification.
+
+  The accepted cost of the tighter limit is that a genuinely delayed killmail —
+  upstream lag beyond this many seconds — is dropped during the window. That is
+  the same trade the dispatcher already makes for at-most-once dedup: a dropped
+  kill stays visible in the kills widget and on zKillboard, while a duplicate
+  post in a chat channel is irreversible.
+  """
+  def discord_startup_max_killmail_age_seconds() do
+    Application.get_env(@app, :external_events, [])
+    |> Keyword.get(
+      :discord_startup_max_killmail_age_seconds,
+      @default_discord_startup_max_killmail_age_seconds
+    )
+    |> validate_positive_integer(
+      :discord_startup_max_killmail_age_seconds,
+      @default_discord_startup_max_killmail_age_seconds
+    )
+  end
+
   @doc """
   Bot token for the voice-mention gateway connection, trimmed. `nil` when
   unset, blank, or whitespace-only — an unusable token must read as "not
@@ -288,6 +347,22 @@ defmodule WandererApp.Env do
   defp validate_positive_integer(value, key, default) do
     Logger.warning(
       "[Discord] #{key} must be a positive integer, " <>
+        "got #{inspect(value)}; falling back to #{default}"
+    )
+
+    default
+  end
+
+  # Sibling of `validate_positive_integer/3` for settings where `0` is a
+  # legitimate value meaning "off" rather than a misconfiguration. Both fall
+  # back loudly rather than silently.
+  defp validate_non_negative_integer(value, _key, _default)
+       when is_integer(value) and value >= 0,
+       do: value
+
+  defp validate_non_negative_integer(value, key, default) do
+    Logger.warning(
+      "[Discord] #{key} must be a non-negative integer, " <>
         "got #{inspect(value)}; falling back to #{default}"
     )
 
