@@ -364,13 +364,21 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
   end
 
   # Seeds the live map cache the guard reads. `:map_cache` is a global Cachex
-  # table, NOT sandboxed per test, so every seed must be torn down.
+  # table, NOT sandboxed per test, so every seed must be torn down. The started
+  # flag goes with it: without it the guard treats the entry as half-built and
+  # fails open, so a seed that omits it silently makes the drop cases vacuous.
   defp seed_map_systems(map_id, solar_system_ids) do
     systems =
       Map.new(solar_system_ids, fn id -> {id, %{solar_system_id: id}} end)
 
     WandererApp.Map.update_map(map_id, %{systems: systems})
-    on_exit(fn -> Cachex.del(:map_cache, map_id) end)
+    WandererApp.Cache.insert("map_#{map_id}:started", true)
+
+    on_exit(fn ->
+      Cachex.del(:map_cache, map_id)
+      WandererApp.Cache.delete("map_#{map_id}:started")
+    end)
+
     :ok
   end
 
@@ -417,6 +425,71 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
 
     assert [{url, _body}] = wait_for_requests(1)
     assert url == @system_url
+  end
+
+  # The half-built entry: `WandererApp.Map.new/1` commits the struct with
+  # `systems: %{}` and fills it one `update_map/2` at a time, so during map
+  # start the cache reads as a positive "not on this map" for EVERY system. The
+  # started flag is what distinguishes that from a real removal, and a kill
+  # arriving in this window is never re-broadcast, so dropping it loses it.
+  test "delivers a kill while the map cache entry is still being built", %{map: map, system: w} do
+    WandererApp.Map.update_map(map.id, %{systems: %{}})
+    WandererApp.Cache.insert("map_#{map.id}:started", false)
+
+    on_exit(fn ->
+      Cachex.del(:map_cache, map.id)
+      WandererApp.Cache.delete("map_#{map.id}:started")
+    end)
+
+    event = kill_event(Factory.build(:kill_event, %{solar_system_id: @wh_system}))
+
+    DiscordDispatcher.dispatch_event(map.id, event)
+    settle(w.id)
+
+    assert [{url, _body}] = wait_for_requests(1)
+    assert url == @system_url
+  end
+
+  test "emits a :not_on_map drop for a batch the membership guard rejects", %{map: map} do
+    seed_map_systems(map.id, [@ks_system])
+
+    event =
+      kill_event(
+        Factory.build(:kill_event, %{
+          solar_system_id: @wh_system,
+          killmails: [killmail(4101, %{}), killmail(4102, %{})]
+        })
+      )
+
+    drops = capture_drops(fn -> DiscordDispatcher.dispatch_event(map.id, event) end)
+
+    # Batch-level: one event carrying the whole batch, not one per kill.
+    assert drops == [{:not_on_map, 2}]
+  end
+
+  # Collects every drop event raised while `fun` runs, as {reason, count}.
+  # Dispatch is a cast, so drain the dispatcher's mailbox before reading.
+  defp capture_drops(fun) do
+    {:ok, agent} = Agent.start_link(fn -> [] end)
+    handler_id = {__MODULE__, System.unique_integer([:positive])}
+
+    :telemetry.attach(
+      handler_id,
+      [:wanderer_app, :discord_dispatcher, :killmail_dropped],
+      fn _event, measurements, metadata, _config ->
+        Agent.update(agent, &[{metadata.reason, measurements.count} | &1])
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+      :sys.get_state(DiscordDispatcher)
+      Agent.get(agent, &Enum.reverse/1)
+    after
+      :telemetry.detach(handler_id)
+      Agent.stop(agent)
+    end
   end
 
   test "ignores kill_count events", %{map: map, system: w} do

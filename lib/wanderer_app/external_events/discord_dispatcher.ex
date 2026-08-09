@@ -233,36 +233,6 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp do_dispatch(map_id, %{type: :map_kill, payload: payload}) do
     now = DateTime.utc_now()
 
-    # One ETS read per batch, deliberately NOT cached in dispatcher state: the
-    # dedup cache and this GenServer are independent children of a
-    # `:one_for_one` supervisor, so a cache-only crash would leave cached state
-    # stale in exactly the scenario the window exists for.
-    startup_arm_until = arm_startup_grace()
-    startup? = within_startup_grace?(startup_arm_until)
-
-    # Resolved ONCE per batch, not per kill: `kill_fresh?/3` runs once per
-    # killmail below, and re-reading (and re-validating) config on every one of
-    # potentially dozens of kills would turn a single misconfigured deployment
-    # into a warning-per-kill log flood. This binding, and the explicit third
-    # argument to `kill_fresh?/3` below, must survive any rewrite of this
-    # `with` chain -- dropping either silently reopens that flood. Filtering
-    # for age happens ONCE, before partitioning: moving it inside the
-    # per-destination loop reintroduces the flood.
-    #
-    # The branch picks WHICH accessor to call. It does not move the call
-    # per-kill, and it is deliberately outside the `with` chain -- an `if`
-    # cannot be a `with` clause in either its block or its keyword form.
-    ordinary_max_age_seconds = Env.discord_max_killmail_age_seconds()
-
-    max_killmail_age_seconds =
-      if startup? do
-        Env.discord_startup_max_killmail_age_seconds()
-      else
-        ordinary_max_age_seconds
-      end
-
-    drop_context = {ordinary_max_age_seconds, startup_grace_remaining_ms(startup_arm_until)}
-
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
@@ -270,7 +240,12 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
          # Before the age filter and dedup on purpose: a kill dropped here was
          # never marked attempted, so it stays eligible if the same batch
          # arrives again once the map cache says the system is present.
-         true <- system_on_map?(map_id, system_id),
+         true <- system_on_map_counted?(map_id, system_id, length(killmails)),
+         # Resolved here, ONCE per batch, and deliberately below every
+         # enablement gate: the sentinel read, the `Env` reads and their
+         # validation warnings must not be paid by maps that will never post to
+         # Discord. See `age_limits/0`.
+         {:ok, max_killmail_age_seconds, drop_context} <- age_limits(),
          # Stale kills (an upstream replay burst on reconnect) are filtered
          # BEFORE dedup: a kill dropped here for age was never marked attempted,
          # so it stays eligible if it arrives again inside the freshness window.
@@ -845,9 +820,19 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # system". A map with no live GenServer has no `:map_cache` entry, which is
   # not evidence of removal. `systems` is keyed by `solar_system_id`
   # (`WandererApp.Map` defstruct, and `add_system/2`).
+  #
+  # The started flag is checked FIRST because a present entry is not yet a
+  # readable one: `WandererApp.Map.new/1` commits the struct with `systems: %{}`
+  # and `add_systems!/2` fills it one `update_map/2` at a time, so during map
+  # start the entry positively reports "not on this map" for every system. Same
+  # precondition `can_broadcast?/1` uses (`map_server_impl.ex:463-467`); it is
+  # `insert`ed `false` at `start_map/1` entry, `true` only at its end, and
+  # deleted on stop, so all three non-ready states fall through to `true`.
   defp system_on_map?(map_id, system_id) do
-    case WandererApp.Map.get_map(map_id) do
-      {:ok, %{systems: systems}} when is_map(systems) -> Map.has_key?(systems, system_id)
+    with true <- WandererApp.Cache.lookup!("map_#{map_id}:started", false),
+         {:ok, %{systems: systems}} when is_map(systems) <- WandererApp.Map.get_map(map_id) do
+      Map.has_key?(systems, system_id)
+    else
       _ -> true
     end
   rescue
@@ -857,6 +842,18 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     # the whole batch — the opposite of failing open. Same contract
     # `Matcher.tracked_eve_ids/1` rescues (`discord/matcher.ex:53-60`).
     _ -> true
+  end
+
+  # Batch-level, so it costs nothing per kill. Without it the membership guard
+  # is the one drop path with no trace at all, and an operator asking "why did
+  # this kill not post?" gets `:age`, `:startup_age`, `:duplicate`, and silence.
+  defp system_on_map_counted?(map_id, system_id, count) do
+    if system_on_map?(map_id, system_id) do
+      true
+    else
+      emit_dropped(map_id, count, :not_on_map)
+      false
+    end
   end
 
   defp enabled_globally?, do: WandererApp.Env.webhooks_enabled?()
@@ -930,6 +927,42 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
       end)
 
     Enum.reverse(kept)
+  end
+
+  # Resolves everything the age filter needs, ONCE per batch, never per kill:
+  # `kill_fresh?/3` runs once per killmail, and re-reading (and re-validating)
+  # config on every one of potentially dozens of kills would turn a single
+  # misconfigured deployment into a warning-per-kill log flood. The `{:ok, ...}`
+  # shape exists only so this can be a `with` clause in `do_dispatch/2` — an
+  # `if` cannot be one in either its block or its keyword form, and hoisting it
+  # back out of the chain would make every map on the instance pay for it before
+  # the enablement gates rejected the batch.
+  #
+  # The result, and the explicit third argument to `kill_fresh?/3`, must survive
+  # any rewrite of that chain — dropping either silently reopens the flood.
+  # Filtering for age happens ONCE, before partitioning: moving it inside the
+  # per-destination loop reintroduces it too.
+  #
+  # The `arm_startup_grace/0` read is one ETS read per batch, deliberately NOT
+  # cached in dispatcher state: the dedup cache and this GenServer are
+  # independent children of a `:one_for_one` supervisor, so a cache-only crash
+  # would leave cached state stale in exactly the scenario the window exists for.
+  defp age_limits do
+    startup_arm_until = arm_startup_grace()
+
+    ordinary_max_age_seconds = Env.discord_max_killmail_age_seconds()
+
+    # The branch picks WHICH accessor to call. It does not move the call
+    # per-kill.
+    max_killmail_age_seconds =
+      if within_startup_grace?(startup_arm_until) do
+        Env.discord_startup_max_killmail_age_seconds()
+      else
+        ordinary_max_age_seconds
+      end
+
+    {:ok, max_killmail_age_seconds,
+     {ordinary_max_age_seconds, startup_grace_remaining_ms(startup_arm_until)}}
   end
 
   # Wraps the age filter purely so the drop is counted. A kill dropped for age
@@ -1120,8 +1153,9 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   boundary cases are testable without sleeping or freezing the clock.
 
   `max_age_seconds` is likewise an argument, not read from `Env` here: this
-  runs once per killmail, and `do_dispatch/2` resolves it ONCE per batch and
-  passes it down explicitly. Reading `Env.discord_max_killmail_age_seconds/0`
+  runs once per killmail, and `do_dispatch/2` resolves it ONCE per batch — via
+  `age_limits/0`, below its enablement gates — and passes it down explicitly.
+  Reading `Env.discord_max_killmail_age_seconds/0`
   per kill would mean a misconfigured value (see `Env`'s own validation)
   re-logs its warning once per kill instead of once per batch. The default
   here exists only so this function stays directly callable with two
