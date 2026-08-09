@@ -497,6 +497,12 @@ config :wanderer_app, :external_events,
   discord_max_killmail_age_seconds:
     config_dir
     |> get_int_from_path_or_env("WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS", 3600),
+  discord_startup_grace_seconds:
+    config_dir
+    |> get_int_from_path_or_env("WANDERER_DISCORD_STARTUP_GRACE_SECONDS", 600),
+  discord_startup_max_killmail_age_seconds:
+    config_dir
+    |> get_int_from_path_or_env("WANDERER_DISCORD_STARTUP_MAX_KILLMAIL_AGE_SECONDS", 120),
   notable_items_enabled:
     config_dir
     |> get_var_from_path_or_env("WANDERER_NOTABLE_ITEMS_ENABLED", "false")
