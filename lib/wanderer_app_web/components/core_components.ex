@@ -76,13 +76,24 @@ defmodule WandererAppWeb.CoreComponents do
         aria-modal="true"
         tabindex="0"
       >
-        <div class="flex items-center justify-center w-full h-full p-4 sm:p-6 lg:py-8 p-dialog-mask p-dialog-center p-component-overlay p-component-overlay-enter p-dialog-resizable">
+        <%!-- The mask, not the dialog, is the scroll container. The dialog keeps
+              `overflow: visible` so absolutely-positioned children (LiveSelect
+              dropdowns, e.g. `maps_live.html.heex` add-map and every picker on
+              the Notifications tab) are never clipped — the reason
+              `!overflow-visible` exists here at all. Scrolling out here reaches
+              a too-tall dialog without introducing a new clipping context.
+
+              `m-auto` rather than `items-center`: a centred flex item taller
+              than a scrollable container overflows past its *start* edge, and
+              that region is unreachable by scrolling. Auto margins centre only
+              the slack, so a tall dialog pins to the top and stays reachable. --%>
+        <div class="flex w-full h-full overflow-y-auto p-4 sm:p-6 lg:py-8 p-dialog-mask p-dialog-center p-component-overlay p-component-overlay-enter p-dialog-resizable">
           <.focus_wrap
             id={"#{@id}-container"}
             phx-window-keydown={JS.exec("data-cancel", to: "##{@id}")}
             phx-key="escape"
             class={[
-              "relative hidden transition p-dialog p-component p-dialog-default p-ripple-disabled p-dialog-enter-done !overflow-visible max-w-full",
+              "relative hidden transition p-dialog p-component p-dialog-default p-ripple-disabled p-dialog-enter-done !overflow-visible max-w-full m-auto shrink-0",
               @class
             ]}
           >
@@ -602,7 +613,10 @@ defmodule WandererAppWeb.CoreComponents do
 
   def error(assigns) do
     ~H"""
-    <p class="label-text-alt text-rose-600 phx-no-feedback:hidden">
+    <%!-- rose-400, not rose-600: this app renders on a near-black panel, where
+          rose-600 measures about 3.8:1 and fails WCAG AA for body text. Error
+          text is the one place a contrast miss is least affordable. --%>
+    <p class="label-text-alt text-rose-400 phx-no-feedback:hidden">
       <.icon name="hero-exclamation-circle-mini" class="mt-0.5 h-5 w-5 flex-none" />
       {render_slot(@inner_block)}
     </p>
@@ -821,7 +835,29 @@ defmodule WandererAppWeb.CoreComponents do
         @label_class
       ]}
     >
-      <div :if={not @compact} for="form_description" class="label">
+      <%!-- `:label` used to be accepted, stripped from the forwarded opts and
+            then never rendered, which left every combobox in the app with no
+            accessible name — a screen reader announced five identical
+            "combobox, blank" controls on the Notifications tab alone.
+
+            `for` targets LiveSelect's text input, whose id is derived from the
+            form and the `<field>_text_input` name it registers internally, NOT
+            from the `id` we pass (that one lands on the LiveComponent wrapper).
+            Deriving it the same way LiveSelect does keeps the two in step.
+
+            In `compact` mode the label is screen-reader-only. `compact` exists
+            to make this wrapper exactly as tall as its input so a neighbouring
+            button lines up with the field; a visible label row would undo that
+            for the "field + Add" grids that use it. Nothing loses a visible
+            label it had before — this element did not render at all until now. --%>
+      <label
+        :if={@label}
+        for={Phoenix.HTML.Form.input_id(@field.form, :"#{@field.field}_text_input")}
+        class={if @compact, do: "sr-only", else: "label"}
+      >
+        <span class={if @compact, do: nil, else: "label-text"}>{@label}</span>
+      </label>
+      <div :if={not @compact and is_nil(@label)} class="label">
         <span class="label-text"></span>
       </div>
       <LiveSelect.live_select
@@ -843,7 +879,7 @@ defmodule WandererAppWeb.CoreComponents do
       >
         {render_slot(@inner_block)}
       </LiveSelect.live_select>
-      <div :if={not @compact or @errors != []} for="form_description" class="label">
+      <div :if={not @compact or @errors != []} class="label">
         <.error :for={msg <- @errors}>{msg}</.error>
       </div>
     </div>
