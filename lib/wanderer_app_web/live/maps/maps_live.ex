@@ -883,6 +883,49 @@ defmodule WandererAppWeb.MapsLive do
     |> Map.put(:acls, acls |> Enum.map(&map_acl/1))
   end
 
+  # Single source of truth for the Map Settings tab strip. The markup was
+  # originally copied out of a rendered PrimeReact TabView, which left seven
+  # near-identical `<li>` blocks carrying hand-written `aria-selected` and
+  # `aria-controls` values that never matched the real state or the real panel.
+  # Rendering from this list keeps the ARIA computed instead of transcribed.
+  defp settings_tabs(map_subscriptions_enabled?) do
+    [
+      %{id: "general", label: "General", icon: "hero-wrench-screwdriver-solid", show?: true},
+      %{
+        id: "balance",
+        label: "Balance",
+        icon: "hero-banknotes-solid",
+        show?: map_subscriptions_enabled?
+      },
+      %{
+        id: "subscription",
+        label: "Subscription",
+        icon: "hero-check-badge-solid",
+        show?: map_subscriptions_enabled?
+      },
+      %{
+        id: "import",
+        label: "Import/Export",
+        icon: "hero-document-arrow-down-solid",
+        show?: true
+      },
+      %{
+        id: "public_api",
+        label: "Public Api",
+        icon: "hero-globe-alt-solid",
+        show?: not WandererApp.Env.public_api_disabled?()
+      },
+      %{
+        id: "bot",
+        label: "Bots",
+        icon: "hero-puzzle-piece-solid",
+        show?: map_subscriptions_enabled?
+      },
+      %{id: "notifications", label: "Notifications", icon: "hero-bell-alert-solid", show?: true}
+    ]
+    |> Enum.filter(& &1.show?)
+  end
+
   defp available_scopes do
     [
       %{value: "wormholes", label: "Wormholes", description: "J-space systems"},
