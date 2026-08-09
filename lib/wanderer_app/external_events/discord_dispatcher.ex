@@ -69,6 +69,16 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # 24h TTLs already used for kill caches.
   @dedup_ttl :timer.hours(24)
 
+  # Lives in the dedup cache rather than the dispatcher's own state ON PURPOSE:
+  # the window exists because the dedup MARKS are gone, and those marks belong
+  # to that cache. The two are separate children of a `:one_for_one` supervisor,
+  # so a dedup-cache-only crash loses every mark while the dispatcher keeps
+  # running -- exactly the case a dispatcher-lifecycle window would miss.
+  #
+  # Cannot collide with a dedup key: those are `"#{map_id}:#{killmail_id}"`
+  # with a UUID map_id, and this contains no colon.
+  @startup_sentinel "discord-startup-grace-until"
+
   # Enrichment failure cooldown, shared by both enrichment steps. The counter
   # lives in the shared api cache and carries the cooldown as its TTL, so it both
   # counts and expires. Threshold and window are deliberate guesses: telemetry on
@@ -223,6 +233,34 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   defp do_dispatch(map_id, %{type: :map_kill, payload: payload}) do
     now = DateTime.utc_now()
 
+    # One ETS read per batch, deliberately NOT cached in dispatcher state: the
+    # dedup cache and this GenServer are independent children of a
+    # `:one_for_one` supervisor, so a cache-only crash would leave cached state
+    # stale in exactly the scenario the window exists for.
+    startup_arm_until = arm_startup_grace()
+    startup? = within_startup_grace?(startup_arm_until)
+
+    # Resolved ONCE per batch, not per kill: `kill_fresh?/3` runs once per
+    # killmail below, and re-reading (and re-validating) config on every one of
+    # potentially dozens of kills would turn a single misconfigured deployment
+    # into a warning-per-kill log flood. This binding, and the explicit third
+    # argument to `kill_fresh?/3` below, must survive any rewrite of this
+    # `with` chain -- dropping either silently reopens that flood. Filtering
+    # for age happens ONCE, before partitioning: moving it inside the
+    # per-destination loop reintroduces the flood.
+    #
+    # The branch picks WHICH accessor to call. It does not move the call
+    # per-kill, and it is deliberately outside the `with` chain -- an `if`
+    # cannot be a `with` clause in either its block or its keyword form.
+    ordinary_max_age_seconds = Env.discord_max_killmail_age_seconds()
+
+    max_killmail_age_seconds =
+      if startup? do
+        Env.discord_startup_max_killmail_age_seconds()
+      else
+        ordinary_max_age_seconds
+      end
+
     with true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          true <- notification.enabled?,
@@ -231,15 +269,6 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
          # never marked attempted, so it stays eligible if the same batch
          # arrives again once the map cache says the system is present.
          true <- system_on_map?(map_id, system_id),
-         # Resolved ONCE per batch, not per kill: `kill_fresh?/3` runs once per
-         # killmail below, and re-reading (and re-validating) config on every
-         # one of potentially dozens of kills would turn a single misconfigured
-         # deployment into a warning-per-kill log flood. This binding, and the
-         # explicit third argument to `kill_fresh?/3` below, must survive any
-         # rewrite of this `with` chain — dropping either silently reopens that
-         # flood. Filtering for age happens HERE, once, before partitioning:
-         # moving it inside the per-destination loop reintroduces the flood.
-         max_killmail_age_seconds = Env.discord_max_killmail_age_seconds(),
          # Stale kills (an upstream replay burst on reconnect) are filtered
          # BEFORE dedup: a kill dropped here for age was never marked attempted,
          # so it stays eligible if it arrives again inside the freshness window.
@@ -933,6 +962,76 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   @spec dedup_cache() :: atom()
   def dedup_cache, do: @dedup_cache
 
+  @doc "Name of the startup-window sentinel key, so tests do not hardcode it."
+  @spec startup_sentinel_key() :: String.t()
+  def startup_sentinel_key, do: @startup_sentinel
+
+  @doc """
+  Reads the startup-window deadline from the dedup cache, writing one if it is
+  absent. Idempotent, and called once per kill batch.
+
+  ABSENT means the cache is new and its marks are gone, so arm. PRESENT means
+  the cache survived, so honour the stored deadline as it is -- including an
+  expired one. The deadline is absolute, not a TTL, precisely so that an expired
+  window is still a *present* sentinel and nothing re-arms it while the cache
+  lives.
+
+  Called per batch rather than from `init/1` because the cache and the
+  dispatcher are independent children of a `:one_for_one` supervisor. A
+  dedup-cache-only crash never runs `init/1`, so a deadline cached in dispatcher
+  state would go stale in exactly the scenario this window exists for.
+
+  Public because it is the unit under test: driving it directly is the only way
+  to exercise a cache-only restart, which restarting the dispatcher cannot
+  reach.
+  """
+  @spec arm_startup_grace() :: integer() | :never
+  def arm_startup_grace do
+    case Cachex.get(@dedup_cache, @startup_sentinel) do
+      {:ok, nil} ->
+        # The only `Env` read on this path, and it runs once per cache
+        # lifetime, not once per batch -- so the once-per-batch config
+        # constraint holds.
+        arm_until =
+          System.monotonic_time(:millisecond) + Env.discord_startup_grace_seconds() * 1000
+
+        Cachex.put(@dedup_cache, @startup_sentinel, arm_until)
+        # REQUIRED, not belt-and-braces. This cache is created with
+        # `default_ttl: :timer.hours(24)` (`application.ex:150-154`), and
+        # `Cachex.Actions.Put.execute/4` honours only an INTEGER `:ttl` --
+        # `nil` falls back to the cache default. Without this the sentinel
+        # would expire after a day of uptime and the window would spuriously
+        # re-arm on a healthy cache that never lost a mark.
+        Cachex.persist(@dedup_cache, @startup_sentinel)
+
+        arm_until
+
+      {:ok, arm_until} when is_integer(arm_until) ->
+        arm_until
+
+      _ ->
+        :never
+    end
+  rescue
+    # `Cachex.get/2` raises against an unstarted cache. Failing to read the
+    # sentinel must leave the window CLOSED, not open: an unreadable cache is
+    # not evidence that marks were lost, and arming on it would suppress real
+    # killmails. Fail-open here means "do not suppress".
+    _ -> :never
+  end
+
+  @doc """
+  Whether a batch is inside the startup grace window.
+
+  `:never` rather than a sentinel integer for the unarmed case: Erlang
+  monotonic time may be negative, so no integer is reliably "in the past".
+  """
+  @spec within_startup_grace?(integer() | :never) :: boolean()
+  def within_startup_grace?(:never), do: false
+
+  def within_startup_grace?(arm_until) when is_integer(arm_until),
+    do: System.monotonic_time(:millisecond) < arm_until
+
   @doc """
   Whether a killmail is recent enough to post.
 
@@ -955,6 +1054,11 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   re-logs its warning once per kill instead of once per batch. The default
   here exists only so this function stays directly callable with two
   arguments in tests; `do_dispatch/2` always supplies the third explicitly.
+
+  During the startup grace window the caller passes
+  `Env.discord_startup_max_killmail_age_seconds/0` instead. This function is
+  unchanged by that: it already takes the maximum as an explicit argument, so
+  both call paths flow through the same comparison.
   """
   @spec kill_fresh?(map(), DateTime.t(), pos_integer()) :: boolean()
   def kill_fresh?(
