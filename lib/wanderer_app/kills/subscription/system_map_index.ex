@@ -100,7 +100,14 @@ defmodule WandererApp.Kills.Subscription.SystemMapIndex do
       index =
         maps
         |> Enum.reduce(%{}, fn map, acc ->
-          case WandererApp.MapSystemRepo.get_all_by_map(map.id) do
+          # Visible systems ONLY. Removal from a map is a soft delete
+          # (`MapSystemRepo.remove_from_map/2` sets `visible: false`), so
+          # `get_all_by_map/1` here indexed every system the map had ever
+          # contained and kills kept broadcasting for removed systems forever.
+          # The sibling `MapIntegration.get_tracked_system_ids/0` already uses
+          # this variant, and `MapSystem` carries a partial index for exactly
+          # this filter (`api/map_system.ex:44`).
+          case WandererApp.MapSystemRepo.get_visible_by_map(map.id) do
             {:ok, systems} ->
               # Add this map to each system's list
               Enum.reduce(systems, acc, fn system, acc2 ->

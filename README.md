@@ -59,6 +59,13 @@ on this server. `WANDERER_DISCORD_POOL_SIZE` (default `10`) sizes the isolated
 Finch connection pool used for Discord delivery.
 `WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS` (default `3600`) drops killmails
 older than the given age, so an upstream replay does not post stale kills.
+The dedup marks that stop a killmail being posted twice are held in memory, so a
+restart loses them and the upstream service then replays recent kills. For
+`WANDERER_DISCORD_STARTUP_GRACE_SECONDS` (default `600`) after the marks are
+lost, `WANDERER_DISCORD_STARTUP_MAX_KILLMAIL_AGE_SECONDS` (default `120`)
+applies instead of the hour above, so the replayed history is dropped for being
+old while a kill that genuinely happens during the window still posts. Set the
+grace to `0` to disable the window.
 
 `WANDERER_NOTABLE_ITEMS_ENABLED` (default `false`) adds a "Notable Items"
 section to each kill embed, listing the most valuable loot that *dropped*
