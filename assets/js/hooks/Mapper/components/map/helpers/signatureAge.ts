@@ -50,14 +50,23 @@ export function formatSignatureAge(signatureAgeHours: number): string {
   return `${Math.floor(signatureAgeHours / DAY_HOURS)}d`;
 }
 
+/**
+ * Parses a signature timestamp, treating anything unparseable as absent.
+ *
+ * `new Date('garbage').getTime()` is NaN, and NaN loses every `>` comparison,
+ * so an unparseable value would otherwise be indistinguishable from "no
+ * timestamp" *and* would suppress the fallback below it.
+ */
+function parseTimestamp(value?: string | null): number {
+  if (!value) {
+    return 0;
+  }
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
 function getSignatureTimestamp(s: SystemSignature): number {
-  if (s.updated_at) {
-    return new Date(s.updated_at).getTime();
-  }
-  if (s.inserted_at) {
-    return new Date(s.inserted_at).getTime();
-  }
-  return 0;
+  return parseTimestamp(s.updated_at) || parseTimestamp(s.inserted_at);
 }
 
 /**

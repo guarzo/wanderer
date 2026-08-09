@@ -68,6 +68,33 @@ describe('computeSignatureAge', () => {
     expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(7);
   });
 
+  // An unparseable updated_at yields NaN, and `NaN > max` is false, so the
+  // signature used to collapse to 0 and take its perfectly good inserted_at
+  // down with it.
+  it('falls back to inserted_at when updated_at will not parse', () => {
+    const sigs = [sig({ updated_at: 'not-a-date', inserted_at: hoursAgo(7) })];
+
+    const { signatureAgeHours, newestUpdatedAt } = computeSignatureAge(sigs, NOW);
+
+    expect(signatureAgeHours).toBe(7);
+    expect(newestUpdatedAt).toBe(NOW - 7 * HOUR);
+  });
+
+  it('reports no age when neither timestamp will parse', () => {
+    const sigs = [sig({ updated_at: 'not-a-date', inserted_at: 'also-not-a-date' })];
+
+    expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(-1);
+  });
+
+  it('ignores a signature with unparseable timestamps without losing its neighbours', () => {
+    const sigs = [
+      sig({ eve_id: 'AAA-111', updated_at: 'not-a-date' }),
+      sig({ eve_id: 'BBB-222', updated_at: hoursAgo(2) }),
+    ];
+
+    expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(2);
+  });
+
   it('reports no age when signatures exist but carry no usable timestamp', () => {
     expect(computeSignatureAge([sig()], NOW).signatureAgeHours).toBe(-1);
   });
