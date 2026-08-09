@@ -256,9 +256,7 @@ export const SolarSystemNodeZoo = memo((props: NodeProps<MapSolarSystemType>) =>
                   {nodeVars.hubs.includes(nodeVars.solarSystemId.toString()) && (
                     <i className={clsx(PrimeIcons.MAP_MARKER, classes.mapMarker)} />
                   )}
-                  {nodeVars.hasIntelSource && (
-                    <SyncIntelAction solarSystemId={nodeVars.solarSystemId} />
-                  )}
+                  {nodeVars.hasIntelSource && <SyncIntelAction solarSystemId={nodeVars.solarSystemId} />}
                 </div>
                 <LocalCounter
                   hasUserCharacters={nodeVars.hasUserCharacters}
