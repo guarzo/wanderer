@@ -70,9 +70,9 @@ defmodule WandererAppWeb.MapNotificationsTest do
     view
   end
 
-  # Task 2's `create` takes `webhook_url` as a required argument and seeds the
-  # `:system` child in the same transaction, so `roles` here only controls
-  # whether a `:character` row is added on top. Passing `:system` in `roles`
+  # `create`'s `webhook_url` is optional but still seeds the `:system` child in
+  # the same transaction when given, so `roles` here only controls whether a
+  # `:character`/`:route` row is added on top. Passing `:system` in `roles`
   # would violate the (notification_id, role) identity from Task 1.
   defp notification_with_webhooks(map, roles) do
     {:ok, rec} =
@@ -105,67 +105,77 @@ defmodule WandererAppWeb.MapNotificationsTest do
     assert has_element?(view, "[phx-value-tab='notifications']")
   end
 
-  test "saving a valid webhook url creates the record", %{conn: conn, map: map} do
+  test "adding the first kill webhook creates the record", %{conn: conn, map: map} do
     view = open_notifications(conn, map)
 
-    # L0 is one URL field and one button — no checkboxes at all. The absent
-    # params are the point: `notification_attrs/1` omits a key it was not
-    # given rather than parsing `nil` into `false`, so the resource defaults
-    # apply.
+    # There is no create form any more. The kill channel is a destination row
+    # like the other two, listed as "Not set" with an Add button, and adding it
+    # is what brings the policy row into existence (`ensure_notification/1`).
+    edit_row(view, :system)
+
     view
-    |> form("#discord-notification-form", %{
-      "notification" => %{"webhook_url" => "https://discord.com/api/webhooks/123/tok"}
+    |> form("#webhook-form-system", %{
+      "webhook" => %{"webhook_url" => "https://discord.com/api/webhooks/123/tok"}
     })
     |> render_submit()
 
     assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+
+    # The lazily-created parent takes the resource defaults. Nothing in the add
+    # flow submits `enabled`/`wh_only`, and that is the point: a key that was
+    # never submitted must not be read as `false`.
+    assert rec.enabled? == true
     assert rec.wh_only == true
 
-    # Regression guard, now guarding a different mechanism. Previously the
-    # Enabled checkbox was hidden behind `:if={@notification}`, so its param
-    # was absent, `params["enabled"] == "true"` was false, and every new
-    # config was born disabled — invisibly, because no checkbox contradicted
-    # it. The checkbox is deliberately absent at L0 again, so what keeps this
-    # true is `put_param/5` treating "key not submitted" as "leave it alone".
-    assert rec.enabled? == true
-
-    # The create action seeds the required `:system` destination in the same
-    # transaction; a parent with no destination would deliver nothing.
     assert {:ok, [webhook]} = MapDiscordWebhook.by_notification(rec.id)
     assert webhook.role == :system
   end
 
-  test "a new configuration is enabled when the box is left checked", %{conn: conn, map: map} do
+  test "route alerts can be configured with no kill webhook at all", %{conn: conn, map: map} do
     view = open_notifications(conn, map)
 
-    # Submit exactly what the browser sends for a checked box rendered with a
-    # preceding hidden "false": both keys, last one winning.
+    # The regression this guards: `create` used to require `webhook_url`, and
+    # the tab used to render nothing but that one field until it was supplied.
+    # Route alerts are a separate feature and must not be gated behind a kill
+    # channel the operator may not want.
+    assert has_element?(view, "#notification-settings-form")
+    assert has_element?(view, "#webhook-row-route button[phx-click='replace-url']")
+
+    edit_row(view, :route)
+
     view
-    |> form("#discord-notification-form", %{
-      "notification" => %{"webhook_url" => "https://discord.com/api/webhooks/123/tok"}
+    |> form("#webhook-form-route", %{
+      "webhook" => %{"webhook_url" => "https://discord.com/api/webhooks/456/tok"}
     })
     |> render_submit()
 
     assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
-    assert rec.enabled? == true
+    assert {:ok, [webhook]} = MapDiscordWebhook.by_notification(rec.id)
+    assert webhook.role == :route
   end
 
   test "an invalid url is rejected with a message", %{conn: conn, map: map} do
     view = open_notifications(conn, map)
 
+    edit_row(view, :system)
+
     html =
       view
-      |> form("#discord-notification-form", %{
-        "notification" => %{"webhook_url" => "https://evil.example.com/x"}
+      |> form("#webhook-form-system", %{
+        "webhook" => %{"webhook_url" => "https://evil.example.com/x"}
       })
       |> render_submit()
 
-    # Assert the resource's actual validation message, NOT the string
-    # "Discord webhook URL" — that is the create form's own <label>, which
-    # renders whenever there is no record, i.e. in this scenario always.
-    # Asserting on it would pass even if the error were discarded entirely.
+    # The resource's own validation message, not the form's <label> — asserting
+    # on the label would pass even if the error were discarded entirely.
     assert html =~ "must be a Discord webhook URL"
-    assert {:error, _} = MapDiscordNotification.by_map(map.id)
+
+    # The parent row is created before the destination is validated, so a
+    # rejected URL can leave an empty policy behind. That is harmless — a
+    # policy with no destinations delivers nothing (`Router.route/3` drops a
+    # nil destination in `usable/1`) — but no webhook may survive it.
+    assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
+    assert {:ok, []} = MapDiscordWebhook.by_notification(rec.id)
   end
 
   test "unchecking 'enabled' actually disables", %{conn: conn, map: map} do
@@ -173,14 +183,15 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     view = open_notifications(conn, map)
 
-    # An unchecked checkbox submits NO value at all. The hidden companion input
-    # is what makes "off" distinguishable from "field absent"; without it the
-    # record would silently re-enable itself on every save.
+    # The two kill switches apply on change, in their own small form — they are
+    # not part of the bottom Save. An unchecked checkbox submits NO value at
+    # all; the hidden companion input is what makes "off" distinguishable from
+    # "field absent", without which the record would silently re-enable itself.
     view
-    |> form("#discord-notification-form", %{
+    |> form("#kill-toggles-form", %{
       "notification" => %{"enabled" => "false", "wh_only" => "false"}
     })
-    |> render_submit()
+    |> render_change()
 
     assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
     assert rec.enabled? == false
@@ -197,10 +208,10 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # A checked box wins: the browser sends both hidden "false" and "true",
     # and Phoenix keeps the last value.
     view
-    |> form("#discord-notification-form", %{
+    |> form("#kill-toggles-form", %{
       "notification" => %{"enabled" => "true", "wh_only" => "true"}
     })
-    |> render_submit()
+    |> render_change()
 
     assert {:ok, updated} = MapDiscordNotification.by_map(map.id)
     assert updated.enabled? == true
@@ -215,33 +226,37 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # test that drives the REAL save action with the key present catches a
     # handler that still forwards it: Ash raises `NoSuchInput` and takes the
     # LiveView process down. Pushed at the component rather than through
-    # `form/3` because the create-only URL field is not rendered once a record
-    # exists — but a handler must not depend on the template to stay correct.
+    # `form/3` because no rendered form carries that key — but a handler must
+    # not depend on the template to stay correct.
     notification_with_webhooks(map, [:system])
 
     view = open_notifications(conn, map)
 
-    html =
-      view
-      |> with_target("#map-notifications")
-      |> render_submit("save", %{
-        "notification" => %{
-          "webhook_url" => "https://discord.com/api/webhooks/999/NEWTOKEN",
-          "enabled" => "true",
-          "wh_only" => "true"
-        }
-      })
+    view
+    |> with_target("#map-notifications")
+    |> render_change("toggle-setting", %{
+      "notification" => %{
+        "webhook_url" => "https://discord.com/api/webhooks/999/NEWTOKEN",
+        "enabled" => "true",
+        "wh_only" => "true"
+      }
+    })
 
-    assert html =~ "Saved."
     assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
     assert rec.wh_only == true
   end
 
-  test "with no configuration at all, only the create form renders", %{conn: conn, map: map} do
+  test "with no configuration at all, all three rows render unset", %{conn: conn, map: map} do
     view = open_notifications(conn, map)
 
-    assert has_element?(view, "#discord-notification-form")
-    refute has_element?(view, "#webhook-form-character")
+    # Every destination is listed from the start, closed, so the tab states what
+    # is possible without putting three credential fields on screen unasked.
+    for role <- [:system, :character, :route] do
+      assert has_element?(view, "#webhook-row-#{role} button[phx-click='replace-url']")
+      refute has_element?(view, "#webhook-form-#{role}")
+    end
+
+    assert render(view) =~ "Not set"
   end
 
   test "with only a system webhook, the character row offers to add one", %{
@@ -252,16 +267,36 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     view = open_notifications(conn, map)
 
-    assert has_element?(view, "#webhook-form-system")
-    assert has_element?(view, "#webhook-form-character")
-    # The character destination is unset, so its form must be in add mode: a
-    # URL field, and no test/remove buttons for a webhook that does not exist.
-    # Both refutes are scoped to `#webhook-row-character`, not to the form:
-    # those buttons live in a sibling <div> of the <form>, so a form-descendant
-    # selector never matches them and the refute would pass unconditionally.
-    assert has_element?(view, "#webhook-form-character input[type='password']")
+    # The configured system row is a truth line at rest — no form until Edit.
+    refute has_element?(view, "#webhook-form-system")
+    assert has_element?(view, "#webhook-row-system button[phx-click='replace-url']")
+
+    # The character destination is unset, so it renders closed too, and offers
+    # nothing destructive: no test or remove control for a webhook that does not
+    # exist. Both refutes are scoped to `#webhook-row-character` rather than to
+    # its form, because those buttons live in a sibling <div> of the <form> and a
+    # form-descendant selector would make the refute pass unconditionally.
+    refute has_element?(view, "#webhook-form-character")
     refute has_element?(view, "#webhook-row-character button[phx-click='remove-webhook']")
     refute has_element?(view, "#webhook-row-character button[phx-click='send-test']")
+
+    # …and it says so, rather than being silently absent.
+    assert has_element?(view, "#webhook-row-character button[phx-click='replace-url']")
+
+    edit_row(view, :character)
+    assert has_element?(view, "#webhook-form-character input[type='password']")
+  end
+
+  # A configured destination now renders as a truth line — its name, its status,
+  # and an Edit button. The URL field and the destructive/test controls live in
+  # the form behind that button, so anything asserting on them has to open the
+  # row first, exactly as a user does.
+  defp edit_row(view, role) do
+    view
+    |> element("#webhook-row-#{role} button[phx-click='replace-url']")
+    |> render_click()
+
+    view
   end
 
   test "with both webhooks, each row has its own test and status controls", %{
@@ -272,8 +307,24 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     view = open_notifications(conn, map)
 
-    assert has_element?(view, "#webhook-row-system button[phx-click='send-test']")
-    assert has_element?(view, "#webhook-row-character button[phx-click='send-test']")
+    # At rest, each configured row shows its identity and an Edit affordance —
+    # and nothing else. This is the change the whole rework turns on: five
+    # simultaneously-expanded destinations is what made the tab taller than the
+    # dialog could ever show.
+    assert has_element?(view, "#webhook-row-system button[phx-click='replace-url']")
+    assert has_element?(view, "#webhook-row-character button[phx-click='replace-url']")
+    refute has_element?(view, "#webhook-row-system button[phx-click='send-test']")
+
+    assert has_element?(
+             edit_row(view, :system),
+             "#webhook-row-system button[phx-click='send-test']"
+           )
+
+    assert has_element?(
+             edit_row(view, :character),
+             "#webhook-row-character button[phx-click='send-test']"
+           )
+
     # Distinct webhook ids, so the two buttons target different destinations.
     assert has_element?(view, "#webhook-row-character button[phx-click='remove-webhook']")
   end
@@ -307,13 +358,12 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     view = open_notifications(conn, map)
 
-    # A saved destination renders masked, so the URL field only appears after
-    # asking to replace it — the same two-step a user goes through.
+    # A saved destination renders as a truth line, so the URL field only appears
+    # after asking to edit it — the same two-step a user goes through. The Edit
+    # button sits in the row rather than the form: the form is what it reveals.
     refute has_element?(view, "#webhook-form-system input[type='password']")
 
-    view
-    |> element("#webhook-form-system button[phx-click='replace-url']")
-    |> render_click()
+    edit_row(view, :system)
 
     html =
       view
@@ -338,6 +388,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     view = open_notifications(conn, map)
 
+    edit_row(view, :character)
+
     view
     |> form("#webhook-form-character", %{
       "webhook" => %{"webhook_url" => "https://discord.com/api/webhooks/888/chartok"}
@@ -346,7 +398,14 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
     assert %{role: :character} = Enum.find(webhooks, &(&1.role == :character))
-    assert has_element?(view, "#webhook-row-character button[phx-click='remove-webhook']")
+    # A row that has become configured collapses to its truth line, so the
+    # on-screen proof is the Edit affordance, not the remove button behind it.
+    assert has_element?(view, "#webhook-row-character button[phx-click='replace-url']")
+
+    assert has_element?(
+             edit_row(view, :character),
+             "#webhook-row-character button[phx-click='remove-webhook']"
+           )
   end
 
   test "removing the character destination leaves the system one alone", %{conn: conn, map: map} do
@@ -355,12 +414,18 @@ defmodule WandererAppWeb.MapNotificationsTest do
     view = open_notifications(conn, map)
 
     view
+    |> edit_row(:character)
     |> element("#webhook-row-character button[phx-click='remove-webhook']")
     |> render_click()
 
     {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
     assert Enum.map(webhooks, & &1.role) == [:system]
     refute has_element?(view, "#webhook-row-character button[phx-click='remove-webhook']")
+    # …and it is genuinely back to unconfigured, not merely collapsed: the row
+    # is still listed, but as "Not set" with nothing behind it.
+    refute has_element?(view, "#webhook-form-character")
+    assert has_element?(view, "#webhook-row-character button[phx-click='replace-url']")
+    assert has_element?(view, "#webhook-row-system button[phx-click='replace-url']")
   end
 
   test "a plain-string error renders as a sentence, not an inspected term", %{
@@ -370,6 +435,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
     notification_with_webhooks(map, [:system])
 
     view = open_notifications(conn, map)
+    edit_row(view, :character)
 
     # The component's own guard returns a bare binary. Passing that through
     # `inspect/1` would show the user literal quote marks around the sentence.
@@ -389,6 +455,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
     notification_with_webhooks(map, [:system])
 
     view = open_notifications(conn, map)
+    edit_row(view, :character)
 
     # Well-formed enough to clear the Discord-host validation, long enough to
     # trip `max_length: 2000` on the attribute.
@@ -414,14 +481,13 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     view = open_notifications(conn, map)
 
-    html = view |> element("button[phx-click='send-test']") |> render_click()
+    html = view |> edit_row(:system) |> element("button[phx-click='send-test']") |> render_click()
 
     # What this proves: a saved-but-disabled destination gets the remedy that
     # matches its actual state. The assert is the whole test — assert the
     # specific remedy sentence, not the word "disabled", because the row's own
-    # status line already says "This destination is disabled and is not
-    # delivering." and a looser match would pass without the error copy
-    # changing at all.
+    # truth line already reads "● Disabled" and a looser match would pass
+    # without the error copy changing at all.
     #
     # The refute below is a belt-and-braces guard against the production
     # wording bug it names, but it does NOT demonstrate coverage of it here:
@@ -454,6 +520,9 @@ defmodule WandererAppWeb.MapNotificationsTest do
     webhook = system_webhook(rec)
 
     view = open_notifications(conn, map)
+    # Send test lives behind the row's Edit affordance now; open it while the
+    # webhook still exists, so the rendered button carries the real id.
+    edit_row(view, :system)
 
     # Destroyed AFTER render, so the button still carries the now-dead id —
     # the stale-page case `:webhook_not_found` exists for.
@@ -743,38 +812,64 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # must return an error rather than crash the LiveView.
     view = open_notifications(conn, map)
 
-    # The fixture is `[:system]` only, so exactly one Send test button exists.
-    html = view |> element("button[phx-click='send-test']") |> render_click()
+    # The fixture is `[:system]` only, so exactly one Send test button exists
+    # once that row is opened for editing.
+    html = view |> edit_row(:system) |> element("button[phx-click='send-test']") |> render_click()
 
     assert html =~ "disabled on this server"
   end
 
-  test "removing the configuration deletes the record", %{conn: conn, map: map} do
-    notification_with_webhooks(map, [:system])
+  test "the tab offers no wholesale remove", %{conn: conn, map: map} do
+    notification_with_webhooks(map, [:system, :character, :route])
 
     view = open_notifications(conn, map)
 
-    html = view |> element("button[phx-click='delete']") |> render_click()
+    # Deliberate: each destination has its own Remove behind its Edit, and a
+    # policy row with no destinations delivers nothing. A pane-level destroy
+    # only added the ability to discard invisible filter and mention state, and
+    # put the tab's most destructive control permanently on screen to do it.
+    refute has_element?(view, "button[phx-click='delete']")
 
-    assert html =~ "Removed."
-    assert {:error, _} = MapDiscordNotification.by_map(map.id)
-    # Back to the create form, so the tab is usable again without a reload.
-    assert has_element?(view, "#discord-notification-form")
+    for role <- ~w(system character route) do
+      assert has_element?(
+               edit_row(view, role),
+               "#webhook-row-#{role} button[phx-click='remove-webhook']"
+             )
+    end
+  end
+
+  # Both of the tests below drive `humanize_error/1` and `fallback_message/1`
+  # through an error that carries no message of its own. They used to go through
+  # the pane-level destroy; with that gone, the trigger is a destination removed
+  # out from under the mounted view, so the row's Remove destroys a stale record.
+  #
+  # NOT the route Save, which was the obvious substitute and is wrong: `upsert/2`
+  # creates when the parent is missing, so destroying the policy row and saving
+  # re-creates it and reports "Saved." — a self-healing trigger that would have
+  # left the test asserting nothing. There is no such recreate path for a
+  # specific webhook id.
+  defp stale_remove(view, map, role) do
+    # Edit BEFORE the row is destroyed: opening the row is what renders its
+    # Remove button, and the component keeps the (about to be stale) struct in
+    # its own assigns until something re-reads the map's notification.
+    view = edit_row(view, role)
+
+    {:ok, rec} = MapDiscordNotification.by_map(map.id)
+    {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+    :ok = webhooks |> Enum.find(&(&1.role == role)) |> Ash.destroy()
+
+    view
+    |> element("#webhook-row-#{role} button[phx-click='remove-webhook']")
+    |> render_click()
   end
 
   test "a failed removal is reported instead of raising", %{conn: conn, map: map} do
-    rec = notification_with_webhooks(map, [:system])
+    notification_with_webhooks(map, [:system, :character])
 
     view = open_notifications(conn, map)
+    html = stale_remove(view, map, :character)
 
-    # Delete the row out from under the mounted view. The destroy then fails on
-    # a stale record — with `Ash.destroy!` this raised and took the LiveView
-    # down; it must surface as a message instead.
-    :ok = Ash.destroy(rec)
-
-    html = view |> element("button[phx-click='delete']") |> render_click()
-
-    refute html =~ "Removed."
+    refute html =~ "destination removed."
     assert render(view) =~ "class=\"text-sm text-red-400\""
     # `StaleRecord` carries no message, so it reaches `humanize_error/1`'s
     # catch-all. That branch must not render the term: an unanticipated error
@@ -808,6 +903,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
     html =
       view
+      |> edit_row(:system)
       |> element("button[phx-click='send-test']")
       |> render_click(%{"webhook_id" => other_webhook.id})
 
@@ -826,18 +922,17 @@ defmodule WandererAppWeb.MapNotificationsTest do
     conn: conn,
     map: map
   } do
-    rec = notification_with_webhooks(map, [:system])
+    notification_with_webhooks(map, [:system, :character])
 
     view = open_notifications(conn, map)
 
-    # Same trigger as "a failed removal is reported instead of raising": the
-    # row is deleted under the mounted view, so the destroy fails with a
-    # `StaleRecord`, which carries no message and reaches `fallback_message/1`.
-    :ok = Ash.destroy(rec)
-
     log =
       capture_log(fn ->
-        html = view |> element("button[phx-click='delete']") |> render_click()
+        # Same trigger as "a failed removal is reported instead of raising": the
+        # destination is deleted under the mounted view, so the destroy fails
+        # with a `StaleRecord`, which carries no message of its own and reaches
+        # `fallback_message/1`.
+        html = stale_remove(view, map, :character)
         assert html =~ "Something went wrong. Please try again."
       end)
 
@@ -913,7 +1008,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       html =
         view
         |> with_target("#map-notifications")
-        |> render_submit("save-route", %{
+        |> render_submit("save-settings", %{
           "notification" => %{
             "route_alerts_enabled" => "true",
             "home_system_id" => "",
@@ -921,11 +1016,11 @@ defmodule WandererAppWeb.MapNotificationsTest do
           }
         })
 
-      # Exact wording is Task 3's to define; this asserts on it because a
-      # substring match loose enough to survive any wording would also survive
-      # the validation being silently removed. If Task 3 ships different
-      # copy, update this one line to match it — do not weaken the match.
-      assert html =~ "is required when route alerts are enabled"
+      # The message has to NAME the field. A field-scoped Ash error alone
+      # surfaced in the panel's message region as the orphan sentence "is
+      # required when route alerts are enabled", with no indication which of
+      # the three route fields it meant.
+      assert html =~ "Home system is required when route alerts are enabled"
 
       assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
       refute rec.route_alerts_enabled?
@@ -950,7 +1045,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # DOM — LiveSelect's hidden input, holding the id behind the name the
       # user picked — which is the whole point of the picker.
       view
-      |> form("#route-alerts-form", %{
+      |> form("#notification-settings-form", %{
         "notification" => %{
           "route_alerts_enabled" => "true",
           "route_max_jumps" => "3"
@@ -964,7 +1059,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       assert rec.route_max_jumps == 3
     end
 
-    test "the route Save writes only route fields, and the kills Save only kill fields", %{
+    test "the kill switches and the Save each write only their own fields", %{
       conn: conn,
       map: map
     } do
@@ -980,15 +1075,16 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       view = open_notifications(conn, map)
 
-      # P0 (four saves, one flash, no scope): pressing one panel's Save must
-      # not touch another panel's fields. Before the split, ticking a box in
-      # one section and pressing the wrong Save reported "Saved." and silently
-      # reverted the tick, because every Save submitted the whole tab.
+      # P0 (four saves, one flash, no scope): one control must not touch
+      # another's fields. Before the split, ticking a box in one section and
+      # pressing the wrong Save reported "Saved." and silently reverted the
+      # tick, because every Save submitted the whole tab. The kill switches now
+      # apply on change and carry only their own two keys.
       view
-      |> form("#discord-notification-form", %{
+      |> form("#kill-toggles-form", %{
         "notification" => %{"enabled" => "true", "wh_only" => "false"}
       })
-      |> render_submit()
+      |> render_change()
 
       assert {:ok, after_kills} = MapDiscordNotification.by_map(map.id)
       assert after_kills.wh_only == false
@@ -999,7 +1095,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       view
       |> with_target("#map-notifications")
-      |> render_submit("save-route", %{
+      |> render_submit("save-settings", %{
         "notification" => %{
           "route_alerts_enabled" => "true",
           "home_system_id" => "30000144",
@@ -1034,7 +1130,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # disabled by an ancestor fieldset.
       assert has_element?(
                view,
-               "#route-alerts-form fieldset[disabled] input[name='notification[home_system_id]']"
+               "#notification-settings-form fieldset[disabled] input[name='notification[home_system_id]']"
              )
 
       view
@@ -1043,11 +1139,14 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       refute has_element?(
                view,
-               "#route-alerts-form fieldset[disabled] input[name='notification[home_system_id]']"
+               "#notification-settings-form fieldset[disabled] input[name='notification[home_system_id]']"
              )
 
       # Still in the DOM either way — never `:if`-ed out.
-      assert has_element?(view, "#route-alerts-form input[name='notification[home_system_id]']")
+      assert has_element?(
+               view,
+               "#notification-settings-form input[name='notification[home_system_id]']"
+             )
     end
 
     test "a disabled route field does not wipe the saved value on the next save", %{
@@ -1071,7 +1170,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # absent value as nil and clear a home system the user never touched.
       view
       |> with_target("#map-notifications")
-      |> render_submit("save-route", %{"notification" => %{"route_alerts_enabled" => "false"}})
+      |> render_submit("save-settings", %{"notification" => %{"route_alerts_enabled" => "false"}})
 
       assert {:ok, saved} = MapDiscordNotification.by_map(map.id)
       assert saved.route_alerts_enabled? == false
@@ -1162,7 +1261,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # No params at all — the checkbox and the picked home system both come
       # from the rendered DOM, which is the whole point: this is what the
       # browser actually posts.
-      view |> form("#route-alerts-form") |> render_submit()
+      view |> form("#notification-settings-form") |> render_submit()
 
       assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
       assert rec.route_alerts_enabled? == true
@@ -1200,7 +1299,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       |> render_change("option_click", %{"idx" => "0"})
 
       view
-      |> form("#route-alerts-form", %{
+      |> form("#notification-settings-form", %{
         "notification" => %{"route_alerts_enabled" => "true"}
       })
       |> render_submit()
@@ -1237,7 +1336,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # says nothing about the name that was actually typed.
       html =
         view
-        |> form("#route-alerts-form", %{
+        |> form("#notification-settings-form", %{
           "notification" => %{
             "route_alerts_enabled" => "true",
             "home_system_id_text_input" => "Jitaaa"
@@ -1264,7 +1363,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       |> render_change(%{"notification" => %{"route_alerts_enabled" => "true"}})
 
       view
-      |> form("#route-alerts-form", %{
+      |> form("#notification-settings-form", %{
         "notification" => %{
           "route_alerts_enabled" => "true",
           "home_system_id_text_input" => "jita"
@@ -1299,7 +1398,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       html =
         view
-        |> form("#route-alerts-form", %{
+        |> form("#notification-settings-form", %{
           "notification" => %{
             "route_alerts_enabled" => "true",
             "home_system_id_text_input" => "Jit"
@@ -1334,7 +1433,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
       pick_home_system(view, "Jita")
 
       # What the browser does on selection: post the form as the DOM now has it.
-      view |> form("#route-alerts-form") |> render_change()
+      view |> form("#notification-settings-form") |> render_change()
 
       # An unrelated widget re-renders the component.
       view
@@ -1347,7 +1446,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       assert has_element?(view, "input[name='notification[home_system_id]'][value='30000142']")
 
-      view |> form("#route-alerts-form") |> render_submit()
+      view |> form("#notification-settings-form") |> render_submit()
 
       assert {:ok, rec} = MapDiscordNotification.by_map(map.id)
       assert rec.home_system_id == 30_000_142
@@ -1361,29 +1460,27 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # change, because the route toggle and the create-path URL field shared
       # one form and the generic `.input` writes `value=` for password inputs
       # too. The IA split removes the shared form entirely: the credential now
-      # lives only on the L0 create form and the per-row webhook forms, none of
-      # which carry a `phx-change`. This asserts the structural property rather
-      # than the old symptom, so it fails if a change handler is ever added
-      # back to a form holding a URL.
-      view = open_notifications(conn, map)
-      html = render(view)
-
-      # The L0 create form is the one that holds the URL field...
-      assert has_element?(
-               view,
-               "#discord-notification-form input[name='notification[webhook_url]']"
-             )
-
-      # ...and its form tag must carry no phx-change.
-      [create_form] = Regex.run(~r/<form[^>]*id="discord-notification-form"[^>]*>/, html)
-      refute create_form =~ "phx-change"
-
+      # lives ONLY on the per-row webhook forms, none of which carry a
+      # `phx-change`. This asserts the structural property rather than the old
+      # symptom, so it fails if a change handler is ever added back to a form
+      # holding a URL — or if a URL field is ever added to one of the two forms
+      # that DO have a change handler.
       notification_with_webhooks(map, [:system, :character, :route])
 
-      html = render(open_notifications(conn, map))
+      view = open_notifications(conn, map)
+
+      for form_id <- ~w(kill-toggles-form notification-settings-form) do
+        refute has_element?(view, "##{form_id} input[name='notification[webhook_url]']")
+      end
+
+      # Configured rows are truth lines until opened, so each form has to be
+      # revealed before there is a `<form>` tag to inspect at all.
+      for role <- ~w(system character route), do: edit_row(view, role)
+      html = render(view)
 
       for role <- ~w(system character route) do
         [form_tag] = Regex.run(~r/<form[^>]*id="webhook-form-#{role}"[^>]*>/, html)
+        assert has_element?(view, "#webhook-form-#{role} input[name='webhook[webhook_url]']")
         refute form_tag =~ "phx-change"
       end
     end
@@ -1391,6 +1488,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
     test "the route webhook url can be added", %{conn: conn, map: map} do
       rec = notification_with_webhooks(map, [:system])
       view = open_notifications(conn, map)
+
+      edit_row(view, :route)
 
       view
       |> form("#webhook-form-route", %{
@@ -1400,7 +1499,13 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
       assert %{role: :route, enabled?: true} = Enum.find(webhooks, &(&1.role == :route))
-      assert has_element?(view, "#webhook-row-route button[phx-click='remove-webhook']")
+      # Saved, so the row has collapsed to its truth line.
+      assert has_element?(view, "#webhook-row-route button[phx-click='replace-url']")
+
+      assert has_element?(
+               edit_row(view, :route),
+               "#webhook-row-route button[phx-click='remove-webhook']"
+             )
     end
 
     # Mentions left the webhook form in this rework: they are chip state saved
@@ -1472,7 +1577,7 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # form lets an owner enable route alerts, set a home system and max jumps,
     # and save successfully while every alert is silently dropped for want of a
     # destination. The hint is the only feedback in that state.
-    @hint "Route alerts are on, but no Route alert channel is ready"
+    @hint "Route alerts are on, but no route alert channel is ready"
 
     test "enabling route alerts with no route channel warns that nothing will be sent", %{
       conn: conn,
@@ -1527,18 +1632,16 @@ defmodule WandererAppWeb.MapNotificationsTest do
   # inside the filters disclosure. That disclosure now starts collapsed
   # unconditionally and no longer auto-expands on a problem (D2), so a message
   # left in the old place would be invisible: the owner sees their click do
-  # nothing. `#panel-message-kills` is at card level, above the disclosure —
-  # the assertions check the LOCATION, which is the actual regression risk,
-  # not merely that the text exists somewhere in the document.
+  # nothing. There is now ONE `#panel-message`, in the action bar at the foot of
+  # the tab beside the single Save — the assertions check the LOCATION, which is
+  # the actual regression risk, not merely that the text exists somewhere in the
+  # document.
   describe "kill-filter messages render on the card, not inside the collapsed body" do
     defp assert_in_kills_card(view, text) do
-      assert has_element?(view, "#panel-message-kills", text)
+      assert has_element?(view, "#panel-message", text)
 
-      # Not swallowed by the collapsed body...
-      refute has_element?(view, "#filters-disclosure-body #panel-message-kills")
-      # ...and not misfiled onto the peer card, where it would describe the
-      # wrong feature entirely.
-      refute has_element?(view, "#panel-message-route")
+      # Not swallowed by the collapsed body.
+      refute has_element?(view, "#filters-disclosure-body #panel-message")
     end
 
     setup %{conn: conn, map: map} do
@@ -1618,19 +1721,21 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       html = conn |> open_notifications(map) |> render()
 
-      assert html =~ "Channel: #kill-feed"
+      assert html =~ "#kill-feed"
       # The card-level status line is built from the same identity.
-      assert html =~ "Posting to channel #kill-feed"
+      assert html =~ "Posting to #kill-feed"
       # Neither snowflake is a label.
       refute html =~ "987650001234500777"
       refute html =~ "112233445566778899"
     end
 
-    # The bug this rework exists partly to fix: Discord's webhook object carries
-    # the webhook's own NICKNAME, which an operator can set to anything and
-    # which has nothing to do with the channel. The old UI stamped "Channel:"
-    # on it regardless, so the two were indistinguishable on screen.
-    test "a webhook nickname is labelled as one, not asserted to be the channel", %{
+    # `channel_label_source` still records whether Discord answered from the
+    # channel itself or from the webhook's own nickname, and `ChannelInfo` still
+    # uses it to separate a known name from a masked fingerprint. The UI no
+    # longer *speaks* the difference: it is a fact about how the name was
+    # fetched, not about where messages land, and the operator has nothing to do
+    # differently either way.
+    test "a webhook nickname is shown plainly, with no source prefix", %{
       conn: conn,
       map: map
     } do
@@ -1645,13 +1750,18 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       html = conn |> open_notifications(map) |> render()
 
-      assert html =~ "Webhook: Kill bot"
-      assert html =~ "Posting to webhook Kill bot"
+      assert html =~ "Kill bot"
+      refute html =~ "Webhook: Kill bot"
       refute html =~ "Channel: Kill bot"
-      # And it says why it could not do better than the nickname.
+
+      # The sentence that used to explain the prefix is gone, and must stay
+      # gone. It was also wrong more often than not: `bot_channel/1` returns
+      # nil for a missing token, a 403, a 404, a rate limit and a plain cache
+      # miss alike, and `persist/2` freezes that result for an hour — so
+      # instances whose bot *is* in the server routinely read that it was not.
       # HEEx escapes the apostrophe, so match the half either side of it.
-      assert html =~ "This is the webhook"
-      assert html =~ "s own name."
+      refute html =~ "This is the webhook"
+      refute html =~ "s bot is in that server"
     end
 
     # A row written before `channel_label_source` existed. The label is still
@@ -1695,6 +1805,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
       # A masked hint makes no claim about being a channel or a webhook name.
       refute html =~ "Channel: ••••"
       refute html =~ "Webhook: ••••"
+      refute html =~ "Posting to channel"
+      refute html =~ "Posting to webhook"
       # A blank label would render as the separator with nothing before it.
       refute html =~ "Posting to  "
     end
@@ -1705,9 +1817,93 @@ defmodule WandererAppWeb.MapNotificationsTest do
     } do
       notification_with_webhooks(map, [:system, :route])
 
-      html = conn |> open_notifications(map) |> render()
+      view = open_notifications(conn, map)
+
+      # At rest the truth line uses the role-neutral state word, which is
+      # correct for every row: "Never delivered" is a fact about deliveries, not
+      # about what kind of thing was never delivered.
+      assert render(view) =~ "Never delivered"
+      refute render(view) =~ "No kills delivered yet."
+
+      # The role-specific wording lives in the open form, where "No kills
+      # delivered yet." under a channel that only ever carries route alerts
+      # would read as a fault rather than an empty state.
+      html = view |> edit_row(:route) |> render()
 
       assert html =~ "No route alerts delivered yet."
+      refute html =~ "No kills delivered yet."
+    end
+  end
+
+  describe "disclosure state" do
+    # The reason `@open_sections` lives on the server rather than in
+    # `JS.toggle_class`. This component re-renders on saves, on PubSub ticks and
+    # on background channel-identity refreshes; a client-only toggle means every
+    # one of those re-sends the literal collapsed markup and slams an open
+    # section shut under the operator's hands. `edit_row/2` here is just a cheap
+    # way to force a real re-render — any of the three would do.
+    test "an opened section stays open across a re-render", %{conn: conn, map: map} do
+      notification_with_webhooks(map, [:system])
+
+      view = open_notifications(conn, map)
+
+      assert has_element?(view, "#filters-disclosure-body.hidden")
+
+      view
+      |> element("button[phx-value-section='filters-disclosure']")
+      |> render_click()
+
+      assert has_element?(view, "#filters-disclosure-body.flex")
+
+      assert has_element?(
+               view,
+               "button[phx-value-section='filters-disclosure'][aria-expanded='true']"
+             )
+
+      # Re-render the whole component.
+      edit_row(view, :system)
+
+      assert has_element?(view, "#filters-disclosure-body.flex")
+    end
+
+    # The body is toggled by class rather than by `:if` so that `aria-controls`
+    # resolves to a real element while collapsed, and so the LiveSelect hooks
+    # inside it are not destroyed and re-mounted on every toggle.
+    test "a collapsed section is still in the document, and still addressed", %{
+      conn: conn,
+      map: map
+    } do
+      notification_with_webhooks(map, [:system])
+
+      view = open_notifications(conn, map)
+
+      assert has_element?(
+               view,
+               "button[phx-value-section='filters-disclosure'][aria-controls='filters-disclosure-body'][aria-expanded='false']"
+             )
+
+      assert has_element?(view, "#filters-disclosure-body")
+    end
+
+    # D4's whole point: a configured-but-inert route destination is a warning,
+    # and a warning inside a collapsed body has not been shown to anyone. Route
+    # alerts are no longer a disclosure at all — they are the tab's second
+    # section, always expanded — but the banner still has to sit outside the one
+    # disclosure that section does have.
+    test "the route warning renders outside any collapsed disclosure", %{
+      conn: conn,
+      map: map
+    } do
+      # `route_alerts_enabled?` defaults to false, so a route channel added
+      # without turning alerts on is inert the moment it is saved — which is
+      # precisely the trap this banner exists to name.
+      notification_with_webhooks(map, [:system, :route])
+
+      view = open_notifications(conn, map)
+
+      assert has_element?(view, "#mentions-disclosure-body.hidden")
+      refute has_element?(view, "#mentions-disclosure-body p", "Route alerts are switched off")
+      assert render(view) =~ "Route alerts are switched off, but this channel is configured"
     end
   end
 

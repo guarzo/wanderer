@@ -244,10 +244,14 @@
   </.form>
 </.modal>
 
+<%!-- Width: `min()` rather than a `w-full md:` pair. `w-full` made the dialog
+      fill the mask on every viewport, and CSS resolves min-width AFTER
+      max-width, so a bare `!min-w-[700px]` would overflow a phone instead of
+      shrinking. This keeps the 700px working width and collapses below it. --%>
 <.modal
   :if={@live_action in [:settings] && not is_nil(assigns[:map])}
   title="Map Settings"
-  class="!min-w-[700px]"
+  class="!min-w-[min(700px,100%)]"
   id="map-settings-modal"
   show
   on_cancel={JS.patch(~p"/maps")}
@@ -260,202 +264,48 @@
             <div class="p-tabview-nav-content" data-pc-section="navcontent">
               <ul class="p-tabview-nav" role="tablist" data-pc-section="nav">
                 <li
+                  :for={tab <- settings_tabs(@map_subscriptions_enabled?)}
                   class={[
                     "p-unselectable-text",
-                    classes("p-tabview-selected p-highlight": @active_settings_tab == "general")
+                    classes("p-tabview-selected p-highlight": @active_settings_tab == tab.id)
                   ]}
                   role="presentation"
                   data-pc-name=""
                   data-pc-section="header"
                 >
-                  <a
+                  <%!-- A real <button>, not the <a role="tab"> this markup was
+                        copied with: that anchor had no href, so Enter never
+                        activated it and every tab but General was also
+                        tabindex="-1" — leaving Notifications unreachable by
+                        keyboard entirely. Every tab is tabindex-reachable
+                        rather than roving, because roving tabindex is only
+                        operable with an arrow-key handler and there is no hook
+                        here to host one. --%>
+                  <button
+                    type="button"
+                    id={"map-settings-tab-#{tab.id}"}
                     role="tab"
-                    class="p-tabview-nav-link flex p-[10px]"
-                    tabindex="0"
-                    aria-controls="pr_id_330_content"
-                    aria-selected="true"
-                    aria-disabled="false"
-                    data-pc-section="headeraction"
+                    class="p-tabview-nav-link flex w-full p-[10px]"
+                    aria-controls="map-settings-tabpanel"
+                    aria-selected={to_string(@active_settings_tab == tab.id)}
                     phx-click="change_settings_tab"
-                    phx-value-tab="general"
+                    phx-value-tab={tab.id}
+                    data-pc-section="headeraction"
                   >
                     <span class="p-tabview-title" data-pc-section="headertitle">
-                      <.icon name="hero-wrench-screwdriver-solid" class="w-4 h-4" />&nbsp;General
+                      <.icon name={tab.icon} class="w-4 h-4" />&nbsp;{tab.label}
                     </span>
-                  </a>
-                </li>
-
-                <li
-                  :if={@map_subscriptions_enabled?}
-                  class={[
-                    "p-unselectable-text",
-                    classes("p-tabview-selected p-highlight": @active_settings_tab == "balance")
-                  ]}
-                  role="presentation"
-                  data-pc-name=""
-                  data-pc-section="header"
-                >
-                  <a
-                    role="tab"
-                    class="p-tabview-nav-link flex p-[10px]"
-                    tabindex="-1"
-                    aria-controls="pr_id_332_content"
-                    aria-selected="false"
-                    aria-disabled="false"
-                    data-pc-section="headeraction"
-                    phx-click="change_settings_tab"
-                    phx-value-tab="balance"
-                  >
-                    <span class="p-tabview-title" data-pc-section="headertitle">
-                      <.icon name="hero-banknotes-solid" class="w-4 h-4" />&nbsp;Balance
-                    </span>
-                  </a>
-                </li>
-
-                <li
-                  :if={@map_subscriptions_enabled?}
-                  class={[
-                    "p-unselectable-text",
-                    classes(
-                      "p-tabview-selected p-highlight": @active_settings_tab == "subscription"
-                    )
-                  ]}
-                  role="presentation"
-                  data-pc-name=""
-                  data-pc-section="header"
-                >
-                  <a
-                    role="tab"
-                    class="p-tabview-nav-link flex p-[10px]"
-                    tabindex="-1"
-                    aria-controls="pr_id_334_content"
-                    aria-selected="false"
-                    aria-disabled="false"
-                    data-pc-section="headeraction"
-                    phx-click="change_settings_tab"
-                    phx-value-tab="subscription"
-                  >
-                    <span class="p-tabview-title" data-pc-section="headertitle">
-                      <.icon name="hero-check-badge-solid" class="w-4 h-4" />&nbsp;Subscription
-                    </span>
-                  </a>
-                </li>
-
-                <li
-                  class={[
-                    "p-unselectable-text",
-                    classes("p-tabview-selected p-highlight": @active_settings_tab == "import")
-                  ]}
-                  role="presentation"
-                  data-pc-name=""
-                  data-pc-section="header"
-                >
-                  <a
-                    role="tab"
-                    class="p-tabview-nav-link flex p-[10px]"
-                    tabindex="-1"
-                    aria-controls="pr_id_331_content"
-                    aria-selected="false"
-                    aria-disabled="false"
-                    data-pc-section="headeraction"
-                    phx-click="change_settings_tab"
-                    phx-value-tab="import"
-                  >
-                    <span class="p-tabview-title" data-pc-section="headertitle">
-                      <.icon name="hero-document-arrow-down-solid" class="w-4 h-4" />&nbsp;Import/Export
-                    </span>
-                  </a>
-                </li>
-                <li
-                  :if={not WandererApp.Env.public_api_disabled?()}
-                  class={[
-                    "p-unselectable-text",
-                    classes(
-                      "p-tabview-selected p-highlight": @active_settings_tab == "public_api"
-                    )
-                  ]}
-                  role="presentation"
-                  data-pc-name=""
-                  data-pc-section="header"
-                >
-                  <a
-                    role="tab"
-                    class="p-tabview-nav-link flex p-[10px]"
-                    tabindex="-1"
-                    aria-controls="pr_id_335_content"
-                    aria-selected="false"
-                    aria-disabled="false"
-                    data-pc-section="headeraction"
-                    phx-click="change_settings_tab"
-                    phx-value-tab="public_api"
-                  >
-                    <span class="p-tabview-title" data-pc-section="headertitle">
-                      <.icon name="hero-globe-alt-solid" class="w-4 h-4" />&nbsp;Public Api
-                    </span>
-                  </a>
-                </li>
-                <li
-                  :if={@map_subscriptions_enabled?}
-                  class={[
-                    "p-unselectable-text",
-                    classes("p-tabview-selected p-highlight": @active_settings_tab == "bot")
-                  ]}
-                  role="presentation"
-                  data-pc-name=""
-                  data-pc-section="header"
-                >
-                  <a
-                    role="tab"
-                    class="p-tabview-nav-link flex p-[10px]"
-                    tabindex="-1"
-                    aria-controls="pr_id_335_content"
-                    aria-selected="false"
-                    aria-disabled="false"
-                    data-pc-section="headeraction"
-                    phx-click="change_settings_tab"
-                    phx-value-tab="bot"
-                  >
-                    <span class="p-tabview-title" data-pc-section="headertitle">
-                      <.icon name="hero-puzzle-piece-solid" class="w-4 h-4" />&nbsp;Bots
-                    </span>
-                  </a>
-                </li>
-                <li
-                  class={[
-                    "p-unselectable-text",
-                    classes(
-                      "p-tabview-selected p-highlight": @active_settings_tab == "notifications"
-                    )
-                  ]}
-                  role="presentation"
-                  data-pc-name=""
-                  data-pc-section="header"
-                >
-                  <a
-                    role="tab"
-                    class="p-tabview-nav-link flex p-[10px]"
-                    tabindex="-1"
-                    aria-controls="pr_id_335_content"
-                    aria-selected="false"
-                    aria-disabled="false"
-                    data-pc-section="headeraction"
-                    phx-click="change_settings_tab"
-                    phx-value-tab="notifications"
-                  >
-                    <span class="p-tabview-title" data-pc-section="headertitle">
-                      <.icon name="hero-bell-alert-solid" class="w-4 h-4" />&nbsp;Notifications
-                    </span>
-                  </a>
+                  </button>
                 </li>
               </ul>
             </div>
           </div>
           <div class="p-tabview-panels" data-pc-section="panelcontainer">
             <div
-              id="pr_id_330_content"
+              id="map-settings-tabpanel"
               class="p-tabview-panel"
               role="tabpanel"
-              aria-labelledby="pr_id_33_header_0"
+              aria-labelledby={"map-settings-tab-#{@active_settings_tab}"}
               data-pc-name=""
               data-pc-section="content"
             >

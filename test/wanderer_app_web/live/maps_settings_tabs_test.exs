@@ -42,7 +42,7 @@ defmodule WandererAppWeb.MapsSettingsTabsTest do
 
   defp selected_tab_count(view, tab) do
     view
-    |> element("li.p-tabview-selected a[phx-value-tab='#{tab}']")
+    |> element("li.p-tabview-selected button[phx-value-tab='#{tab}']")
     |> has_element?()
   end
 
@@ -60,6 +60,61 @@ defmodule WandererAppWeb.MapsSettingsTabsTest do
       view = open_settings(conn, map)
 
       assert selected_tab_count(view, "general")
+    end
+
+    # The tab strip was transcribed out of a rendered PrimeReact TabView, which
+    # left `aria-selected` as a hardcoded literal on all seven tabs: General
+    # permanently claimed to be the selected tab and every other tab
+    # permanently denied it, whatever was actually on screen. It is computed
+    # now, and this is the test that keeps it computed.
+    test "aria-selected follows the active tab", %{conn: conn, map: map} do
+      view = open_settings(conn, map)
+
+      assert has_element?(view, "button[phx-value-tab='general'][aria-selected='true']")
+      assert has_element?(view, "button[phx-value-tab='notifications'][aria-selected='false']")
+
+      push_tab(view, "notifications")
+
+      assert has_element?(view, "button[phx-value-tab='notifications'][aria-selected='true']")
+      assert has_element?(view, "button[phx-value-tab='general'][aria-selected='false']")
+    end
+
+    # `aria-controls` pointed at four ids, three of which did not exist in the
+    # document, and one of which was shared by three different tabs. There is
+    # exactly one panel element; every tab must name it, and the panel must
+    # name whichever tab is showing.
+    test "every tab points at the one real panel, which points back", %{conn: conn, map: map} do
+      view = open_settings(conn, map)
+
+      for tab <- ~w(general import public_api notifications) do
+        assert has_element?(
+                 view,
+                 "button[phx-value-tab='#{tab}'][aria-controls='map-settings-tabpanel']"
+               )
+      end
+
+      assert has_element?(
+               view,
+               "#map-settings-tabpanel[aria-labelledby='map-settings-tab-general']"
+             )
+
+      push_tab(view, "notifications")
+
+      assert has_element?(
+               view,
+               "#map-settings-tabpanel[aria-labelledby='map-settings-tab-notifications']"
+             )
+    end
+
+    # Every tab but General used to be `tabindex="-1"` on an `<a>` with no
+    # `href`: not focusable, and not activatable by Enter even if focused, so
+    # Notifications could not be reached from the keyboard at all.
+    test "tabs are real buttons, not inert anchors", %{conn: conn, map: map} do
+      view = open_settings(conn, map)
+
+      refute has_element?(view, "a[phx-value-tab='notifications']")
+      assert has_element?(view, "button[type='button'][phx-value-tab='notifications']")
+      refute has_element?(view, "[phx-value-tab='notifications'][tabindex='-1']")
     end
   end
 
@@ -98,7 +153,7 @@ defmodule WandererAppWeb.MapsSettingsTabsTest do
       view = open_settings(conn, map)
 
       # The <li> is not rendered ...
-      refute has_element?(view, "a[phx-value-tab='bot']")
+      refute has_element?(view, "button[phx-value-tab='bot']")
 
       # ... and pushing the event directly must not render the panel either.
       push_tab(view, "bot")
