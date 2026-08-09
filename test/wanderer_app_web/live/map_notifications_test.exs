@@ -838,6 +838,72 @@ defmodule WandererAppWeb.MapNotificationsTest do
     end
   end
 
+  # Asserting the button EXISTS is not the same as asserting it works, and the
+  # difference was a crash: `role_label/1` had no `:system` clause while
+  # `remove-webhook` refused that role, and widening the handler without
+  # widening the label raised FunctionClauseError — after the destroy had
+  # committed, so the destination was gone and the tab was down with it. Every
+  # role is clicked here, not just listed.
+  test "every destination can actually be removed", %{conn: conn, map: map} do
+    rec = notification_with_webhooks(map, [:system, :character, :route])
+
+    view = open_notifications(conn, map)
+
+    for {role, label} <- [
+          {"system", "Kill channel"},
+          {"character", "Character kill channel"},
+          {"route", "Route alert channel"}
+        ] do
+      html =
+        view
+        |> edit_row(role)
+        |> element("#webhook-row-#{role} button[phx-click='remove-webhook']")
+        |> render_click()
+
+      # The confirmation names the row the operator clicked, not an internal
+      # role name that appears nowhere on screen.
+      assert html =~ "#{label} removed."
+    end
+
+    # The policy row outlives its destinations — nothing here deletes it, and a
+    # row with no destinations simply delivers nothing.
+    assert {:ok, []} = MapDiscordWebhook.by_notification(rec.id)
+    assert {:ok, _} = MapDiscordNotification.by_map(map.id)
+  end
+
+  test "a rejected URL does not poison the retry", %{conn: conn, map: map} do
+    view = open_notifications(conn, map)
+
+    # First save on a map with no policy row yet: `ensure_notification/1`
+    # commits the row, then the webhook write is rejected. The row is now real
+    # even though the operator saw only an error.
+    edit_row(view, :route)
+
+    bad =
+      view
+      |> form("#webhook-form-route", %{"webhook" => %{"webhook_url" => "not-a-url"}})
+      |> render_submit()
+
+    refute bad =~ "Saved."
+
+    # The correction must succeed. It used to fail with the identity error from
+    # a second `create` for the same map, because the failed attempt left
+    # `@notification` nil.
+    good =
+      view
+      |> form("#webhook-form-route", %{
+        "webhook" => %{"webhook_url" => "https://discord.com/api/webhooks/456/tok"}
+      })
+      |> render_submit()
+
+    assert good =~ "Saved."
+    refute good =~ "already been taken"
+
+    {:ok, rec} = MapDiscordNotification.by_map(map.id)
+    assert {:ok, [webhook]} = MapDiscordWebhook.by_notification(rec.id)
+    assert webhook.role == :route
+  end
+
   # Both of the tests below drive `humanize_error/1` and `fallback_message/1`
   # through an error that carries no message of its own. They used to go through
   # the pane-level destroy; with that gone, the trigger is a destination removed

@@ -323,13 +323,33 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   def handle_event("save-webhook", %{"role" => role, "webhook" => params}, socket) do
     role = parse_role(role)
 
-    with {:ok, rec} <- ensure_notification(socket),
-         {:ok, _} <- save_webhook(rec, socket.assigns.webhooks[role], role, params) do
-      {:noreply,
-       socket
-       |> assign_notification(reload_notification(socket.assigns.map_id))
-       |> put_message(:info, "Saved.")}
-    else
+    case ensure_notification(socket) do
+      {:ok, rec} ->
+        case save_webhook(rec, socket.assigns.webhooks[role], role, params) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> assign_notification(reload_notification(socket.assigns.map_id))
+             |> put_message(:info, "Saved.")}
+
+          {:error, error} ->
+            # `:notification` is assigned even though the save failed, because
+            # by this point the policy row is committed regardless. Leaving it
+            # nil made `ensure_notification/1` try to create it a SECOND time
+            # when the operator corrected the URL and resubmitted, and the
+            # `unique_map_id` identity rejects that — so a rejected URL used to
+            # poison every retry with "has already been taken".
+            #
+            # Only that one key, not `assign_notification/2`: the full cascade
+            # rebuilds `webhook_forms` and `replacing_url?`, which would close
+            # the row and discard the URL the operator is in the middle of
+            # fixing.
+            {:noreply,
+             socket
+             |> assign(:notification, rec)
+             |> put_message(:error, humanize_error(error))}
+        end
+
       {:error, error} ->
         {:noreply, put_message(socket, :error, humanize_error(error))}
     end
@@ -357,7 +377,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             {:noreply,
              socket
              |> assign_notification(reload_notification(socket.assigns.map_id))
-             |> put_message(:info, "#{role_label(role)} destination removed.")}
+             |> put_message(:info, "#{role_label(role)} removed.")}
 
           {:error, error} ->
             {:noreply, put_message(socket, :error, humanize_error(error))}
@@ -704,8 +724,18 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp parse_role(:route), do: :route
   defp parse_role(_), do: :system
 
-  defp role_label(:character), do: "Character"
-  defp role_label(:route), do: "Route"
+  # One clause per role, and every role has one. `:system` was missing while
+  # `remove-webhook` still refused that role; widening the handler without
+  # widening this made removing the kill channel raise FunctionClauseError —
+  # after the destroy had already committed, so the row was gone and the tab
+  # was down.
+  #
+  # The strings are the row titles verbatim, so the confirmation names the
+  # thing the operator just clicked ("Kill channel removed.") rather than a
+  # role name that appears nowhere on screen ("System destination removed.").
+  defp role_label(:system), do: "Kill channel"
+  defp role_label(:character), do: "Character kill channel"
+  defp role_label(:route), do: "Route alert channel"
 
   defp reload_notification(map_id) do
     case MapDiscordNotification.by_map(map_id) do
