@@ -13,21 +13,56 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   hint with a replace flow, like a password field.
 
   The tab is organised around TWO features rather than three peer destinations,
-  because that is what the schema actually models: kill notifications (system
-  channel, required; optional character-channel split; filters) and route
-  alerts (a separate feature borrowing the same webhook plumbing — its own
-  toggle, channel, home system, max jumps and mentions). Four progressive
-  disclosure levels:
+  because that is what the schema actually models: kill notifications (kill
+  channel, optional character-kill-channel split, filters) and route alerts (a
+  separate feature borrowing the same webhook plumbing — its own toggle,
+  channel, home system, max jumps and mentions).
 
-    L0 (no record)  — one URL field, one Connect button.
-    L1 (configured) — status, the wormhole-only toggle, and two collapsed
-                       disclosures (below) plus the danger action.
-    L2 (disclosure) — "Filters and routing": excluded systems, corporation
-                       filter, and the optional character channel.
-    L3 (disclosure) — "Route alerts": toggle, channel, home system, max jumps,
-                       mentions — all in one self-contained section, so its
-                       toggle and its channel can never again end up hundreds
-                       of pixels apart.
+  Neither feature gates the other. There is no "no record yet" screen asking
+  for a kill webhook first: the policy row is created lazily by whichever
+  control the operator touches first (`upsert/2`, `ensure_notification/1`), and
+  `MapDiscordNotification`'s `create` takes an optional `webhook_url` for
+  exactly that reason. An operator who wants route alerts and nothing else
+  configures route alerts and nothing else.
+
+  The organising rule is *show what is true now; everything that changes it
+  goes behind an edit*. At rest the tab is a short list of statements — which
+  destinations exist, where they post, whether they are delivering — and the
+  controls that would change any of that are one click away. This is a hard
+  constraint, not a preference: the settings dialog has no height of its own,
+  so an expanded-by-default tab is a tab whose lower half cannot be reached on
+  a laptop.
+
+  Layout:
+
+    Kill notifications — the two map-level switches (which apply on change),
+                         then the kill channel and the character kill channel
+                         as truth lines with an Edit/Add affordance, then a
+                         "Kill filters" disclosure. The switches sit above both
+                         rows because they govern both.
+    Route alerts       — the toggle, home system and max jumps as one form
+                         (they are validated against each other, so they commit
+                         together) with the one Save that commits them, then
+                         the route channel, then a "Mentions" disclosure.
+    Message region     — the foot of the tab. Every control reports here.
+
+  Every control acts on the thing it sits next to; the tab has no global
+  buttons. The route trio is the only group with a Save at all, and it has one
+  because those three fields cannot commit on change: `route_max_jumps` is
+  typed (a per-keystroke save submits "" mid-edit against an `allow_nil? false`
+  attribute) and the toggle is validated against the home system, so committing
+  it alone reports a missing field the operator has not reached yet. There is
+  deliberately no wholesale "remove everything": each destination has its own
+  Remove, and a policy row with no destinations delivers nothing.
+
+  Warnings and results never render inside a disclosure: something inside a
+  collapsed body has not been shown to anyone.
+
+  Disclosure state (`@open_sections`) and per-row edit state
+  (`@replacing_url?`) both live on the server. Client-only `JS.toggle_class`
+  was tried first and is wrong here: this component re-renders on saves,
+  PubSub ticks and background channel-identity refreshes, each of which
+  re-sends the literal collapsed markup and slams an open section shut.
   """
 
   use WandererAppWeb, :live_component
@@ -151,6 +186,11 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      |> assign_new(:corp_options, fn -> [] end)
      |> assign_new(:corp_search_error, fn -> nil end)
      |> assign_new(:message, fn -> nil end)
+     # Which disclosures are open. `assign_new`, so the set survives every
+     # `update/2` the parent triggers — a save, a PubSub tick or a background
+     # channel-identity refresh must not close a section the operator is
+     # working inside.
+     |> assign_new(:open_sections, fn -> MapSet.new() end)
      # Labels are decoration accumulated from whatever Discord has answered so
      # far, and they deliberately survive `assign_notification/2`: a chip that
      # reads "Scouts" must not flip back to a raw snowflake because the
@@ -165,139 +205,103 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      |> assign_notification(notification)}
   end
 
-  # --- Kill-notification settings (`#discord-notification-form`) ---------
+  # --- Kill switches (`#kill-toggles-form`) -------------------------------
 
-  # Handles BOTH the L0 create submit (webhook_url present, notification nil)
-  # and the L1 settings submit (wh_only only). `notification_attrs/1` reading
-  # `params` rather than a hardcoded field list is what makes this safe for
-  # both: L0's form never renders wh_only, so it is simply absent from
-  # `params` and the resource default (`wh_only: true`) applies untouched. See
-  # `notification_attrs/1`.
+  # The two kill switches apply on change, with no Save of their own. They are
+  # independent booleans with nothing to validate them against, they render as
+  # switches (`.input type="checkbox"` is a PrimeReact switch in this app), and
+  # the chip lists beside them — excluded systems, focus corporations, mention
+  # targets — have always saved immediately. A Save button for two switches was
+  # the third of the five Saves the tab used to carry.
+  #
+  # The route toggle is deliberately NOT in here: it is validated against
+  # `home_system_id`, so it commits together with the home system and the jump
+  # limit through the Save inside the route section. See `save-settings`.
   @impl true
-  def handle_event("save", %{"notification" => params}, socket) do
-    attrs = notification_attrs(params)
-
-    result =
-      case socket.assigns.notification do
-        nil ->
-          create_with_system_webhook(socket.assigns.map_id, attrs, params["webhook_url"])
-
-        rec ->
-          # Deliberately NOT `webhook_url`: that moved to the child resource and
-          # is no longer an accepted input here — passing it raises NoSuchInput
-          # at runtime. URLs are saved through "save-webhook".
-          MapDiscordNotification.update(rec, attrs)
-      end
-
-    case result do
+  def handle_event("toggle-setting", %{"notification" => params}, socket) do
+    case upsert(socket, notification_attrs(params)) do
       {:ok, rec} ->
-        {:noreply, socket |> assign_notification(rec) |> put_message(:kills, :info, "Saved.")}
+        {:noreply, assign_notification(socket, rec)}
 
       {:error, error} ->
-        {:noreply, put_message(socket, :kills, :error, humanize_error(error))}
-    end
-  end
-
-  # Purely client-display dirty tracking for the L1 settings form: the only
-  # signal Save needs is "does this differ from the persisted record", so it
-  # is computed here rather than persisted. Fires on every keystroke/tick in
-  # `#discord-notification-form`, which at L1 holds only `wh_only`.
-  #
-  # The form is rebuilt from `params`, not left alone — #130. A checkbox
-  # renders `checked` from its form value, so re-rendering against the
-  # unchanged form emits the box UNCHECKED and LiveView patches the user's
-  # tick straight back out. Nothing here is persisted; `wh_only` is still
-  # only ever written by "save".
-  #
-  # Unlike #130 this needs no `webhook_url` blanking: the L1 form does not
-  # render that field at all. The credential lives on the mutually exclusive
-  # L0 create form (`is_nil(@notification)`), which deliberately carries no
-  # `phx-change`, so no submitted params containing a webhook URL ever reach
-  # a `to_form/2` call.
-  def handle_event("kills-form-change", %{"notification" => params}, socket) do
-    rec = socket.assigns.notification
-
-    dirty? =
-      changed?(params, "enabled", rec.enabled?, &checked?/1) or
-        changed?(params, "wh_only", rec.wh_only, &checked?/1)
-
-    {:noreply,
-     socket
-     |> assign(:form, rebuild_form(params, kills_form_values(rec)))
-     |> assign(:dirty, Map.put(socket.assigns.dirty, :kills, dirty?))}
-  end
-
-  # --- Route alerts (`#route-alerts-form`) --------------------------------
-
-  def handle_event("save-route", %{"notification" => params}, socket) do
-    case socket.assigns.notification do
-      nil ->
+        # Re-assigning the unchanged record is what puts the switch back where
+        # it was: a checkbox renders `checked` from its form value, so
+        # rebuilding the form from the record reverts the optimistic flip the
+        # browser already painted.
         {:noreply,
-         put_message(socket, :route, :error, "Save the map's kill notification settings first.")}
-
-      rec ->
-        case resolve_home_system(params) do
-          {:ok, params} -> save_route(socket, rec, params)
-          {:error, message} -> {:noreply, put_home_system_error(socket, message)}
-        end
+         socket
+         |> assign_notification(socket.assigns.notification)
+         |> put_message(:error, humanize_error(error))}
     end
   end
 
-  # Three jobs on every change of the route form: keep `route_toggle` (which
+  # --- Route alerts and their Save (`#notification-settings-form`) ---------
+
+  def handle_event("save-settings", %{"notification" => params}, socket) do
+    case resolve_home_system(params) do
+      {:ok, params} ->
+        case upsert(socket, notification_attrs(params)) do
+          {:ok, rec} ->
+            {:noreply,
+             socket
+             |> assign_notification(rec)
+             |> assign(:home_system_error, nil)
+             |> put_message(:info, "Saved.")}
+
+          {:error, error} ->
+            {:noreply, put_message(socket, :error, humanize_error(error))}
+        end
+
+      {:error, message} ->
+        {:noreply, put_home_system_error(socket, message)}
+    end
+  end
+
+  # Three jobs on every change of the settings form: keep `route_toggle` (which
   # fields below are enabled — D4, disable rather than hide) in step with the
   # unsaved checkbox state, rebuild the form so the tick survives the
   # round-trip (#130 — a checkbox renders `checked` from its form value, so
   # re-rendering against the unchanged form patches the user's tick back out
-  # and Save then posts `false`), and keep the route Save button's dirty gate
-  # honest. All three are purely client-display; the persisted values only
-  # ever change through "save-route".
+  # and Save then posts `false`), and keep the Save button's dirty gate honest.
+  # All three are purely client-display; the persisted values only ever change
+  # through "save-settings".
   #
   # Rebuilt from `params` rather than by patching one key, so anything already
   # typed into `home_system_id` / `route_max_jumps` is preserved instead of
   # being reset to the last-saved record on every tick. This form carries no
   # `webhook_url`, so #130's credential-blanking step has nothing to do here.
-  def handle_event("route-form-change", %{"notification" => params}, socket) do
+  def handle_event("settings-change", %{"notification" => params}, socket) do
     rec = socket.assigns.notification
 
     dirty? =
-      changed?(params, "route_alerts_enabled", rec.route_alerts_enabled?, &checked?/1) or
-        changed?(params, "home_system_id", rec.home_system_id, &parse_home_system_id/1) or
-        changed?(params, "route_max_jumps", rec.route_max_jumps, &parse_route_max_jumps/1)
+      changed?(params, "route_alerts_enabled", current_route_alerts?(rec), &checked?/1) or
+        changed?(params, "home_system_id", current_home_system_id(rec), &parse_home_system_id/1) or
+        changed?(
+          params,
+          "route_max_jumps",
+          current_route_max_jumps(rec),
+          &parse_route_max_jumps/1
+        )
 
     {:noreply,
      socket
      |> assign(:route_toggle, checked?(params["route_alerts_enabled"]))
-     |> assign(:route_form, rebuild_form(params, route_form_values(rec)))
-     |> assign(:dirty, Map.put(socket.assigns.dirty, :route, dirty?))}
-  end
-
-  # The inline remedy on the "switched off, but this channel is configured"
-  # warning (D4.2): saves immediately rather than only flipping the unsaved
-  # checkbox, because the warning exists precisely because a config can sit in
-  # this state indefinitely without anyone pressing Save. If `home_system_id`
-  # is nil the Ash "required when enabled" validation fires and lands in the
-  # route panel — that is correct, not a bug: enabling from here does not
-  # bypass the same validation the settings form is subject to.
-  def handle_event("enable-route-alerts", _params, socket) do
-    case socket.assigns.notification do
-      nil ->
-        {:noreply, socket}
-
-      rec ->
-        case MapDiscordNotification.update(rec, %{route_alerts_enabled?: true}) do
-          {:ok, updated} ->
-            {:noreply,
-             socket
-             |> assign_notification(updated)
-             |> put_message(:route, :info, "Route alerts enabled.")}
-
-          {:error, error} ->
-            {:noreply, put_message(socket, :route, :error, humanize_error(error))}
-        end
-    end
+     |> assign(:settings_form, rebuild_form(params, route_form_values(rec)))
+     |> assign(:dirty, dirty?)}
   end
 
   # --- Webhook destinations (system / character / route rows) ------------
+
+  def handle_event("toggle-section", %{"section" => section}, socket) do
+    open = socket.assigns.open_sections
+
+    open =
+      if MapSet.member?(open, section),
+        do: MapSet.delete(open, section),
+        else: MapSet.put(open, section)
+
+    {:noreply, assign(socket, :open_sections, open)}
+  end
 
   def handle_event("replace-url", %{"role" => role}, socket) do
     {:noreply, put_replacing(socket, parse_role(role), true)}
@@ -311,51 +315,76 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     {:noreply, put_replacing(socket, parse_role(role), false)}
   end
 
+  # Creates the policy row on demand. Any destination can be the first one
+  # configured on a map — including `:route`, which is the whole point of the
+  # resource's `webhook_url` argument having become optional. Before that, the
+  # only way to reach this screen's route half was to configure a kill channel
+  # you might not want.
   def handle_event("save-webhook", %{"role" => role, "webhook" => params}, socket) do
     role = parse_role(role)
-    scope = webhook_scope(role)
 
-    with %{} = rec <- socket.assigns.notification,
-         {:ok, _} <- save_webhook(rec, socket.assigns.webhooks[role], role, params) do
-      {:noreply,
-       socket
-       |> assign_notification(reload_notification(socket.assigns.map_id))
-       |> put_message(scope, :info, "Saved.")}
-    else
+    case ensure_notification(socket) do
+      {:ok, rec} ->
+        case save_webhook(rec, socket.assigns.webhooks[role], role, params) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> assign_notification(reload_notification(socket.assigns.map_id))
+             |> put_message(:info, "Saved.")}
+
+          {:error, error} ->
+            # `:notification` is assigned even though the save failed, because
+            # by this point the policy row is committed regardless. Leaving it
+            # nil made `ensure_notification/1` try to create it a SECOND time
+            # when the operator corrected the URL and resubmitted, and the
+            # `unique_map_id` identity rejects that — so a rejected URL used to
+            # poison every retry with "has already been taken".
+            #
+            # Only that one key, not `assign_notification/2`: the full cascade
+            # rebuilds `webhook_forms` and `replacing_url?`, which would close
+            # the row and discard the URL the operator is in the middle of
+            # fixing.
+            {:noreply,
+             socket
+             |> assign(:notification, rec)
+             |> put_message(:error, humanize_error(error))}
+        end
+
       {:error, error} ->
-        {:noreply, put_message(socket, scope, :error, humanize_error(error))}
-
-      _ ->
-        {:noreply,
-         put_message(socket, scope, :error, "Save the map's notification settings first.")}
+        {:noreply, put_message(socket, :error, humanize_error(error))}
     end
   end
 
   def handle_event("remove-webhook", %{"role" => role}, socket) do
-    # `:character` and `:route` are removable; `:system` is required —
-    # removing notifications entirely means deleting the parent record.
+    # All three destinations are removable. `:system` used to be exempt on the
+    # grounds that "removing notifications entirely means deleting the parent
+    # record" — true while a pane-level destroy existed and while `create`
+    # required a kill webhook, and false now that neither does. Leaving it
+    # exempt would have made the kill channel the one destination on the tab
+    # that could be added but never taken away.
+    #
     # Removing `:character` falls back to `:system`; removing `:route` does
     # NOT — route alerts stop entirely, because the Router deliberately has no
-    # fallback for chain topology.
+    # fallback for chain topology. Removing `:system` stops kill delivery for
+    # systems on the map, and `Router.usable/1` drops the destination rather
+    # than routing elsewhere.
     role = parse_role(role)
-    scope = webhook_scope(role)
 
     case {role, socket.assigns.webhooks[role]} do
-      {role, %{} = webhook} when role in [:character, :route] ->
+      {role, %{} = webhook} when role in [:system, :character, :route] ->
         case MapDiscordWebhook.destroy(webhook) do
           :ok ->
             {:noreply,
              socket
              |> assign_notification(reload_notification(socket.assigns.map_id))
-             |> put_message(scope, :info, "#{role_label(role)} destination removed.")}
+             |> put_message(:info, "#{role_label(role)} removed.")}
 
           {:error, error} ->
-            {:noreply, put_message(socket, scope, :error, humanize_error(error))}
+            {:noreply, put_message(socket, :error, humanize_error(error))}
         end
 
       _ ->
-        {:noreply,
-         put_message(socket, scope, :error, "The system destination cannot be removed.")}
+        {:noreply, put_message(socket, :error, "That destination is not configured.")}
     end
   end
 
@@ -494,7 +523,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
          {id, ""} <- Integer.parse(to_string(raw)) do
       update_excluded(socket, rec, Enum.uniq([id | rec.excluded_systems]))
     else
-      _ -> {:noreply, put_message(socket, :kills, :error, "Pick a system from the list.")}
+      _ -> {:noreply, put_message(socket, :error, "Pick a system from the list.")}
     end
   end
 
@@ -506,7 +535,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
          {id, ""} <- Integer.parse(to_string(raw)) do
       update_excluded(socket, rec, Enum.reject(rec.excluded_systems, &(&1 == id)))
     else
-      _ -> {:noreply, put_message(socket, :kills, :error, "Could not remove that system.")}
+      _ -> {:noreply, put_message(socket, :error, "Could not remove that system.")}
     end
   end
 
@@ -519,7 +548,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
          {id, ""} <- Integer.parse(to_string(raw)) do
       update_focus_corps(socket, rec, Enum.uniq(rec.focus_corp_ids ++ [id]))
     else
-      _ -> {:noreply, put_message(socket, :kills, :error, "Pick a corporation from the list.")}
+      _ -> {:noreply, put_message(socket, :error, "Pick a corporation from the list.")}
     end
   end
 
@@ -528,24 +557,21 @@ defmodule WandererAppWeb.MapNotificationsComponent do
          {id, ""} <- Integer.parse(to_string(raw)) do
       update_focus_corps(socket, rec, Enum.reject(rec.focus_corp_ids, &(&1 == id)))
     else
-      _ -> {:noreply, put_message(socket, :kills, :error, "Could not remove that corporation.")}
+      _ -> {:noreply, put_message(socket, :error, "Could not remove that corporation.")}
     end
   end
 
   def handle_event("send-test", %{"webhook_id" => webhook_id}, socket) do
-    scope = webhook_scope(role_for_webhook_id(socket.assigns.webhooks, webhook_id))
-
     case send_test(socket, webhook_id) do
       # `:ok` means the message was ENQUEUED — the last hop is an async cast, so
       # this must not claim Discord accepted it.
       :ok ->
-        {:noreply, put_message(socket, scope, :info, "Test message queued.")}
+        {:noreply, put_message(socket, :info, "Test message queued.")}
 
       {:error, :notifications_disabled} ->
         {:noreply,
          put_message(
            socket,
-           scope,
            :error,
            "Discord notifications are disabled on this server. Ask an administrator to enable them."
          )}
@@ -554,7 +580,6 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         {:noreply,
          put_message(
            socket,
-           scope,
            :error,
            "This destination is disabled. Enable it and save before sending a test message."
          )}
@@ -564,7 +589,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       # but a user can do nothing about either except save a URL, and this
       # wording is brief-mandated verbatim.
       {:error, reason} when reason in [:webhook_not_found, :webhook_url_missing] ->
-        {:noreply, put_message(socket, scope, :error, "Save a webhook URL first.")}
+        {:noreply, put_message(socket, :error, "Save a webhook URL first.")}
 
       {:error, other} ->
         # `inspect(other)` here put the raw failure term — which can carry the
@@ -574,34 +599,24 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         {:noreply,
          put_message(
            socket,
-           scope,
            :error,
            "Could not send a test message. Check the webhook URL and try again."
          )}
     end
   end
 
-  def handle_event("delete", _params, socket) do
-    case socket.assigns.notification do
-      nil ->
-        {:noreply, socket}
+  # There is deliberately no "remove everything" event. Each destination has its
+  # own Remove, and a policy row with no destinations delivers nothing — so the
+  # only thing a wholesale destroy did that the per-row removes do not was
+  # discard invisible filter and mention state, at the cost of parking the
+  # tab's most destructive control in a permanent action bar.
 
-      rec ->
-        # The resource's custom destroy invalidates the config cache and stops
-        # the delivery workers; the webhook children cascade with the parent.
-        case WandererApp.Api.MapDiscordNotification.destroy(rec) do
-          :ok ->
-            {:noreply,
-             socket |> assign_notification(nil) |> put_message(:kills, :info, "Removed.")}
-
-          {:error, error} ->
-            {:noreply, put_message(socket, :kills, :error, humanize_error(error))}
-        end
-    end
-  end
-
-  defp put_message(socket, scope, kind, text) do
-    assign(socket, :message, %{scope: scope, kind: kind, text: text})
+  # One message region for the whole pane, at its foot. It used to be two
+  # (`scope: :kills | :route`), which only made sense while the tab had a Save
+  # per section and the two sections were far enough apart that a result had to
+  # land next to the control that produced it.
+  defp put_message(socket, kind, text) do
+    assign(socket, :message, %{kind: kind, text: text})
   end
 
   # `webhook_id` arrives from the client as `phx-value-webhook_id`, and
@@ -627,24 +642,6 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       _webhook -> WandererApp.ExternalEvents.DiscordDispatcher.send_test_message(webhook_id)
     end
   end
-
-  # Which role a webhook id belongs to, so a message produced by "send-test"
-  # (which only receives the id) lands in the panel that contains that
-  # destination. `nil` (id not found / not yet known) falls back to the kills
-  # panel — every send-test button is reachable from a row that lives inside
-  # either the kills card or one of its disclosures, and the kills panel is
-  # the only one always on screen.
-  defp role_for_webhook_id(webhooks, webhook_id) do
-    Enum.find_value(webhooks, fn {role, wh} -> match?(%{id: ^webhook_id}, wh) && role end)
-  end
-
-  # Maps a destination to the message panel that contains it (D2): a
-  # channel's own save/test/remove result must land where the user is looking,
-  # not at the top of a two-thousand-pixel page.
-  defp webhook_scope(:system), do: :kills
-  defp webhook_scope(:character), do: :kills
-  defp webhook_scope(:route), do: :route
-  defp webhook_scope(nil), do: :kills
 
   # `mention_targets` is deliberately absent from every branch here. It left
   # this form in D3 and is now chip state saved by its own events — passing it
@@ -678,20 +675,36 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     MapDiscordWebhook.update(webhook, %{enabled?: checked?(params["enabled"])})
   end
 
-  # Creating the config and its required `:system` destination is one user
-  # action. Task 2's `create` takes `webhook_url` as a required argument and
-  # creates the `:system` child through `manage_relationship` in the SAME
-  # transaction, so there is no window in which a parent exists without a
-  # destination. Do not split this into two calls with a compensating cleanup:
-  # the two-step version fails outright (`create` rejects a missing
-  # `webhook_url`) and its explicit child create would collide with Task 1's
-  # (notification_id, role) identity.
-  defp create_with_system_webhook(map_id, attrs, url) do
-    attrs
-    |> Map.put(:map_id, map_id)
-    |> Map.put(:webhook_url, url)
-    |> MapDiscordNotification.create()
+  # Every write on this tab funnels through here: the policy row is created
+  # lazily by whichever control the operator touched first, with no webhook
+  # attached. `create`'s `webhook_url` argument is optional for exactly this
+  # (map_discord_notification.ex) — the destinations are then added through
+  # "save-webhook" like any later one.
+  defp upsert(socket, attrs) do
+    case socket.assigns.notification do
+      nil -> attrs |> Map.put(:map_id, socket.assigns.map_id) |> MapDiscordNotification.create()
+      rec -> MapDiscordNotification.update(rec, attrs)
+    end
   end
+
+  defp ensure_notification(socket) do
+    case socket.assigns.notification do
+      nil -> MapDiscordNotification.create(%{map_id: socket.assigns.map_id})
+      rec -> {:ok, rec}
+    end
+  end
+
+  # Record-or-default readers, so the dirty gate and the form values work the
+  # same before and after the policy row exists. Each mirrors the resource's
+  # own default for the attribute.
+  defp current_route_alerts?(nil), do: false
+  defp current_route_alerts?(%{route_alerts_enabled?: value}), do: value
+
+  defp current_home_system_id(nil), do: nil
+  defp current_home_system_id(%{home_system_id: value}), do: value
+
+  defp current_route_max_jumps(nil), do: @default_route_max_jumps
+  defp current_route_max_jumps(%{route_max_jumps: value}), do: value
 
   defp put_replacing(socket, role, value) do
     assign(socket, :replacing_url?, Map.put(socket.assigns.replacing_url?, role, value))
@@ -711,8 +724,18 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp parse_role(:route), do: :route
   defp parse_role(_), do: :system
 
-  defp role_label(:character), do: "Character"
-  defp role_label(:route), do: "Route"
+  # One clause per role, and every role has one. `:system` was missing while
+  # `remove-webhook` still refused that role; widening the handler without
+  # widening this made removing the kill channel raise FunctionClauseError —
+  # after the destroy had already committed, so the row was gone and the tab
+  # was down.
+  #
+  # The strings are the row titles verbatim, so the confirmation names the
+  # thing the operator just clicked ("Kill channel removed.") rather than a
+  # role name that appears nowhere on screen ("System destination removed.").
+  defp role_label(:system), do: "Kill channel"
+  defp role_label(:character), do: "Character kill channel"
+  defp role_label(:route), do: "Route alert channel"
 
   defp reload_notification(map_id) do
     case MapDiscordNotification.by_map(map_id) do
@@ -727,7 +750,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         {:noreply, assign_notification(socket, updated)}
 
       {:error, error} ->
-        {:noreply, put_message(socket, :kills, :error, humanize_error(error))}
+        {:noreply, put_message(socket, :error, humanize_error(error))}
     end
   end
 
@@ -737,7 +760,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         {:noreply, assign_notification(socket, updated)}
 
       {:error, error} ->
-        {:noreply, put_message(socket, :kills, :error, humanize_error(error))}
+        {:noreply, put_message(socket, :error, humanize_error(error))}
     end
   end
 
@@ -785,13 +808,13 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     |> assign(:notification, notification)
     |> assign(:webhooks, webhooks)
     |> assign(:collisions, ChannelInfo.colliding_roles(webhooks))
-    |> assign(:route_toggle, !is_nil(notification) and notification.route_alerts_enabled?)
-    |> assign(:dirty, %{kills: false, route: false})
+    |> assign(:route_toggle, current_route_alerts?(notification))
+    |> assign(:dirty, false)
     |> assign(:excluded_systems, excluded_system_labels(notification))
     |> assign(:focus_corps, focus_corp_labels(notification))
     |> assign(:home_system_options, home_system_options(notification))
-    |> assign(:form, kills_form(notification))
-    |> assign(:route_form, route_form(notification))
+    |> assign(:kills_form, kills_form(notification))
+    |> assign(:settings_form, route_form(notification))
     |> assign(:webhook_forms, webhook_forms(webhooks))
     |> assign(:excluded_form, to_form(%{"excluded_system" => nil}, as: :excluded))
     |> assign(:focus_corp_form, to_form(%{"focus_corp" => nil}, as: :focus_corp))
@@ -902,16 +925,23 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   defp mention_picker_available?(_assigns), do: true
 
+  # Every one of these is read by an operator who is mid-task and wants to know
+  # whether they can proceed. So each says what still works (typing ids always
+  # does), and the one with an actionable cause names it: searching by name
+  # needs a bot token, `DISCORD_BOT_TOKEN`, set on the server — which is a
+  # deployment change, not something this screen can offer a button for.
   defp mention_unavailable_reason(%{guild_roles: {:error, :no_bot_token}}),
-    do: "This instance has no Discord bot configured, so names cannot be searched."
+    do:
+      "Searching Discord names needs a bot token (DISCORD_BOT_TOKEN) on the server, and this " <>
+        "one has none. Mentions still work — paste the user or role id instead."
 
   defp mention_unavailable_reason(%{guild_roles: {:error, :no_guild}}),
     do:
-      "The guild for this channel is not known yet. It resolves once the bot can see the " <>
-        "channel; until then, add ids manually."
+      "The Discord server behind this channel is not known yet. It resolves once the bot can " <>
+        "see the channel; until then, paste ids instead."
 
   defp mention_unavailable_reason(%{guild_roles: {:error, _reason}}),
-    do: "Add the bot to this guild to search names."
+    do: "The bot cannot read this Discord server, so names cannot be searched. Paste ids instead."
 
   defp mention_unavailable_reason(_assigns), do: nil
 
@@ -970,7 +1000,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     case socket.assigns.webhooks[:route] do
       nil ->
         {:noreply,
-         put_message(socket, :route, :error, "Add a route alert channel before setting mentions.")}
+         put_message(socket, :error, "Add a route alert channel before setting mentions.")}
 
       webhook ->
         targets =
@@ -984,7 +1014,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
              |> assign(:mention_error, nil)}
 
           {:error, error} ->
-            {:noreply, put_message(socket, :route, :error, humanize_error(error))}
+            {:noreply, put_message(socket, :error, humanize_error(error))}
         end
     end
   end
@@ -1017,16 +1047,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     end
   end
 
-  # A destination with no stored URL is always in "replace" (i.e. entry) mode;
-  # one with a URL starts masked. Recomputed on every record change so that
-  # saving a URL collapses the field back to the masked hint.
-  defp assign_replacing(socket, webhooks) do
-    replacing =
-      Map.new(@roles, fn role ->
-        {role, is_nil(Map.get(webhooks, role))}
-      end)
-
-    assign(socket, :replacing_url?, replacing)
+  # A destination is in entry mode only when the operator asked for it, via
+  # "Add" (no webhook yet) or "Edit" (replacing a stored URL). It used to open
+  # automatically for every unconfigured role, which was invisible while the
+  # character and route rows were themselves hidden behind a link and a
+  # disclosure. Now that all three rows always render, auto-opening would put
+  # three credential fields on screen before the operator has asked for one.
+  defp assign_replacing(socket, _webhooks) do
+    assign(socket, :replacing_url?, Map.new(@roles, &{&1, false}))
   end
 
   defp load_webhooks(nil), do: %{system: nil, character: nil, route: nil}
@@ -1064,15 +1092,17 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp rebuild_form(params, base) do
     base
     |> Map.merge(params)
-    |> Map.put("webhook_url", "")
     |> to_form(as: :notification)
   end
 
   defp kills_form(notification), do: to_form(kills_form_values(notification), as: :notification)
 
+  # No `webhook_url` here any more. It existed for the old "no record yet"
+  # create form, which asked for a kill webhook before the tab would show
+  # anything else. Destinations are now added through their own rows, at any
+  # time, in any order.
   defp kills_form_values(notification) do
     %{
-      "webhook_url" => "",
       "enabled" => is_nil(notification) or notification.enabled?,
       "wh_only" => is_nil(notification) or notification.wh_only
     }
@@ -1085,18 +1115,15 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       # Unlike wh_only/enabled, this one defaults OFF (Task 3: `default:
       # false`) — `is_nil(notification) or ...` would default it ON, which
       # is backwards for this field.
-      "route_alerts_enabled" => !is_nil(notification) and notification.route_alerts_enabled?,
+      "route_alerts_enabled" => current_route_alerts?(notification),
       "home_system_id" => home_system_id_value(notification),
-      "route_max_jumps" => route_max_jumps_value(notification)
+      "route_max_jumps" => current_route_max_jumps(notification)
     }
   end
 
   defp home_system_id_value(nil), do: ""
   defp home_system_id_value(%{home_system_id: nil}), do: ""
   defp home_system_id_value(%{home_system_id: id}), do: to_string(id)
-
-  defp route_max_jumps_value(nil), do: @default_route_max_jumps
-  defp route_max_jumps_value(%{route_max_jumps: n}), do: n
 
   # Blank or non-numeric input clears the home system rather than raising —
   # the Ash "required when enabled" validation is what reports that, not this
@@ -1106,20 +1133,6 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     case Integer.parse(to_string(raw || "")) do
       {id, ""} -> id
       _ -> nil
-    end
-  end
-
-  defp save_route(socket, rec, params) do
-    case MapDiscordNotification.update(rec, notification_attrs(params)) do
-      {:ok, updated} ->
-        {:noreply,
-         socket
-         |> assign_notification(updated)
-         |> assign(:home_system_error, nil)
-         |> put_message(:route, :info, "Saved.")}
-
-      {:error, error} ->
-        {:noreply, put_message(socket, :route, :error, humanize_error(error))}
     end
   end
 
@@ -1477,43 +1490,14 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # the channel's own "#name", and the fallback is a truncated non-reversible
   # digest that is never derived from the token.
   #
-  # D4: the label alone cannot say what it IS. `#kills` read off the channel and
-  # `#kills` typed as a webhook's nickname are the same string, and only
-  # `source` separates them — labelling the second one "Channel:" is the bug
-  # this rework exists partly to fix. So the two prefixes are only ever spoken
-  # when the source earns them, and `:unknown` (a row written before the source
-  # column existed) and `:masked` make no claim at all.
-  #
-  # Returns `{sentence_case_prefix, lowercase_word, label}` — the two forms the
-  # label appears in, "Channel: #kills" in the row and "Posting to channel
-  # #kills" in the status line, resolved once so they cannot drift apart.
-  defp identity_parts(%{label: label, source: :channel}) when is_binary(label),
-    do: {"Channel", "channel", label}
-
-  defp identity_parts(%{label: label, source: :webhook_name}) when is_binary(label),
-    do: {"Webhook", "webhook", label}
-
-  defp identity_parts(%{label: label}) when is_binary(label), do: {nil, nil, label}
-  defp identity_parts(_no_info), do: nil
-
-  defp channel_identity(info) do
-    case identity_parts(info) do
-      {nil, _word, label} -> label
-      {prefix, _word, label} -> "#{prefix}: #{label}"
-      nil -> nil
-    end
-  end
-
-  defp posting_to(info) do
-    case identity_parts(info) do
-      {_prefix, nil, label} -> label
-      {_prefix, word, label} -> "#{word} #{label}"
-      nil -> nil
-    end
-  end
-
-  defp webhook_named?(%{source: :webhook_name}), do: true
-  defp webhook_named?(_info), do: false
+  # The label is spoken plainly, with no "Channel:" / "Webhook:" prefix. Whether
+  # Discord answered from the channel or from the webhook's own nickname is a
+  # distinction about how the name was *fetched*, not about where the messages
+  # land — and the operator has nothing to do differently either way. `source`
+  # is still persisted (`channel_label_source`) because it separates a masked
+  # fingerprint from a known name, which is what `masked?` below turns on.
+  defp channel_label(%{label: label}) when is_binary(label), do: label
+  defp channel_label(_no_info), do: nil
 
   # Roles whose destination resolves to the same Discord channel as `role`.
   # `ChannelInfo.colliding_roles/1` groups on the resolved `channel_id` where it
@@ -1581,7 +1565,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # channel was deleted, a refresh still in flight) for that to be the common
   # first impression rather than an edge case.
   defp status_line(webhook, channel_info) do
-    case posting_to(channel_info) do
+    case channel_label(channel_info) do
       nil -> last_kill_text(webhook)
       destination -> "Posting to #{destination} · #{last_kill_text(webhook)}"
     end
@@ -1642,35 +1626,26 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp focus_corp_count_label(1), do: "1 corporation"
   defp focus_corp_count_label(n), do: "#{n} corporations"
 
-  # Never collapse a problem (D5). Under D2 that is enforced by *placement*
-  # rather than by an initial-state computation: every save/test result renders
-  # in its card's message region, which is never inside a disclosure, and the
-  # one remaining disclosure badges its own trouble. The `filters_expanded?/7`
-  # and `route_expanded?/3` predicates this used to need are gone with it.
-  defp route_badge(nil, _route_webhook), do: "Off"
-
-  defp route_badge(%{route_alerts_enabled?: true}, route_webhook) do
-    if route_destination_ready?(route_webhook), do: "On", else: "On — no channel ready"
-  end
-
-  defp route_badge(%{route_alerts_enabled?: false}, route_webhook) do
-    if route_destination_ready?(route_webhook), do: "Off — channel configured", else: "Off"
-  end
-
   # --- Function components ---------------------------------------------
 
-  # D5's disclosure mechanism: client-side only (`JS.toggle_class`), following
-  # the one existing precedent in the app
-  # (characters_live.html.heex:92) rather than inventing a parallel pattern or
-  # round-tripping open/closed state through the server.
+  # Open/closed lives in `@open_sections` on the server, not in a
+  # `JS.toggle_class` on the client. The client-only version was the pattern
+  # copied from characters_live.html.heex, and it is wrong for this panel: every
+  # save, every background channel-identity refresh and every PubSub-driven
+  # re-render re-sends this markup with its literal `hidden` and its literal
+  # `aria-expanded="false"`, slamming an open section shut mid-edit and leaving
+  # the toggled attribute claiming the opposite of what is on screen. Round-trip
+  # cost is one small diff; the alternative is state that silently desyncs.
   #
-  # Always starts collapsed (D2). It used to start open whenever its body held
-  # a problem, which made the initial state depend on transient message state;
-  # the cause is gone instead — results render in a card-level message region
-  # that is never collapsed, and `@badge` reports trouble inside the body.
+  # Sections start collapsed. They used to start open whenever the body held a
+  # problem, which made the initial state depend on transient message state; the
+  # cause is gone instead — results render in a card-level message region that
+  # is never collapsed, and `@badge` reports trouble inside the body.
   attr :id, :string, required: true
   attr :title, :string, required: true
   attr :badge, :string, default: nil
+  attr :open?, :boolean, default: false
+  attr :myself, :any, required: true
   slot :inner_block, required: true
 
   defp disclosure(assigns) do
@@ -1678,17 +1653,18 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     <div class="rounded border border-white/10">
       <button
         type="button"
-        aria-expanded="false"
+        aria-expanded={to_string(@open?)}
         aria-controls={"#{@id}-body"}
-        phx-click={
-          JS.toggle_class("hidden", to: "##{@id}-body")
-          |> JS.toggle_class("rotate-90", to: "##{@id}-caret")
-          |> JS.toggle_attribute({"aria-expanded", "true", "false"})
-        }
+        phx-click="toggle-section"
+        phx-value-section={@id}
+        phx-target={@myself}
         class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
       >
         <span class="flex items-center gap-2 text-sm font-semibold">
-          <span id={"#{@id}-caret"} aria-hidden="true" class="inline-block transition-transform">
+          <span
+            aria-hidden="true"
+            class={["inline-block transition-transform", @open? && "rotate-90"]}
+          >
             ▸
           </span>
           {@title}
@@ -1696,31 +1672,35 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         <span :if={@badge} class="text-xs opacity-70">{@badge}</span>
       </button>
 
-      <div id={"#{@id}-body"} class="hidden flex-col gap-3 border-t border-white/10 p-3">
+      <%!-- Toggled by class, not by `:if`: `aria-controls` above must resolve
+            to a real element even while collapsed, and the LiveSelect hooks
+            inside these bodies would be destroyed and re-mounted if the markup
+            left the DOM. The `hidden` class rather than the HTML attribute,
+            because a utility-layer `flex` would win over preflight's
+            `[hidden] { display: none }`. --%>
+      <div
+        id={"#{@id}-body"}
+        class={[
+          "flex-col gap-3 border-t border-white/10 p-3",
+          if(@open?, do: "flex", else: "hidden")
+        ]}
+      >
         {render_slot(@inner_block)}
       </div>
     </div>
     """
   end
 
-  # D2's per-panel flash: one `@message` assign shaped
-  # `%{scope:, kind:, text:}`, rendered once per panel via `scope`. Only the
-  # panel that matches `@message.scope` ever shows anything, so a save on one
-  # channel cannot be mistaken for a save on another.
+  # One message region for the whole tab, at its foot. It used to be two, keyed
+  # by a `scope` on the message — which only made sense while the tab had a Save
+  # per section and those sections were far enough apart that a result had to
+  # land next to the control that produced it. Every control now acts where it
+  # stands, so there is one place a result belongs, in view from all of them.
   attr :message, :any, default: nil
-  attr :scope, :atom, required: true
 
-  # The id is load-bearing for the tests: with the filters body permanently
-  # collapsed (D2), "the message rendered" and "the message rendered somewhere
-  # the map owner can see it" are different claims, and only a selector rooted
-  # at the card level can tell them apart.
   defp panel_message(assigns) do
     ~H"""
-    <p
-      :if={@message && @message.scope == @scope}
-      id={"panel-message-#{@scope}"}
-      class={message_class(@message.kind)}
-    >
+    <p :if={@message} id="panel-message" class={message_class(@message.kind)}>
       {@message.text}
     </p>
     """
@@ -1772,16 +1752,20 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   attr :role, :atom, required: true
   attr :title, :string, required: true
-  attr :help, :string, required: true
+  # Why an operator would want this destination, in one line. Shown whenever
+  # the row is not configured — the state in which that question is actually
+  # being asked — and while editing, where it explains what is being replaced.
+  # Suppressed on a configured, closed row, where the channel name on the same
+  # line already answers it.
+  attr :help, :string, default: nil
   attr :webhook, :any, required: true
   attr :form, :any, required: true
   attr :replacing?, :boolean, required: true
   attr :removable?, :boolean, required: true
-  # The system row's own delivery status is promoted to the card level (P1
+  # The kill row's delivery status is promoted to the card level (P1
   # hierarchy) — the status line and failure line live just above this
-  # component in L1, so repeating them here would be the exact "identical to
-  # the help text above it" problem being fixed. Character/route rows have no
-  # card-level equivalent and keep their own status block.
+  # component, so repeating them here would be the exact "identical to the help
+  # text above it" problem being fixed. The other rows keep their own status.
   attr :show_status?, :boolean, default: true
   # What the status block says when nothing has ever been delivered. The
   # default is the kill wording because two of the three rows are kill
@@ -1796,112 +1780,128 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   defp webhook_row(assigns) do
     ~H"""
-    <div id={"webhook-row-#{@role}"} class="flex flex-col gap-2">
-      <h4 class="text-sm font-semibold">{@title}</h4>
-      <p class="text-xs opacity-70">{@help}</p>
+    <div id={"webhook-row-#{@role}"} class="flex flex-col gap-1">
+      <%!-- Closed — configured or not. One line of truth: what this row is,
+            where it posts (or that it does not), whether that is working, and
+            the one control that opens everything else. The URL field, the
+            enabled toggle, Save, test and remove all live behind Edit/Add,
+            because none of them describe the current state and all of them
+            cost vertical space on every render of a tab that already does not
+            fit.
+
+            An unconfigured row renders here too, rather than opening its form
+            on sight. All three destinations are always listed now, and three
+            credential fields on arrival is not an introduction to a feature —
+            it is a form nobody asked for.
+
+            A degraded or disabled destination still says so here rather than
+            auto-expanding: expanding would put a credential field on screen
+            unasked, and the operator needs to read the fault before deciding
+            to touch the URL. --%>
+      <div :if={!@replacing?} class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <h4 class="text-sm font-semibold">{@title}</h4>
+
+        <span :if={@webhook && channel_label(@channel_info)} class="text-sm opacity-70">
+          {channel_label(@channel_info)}
+        </span>
+        <span :if={is_nil(@webhook)} class="text-sm opacity-50">Not set</span>
+
+        <span
+          :if={@webhook && @show_status?}
+          class={["text-xs font-semibold", status_class(status_state(@webhook))]}
+        >
+          ● {status_label(status_state(@webhook))}
+        </span>
+
+        <.button
+          type="button"
+          variant={:ghost}
+          phx-click="replace-url"
+          phx-value-role={@role}
+          phx-target={@myself}
+        >
+          {if @webhook, do: "Edit", else: "Add"}
+        </.button>
+      </div>
+
+      <p
+        :if={@webhook && !@replacing? && @show_status? && @webhook.last_error}
+        class="text-sm text-amber-400"
+      >
+        Last error: {@webhook.last_error}
+        <span :if={@webhook.consecutive_failures > 0}>
+          ({@webhook.consecutive_failures} consecutive failures)
+        </span>
+      </p>
+
+      <p :if={@help && (is_nil(@webhook) || @replacing?)} class="text-xs opacity-70">{@help}</p>
 
       <.form
         :let={wf}
+        :if={@replacing?}
         for={@form}
         id={"webhook-form-#{@role}"}
         phx-submit="save-webhook"
         phx-value-role={@role}
         phx-target={@myself}
-        class="flex flex-col gap-2"
+        class="flex flex-col gap-2 pt-1"
       >
         <.input
-          :if={@replacing?}
           field={wf[:webhook_url]}
           type="password"
           label="Discord webhook URL"
-          placeholder="https://discord.com/api/webhooks/..."
+          placeholder={
+            if @webhook,
+              do: "Leave blank to keep the current URL",
+              else: "https://discord.com/api/webhooks/..."
+          }
           autocomplete="off"
         />
 
-        <div :if={!@replacing? && @webhook} class="flex flex-col gap-1">
-          <div class="flex items-center gap-2">
-            <span class="text-sm opacity-70">{channel_identity(@channel_info)}</span>
-            <.button
-              type="button"
-              variant={:ghost}
-              phx-click="replace-url"
-              phx-value-role={@role}
-              phx-target={@myself}
-            >
-              Edit
-            </.button>
-          </div>
-
-          <%!-- Why this destination is named after a webhook rather than a
-                channel. Without it, "Webhook: Zoo Killfeed" looks like a
-                different kind of destination instead of the same one with a
-                weaker answer. --%>
-          <p :if={webhook_named?(@channel_info)} class="text-xs opacity-70">
-            This is the webhook's own name. Discord only tells us the channel name when
-            this instance's bot is in that server.
-          </p>
-        </div>
-
-        <.button
-          :if={@replacing? && @webhook}
-          type="button"
-          variant={:ghost}
-          class="self-start"
-          phx-click="cancel-replace"
-          phx-value-role={@role}
-          phx-target={@myself}
-        >
-          Cancel
-        </.button>
-
         <.input :if={@webhook} field={wf[:enabled]} type="checkbox" label="Enabled" />
 
-        <.button type="submit" variant={:primary} class="self-start">
-          {if @webhook, do: "Save", else: "Add"}
-        </.button>
-      </.form>
-
-      <div :if={@webhook} class="flex items-center gap-2">
-        <.button
-          type="button"
-          phx-click="send-test"
-          phx-value-webhook_id={@webhook.id}
-          phx-target={@myself}
-        >
-          Send test message
-        </.button>
-        <.button
-          :if={@removable?}
-          type="button"
-          variant={:danger}
-          class="self-start"
-          phx-click="remove-webhook"
-          phx-value-role={@role}
-          phx-target={@myself}
-          data-confirm="Remove this Discord destination?"
-        >
-          Remove
-        </.button>
-      </div>
-
-      <div :if={@webhook && @show_status?} class="flex flex-col gap-1 text-sm">
-        <span :if={@webhook.last_delivery_at} class="opacity-70">
-          Last delivered: {Calendar.strftime(@webhook.last_delivery_at, "%Y-%m-%d %H:%M UTC")}
-        </span>
-        <span :if={is_nil(@webhook.last_delivery_at)} class="opacity-70">
-          {@empty_status_text}
-        </span>
-
-        <span :if={@webhook.last_error} class="text-amber-400">
-          Last error: {@webhook.last_error}
-          <span :if={@webhook.consecutive_failures > 0}>
-            ({@webhook.consecutive_failures} consecutive failures)
+        <div :if={@webhook} class="text-sm opacity-70">
+          <span :if={@webhook.last_delivery_at}>
+            Last delivered: {Calendar.strftime(@webhook.last_delivery_at, "%Y-%m-%d %H:%M UTC")}
           </span>
-        </span>
-        <span :if={!@webhook.enabled?} class="text-amber-400">
-          This destination is disabled and is not delivering.
-        </span>
-      </div>
+          <span :if={is_nil(@webhook.last_delivery_at)}>{@empty_status_text}</span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <.button type="submit" variant={:primary}>
+            {if @webhook, do: "Save", else: "Add"}
+          </.button>
+          <.button
+            type="button"
+            variant={:ghost}
+            phx-click="cancel-replace"
+            phx-value-role={@role}
+            phx-target={@myself}
+          >
+            Cancel
+          </.button>
+          <.button
+            :if={@webhook}
+            type="button"
+            phx-click="send-test"
+            phx-value-webhook_id={@webhook.id}
+            phx-target={@myself}
+          >
+            Send test message
+          </.button>
+          <.button
+            :if={@webhook && @removable?}
+            type="button"
+            variant={:danger}
+            phx-click="remove-webhook"
+            phx-value-role={@role}
+            phx-target={@myself}
+            data-confirm="Remove this Discord destination?"
+          >
+            Remove
+          </.button>
+        </div>
+      </.form>
     </div>
     """
   end
@@ -1926,13 +1926,12 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   defp mentions_section(assigns) do
     ~H"""
-    <div id="route-mentions" class="flex flex-col gap-3 rounded border border-white/10 p-3">
-      <div>
-        <h4 class="text-sm font-semibold">Mentions</h4>
-        <p class="text-xs opacity-70">
-          Who to ping when a route opens. Leave both empty to post with no ping.
-        </p>
-      </div>
+    <div id="route-mentions" class="flex flex-col gap-3">
+      <%!-- No heading or border of its own: this now renders inside the
+            "Mentions" disclosure, which supplies both. --%>
+      <p class="text-xs opacity-70">
+        Who to ping when a route opens. Leave both empty to post with no ping.
+      </p>
 
       <.mention_group
         kind={:role}
@@ -2078,34 +2077,27 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   attr :notification, :any, required: true
   attr :webhooks, :any, required: true
   attr :route_toggle, :boolean, required: true
-  attr :myself, :any, required: true
 
-  # D4's reachable warning, rendered at card level OUTSIDE either disclosure so
-  # a configured-but-inert route destination is visible without opening
-  # anything. Both halves of the "disable, don't hide" fix live here: the
-  # alerts-on-but-no-channel case is the pre-existing guard made reachable at
-  # all times, and the alerts-off-but-configured case is the P0 this rework
-  # was written for.
+  # D4's reachable warning: both halves of "disable, don't hide". The
+  # alerts-on-but-no-channel case is the pre-existing guard; the
+  # alerts-off-but-configured case is the P0 this rework was written for.
+  #
+  # Neither carries an action button any more. "Enable route alerts" was a
+  # second, differently-shaped control for a checkbox that is now three lines
+  # away and always visible — two places to do one thing, one of which
+  # committed immediately while the other waited for Save.
   defp route_alert_banner(assigns) do
     ~H"""
     <p
       :if={route_alert_on_no_channel?(@notification, @webhooks[:route], @route_toggle)}
       class="text-sm text-amber-400"
     >
-      Route alerts are on, but no Route alert channel is ready — nothing is being sent.
+      Route alerts are on, but no route alert channel is ready — nothing is being sent.
     </p>
 
-    <div
-      :if={route_inert?(@notification, @webhooks[:route])}
-      class="flex items-center gap-2 text-sm text-amber-400"
-    >
-      <span>
-        Route alerts are switched off, but this channel is configured — nothing is being sent to it.
-      </span>
-      <.button type="button" phx-click="enable-route-alerts" phx-target={@myself}>
-        Enable route alerts
-      </.button>
-    </div>
+    <p :if={route_inert?(@notification, @webhooks[:route])} class="text-sm text-amber-400">
+      Route alerts are switched off, but this channel is configured — nothing is being sent to it.
+    </p>
     """
   end
 
@@ -2113,292 +2105,258 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   def render(assigns) do
     ~H"""
     <div id={@id} class="flex max-w-3xl flex-col gap-4">
-      <p class="text-sm opacity-70">
-        Posts kills to Discord, and optionally alerts when a highsec route to Jita
-        opens. The kill filters below are separate from the Kills widget's own
-        filters, which are per-user and only affect what you see in the map UI —
-        and they do not apply to route alerts.
-      </p>
-
-      <div :if={is_nil(@notification)} class="flex flex-col gap-3 rounded border border-white/10 p-3">
-        <h3 class="text-base font-semibold">Kill notifications</h3>
-
-        <.panel_message message={@message} scope={:kills} />
-
-        <.form
-          :let={f}
-          for={@form}
-          id="discord-notification-form"
-          phx-submit="save"
-          phx-target={@myself}
-          class="flex flex-col gap-3"
-        >
-          <.input
-            field={f[:webhook_url]}
-            type="password"
-            label="Discord webhook URL"
-            placeholder="https://discord.com/api/webhooks/..."
-            autocomplete="off"
-          />
-
-          <.button type="submit" variant={:primary} class="self-start">Connect</.button>
-        </.form>
-      </div>
-
-      <div :if={@notification} class="flex flex-col gap-3 rounded border border-white/10 p-3">
-        <div class="flex items-center justify-between gap-2">
+      <%!-- One card, two subsections, no global controls. There is no longer a
+            separate "no record yet" screen asking for a kill webhook before
+            anything else appears: kills and route alerts are independent
+            features that happen to share a policy row, and gating the second
+            on the first made an implementation detail into a setup step. The
+            row is created lazily by whichever control is touched first (see
+            `upsert/2`). --%>
+      <div class="flex flex-col gap-4 rounded border border-white/10 p-3">
+        <div class="flex flex-col gap-3">
           <h3 class="text-base font-semibold">Kill notifications</h3>
-          <span class={["text-xs font-semibold", status_class(status_state(@webhooks[:system]))]}>
-            ● {status_label(status_state(@webhooks[:system]))}
-          </span>
-        </div>
 
-        <p class="text-sm opacity-70">{status_line(@webhooks[:system], @channel_hints[:system])}</p>
-        <p :if={@webhooks[:system] && @webhooks[:system].last_error} class="text-sm text-amber-400">
-          Last error: {@webhooks[:system].last_error}
-          <span :if={@webhooks[:system].consecutive_failures > 0}>
-            ({@webhooks[:system].consecutive_failures} consecutive failures)
-          </span>
-        </p>
-        <.collision_warning role={:system} collisions={@collisions} />
+          <%!-- The two switches sit ABOVE both destination rows, because they
+                govern both. Underneath the character row — where they used to
+                be — they read as that row's settings, which is exactly
+                backwards for "Send kill notifications": it is the map-level
+                master switch.
 
-        <.webhook_row
-          role={:system}
-          title="System channel"
-          help="Receives kills that happen in systems on this map."
-          webhook={@webhooks[:system]}
-          channel_info={@channel_hints[:system]}
-          form={@webhook_forms[:system]}
-          replacing?={@replacing_url?[:system]}
-          removable?={false}
-          show_status?={false}
-          myself={@myself}
-        />
-
-        <%!-- Promoted out of the filters disclosure (D1): a delivery
-              destination is a peer of the system channel, not a filter. It
-              still collapses behind one link when absent, because the minimum
-              viable config is a single pasted URL. CSS-only toggle, so the row
-              stays in the DOM and `#webhook-form-character` keeps existing. --%>
-        <button
-          type="button"
-          id="character-channel-toggle"
-          class={[
-            "text-left text-sm underline opacity-80 hover:opacity-100",
-            @webhooks[:character] && "hidden"
-          ]}
-          phx-click={
-            JS.toggle_class("hidden", to: "#character-channel-toggle")
-            |> JS.toggle_class("hidden", to: "#character-channel-body")
-          }
-        >
-          + Add a separate channel
-        </button>
-
-        <div
-          id="character-channel-body"
-          class={["flex flex-col gap-2", is_nil(@webhooks[:character]) && "hidden"]}
-        >
-          <.webhook_row
-            role={:character}
-            title="Character channel"
-            help={
-              "Receives kills involving characters tracked on this map, wherever they happen. " <>
-                "Leave it unset and those kills go to the system channel instead."
-            }
-            webhook={@webhooks[:character]}
-            channel_info={@channel_hints[:character]}
-            form={@webhook_forms[:character]}
-            replacing?={@replacing_url?[:character]}
-            removable?={true}
-            myself={@myself}
-          />
-
-          <.collision_warning role={:character} collisions={@collisions} />
-        </div>
-
-        <.panel_message message={@message} scope={:kills} />
-
-        <.form
-          :let={f}
-          for={@form}
-          id="discord-notification-form"
-          phx-submit="save"
-          phx-change="kills-form-change"
-          phx-target={@myself}
-          class="flex flex-col gap-2"
-        >
-          <%!-- The record-level master switch. It is deliberately still here
-                at L1 and not folded into the per-destination `enabled?` on the
-                webhook rows: this one stops kill notifications for the whole
-                map in one tick, and without it the only way to stop delivery
-                would be "Remove all Discord notifications", which also throws
-                away every filter and channel the user has configured. --%>
-          <.input field={f[:enabled]} type="checkbox" label="Send kill notifications" />
-          <.input field={f[:wh_only]} type="checkbox" label="Only wormhole kills" />
-
-          <.button type="submit" variant={:primary} class="self-start" disabled={not @dirty.kills}>
-            Save
-          </.button>
-        </.form>
-
-        <.disclosure
-          id="filters-disclosure"
-          title="Kill filters"
-          badge={
-            filters_badge(@excluded_systems, @focus_corps, @system_search_error, @corp_search_error)
-          }
-        >
-          <div class="flex flex-col gap-2">
-            <h4 class="text-sm font-semibold">Excluded systems</h4>
-
-            <ul class="flex flex-wrap gap-2">
-              <li :for={{system_id, label} <- @excluded_systems}>
-                <.chip
-                  label={label}
-                  phx-click="remove-excluded"
-                  phx-value-system_id={system_id}
-                  phx-target={@myself}
-                />
-              </li>
-            </ul>
-
-            <%!-- Height matching, without predicting either box: `compact` makes the
-                  field wrapper exactly as tall as its input, `!py-0` drops the
-                  button's vertical padding so its intrinsic height (one line of
-                  text) is always shorter than the input's, and the grid row is
-                  therefore sized by the field. `items-stretch` then gives the
-                  button that exact height. Nothing here depends on the button and
-                  the input agreeing on font size, padding or line-height, which
-                  they do not. --%>
-            <.form
-              :let={ef}
-              for={@excluded_form}
-              id="excluded-system-form"
-              phx-submit="add-excluded"
-              phx-target={@myself}
-              class="grid items-stretch gap-2"
-              style="grid-template-columns: 1fr auto"
-            >
-              <.live_select
-                field={ef[:excluded_system]}
-                id={@excluded_select_id}
-                phx-target={@myself}
-                dropdown_extra_class="!h-24"
-                compact={true}
-                debounce={250}
-                update_min_len={@min_search_length}
-                mode={:single}
-                options={@system_options}
-                placeholder="Search a system by name"
-              />
-              <.button type="submit" class="!py-0 inline-flex items-center justify-center">
-                Add
-              </.button>
-            </.form>
-
-            <p :if={@system_search_error} class="text-sm text-amber-400">{@system_search_error}</p>
-          </div>
-
-          <div class="flex flex-col gap-2">
-            <h4 class="text-sm font-semibold">Corporation filter</h4>
-            <%!-- Two sentences, by D10. The full routing rules — that a
-                  corporation match replaces the tracked-character test rather
-                  than widening it, and bypasses the excluded-system and
-                  wormhole-only filters — are in docs/ZOO-FORK.md under
-                  "Kill filter semantics". A four-sentence paragraph next to an
-                  input is not read; it is scrolled past. --%>
-            <p class="text-xs opacity-70">
-              When set, the character channel follows these corporations instead of this
-              map's tracked characters. Leave it empty to use the tracked characters.
-            </p>
-
-            <ul class="flex flex-wrap gap-2">
-              <li :for={{corp_id, label} <- @focus_corps}>
-                <.chip
-                  label={label}
-                  phx-click="remove-focus-corp"
-                  phx-value-corp_id={corp_id}
-                  phx-target={@myself}
-                />
-              </li>
-            </ul>
-
-            <p :if={@current_user.characters in [nil, []]} class="text-sm text-amber-400">
-              Add a character to this account to search corporations.
-            </p>
-
-            <.form
-              :let={cf}
-              :if={@current_user.characters not in [nil, []]}
-              for={@focus_corp_form}
-              id="focus-corp-form"
-              phx-submit="add-focus-corp"
-              phx-target={@myself}
-              class="grid items-stretch gap-2"
-              style="grid-template-columns: 1fr auto"
-            >
-              <.live_select
-                field={cf[:focus_corp]}
-                id={@focus_corp_select_id}
-                phx-target={@myself}
-                dropdown_extra_class="!h-24"
-                compact={true}
-                debounce={250}
-                update_min_len={@corp_min_search_length}
-                mode={:single}
-                options={@corp_options}
-                placeholder="Search a corporation by name"
-              />
-              <.button type="submit" class="!py-0 inline-flex items-center justify-center">
-                Add
-              </.button>
-            </.form>
-
-            <p :if={@corp_search_error} class="text-sm text-amber-400">{@corp_search_error}</p>
-          </div>
-        </.disclosure>
-      </div>
-
-      <div :if={@notification} class="flex flex-col gap-3 rounded border border-white/10 p-3">
-        <div class="flex items-center justify-between gap-2">
-          <h3 class="text-base font-semibold">Route alerts</h3>
-          <span class="text-xs opacity-70">{route_badge(@notification, @webhooks[:route])}</span>
-        </div>
-
-        <.panel_message message={@message} scope={:route} />
-
-        <.route_alert_banner
-          notification={@notification}
-          webhooks={@webhooks}
-          route_toggle={@route_toggle}
-          myself={@myself}
-        />
-
-        <.form
-          :let={rf}
-          for={@route_form}
-          id="route-alerts-form"
-          phx-submit="save-route"
-          phx-change="route-form-change"
-          phx-target={@myself}
-          class="flex flex-col gap-2"
-        >
-          <%!-- The same `phx-change` as the enclosing form, declared on the
-                  checkbox itself as well. An input-level `phx-change` still
-                  serialises the whole form, so the handler receives exactly
-                  the same params either way — but it makes the toggle
-                  independently addressable, which is how both the tests and
-                  the #130 regression drive it. --%>
-          <.input
-            field={rf[:route_alerts_enabled]}
-            type="checkbox"
-            label="Route alerts (highsec route to Jita)"
-            phx-change="route-form-change"
+                They apply on change, with no Save of their own. A checkbox
+                whose effect is deferred to a button somewhere below the fold
+                is a checkbox that lies about its own state, and these two are
+                the controls an operator reaches for in a hurry. The route
+                fields cannot do this — they are validated against each other
+                — which is what the one Save at the bottom is for. --%>
+          <.form
+            :let={f}
+            for={@kills_form}
+            id="kill-toggles-form"
+            phx-change="toggle-setting"
             phx-target={@myself}
+            class="flex flex-col gap-2"
+          >
+            <.input field={f[:enabled]} type="checkbox" label="Send kill notifications" />
+            <.input field={f[:wh_only]} type="checkbox" label="Only wormhole kills" />
+          </.form>
+
+          <p :if={@webhooks[:system]} class="text-sm opacity-70">
+            {status_line(@webhooks[:system], @channel_hints[:system])}
+          </p>
+          <p :if={@webhooks[:system] && @webhooks[:system].last_error} class="text-sm text-amber-400">
+            Last error: {@webhooks[:system].last_error}
+            <span :if={@webhooks[:system].consecutive_failures > 0}>
+              ({@webhooks[:system].consecutive_failures} consecutive failures)
+            </span>
+          </p>
+
+          <div class="flex flex-col gap-3">
+            <.webhook_row
+              role={:system}
+              title="Kill channel"
+              help="Where kills on this map are posted."
+              webhook={@webhooks[:system]}
+              channel_info={@channel_hints[:system]}
+              form={@webhook_forms[:system]}
+              replacing?={@replacing_url?[:system]}
+              removable?={true}
+              show_status?={false}
+              myself={@myself}
+            />
+            <.collision_warning role={:system} collisions={@collisions} />
+
+            <%!-- Always listed, rather than hidden behind "+ Add a separate
+                  channel". That link asked the operator to commit before it
+                  would say what they were committing to, and the row it
+                  revealed was titled differently from the link that revealed
+                  it. A named row with "Not set" beside it answers the
+                  question — is there one, and what would it do — without
+                  costing anything but a line. --%>
+            <.webhook_row
+              role={:character}
+              title="Character kill channel"
+              help="Optional second channel for kills involving characters tracked on this map, wherever they happen. Leave it unset and those kills go to the kill channel with the rest."
+              webhook={@webhooks[:character]}
+              channel_info={@channel_hints[:character]}
+              form={@webhook_forms[:character]}
+              replacing?={@replacing_url?[:character]}
+              removable?={true}
+              myself={@myself}
+            />
+            <.collision_warning role={:character} collisions={@collisions} />
+          </div>
+
+          <.disclosure
+            id="filters-disclosure"
+            title="Kill filters"
+            open?={MapSet.member?(@open_sections, "filters-disclosure")}
+            myself={@myself}
+            badge={
+              filters_badge(@excluded_systems, @focus_corps, @system_search_error, @corp_search_error)
+            }
+          >
+            <%!-- The one sentence kept from the tab's old intro paragraph. It
+                  sits here rather than at the top because it disambiguates these
+                  filters specifically, and at the top it was answering a question
+                  nobody had yet asked about a section that was collapsed. --%>
+            <p class="text-xs opacity-70">
+              Separate from the Kills widget's own filters, which are per-user and only
+              change what you see on the map. Neither applies to route alerts.
+            </p>
+
+            <div class="flex flex-col gap-2">
+              <h4 class="text-sm font-semibold">Excluded systems</h4>
+
+              <ul class="flex flex-wrap gap-2">
+                <li :for={{system_id, label} <- @excluded_systems}>
+                  <.chip
+                    label={label}
+                    phx-click="remove-excluded"
+                    phx-value-system_id={system_id}
+                    phx-target={@myself}
+                  />
+                </li>
+              </ul>
+
+              <%!-- Height matching, without predicting either box: `compact` makes the
+                    field wrapper exactly as tall as its input, `!py-0` drops the
+                    button's vertical padding so its intrinsic height (one line of
+                    text) is always shorter than the input's, and the grid row is
+                    therefore sized by the field. `items-stretch` then gives the
+                    button that exact height. Nothing here depends on the button and
+                    the input agreeing on font size, padding or line-height, which
+                    they do not. --%>
+              <.form
+                :let={ef}
+                for={@excluded_form}
+                id="excluded-system-form"
+                phx-submit="add-excluded"
+                phx-target={@myself}
+                class="grid items-stretch gap-2"
+                style="grid-template-columns: 1fr auto"
+              >
+                <.live_select
+                  field={ef[:excluded_system]}
+                  id={@excluded_select_id}
+                  phx-target={@myself}
+                  label="Exclude a system"
+                  dropdown_extra_class="!h-24"
+                  compact={true}
+                  debounce={250}
+                  update_min_len={@min_search_length}
+                  mode={:single}
+                  options={@system_options}
+                  placeholder="Search a system by name"
+                />
+                <.button type="submit" class="!py-0 inline-flex items-center justify-center">
+                  Add
+                </.button>
+              </.form>
+
+              <p :if={@system_search_error} class="text-sm text-amber-400">{@system_search_error}</p>
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <h4 class="text-sm font-semibold">Corporation filter</h4>
+              <%!-- Two sentences, by D10. The full routing rules — that a
+                    corporation match replaces the tracked-character test rather
+                    than widening it, and bypasses the excluded-system and
+                    wormhole-only filters — are in docs/ZOO-FORK.md under
+                    "Kill filter semantics". A four-sentence paragraph next to an
+                    input is not read; it is scrolled past. --%>
+              <p class="text-xs opacity-70">
+                When set, the character kill channel follows these corporations instead of
+                this map's tracked characters. Leave it empty to use the tracked characters.
+              </p>
+
+              <ul class="flex flex-wrap gap-2">
+                <li :for={{corp_id, label} <- @focus_corps}>
+                  <.chip
+                    label={label}
+                    phx-click="remove-focus-corp"
+                    phx-value-corp_id={corp_id}
+                    phx-target={@myself}
+                  />
+                </li>
+              </ul>
+
+              <p :if={@current_user.characters in [nil, []]} class="text-sm text-amber-400">
+                Add a character to this account to search corporations.
+              </p>
+
+              <.form
+                :let={cf}
+                :if={@current_user.characters not in [nil, []]}
+                for={@focus_corp_form}
+                id="focus-corp-form"
+                phx-submit="add-focus-corp"
+                phx-target={@myself}
+                class="grid items-stretch gap-2"
+                style="grid-template-columns: 1fr auto"
+              >
+                <.live_select
+                  field={cf[:focus_corp]}
+                  id={@focus_corp_select_id}
+                  phx-target={@myself}
+                  label="Add a corporation"
+                  dropdown_extra_class="!h-24"
+                  compact={true}
+                  debounce={250}
+                  update_min_len={@corp_min_search_length}
+                  mode={:single}
+                  options={@corp_options}
+                  placeholder="Search a corporation by name"
+                />
+                <.button type="submit" class="!py-0 inline-flex items-center justify-center">
+                  Add
+                </.button>
+              </.form>
+
+              <p :if={@corp_search_error} class="text-sm text-amber-400">{@corp_search_error}</p>
+            </div>
+          </.disclosure>
+        </div>
+
+        <div class="flex flex-col gap-3 border-t border-white/10 pt-4">
+          <h3 class="text-base font-semibold">Route alerts</h3>
+
+          <.route_alert_banner
+            notification={@notification}
+            webhooks={@webhooks}
+            route_toggle={@route_toggle}
           />
 
-          <%!-- Disabled rather than hidden (upstream checklist §5), and disabled
+          <%!-- The three route fields are one form because they are validated
+                against each other: enabling alerts without a home system is
+                rejected by the resource, so the toggle cannot commit on change
+                the way the kill switches do. This is the form the Save button
+                at the bottom of the pane submits, via `form=` — it is a submit
+                button, so no hidden-companion or event-bubbling caveat
+                applies, and a nested <form> would have been dropped by the
+                browser outright. --%>
+          <.form
+            :let={rf}
+            for={@settings_form}
+            id="notification-settings-form"
+            phx-submit="save-settings"
+            phx-change="settings-change"
+            phx-target={@myself}
+            class="flex flex-col gap-2"
+          >
+            <%!-- A checkbox, not a button. "Enable route alerts" was a button
+                  because the fields below it needed a home system before they
+                  could be saved — but that is what the disabled fieldset and
+                  the validation are for, and the operator was left with two
+                  differently-shaped controls for one boolean. --%>
+            <.input
+              field={rf[:route_alerts_enabled]}
+              type="checkbox"
+              label="Send route alerts"
+              phx-change="settings-change"
+              phx-target={@myself}
+            />
+
+            <%!-- Disabled rather than hidden (upstream checklist §5), and disabled
                   through a <fieldset> rather than per-input for two reasons. It
                   natively disables every descendant control including
                   LiveSelect's own text and hidden inputs — `live_select/1`
@@ -2411,98 +2369,122 @@ defmodule WandererAppWeb.MapNotificationsComponent do
                   because `notification_attrs/1` treats an absent key as "leave
                   this field alone" — otherwise pressing Save with alerts off
                   would clear a saved home system. --%>
-          <fieldset disabled={not @route_toggle} class="flex flex-col gap-2 border-0 p-0">
-            <div class="flex flex-col gap-1">
-              <span class="text-sm">Home system</span>
-              <.live_select
-                field={rf[:home_system_id]}
-                id={@home_system_select_id}
-                phx-target={@myself}
-                dropdown_extra_class="!h-24"
-                compact={true}
-                debounce={250}
-                update_min_len={@min_search_length}
-                mode={:single}
-                options={@home_system_options}
-                placeholder="Search a system by name, or enter its solar system ID"
+            <fieldset disabled={not @route_toggle} class="flex flex-col gap-2 border-0 p-0">
+              <div class="flex flex-col gap-1">
+                <%!-- The visible text; the associated label on the combobox
+                    itself is screen-reader-only (see `live_select/1`), so this
+                    is hidden from AT to avoid announcing the name twice. --%>
+                <span class="text-sm" aria-hidden="true">Home system</span>
+                <.live_select
+                  field={rf[:home_system_id]}
+                  id={@home_system_select_id}
+                  phx-target={@myself}
+                  label="Home system"
+                  dropdown_extra_class="!h-24"
+                  compact={true}
+                  debounce={250}
+                  update_min_len={@min_search_length}
+                  mode={:single}
+                  options={@home_system_options}
+                  placeholder="Search a system by name, or enter its solar system ID"
+                />
+                <p :if={@home_system_error} class="text-sm text-red-400">{@home_system_error}</p>
+                <p :if={@home_system_search_error} class="text-sm text-amber-400">
+                  {@home_system_search_error}
+                </p>
+              </div>
+
+              <.input
+                field={rf[:route_max_jumps]}
+                type="number"
+                min={@min_route_max_jumps}
+                max={@max_route_max_jumps}
+                label="Max jumps to Jita (inclusive)"
               />
-              <p :if={@home_system_error} class="text-sm text-red-400">{@home_system_error}</p>
-              <p :if={@home_system_search_error} class="text-sm text-amber-400">
-                {@home_system_search_error}
-              </p>
+            </fieldset>
+
+            <p class="text-xs opacity-70">
+              Posts when a highsec-only route this length or shorter opens from the home
+              system to Jita. Wormhole hops on the way don't count against "highsec" —
+              only k-space systems on the path do.
+            </p>
+
+            <%!-- Inside the form it commits, not in a pane-level action bar. The
+                  three fields above are the only ones on this tab that cannot
+                  apply on change: `route_max_jumps` is typed, so a per-keystroke
+                  save would submit "" mid-edit against an `allow_nil? false`
+                  attribute, and the toggle and home system are interdependent —
+                  `validate_home_system_required/2` rejects "enabled with no home
+                  system", so committing the tick on its own is exactly how an
+                  operator gets told off for a field they have not reached yet.
+                  Everything else on the tab acts where it stands. --%>
+            <div>
+              <.button type="submit" variant={:primary} disabled={not @dirty}>
+                Save route alerts
+              </.button>
             </div>
+          </.form>
 
-            <.input
-              field={rf[:route_max_jumps]}
-              type="number"
-              min={@min_route_max_jumps}
-              max={@max_route_max_jumps}
-              label="Max jumps to Jita (inclusive)"
+          <.webhook_row
+            role={:route}
+            title="Route alert channel"
+            help="Where route alerts are posted. Alerts name every system on the route, unredacted — treat this channel as trusted."
+            webhook={@webhooks[:route]}
+            channel_info={@channel_hints[:route]}
+            form={@webhook_forms[:route]}
+            replacing?={@replacing_url?[:route]}
+            removable?={true}
+            empty_status_text="No route alerts delivered yet."
+            myself={@myself}
+          />
+          <.collision_warning role={:route} collisions={@collisions} />
+
+          <.disclosure
+            :if={@webhooks[:route]}
+            id="mentions-disclosure"
+            title="Mentions"
+            open?={MapSet.member?(@open_sections, "mentions-disclosure")}
+            myself={@myself}
+            badge={mentions_badge(@mention_users, @mention_roles)}
+          >
+            <.mentions_section
+              users={@mention_users}
+              roles={@mention_roles}
+              labels={@mention_labels}
+              guild_roles={@guild_roles}
+              picker_available?={mention_picker_available?(assigns)}
+              unavailable_reason={mention_unavailable_reason(assigns)}
+              user_select_id={@mention_user_select_id}
+              role_select_id={@mention_role_select_id}
+              user_options={@mention_user_options}
+              role_options={@mention_role_options}
+              search_error={@mention_search_error}
+              error={@mention_error}
+              myself={@myself}
             />
-          </fieldset>
-
-          <p class="text-xs opacity-70">
-            Posts when a highsec-only route this length or shorter opens from the home
-            system to Jita. Wormhole hops on the way don't count against "highsec" —
-            only k-space systems on the path do.
-          </p>
-
-          <.button type="submit" variant={:primary} class="self-start" disabled={not @dirty.route}>
-            Save
-          </.button>
-        </.form>
-
-        <.webhook_row
-          role={:route}
-          title="Route alert channel"
-          help={
-              "Receives an alert when a highsec-only route opens from the home system to Jita. " <>
-                "This message names every system on the route in order. Treat this channel as " <>
-                "trusted; there is no redacted version of it. Route alerts are sent here and " <>
-                "nowhere else — leave it unset and no route alerts are sent at all."
-            }
-          webhook={@webhooks[:route]}
-          channel_info={@channel_hints[:route]}
-          form={@webhook_forms[:route]}
-          replacing?={@replacing_url?[:route]}
-          removable?={true}
-          empty_status_text="No route alerts delivered yet."
-          myself={@myself}
-        />
-
-        <.mentions_section
-          :if={@webhooks[:route]}
-          users={@mention_users}
-          roles={@mention_roles}
-          labels={@mention_labels}
-          guild_roles={@guild_roles}
-          picker_available?={mention_picker_available?(assigns)}
-          unavailable_reason={mention_unavailable_reason(assigns)}
-          user_select_id={@mention_user_select_id}
-          role_select_id={@mention_role_select_id}
-          user_options={@mention_user_options}
-          role_options={@mention_role_options}
-          search_error={@mention_search_error}
-          error={@mention_error}
-          myself={@myself}
-        />
-
-        <.collision_warning role={:route} collisions={@collisions} />
+          </.disclosure>
+        </div>
       </div>
 
-      <div :if={@notification} class="flex items-center gap-2">
-        <.button
-          type="button"
-          variant={:danger}
-          class="self-start"
-          phx-click="delete"
-          phx-target={@myself}
-          data-confirm="Remove Discord notifications for this map?"
-        >
-          Remove all Discord notifications
-        </.button>
+      <%!-- The message region is shared: every control on this tab reports here,
+            not just the one Save. It sits at the foot because that is the one
+            place in view from any of them. --%>
+      <div class="flex flex-wrap items-center gap-3">
+        <.panel_message message={@message} />
       </div>
     </div>
     """
   end
+
+  defp mentions_badge([], []), do: "None"
+
+  defp mentions_badge(users, roles) do
+    [count_label(length(roles), "role"), count_label(length(users), "user")]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(", ")
+  end
+
+  defp count_label(0, _noun), do: nil
+  defp count_label(1, noun), do: "1 #{noun}"
+  defp count_label(n, noun), do: "#{n} #{noun}s"
 end
