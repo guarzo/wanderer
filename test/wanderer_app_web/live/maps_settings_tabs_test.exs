@@ -78,6 +78,17 @@ defmodule WandererAppWeb.MapsSettingsTabsTest do
 
       assert selected_tab_count(view, "common")
     end
+
+    # Tabs used to be `tabindex="-1"` anchors with no `href`: not focusable,
+    # and not activatable by Enter even if focused, so Notifications could not
+    # be reached from the keyboard at all.
+    test "tabs are real buttons, not inert anchors", %{conn: conn, map: map} do
+      view = open_settings(conn, map)
+
+      refute has_element?(view, "a[phx-value-tab='notifications']")
+      assert has_element?(view, "button[type='button'][phx-value-tab='notifications']")
+      refute has_element?(view, "[phx-value-tab='notifications'][tabindex='-1']")
+    end
   end
 
   describe "unknown tab values are ignored" do
@@ -130,7 +141,7 @@ defmodule WandererAppWeb.MapsSettingsTabsTest do
       view = open_settings(conn, map)
 
       # The <li> is not rendered ...
-      refute has_element?(view, "a[phx-value-tab='bot']")
+      refute has_element?(view, "button[phx-value-tab='bot']")
 
       # ... and pushing the event directly must not render the panel either.
       push_tab(view, "bot")
