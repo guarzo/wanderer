@@ -6,6 +6,7 @@ import type { SystemSignature } from '@/hooks/Mapper/types/signatures';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { useMapEventListener } from '@/hooks/Mapper/events';
 import { useMapState } from '../MapProvider';
+import { computeSignatureAge } from '../helpers/signatureAge';
 import { useUnsplashedSignatures } from './useUnsplashedSignatures';
 
 const zkillboardBaseURL = 'https://zkillboard.com';
@@ -215,22 +216,9 @@ export function useNodeSignatures(systemId: string): SystemSignature[] {
 }
 
 /**
- * Helper to map signature age (in hours) to a bookmark color.
- */
-function getBookmarkColor(signatureAgeHours: number): { color: string; age: number } {
-  if (signatureAgeHours < 4) {
-    return { color: '#388E3C', age: signatureAgeHours };
-  } else if (signatureAgeHours >= 4 && signatureAgeHours <= 8) {
-    return { color: '#E65100', age: signatureAgeHours };
-  } else if (signatureAgeHours > 8 && signatureAgeHours <= 12) {
-    return { color: '#B71C1C', age: signatureAgeHours };
-  } else {
-    return { color: '#388E3C', age: -1 };
-  }
-}
-
-/**
- * Computes the age of the most recently updated wormhole signature.
+ * Computes how long ago this system was last scanned.
+ *
+ * See `computeSignatureAge` for which signatures count and why.
  */
 export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
   const [now, setNow] = useState(Date.now());
@@ -242,54 +230,5 @@ export function useSignatureAge(systemSigs?: SystemSignature[] | null) {
     return () => clearInterval(interval);
   }, []);
 
-  return useMemo(() => {
-    if (!systemSigs || systemSigs.length === 0) {
-      return {
-        newestUpdatedAt: 0,
-        signatureAgeHours: 0,
-        bookmarkColor: '#388E3C',
-      };
-    }
-
-    const filteredSignatures = systemSigs.filter(s => s.group === 'Wormhole' && !s.linked_system);
-
-    const getSignatureTimestamp = (s: SystemSignature): number => {
-      if (s.updated_at) {
-        return new Date(s.updated_at).getTime();
-      } else if (s.inserted_at) {
-        return new Date(s.inserted_at).getTime();
-      }
-      return 0;
-    };
-
-    const newestTimestamp = filteredSignatures.reduce((max, s) => {
-      const ts = getSignatureTimestamp(s);
-      return ts > max ? ts : max;
-    }, 0);
-
-    // No unlinked wormhole signature: report a negative age so the consumer's
-    // `signatureAgeHours >= 0` guard suppresses the bookmark. Returning 0 made
-    // a system whose signatures are all linked or non-wormhole render "0h", as
-    // if it had a brand-new unlinked wormhole.
-    if (newestTimestamp === 0) {
-      return {
-        newestUpdatedAt: 0,
-        signatureAgeHours: -1,
-        bookmarkColor: '#388E3C',
-        now,
-      };
-    }
-
-    const ageMs = now - newestTimestamp;
-    const signatureAgeHours = Math.max(0, Math.round(ageMs / (1000 * 60 * 60)));
-
-    const { color: bookmarkColor, age: computedAge } = getBookmarkColor(signatureAgeHours);
-
-    return {
-      newestUpdatedAt: newestTimestamp,
-      signatureAgeHours: computedAge,
-      bookmarkColor,
-      now,
-    };
-  }, [systemSigs, now]);
+  return useMemo(() => ({ ...computeSignatureAge(systemSigs, now), now }), [systemSigs, now]);
 }
