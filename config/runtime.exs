@@ -472,6 +472,23 @@ if config_env() == :prod do
     """
   end
 
+  # Fly scrapes [[metrics]] over the 6PN private network, which is IPv6-only
+  # (same reason WANDERER_KILLS_IPV6 exists). Bound to IPv4 there, the endpoint
+  # answers a local curl fine and the scrape still returns nothing, which reads
+  # as "no metrics" rather than as a connection error.
+  #
+  # Off Fly, stay on IPv4: binding :: on a host booted with ipv6.disable=1
+  # fails with :eafnosupport, and that takes the whole app down rather than just
+  # the metrics server. Self-hosters configure their own scraper against
+  # whatever this binds, so IPv4 costs them nothing.
+  #
+  # Neither address is publicly routable on Fly — this port has no
+  # [http_service] or [[services]] entry, so the proxy never forwards to it.
+  metrics_bind_ip =
+    if app_name != "NOT_FLY_APP",
+      do: {0, 0, 0, 0, 0, 0, 0, 0},
+      else: {0, 0, 0, 0}
+
   config :wanderer_app, WandererApp.PromEx,
     disabled: promex_disabled?,
     manual_metrics_start_delay: :no_delay,
@@ -480,13 +497,7 @@ if config_env() == :prod do
       path: "/metrics",
       protocol: :http,
       pool_size: 5,
-      # IPv6 any, not 0.0.0.0: Fly scrapes [[metrics]] over the 6PN private
-      # network, which is IPv6-only (same reason WANDERER_KILLS_IPV6 exists).
-      # Bound to IPv4 the endpoint answers a local curl fine and the scrape
-      # still fails, which reads as "no metrics" rather than a connection
-      # error. Nothing routes this port publicly — it has no [http_service]
-      # or [[services]] entry, so the Fly proxy never forwards to it.
-      cowboy_opts: [ip: {0, 0, 0, 0, 0, 0, 0, 0}]
+      cowboy_opts: [ip: metrics_bind_ip]
     ]
 end
 
