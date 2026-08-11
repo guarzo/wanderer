@@ -454,11 +454,29 @@ if config_env() == :prod do
     |> get_var_from_path_or_env("PROMEX_DISABLED", "true")
     |> String.to_existing_atom()
 
+  metrics_port = System.get_env("METRICS_PORT", "4021") |> String.to_integer()
+
+  # On Fly the scrape port is pinned in fly.toml's [[metrics]] block, which
+  # cannot read this env var. A mismatch is silent in the worst way: PromEx
+  # serves /metrics correctly on the port you chose, the scraper polls 4021 and
+  # gets nothing, and the result reads as "the app emits no metrics" rather than
+  # as a misconfiguration. Fail the boot instead — same reasoning as the
+  # WEB_APP_URL scheme check above. Self-hosted deployments are unaffected:
+  # off Fly, any port is fine because whatever scrapes it is configured by hand.
+  if app_name != "NOT_FLY_APP" and not promex_disabled? and metrics_port != 4021 do
+    raise """
+    METRICS_PORT is #{metrics_port}, but fly.toml's [[metrics]] block scrapes 4021.
+
+    Fly would silently collect nothing. Either set METRICS_PORT=4021 (or unset
+    it) or change the port in fly.toml's [[metrics]] block to match.
+    """
+  end
+
   config :wanderer_app, WandererApp.PromEx,
     disabled: promex_disabled?,
     manual_metrics_start_delay: :no_delay,
     metrics_server: [
-      port: System.get_env("METRICS_PORT", "4021") |> String.to_integer(),
+      port: metrics_port,
       path: "/metrics",
       protocol: :http,
       pool_size: 5,
