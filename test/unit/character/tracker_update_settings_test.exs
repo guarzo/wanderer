@@ -371,6 +371,16 @@ defmodule WandererApp.Character.TrackerUpdateSettingsTest do
       assert_receive {:telemetry,
                       [:wanderer_app, :character, :tracking, :location_skipped_while_active],
                       %{count: 1}, %{character_id: ^character_id}}
+
+      # The counter lives inside the log throttle on purpose: update_location/1
+      # runs on a per-second tick, so an unthrottled emit would measure ticks
+      # rather than incidents. Without this second call, moving :telemetry.execute
+      # outside the Cache.put_new guard would still pass.
+      ExUnit.CaptureLog.capture_log(fn -> Tracker.update_location(state) end)
+
+      refute_receive {:telemetry,
+                      [:wanderer_app, :character, :tracking, :location_skipped_while_active], _,
+                      _}
     end
   end
 end

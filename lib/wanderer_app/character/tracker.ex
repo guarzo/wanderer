@@ -684,6 +684,11 @@ defmodule WandererApp.Character.Tracker do
       # This must stay at zero once the maybe_start_location_tracking/2 fix is
       # deployed. Any nonzero value means a path to the frozen state that the
       # fix does not cover.
+      #
+      # There is no legacy-stuck drain period to discount: :character_state_cache
+      # is in-memory (application.ex), so the deploy that ships this fix also
+      # clears every already-frozen character. A count on a post-deploy tracker
+      # is therefore a new incident, not a leftover one.
       :telemetry.execute(
         [:wanderer_app, :character, :tracking, :location_skipped_while_active],
         %{count: 1, system_time: System.system_time()},
