@@ -22,7 +22,10 @@ defmodule WandererApp.Character.TrackerUpdateSettingsTest do
     character_id = "test-char-#{System.unique_integer([:positive])}"
     map_id = "test-map-#{System.unique_integer([:positive])}"
 
-    on_exit(fn -> Cachex.del(:character_state_cache, character_id) end)
+    on_exit(fn ->
+      Cachex.del(:character_state_cache, character_id)
+      WandererApp.Cache.delete("character:#{character_id}:map:#{map_id}:tracking_start_time")
+    end)
 
     %{character_id: character_id, map_id: map_id}
   end
@@ -126,6 +129,239 @@ defmodule WandererApp.Character.TrackerUpdateSettingsTest do
       refute state.track_location
       refute state.track_ship
       assert state.active_maps == []
+    end
+  end
+
+  describe "update_location/1 diagnostics" do
+    test "warns when an online character on a map has location tracking disabled", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      on_exit(fn ->
+        WandererApp.Cache.delete("character:#{character_id}:location_skip_logged")
+      end)
+
+      state =
+        Tracker.new(%{character_id: character_id})
+        |> Map.merge(%{
+          is_online: true,
+          track_location: false,
+          active_maps: [map_id]
+        })
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :skipped} = Tracker.update_location(state)
+        end)
+
+      assert log =~ "update_location skipped for online character #{character_id}"
+      assert log =~ "track_location=false"
+    end
+
+    test "does not warn for an offline character, which is expected", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      state =
+        Tracker.new(%{character_id: character_id})
+        |> Map.merge(%{
+          is_online: false,
+          track_location: false,
+          active_maps: [map_id]
+        })
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :skipped} = Tracker.update_location(state)
+        end)
+
+      refute log =~ "update_location skipped"
+    end
+
+    test "throttles the warning to once per character", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      on_exit(fn ->
+        WandererApp.Cache.delete("character:#{character_id}:location_skip_logged")
+      end)
+
+      state =
+        Tracker.new(%{character_id: character_id})
+        |> Map.merge(%{
+          is_online: true,
+          track_location: false,
+          active_maps: [map_id]
+        })
+
+      ExUnit.CaptureLog.capture_log(fn -> Tracker.update_location(state) end)
+
+      # update_location/1 runs on a per-second tick; an unthrottled warning here
+      # would bury the log it is meant to make visible.
+      second_log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :skipped} = Tracker.update_location(state)
+        end)
+
+      refute second_log =~ "update_location skipped"
+    end
+  end
+
+  describe "defect instrumentation" do
+    setup %{character_id: character_id} do
+      events = [
+        [:wanderer_app, :character, :tracking, :location_flag_cleared],
+        [:wanderer_app, :character, :tracking, :location_flag_repaired],
+        [:wanderer_app, :character, :tracking, :location_skipped_while_active]
+      ]
+
+      handler_id = "test-handler-#{character_id}"
+      test_pid = self()
+
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        fn event, measurements, metadata, _ ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+      :ok
+    end
+
+    test "emits :location_flag_repaired only for a character who would have frozen", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      seed_state(character_id, %{
+        is_online: true,
+        track_location: false,
+        active_maps: []
+      })
+
+      {:ok, _state} = Tracker.update_settings(character_id, %{map_id: map_id, track: true})
+
+      assert_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_repaired],
+                      %{count: 1}, %{character_id: ^character_id}}
+    end
+
+    test "does not emit :location_flag_repaired on a normal fresh-tracker start", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      # A new tracker defaults to is_online: false and picks up location tracking
+      # via update_online/1's transition. That is the ordinary path, not a repair,
+      # and counting it would drown the signal this metric exists to carry.
+      seed_state(character_id, %{
+        is_online: false,
+        track_location: false,
+        active_maps: []
+      })
+
+      {:ok, _state} = Tracker.update_settings(character_id, %{map_id: map_id, track: true})
+
+      refute_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_repaired],
+                      _, _}
+    end
+
+    test "does not emit :location_flag_repaired when tracking is already healthy", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      seed_state(character_id, %{
+        is_online: true,
+        track_location: true,
+        active_maps: [map_id]
+      })
+
+      {:ok, _state} = Tracker.update_settings(character_id, %{map_id: map_id, track: true})
+
+      refute_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_repaired],
+                      _, _}
+    end
+
+    test "emits :location_flag_cleared when an online character leaves their last map", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      seed_state(character_id, %{
+        is_online: true,
+        track_location: true,
+        active_maps: [map_id]
+      })
+
+      {:ok, _state} = Tracker.update_settings(character_id, %{map_id: map_id, track: false})
+
+      assert_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_cleared],
+                      %{count: 1}, %{character_id: ^character_id}}
+    end
+
+    test "does not emit :location_flag_cleared for an offline character", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      # An offline character's cleared flag is restored by update_online/1 on the
+      # next online transition, so it never becomes the stuck pair.
+      seed_state(character_id, %{
+        is_online: false,
+        track_location: true,
+        active_maps: [map_id]
+      })
+
+      {:ok, _state} = Tracker.update_settings(character_id, %{map_id: map_id, track: false})
+
+      refute_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_cleared],
+                      _, _}
+    end
+
+    test "does not emit :location_flag_cleared when the flag was already false", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      # A repeat untrack clears nothing. Counting it would measure calls to
+      # maybe_stop_tracking/2 rather than transitions into the stuck state, and
+      # inflate this metric against :location_flag_repaired.
+      seed_state(character_id, %{
+        is_online: true,
+        track_location: false,
+        active_maps: []
+      })
+
+      {:ok, _state} = Tracker.update_settings(character_id, %{map_id: map_id, track: false})
+
+      refute_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_cleared],
+                      _, _}
+    end
+
+    test "emits :location_skipped_while_active alongside the stuck-state warning", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      on_exit(fn ->
+        WandererApp.Cache.delete("character:#{character_id}:location_skip_logged")
+      end)
+
+      state =
+        Tracker.new(%{character_id: character_id})
+        |> Map.merge(%{is_online: true, track_location: false, active_maps: [map_id]})
+
+      ExUnit.CaptureLog.capture_log(fn -> Tracker.update_location(state) end)
+
+      assert_receive {:telemetry,
+                      [:wanderer_app, :character, :tracking, :location_skipped_while_active],
+                      %{count: 1}, %{character_id: ^character_id}}
+
+      # The counter lives inside the log throttle on purpose: update_location/1
+      # runs on a per-second tick, so an unthrottled emit would measure ticks
+      # rather than incidents. Without this second call, moving :telemetry.execute
+      # outside the Cache.put_new guard would still pass.
+      ExUnit.CaptureLog.capture_log(fn -> Tracker.update_location(state) end)
+
+      refute_receive {:telemetry,
+                      [:wanderer_app, :character, :tracking, :location_skipped_while_active], _,
+                      _}
     end
   end
 end
