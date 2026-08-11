@@ -154,6 +154,12 @@ defmodule WandererApp.Character.TrackerManager.Impl do
       end)
 
       remove_from_untrack_queue(map_id, character_id)
+      # The sidecar reason has to go with the queue entry it describes. A
+      # character untracked and re-tracked inside the drain window cancels the
+      # queue entry here; leaving the reason behind would both leak the key —
+      # the drain that would have deleted it never runs — and let a stale cause
+      # label an unrelated untrack later on.
+      WandererApp.Cache.delete(untrack_reason_key(map_id, character_id))
 
       case WandererApp.Character.Tracker.update_settings(character_id, track_settings) do
         {:ok, character_state} ->
@@ -190,9 +196,17 @@ defmodule WandererApp.Character.TrackerManager.Impl do
   defp untrack_reason_key(map_id, character_id),
     do: "character:#{character_id}:map:#{map_id}:untrack_reason"
 
+  # Comfortably longer than the drain interval, so the reason is always present
+  # when its queue entry is processed, and short enough that a key orphaned by
+  # any path that empties the queue without draining it disappears on its own.
+  # An explicit ttl is required: this cache applies no default expiry.
+  @untrack_reason_ttl :timer.minutes(30)
+
   def add_to_untrack_queue(map_id, character_id, reason) do
     if not is_nil(reason) do
-      WandererApp.Cache.insert(untrack_reason_key(map_id, character_id), reason)
+      WandererApp.Cache.insert(untrack_reason_key(map_id, character_id), reason,
+        ttl: @untrack_reason_ttl
+      )
     end
 
     add_to_untrack_queue(map_id, character_id)
@@ -370,6 +384,12 @@ defmodule WandererApp.Character.TrackerManager.Impl do
     untrack_queue
     |> Task.async_stream(
       fn {map_id, character_id} ->
+        # Last writer wins, and the queue dedupes on {map_id, character_id} via
+        # Enum.uniq_by. So if two untracks with different causes land on the same
+        # pair inside one drain window, one queue entry survives and it carries
+        # the *later* cause. The untrack still happens exactly once and the label
+        # is still one of the real causes — but if you are staring at a
+        # reason that does not match the log line you expected, this is why.
         reason = WandererApp.Cache.lookup!(untrack_reason_key(map_id, character_id), :unknown)
 
         Logger.info(
