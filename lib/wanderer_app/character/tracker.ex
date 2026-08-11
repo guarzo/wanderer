@@ -1308,11 +1308,23 @@ defmodule WandererApp.Character.Tracker do
        ),
        do: state
 
+  # The label set `location_flag_cleared` and `last_cleared_reason` are grouped
+  # by. Must stay in step with @untrack_reasons in prom_ex_plugin.ex, which
+  # declares exactly these four to Prometheus; an atom outside the list would
+  # create a series PromEx never declared.
+  @untrack_reasons [:presence_driven, :acl_revoked, :manual_untrack]
+
   # Callers that predate the bounded reason (and the internal re-entry paths in
   # reconcile_tracking/1) send no untrack_reason at all; label those :unknown
   # rather than guessing :presence_driven, which would quietly attribute them to
   # the majority cause.
-  defp untrack_reason(%{untrack_reason: reason}) when is_atom(reason) and not is_nil(reason),
+  #
+  # An unrecognised atom degrades to :unknown rather than raising. The outer
+  # boundary — CharactersImpl.untrack_characters/3 — already raises on a bad
+  # reason, so anything arriving here has bypassed it; failing a character's
+  # tracker over a metric label would turn a cardinality slip into the freeze
+  # this instrumentation exists to detect.
+  defp untrack_reason(%{untrack_reason: reason}) when reason in @untrack_reasons,
     do: reason
 
   defp untrack_reason(_track_settings), do: :unknown

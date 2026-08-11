@@ -202,7 +202,13 @@ defmodule WandererApp.Character.TrackerManager.Impl do
   # An explicit ttl is required: this cache applies no default expiry.
   @untrack_reason_ttl :timer.minutes(30)
 
-  def add_to_untrack_queue(map_id, character_id, reason) do
+  # Private on purpose: the reason is a metric label, and a public arity-3 entry
+  # point would be a second, unguarded way to set it. The only reasons that can
+  # reach here come through `CharactersImpl.untrack_characters/3`, whose guard
+  # already restricts them to :presence_driven, :acl_revoked or :manual_untrack.
+  # The arity-2 form stays public — it takes no reason, so it cannot widen the
+  # label set, and an integration test calls it directly.
+  defp add_to_untrack_queue(map_id, character_id, reason) do
     if not is_nil(reason) do
       WandererApp.Cache.insert(untrack_reason_key(map_id, character_id), reason,
         ttl: @untrack_reason_ttl
