@@ -335,6 +335,25 @@ defmodule WandererApp.Character.TrackerUpdateSettingsTest do
                       _, _}
     end
 
+    test "does not emit :location_flag_cleared when the flag was already false", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      # A repeat untrack clears nothing. Counting it would measure calls to
+      # maybe_stop_tracking/2 rather than transitions into the stuck state, and
+      # inflate this metric against :location_flag_repaired.
+      seed_state(character_id, %{
+        is_online: true,
+        track_location: false,
+        active_maps: []
+      })
+
+      {:ok, _state} = Tracker.update_settings(character_id, %{map_id: map_id, track: false})
+
+      refute_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_cleared],
+                      _, _}
+    end
+
     test "emits :location_skipped_while_active alongside the stuck-state warning", %{
       character_id: character_id,
       map_id: map_id

@@ -1230,7 +1230,13 @@ defmodule WandererApp.Character.Tracker do
        do: state
 
   defp maybe_stop_tracking(
-         %{active_maps: [], character_id: character_id, is_online: is_online, opts: opts} = state,
+         %{
+           active_maps: [],
+           character_id: character_id,
+           is_online: is_online,
+           track_location: track_location,
+           opts: opts
+         } = state,
          _track_settings
        ) do
     if is_nil(opts[:keep_alive]) do
@@ -1246,7 +1252,12 @@ defmodule WandererApp.Character.Tracker do
     # runs no transition is pending and the flag cannot come back on its own.
     # This is the origin event for the freeze; correlate its timestamps with
     # presence grace-period expiry to confirm the trigger.
-    if is_online do
+    #
+    # Guarded on the *prior* track_location so this counts transitions, not
+    # calls: a repeat untrack for an already-stopped character clears nothing,
+    # and counting it would inflate this metric relative to the
+    # :location_flag_repaired counter it is meant to be read against.
+    if is_online and track_location do
       :telemetry.execute(
         [:wanderer_app, :character, :tracking, :location_flag_cleared],
         %{count: 1, system_time: System.system_time()},
