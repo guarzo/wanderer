@@ -17,6 +17,24 @@ defmodule WandererApp.Metrics.PromExPlugin do
   @map_subscription_cancel_event [:wanderer_app, :map, :subscription, :cancel]
   @map_subscription_expired_event [:wanderer_app, :map, :subscription, :expired]
 
+  # Location-tracking defect instrumentation. These three counters are read
+  # together to validate the maybe_start_location_tracking/2 fix:
+  #
+  #   cleared  - the (is_online: true, track_location: false) pair was created
+  #   repaired - a character who WOULD have frozen was restored by the fix
+  #   skipped  - a character is frozen right now; must stay at zero post-fix
+  #
+  # repaired > 0 with skipped == 0 confirms both the mechanism and the fix.
+  # skipped > 0 means a route to the frozen state the fix does not cover.
+  @location_flag_cleared_event [:wanderer_app, :character, :tracking, :location_flag_cleared]
+  @location_flag_repaired_event [:wanderer_app, :character, :tracking, :location_flag_repaired]
+  @location_skipped_while_active_event [
+    :wanderer_app,
+    :character,
+    :tracking,
+    :location_skipped_while_active
+  ]
+
   # ESI-related events
   @esi_rate_limited_event [:wanderer_app, :esi, :rate_limited]
   @esi_error_event [:wanderer_app, :esi, :error]
@@ -32,7 +50,11 @@ defmodule WandererApp.Metrics.PromExPlugin do
     base_metrics = [
       user_event_metrics(),
       map_event_metrics(),
-      map_subscription_metrics()
+      map_subscription_metrics(),
+      # Registered as a base metric on purpose: this instrumentation exists to
+      # catch a rare, hard-to-reproduce defect, so it must not be switched off
+      # by WANDERER_BASE_METRICS_ONLY. Three counters, no tags — negligible cost.
+      location_tracking_defect_metrics()
     ]
 
     advanced_metrics = [
@@ -47,6 +69,40 @@ defmodule WandererApp.Metrics.PromExPlugin do
     else
       base_metrics ++ advanced_metrics
     end
+  end
+
+  defp location_tracking_defect_metrics do
+    Event.build(
+      :wanderer_app_location_tracking_defect_metrics,
+      [
+        counter(
+          @location_flag_cleared_event ++ [:count],
+          event_name: @location_flag_cleared_event,
+          description:
+            "Times location tracking was cleared while the character was still online in EVE",
+          tags: [],
+          tag_values: &get_empty_tag_values/1
+        ),
+        counter(
+          @location_flag_repaired_event ++ [:count],
+          event_name: @location_flag_repaired_event,
+          description:
+            "Times an online character's location tracking was restored on map re-entry, " <>
+              "each of which would previously have frozen on the map",
+          tags: [],
+          tag_values: &get_empty_tag_values/1
+        ),
+        counter(
+          @location_skipped_while_active_event ++ [:count],
+          event_name: @location_skipped_while_active_event,
+          description:
+            "Character-minutes during which an online, map-active character had location " <>
+              "tracking disabled; expected to be zero",
+          tags: [],
+          tag_values: &get_empty_tag_values/1
+        )
+      ]
+    )
   end
 
   defp user_event_metrics do
