@@ -58,9 +58,15 @@ swap_size_mb = 512
   # WANDERER_NOTABLE_ITEMS_{THRESHOLD_ISK,LIMIT,TIMEOUT_MS} stay at their
   # defaults (50_000_000 / 5 / 1500) until set here.
   WANDERER_NOTABLE_ITEMS_ENABLED = 'true'
-  # PROMEX_DISABLED defaults to 'true' (config/runtime.exs), so there is no
-  # [[metrics]] block here on purpose. Flipping it to 'false' requires adding
-  # one — METRICS_PORT defaults to 4021 and nothing exposes it.
+  # Enabled to collect the character location-tracking defect counters added in
+  # #146 (:location_flag_cleared / :location_flag_repaired /
+  # :location_skipped_while_active). Two of the three have no log line, so
+  # without this they record nothing.
+  #
+  # Must be exactly 'true' or 'false' — runtime.exs:455 pipes this through
+  # String.to_existing_atom/1, so any other value raises at boot and takes the
+  # machine down rather than falling back to the default.
+  PROMEX_DISABLED = 'false'
 
 [http_service]
   internal_port = 8080
@@ -88,6 +94,15 @@ swap_size_mb = 512
     path = '/health'
     protocol = 'http'
     timeout = '5s'
+
+# Scrapes the PromEx endpoint into Fly's managed Prometheus. Port must track
+# METRICS_PORT in config/runtime.exs, which defaults to 4021 and is not set in
+# [env] above — change one and you change both. The scrape happens over the
+# private 6PN network, so this port is deliberately absent from [http_service]
+# and never publicly routable.
+[[metrics]]
+  port = 4021
+  path = '/metrics'
 
 # Sized for the fifteen Cachex tables and five Finch pools started in
 # lib/wanderer_app/application.ex. Revisit against observed RSS.
