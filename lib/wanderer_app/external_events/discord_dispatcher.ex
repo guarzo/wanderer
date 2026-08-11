@@ -1093,12 +1093,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
           System.monotonic_time(:millisecond) + Env.discord_startup_grace_seconds() * 1000
 
         Cachex.put(@dedup_cache, @startup_sentinel, arm_until)
-        # REQUIRED, not belt-and-braces. This cache is created with
-        # `default_ttl: :timer.hours(24)` (`application.ex:150-154`), and
-        # `Cachex.Actions.Put.execute/4` honours only an INTEGER `:ttl` --
-        # `nil` falls back to the cache default. Without this the sentinel
-        # would expire after a day of uptime and the window would spuriously
-        # re-arm on a healthy cache that never lost a mark.
+        # Belt-and-braces, and deliberately kept. `:discord_dedup_cache` has no
+        # default expiration today (see the cache list in `application.ex` —
+        # the `default_ttl:` it was declared with was a Cachex 2.x option that
+        # 3.x silently ignored), so nothing here expires on its own. If a
+        # default expiration is ever turned on for this cache, an expiring
+        # sentinel would re-arm the startup window after a day of uptime on a
+        # healthy cache that never lost a mark. `Cachex.Actions.Put.execute/4`
+        # honours only an INTEGER `:ttl`, so a bare put would inherit that
+        # default; this pin makes the sentinel independent of it either way.
         Cachex.persist(@dedup_cache, @startup_sentinel)
 
         arm_until

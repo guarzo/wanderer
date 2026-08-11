@@ -185,10 +185,11 @@ defmodule WandererApp.ExternalEvents.DiscordStartupWindowTest do
       refute DiscordDispatcher.within_startup_grace?(DiscordDispatcher.arm_startup_grace())
     end
 
-    # Guards Deviation 2: `:discord_dedup_cache` has a 24h default_ttl, and
-    # `Cachex.put/4` honours only an integer `:ttl`, so a bare put would leave
-    # the sentinel expiring after a day -- after which the window would
-    # spuriously re-arm on a healthy cache that never lost a mark.
+    # Guards Deviation 2: `Cachex.put/4` honours only an integer `:ttl`, so if a
+    # default expiration is ever configured for `:discord_dedup_cache` (it has
+    # none today) a bare put would leave the sentinel expiring with it -- after
+    # which the window would spuriously re-arm on a healthy cache that never
+    # lost a mark. The explicit pin keeps the sentinel independent of that.
     test "the sentinel never expires" do
       put_keys(discord_startup_grace_seconds: 600)
       clear_sentinel()
