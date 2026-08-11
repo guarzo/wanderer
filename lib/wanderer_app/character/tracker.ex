@@ -645,6 +645,55 @@ defmodule WandererApp.Character.Tracker do
     end
   end
 
+  # A character who is online and on at least one active map must have location
+  # polling enabled. After the maybe_start_location_tracking/2 fix this state
+  # should be unreachable, so log it loudly instead of returning
+  # {:error, :skipped} silently — a silent skip here is exactly what hid this bug
+  # in production: the map kept the character in presence and polled it every
+  # second, but the tracker never fetched a location, so nothing looked wrong.
+  #
+  # Deliberately does not fire for offline characters; track_location is false
+  # for them by design and that is not a fault.
+  #
+  # Throttled to one line per character per minute; update_location/1 runs on a
+  # per-second tick.
+  def update_location(
+        %{
+          track_location: false,
+          is_online: true,
+          character_id: character_id,
+          active_maps: [_ | _] = active_maps
+        } = _character_state
+      ) do
+    if WandererApp.Cache.put_new(
+         "character:#{character_id}:location_skip_logged",
+         true,
+         ttl: :timer.minutes(1)
+       ) do
+      Logger.warning(
+        "[Tracker] update_location skipped for online character #{character_id} while active " <>
+          "on #{length(active_maps)} map(s): track_location=false. The map believes this " <>
+          "character is tracked but its location will never update.",
+        character_id: character_id
+      )
+
+      # Emitted inside the throttle deliberately: update_location/1 runs on a
+      # per-second tick, so an unthrottled counter would measure ticks rather
+      # than incidents. One count here is roughly one character-minute stuck.
+      #
+      # This must stay at zero once the maybe_start_location_tracking/2 fix is
+      # deployed. Any nonzero value means a path to the frozen state that the
+      # fix does not cover.
+      :telemetry.execute(
+        [:wanderer_app, :character, :tracking, :location_skipped_while_active],
+        %{count: 1, system_time: System.system_time()},
+        %{character_id: character_id}
+      )
+    end
+
+    {:error, :skipped}
+  end
+
   def update_location(_), do: {:error, :skipped}
 
   def update_wallet(character_id) do
@@ -1036,6 +1085,20 @@ defmodule WandererApp.Character.Tracker do
        ),
        do: state
 
+  # Location and ship tracking follow map membership rather than an explicit flag.
+  #
+  # Every caller that starts map tracking sends only %{map_id: ..., track: true}
+  # (TrackingUtils.track_character/4 and both re-track paths in the map server's
+  # reconcile_tracking/1), so matching solely on an explicit `track_location` key
+  # left the flag false. The only other writer, update_online/1, fires on an
+  # online-status *transition*, so a character who was already online when map
+  # tracking began never got the flag set — update_location/1 then fell through
+  # to its catch-all clause and the map never saw them move.
+  #
+  # Deriving from active_maps makes this symmetric with maybe_stop_tracking/2,
+  # which clears both flags once no maps remain active. These clauses run after
+  # maybe_update_active_maps/2 and maybe_stop_tracking/2 in the update_settings/2
+  # pipeline, so active_maps is already accurate here.
   defp maybe_start_location_tracking(
          state,
          %{track_location: true} = _track_settings
@@ -1043,14 +1106,59 @@ defmodule WandererApp.Character.Tracker do
        do: %{state | track_location: true}
 
   defp maybe_start_location_tracking(
+         %{active_maps: [_ | _]} = state,
+         _track_settings
+       ) do
+    report_location_repair(state)
+    %{state | track_location: true}
+  end
+
+  defp maybe_start_location_tracking(
          state,
          _track_settings
        ),
        do: state
 
+  # Emits only when maybe_start_location_tracking/2 is genuinely repairing the
+  # defect: the character is online in EVE but location tracking is off — the
+  # pair that update_online/1 can never fix, because no online transition will
+  # ever occur.
+  #
+  # A freshly started tracker also reaches that clause with track_location:
+  # false, but with is_online: false, and that is the ordinary start path rather
+  # than a repair. Excluding it keeps this counter meaningful: every emission is
+  # a character who WOULD have frozen on the map before this fix. Pair with
+  # :location_flag_cleared (where the bad state is created) and
+  # :location_skipped_while_active (which must stay at zero).
+  defp report_location_repair(%{
+         is_online: true,
+         track_location: false,
+         character_id: character_id
+       }) do
+    Logger.info(
+      "[Tracker] Restored location tracking for online character #{character_id} on map " <>
+        "re-entry; before this fix the character would have stopped moving on the map.",
+      character_id: character_id
+    )
+
+    :telemetry.execute(
+      [:wanderer_app, :character, :tracking, :location_flag_repaired],
+      %{count: 1, system_time: System.system_time()},
+      %{character_id: character_id}
+    )
+  end
+
+  defp report_location_repair(_state), do: :ok
+
   defp maybe_start_ship_tracking(
          state,
          %{track_ship: true} = _track_settings
+       ),
+       do: %{state | track_ship: true}
+
+  defp maybe_start_ship_tracking(
+         %{active_maps: [_ | _]} = state,
+         _track_settings
        ),
        do: %{state | track_ship: true}
 
@@ -1122,13 +1230,27 @@ defmodule WandererApp.Character.Tracker do
        do: state
 
   defp maybe_stop_tracking(
-         %{active_maps: [], character_id: character_id, opts: opts} = state,
+         %{active_maps: [], character_id: character_id, is_online: is_online, opts: opts} = state,
          _track_settings
        ) do
     if is_nil(opts[:keep_alive]) do
       WandererApp.Cache.put(
         "character:#{character_id}:last_active_time",
         DateTime.utc_now()
+      )
+    end
+
+    # Clearing track_location while the character is still online in EVE is what
+    # creates the (is_online: true, track_location: false) pair. update_online/1
+    # only rewrites those fields on an online-status transition, so once this
+    # runs no transition is pending and the flag cannot come back on its own.
+    # This is the origin event for the freeze; correlate its timestamps with
+    # presence grace-period expiry to confirm the trigger.
+    if is_online do
+      :telemetry.execute(
+        [:wanderer_app, :character, :tracking, :location_flag_cleared],
+        %{count: 1, system_time: System.system_time()},
+        %{character_id: character_id}
       )
     end
 
