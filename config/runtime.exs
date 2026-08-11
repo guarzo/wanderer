@@ -462,7 +462,13 @@ if config_env() == :prod do
       path: "/metrics",
       protocol: :http,
       pool_size: 5,
-      cowboy_opts: [ip: {0, 0, 0, 0}]
+      # IPv6 any, not 0.0.0.0: Fly scrapes [[metrics]] over the 6PN private
+      # network, which is IPv6-only (same reason WANDERER_KILLS_IPV6 exists).
+      # Bound to IPv4 the endpoint answers a local curl fine and the scrape
+      # still fails, which reads as "no metrics" rather than a connection
+      # error. Nothing routes this port publicly — it has no [http_service]
+      # or [[services]] entry, so the Fly proxy never forwards to it.
+      cowboy_opts: [ip: {0, 0, 0, 0, 0, 0, 0, 0}]
     ]
 end
 
