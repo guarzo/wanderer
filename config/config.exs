@@ -87,9 +87,30 @@ config :ash_pagify,
   table: [opts: {WandererAppWeb.CoreComponents, :table_opts}]
 
 # Configures Elixir's Logger
+#
+# Logger drops any metadata key not listed here. The character/map tracking code
+# annotates its error logs with character_id, map_id, tracking_pool, endpoint and
+# friends; without them in this list those annotations were silently discarded,
+# which is why a previous round of "add logging to troubleshoot tracking" showed
+# nothing useful in production.
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:application, :module, :function, :line, :request_id]
+  metadata: [
+    :application,
+    :module,
+    :function,
+    :line,
+    :request_id,
+    :character_id,
+    :map_id,
+    :user_id,
+    :system_id,
+    :connection_id,
+    :tracking_pool,
+    :error_type,
+    :endpoint,
+    :reason
+  ]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
