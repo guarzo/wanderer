@@ -178,10 +178,24 @@ defmodule WandererApp.Character.TrackerManager.Impl do
           "will be processed within #{div(@untrack_characters_interval, 60_000)} minutes"
       end)
 
-      add_to_untrack_queue(map_id, character_id)
+      add_to_untrack_queue(map_id, character_id, Map.get(track_settings, :untrack_reason))
     end
 
     state
+  end
+
+  # The queue itself stays a {map_id, character_id} tuple — its uniqueness key
+  # and every existing reader depend on that shape. The reason rides alongside in
+  # its own cache key so a repeat untrack of the same pair simply overwrites it.
+  defp untrack_reason_key(map_id, character_id),
+    do: "character:#{character_id}:map:#{map_id}:untrack_reason"
+
+  def add_to_untrack_queue(map_id, character_id, reason) do
+    if not is_nil(reason) do
+      WandererApp.Cache.insert(untrack_reason_key(map_id, character_id), reason)
+    end
+
+    add_to_untrack_queue(map_id, character_id)
   end
 
   def add_to_untrack_queue(map_id, character_id) do
@@ -356,12 +370,15 @@ defmodule WandererApp.Character.TrackerManager.Impl do
     untrack_queue
     |> Task.async_stream(
       fn {map_id, character_id} ->
+        reason = WandererApp.Cache.lookup!(untrack_reason_key(map_id, character_id), :unknown)
+
         Logger.info(
           "[TrackerManager] Untracking character #{character_id} from map #{map_id}, " <>
-            "reason=presence_queue_processed"
+            "reason=#{reason}"
         )
 
         remove_from_untrack_queue(map_id, character_id)
+        WandererApp.Cache.delete(untrack_reason_key(map_id, character_id))
 
         WandererApp.Cache.delete("map:#{map_id}:character:#{character_id}:solar_system_id")
         WandererApp.Cache.delete("map:#{map_id}:character:#{character_id}:station_id")
@@ -370,7 +387,8 @@ defmodule WandererApp.Character.TrackerManager.Impl do
         {:ok, character_state} =
           WandererApp.Character.Tracker.update_settings(character_id, %{
             map_id: map_id,
-            track: false
+            track: false,
+            untrack_reason: reason
           })
 
         {:ok, character} = WandererApp.Character.get_character(character_id)
