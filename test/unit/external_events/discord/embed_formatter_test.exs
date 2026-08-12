@@ -1056,6 +1056,54 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
       assert embed["description"] =~ "@everyone"
     end
 
+    test "an alert with no scout renders the plain author line", %{alert: alert} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      assert embed["author"] == %{"name" => "Route opened"}
+    end
+
+    test "a scouted alert names the character and shows their portrait", %{alert: alert} do
+      scouted = Map.put(alert, :scout, %{name: "Kraven Ordos", eve_id: "2112625428"})
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(scouted, [])
+
+      assert embed["author"] == %{
+               "name" => "Route opened · scouted by Kraven Ordos",
+               "icon_url" => "https://images.evetech.net/characters/2112625428/portrait?size=64"
+             }
+    end
+
+    test "a scouted shortened alert uses its own kind label", %{alert: alert} do
+      scouted =
+        alert
+        |> Map.merge(%{kind: :improved, previous_jumps: 7})
+        |> Map.put(:scout, %{name: "Kraven Ordos", eve_id: "2112625428"})
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(scouted, [])
+
+      assert embed["author"]["name"] == "Route shortened · scouted by Kraven Ordos"
+    end
+
+    test "an explicit nil scout renders the plain author line", %{alert: alert} do
+      [%{"embeds" => [embed]}] =
+        EmbedFormatter.format_route_alert(Map.put(alert, :scout, nil), [])
+
+      assert embed["author"] == %{"name" => "Route opened"}
+    end
+
+    # Discord rejects an author name over 256 characters with a 400, which
+    # counts as a delivery failure and can auto-disable the destination.
+    # `Character.name` carries no length constraint here.
+    test "a very long character name is truncated to Discord's author bound", %{alert: alert} do
+      scouted =
+        Map.put(alert, :scout, %{name: String.duplicate("a", 400), eve_id: "2112625428"})
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(scouted, [])
+
+      assert String.length(embed["author"]["name"]) == 256
+      assert String.ends_with?(embed["author"]["name"], "…")
+    end
+
     # `Env.discord_mentions_enabled?/0` reads a nested `:discord_mentions_enabled`
     # key inside the `:external_events` keyword list, not a top-level app env
     # key — mirrors `test/unit/env_discord_mentions_test.exs`.
