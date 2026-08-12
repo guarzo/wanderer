@@ -177,5 +177,14 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
       assert RouteScout.resolve(ctx.map.id, []) == nil
       assert RouteScout.resolve(nil, [@home, @wh_hop]) == nil
     end
+
+    # A path element with no `Jason.Encoder` implementation (a PID, here)
+    # makes `Jason.encode!/1` raise inside `system_event_data/1`, before any
+    # Ash call happens. This exercises the `rescue` clause directly: without
+    # it, this test fails with an unhandled `Protocol.UndefinedError` instead
+    # of the assertion below.
+    test "returns nil instead of raising when the path cannot be encoded", ctx do
+      assert RouteScout.resolve(ctx.map.id, [self()]) == nil
+    end
   end
 end
