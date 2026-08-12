@@ -27,6 +27,14 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScout do
   Every failure returns `nil` and the alert posts with its plain author line.
   This module must never raise into `RouteWatcher`: an attribution problem is
   not worth losing a delivery over.
+
+  That means catching exits as well as exceptions. `resolve/2` runs inside the
+  `RouteWatcher` GenServer, on the delivery path, and the lookup it makes is a
+  database read: a checkout against a dying connection owner, or an exhausted
+  pool, *exits* rather than raising (`DBConnection.Holder.checkout/3` exits with
+  `{:noproc, _}` when its monitor fires). A `rescue` does not catch that, so the
+  exit would tear down the watcher mid-delivery — exactly the outcome this
+  module exists to prevent.
   """
 
   require Logger
@@ -61,6 +69,13 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScout do
     error ->
       Logger.debug(fn ->
         "[RouteScout] attribution lookup failed for map #{inspect(map_id)}: #{inspect(error)}"
+      end)
+
+      nil
+  catch
+    :exit, reason ->
+      Logger.debug(fn ->
+        "[RouteScout] attribution lookup exited for map #{inspect(map_id)}: #{inspect(reason)}"
       end)
 
       nil

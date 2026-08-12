@@ -830,9 +830,6 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScout do
 
   @type scout :: %{name: String.t(), eve_id: String.t()}
 
-  @spec attribution_window_ms() :: pos_integer()
-  def attribution_window_ms, do: @attribution_window_ms
-
   @spec resolve(binary(), [integer()]) :: scout() | nil
   def resolve(map_id, path) when is_binary(map_id) and is_list(path) and path != [] do
     since = DateTime.add(DateTime.utc_now(), -@attribution_window_ms, :millisecond)

@@ -9,6 +9,11 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
   @wh_hop 31_000_006
   @exit_system 30_002_053
 
+  # Budgets for waiting on the sandbox internals the two failure-path tests
+  # drive. Both wait on a condition, never on a duration.
+  @settle_ms 5_000
+  @poll_ms 10
+
   setup do
     user = Factory.insert(:user, %{})
     character = Factory.insert(:character, %{user_id: user.id, name: "Kraven Ordos"})
@@ -202,6 +207,46 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
 
       assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop]) == nil
     end
+
+    # The failure the `catch :exit` clause exists for, and the one `rescue`
+    # cannot cover: a connection checkout whose target proxy is already dead
+    # *exits* (`DBConnection.Holder.checkout/3` monitors the pid, gets an
+    # immediate `:noproc` DOWN, and exits). Nothing between there and
+    # `resolve/2` converts that into a value — AshPostgres only rescues
+    # exceptions — so before the `catch` clause this test died with
+    # `** (EXIT from #PID<...>) exited in: DBConnection.Holder.checkout(...)
+    # ** (EXIT) no process`, taking the calling process with it. That is
+    # `RouteWatcher` dying mid-delivery, which is the whole thing this module
+    # promises not to do; running `resolve/2` in a linked task asserts the
+    # promise, not just the return value.
+    #
+    # Determinism comes from mailbox order, not from sleeping. With the
+    # ownership manager suspended, the task's checkout request sits in the
+    # manager's mailbox; we kill the proxy only after seeing that exact message
+    # (matched on the task's pid, so another process's checkout cannot stand in
+    # for it), so the proxy's DOWN is necessarily queued behind it. On resume
+    # the manager therefore answers the checkout first, redirecting to a proxy
+    # it has not yet learned is dead. Reverse that order and the manager would
+    # answer with an ownership *error* instead — the branch the test above
+    # already covers — so the ordering is what keeps this test honest.
+    test "returns nil instead of exiting when the connection checkout exits", ctx do
+      manager = ownership_manager()
+      proxy = owner_proxy(manager, Process.get(:sandbox_owner_pid))
+
+      :sys.suspend(manager)
+      on_exit(fn -> if Process.alive?(manager), do: :sys.resume(manager) end)
+
+      task = Task.async(fn -> RouteScout.resolve(ctx.map.id, [@home, @wh_hop]) end)
+      :ok = await_checkout_queued(manager, task.pid)
+
+      ref = Process.monitor(proxy)
+      Process.exit(proxy, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^proxy, _}, @settle_ms
+
+      :sys.resume(manager)
+
+      assert Task.await(task, @settle_ms) == nil
+    end
   end
 
   # `stop_owner/1` is a synchronous `GenServer.stop`, but only on the owner
@@ -214,13 +259,10 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
   # answers every checkout with `DBConnection.OwnershipError` and AshPostgres
   # turns that into `{:error, ...}` from then on. That state is terminal for the
   # rest of the test, so the assertion below can't race back into the window.
-  @teardown_settle_ms 5_000
-  @teardown_poll_ms 10
-
   defp await_lookup_error(map_id, waited \\ 0)
 
-  defp await_lookup_error(_map_id, waited) when waited >= @teardown_settle_ms do
-    flunk("sandbox teardown did not settle into an ownership error in #{@teardown_settle_ms}ms")
+  defp await_lookup_error(_map_id, waited) when waited >= @settle_ms do
+    flunk("sandbox teardown did not settle into an ownership error in #{@settle_ms}ms")
   end
 
   defp await_lookup_error(map_id, waited) do
@@ -237,8 +279,8 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
     if settled? do
       :ok
     else
-      Process.sleep(@teardown_poll_ms)
-      await_lookup_error(map_id, waited + @teardown_poll_ms)
+      Process.sleep(@poll_ms)
+      await_lookup_error(map_id, waited + @poll_ms)
     end
   end
 
@@ -249,5 +291,39 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
       system_event_data: [Jason.encode!(%{"solar_system_id" => @wh_hop})],
       connection_event_data: []
     })
+  end
+
+  # The sandbox pool *is* the `DBConnection.Ownership.Manager`, and the adapter
+  # meta is the supported way to reach it without guessing at process names.
+  defp ownership_manager do
+    Ecto.Adapter.lookup_meta(WandererApp.Repo.get_dynamic_repo()).pid
+  end
+
+  # The manager keys its checkouts by owner pid; the third element is the proxy
+  # process that actually holds the connection.
+  defp owner_proxy(manager, owner_pid) do
+    {:owner, _ref, proxy} = Map.fetch!(:sys.get_state(manager).checkouts, owner_pid)
+    proxy
+  end
+
+  # Waits for `pid`'s checkout request to be sitting in the suspended manager's
+  # mailbox. Matching the requester pid is what makes the wait exact: an
+  # unrelated process's checkout must not be mistaken for the one we are about
+  # to order a proxy death behind.
+  defp await_checkout_queued(manager, pid, waited \\ 0)
+
+  defp await_checkout_queued(_manager, pid, waited) when waited >= @settle_ms do
+    flunk("no checkout request from #{inspect(pid)} reached the manager in #{@settle_ms}ms")
+  end
+
+  defp await_checkout_queued(manager, pid, waited) do
+    {:messages, messages} = Process.info(manager, :messages)
+
+    if Enum.any?(messages, &match?({:db_connection, {^pid, _}, {:checkout, _, _, _}}, &1)) do
+      :ok
+    else
+      Process.sleep(@poll_ms)
+      await_checkout_queued(manager, pid, waited + @poll_ms)
+    end
   end
 end
