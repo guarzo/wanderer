@@ -42,6 +42,11 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # together, so it can be breached by a batch that satisfies each field bound
   # individually.
   @max_message_text 6000
+  # Discord's author-name bound. Reachable from ordinary input: the route
+  # embed's author line embeds a `Character.name`, which carries no length
+  # constraint, and exceeding this is a 400 — a delivery failure, not a
+  # truncation.
+  @max_author_length 256
 
   @color_loss 0xE74C3C
   @color_kill 0x2ECC71
@@ -153,7 +158,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   defp route_embed(alert) do
     %{
-      "author" => %{"name" => route_kind_label(alert.kind)},
+      "author" => route_author(alert),
       "title" => truncate(route_title(alert), @max_title_length),
       "url" => map_url(alert.map_id),
       "color" => route_color(alert.kind),
@@ -216,6 +221,34 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
       end
 
     pluralize(remaining, "gate")
+  end
+
+  # The scout's portrait rides in the author line rather than the thumbnail
+  # slot: a 72px face would make a logistics alert louder than the kill embeds
+  # sharing its channel, and would squeeze the path text on a long chain.
+  #
+  # `alert` may carry no `:scout` key at all — the watcher only adds one when
+  # attribution resolved — so this reads defensively rather than matching.
+  defp route_author(alert) do
+    base = %{"name" => truncate(route_author_name(alert), @max_author_length)}
+
+    case Map.get(alert, :scout) do
+      %{eve_id: eve_id} when is_binary(eve_id) ->
+        Map.put(base, "icon_url", "#{@image_base}/characters/#{eve_id}/portrait?size=64")
+
+      _ ->
+        base
+    end
+  end
+
+  defp route_author_name(alert) do
+    case Map.get(alert, :scout) do
+      %{name: name} when is_binary(name) and name != "" ->
+        "#{route_kind_label(alert.kind)} · scouted by #{name}"
+
+      _ ->
+        route_kind_label(alert.kind)
+    end
   end
 
   defp route_kind_label(:opened), do: "Route opened"
