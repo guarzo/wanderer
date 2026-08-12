@@ -193,13 +193,59 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
     # (ash_postgres/lib/data_layer.ex) converts that into `{:error, %Ash.Error...}`
     # before it ever reaches `resolve/2` — so this exercises the `case`'s `_ ->
     # nil` catch-all, not the `rescue` clause. Tearing down the sandbox owner
-    # mid-test is what forces that error tuple deterministically, with no
-    # production change.
+    # mid-test is what forces that error tuple, with no production change;
+    # `await_lookup_error/2` is what makes it deterministic (see below).
     test "returns nil when the attribution lookup errors instead of matching", ctx do
       owner_pid = Process.get(:sandbox_owner_pid)
       Ecto.Adapters.SQL.Sandbox.stop_owner(owner_pid)
+      :ok = await_lookup_error(ctx.map.id)
 
       assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop]) == nil
     end
+  end
+
+  # `stop_owner/1` is a synchronous `GenServer.stop`, but only on the owner
+  # agent: its connection proxy and `DBConnection.Ownership.Manager` tear down
+  # afterwards, on their own monitors. A query landing inside that window does
+  # not return an error — it *exits* (`DBConnection.Holder.checkout ... EXIT
+  # shutdown: "owner #PID<...> exited"`), which no `rescue` catches and which is
+  # not the branch under test. So poll the very read `resolve/2` makes until
+  # teardown has settled into the steady "no ownership" state, where the manager
+  # answers every checkout with `DBConnection.OwnershipError` and AshPostgres
+  # turns that into `{:error, ...}` from then on. That state is terminal for the
+  # rest of the test, so the assertion below can't race back into the window.
+  @teardown_settle_ms 5_000
+  @teardown_poll_ms 10
+
+  defp await_lookup_error(map_id, waited \\ 0)
+
+  defp await_lookup_error(_map_id, waited) when waited >= @teardown_settle_ms do
+    flunk("sandbox teardown did not settle into an ownership error in #{@teardown_settle_ms}ms")
+  end
+
+  defp await_lookup_error(map_id, waited) do
+    settled? =
+      try do
+        match?({:error, _}, probe_lookup(map_id))
+      catch
+        # Teardown still in flight; the checkout exited rather than erroring.
+        :exit, _ -> false
+      end
+
+    if settled? do
+      :ok
+    else
+      Process.sleep(@teardown_poll_ms)
+      await_lookup_error(map_id, waited + @teardown_poll_ms)
+    end
+  end
+
+  defp probe_lookup(map_id) do
+    UserActivity.read_route_attribution(%{
+      map_id: map_id,
+      since: DateTime.add(DateTime.utc_now(), -900, :second),
+      system_event_data: [Jason.encode!(%{"solar_system_id" => @wh_hop})],
+      connection_event_data: []
+    })
   end
 end
