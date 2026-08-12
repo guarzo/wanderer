@@ -229,6 +229,8 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
         match?({:error, _}, probe_lookup(map_id))
       catch
         # Teardown still in flight; the checkout exited rather than erroring.
+        # This absorbs ANY exit, so an unrelated failure in the read would be
+        # swallowed here and surface only as the generic flunk above.
         :exit, _ -> false
       end
 
