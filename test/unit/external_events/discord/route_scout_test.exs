@@ -2,6 +2,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
   use WandererApp.DataCase, async: false
 
   alias WandererApp.Api.UserActivity
+  alias WandererApp.ExternalEvents.Discord.RouteScout
   alias WandererAppWeb.Factory
 
   @home 31_000_005
@@ -113,6 +114,68 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
           system_event_data: [],
           connection_event_data: []
         })
+    end
+  end
+
+  describe "resolve/2" do
+    defp track_connection_added(map, character, user, source, target) do
+      {:ok, _} =
+        WandererApp.User.ActivityTracker.track_map_event(:map_connection_added, %{
+          character_id: character.id,
+          user_id: user.id,
+          map_id: map.id,
+          solar_system_source_id: source,
+          solar_system_target_id: target
+        })
+
+      :ok
+    end
+
+    test "credits the character who added a system on the path", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @wh_hop)
+
+      assert %{name: "Kraven Ordos", eve_id: eve_id} =
+               RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system])
+
+      assert eve_id == ctx.character.eve_id
+    end
+
+    test "credits the character who added a connection on the path", ctx do
+      :ok = track_connection_added(ctx.map, ctx.character, ctx.user, @home, @wh_hop)
+
+      assert %{name: "Kraven Ordos"} =
+               RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system])
+    end
+
+    # The recorded source/target follow the direction the character jumped,
+    # which need not match the direction the solved route runs.
+    test "matches a connection recorded in the reverse orientation", ctx do
+      :ok = track_connection_added(ctx.map, ctx.character, ctx.user, @wh_hop, @home)
+
+      assert %{name: "Kraven Ordos"} =
+               RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system])
+    end
+
+    test "does not credit a non-adjacent pair", ctx do
+      :ok = track_connection_added(ctx.map, ctx.character, ctx.user, @home, @exit_system)
+
+      assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system]) == nil
+    end
+
+    test "returns nil when nothing recent explains the route", ctx do
+      # No activity at all: the transition came from a :connection_updated
+      # label edit, which credits nobody.
+      assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system]) == nil
+    end
+
+    test "returns nil for an unknown map", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @wh_hop)
+      assert RouteScout.resolve(Ecto.UUID.generate(), [@home, @wh_hop]) == nil
+    end
+
+    test "returns nil for a degenerate path or bad map id", ctx do
+      assert RouteScout.resolve(ctx.map.id, []) == nil
+      assert RouteScout.resolve(nil, [@home, @wh_hop]) == nil
     end
   end
 end
