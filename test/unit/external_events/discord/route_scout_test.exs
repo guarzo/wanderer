@@ -186,5 +186,20 @@ defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
     test "returns nil instead of raising when the path cannot be encoded", ctx do
       assert RouteScout.resolve(ctx.map.id, [self()]) == nil
     end
+
+    # The realistic operational failure this module protects against: the DB
+    # connection is unavailable when `read_route_attribution/1` is called.
+    # AshPostgres's own `handle_raised_error/4` catch-all
+    # (ash_postgres/lib/data_layer.ex) converts that into `{:error, %Ash.Error...}`
+    # before it ever reaches `resolve/2` — so this exercises the `case`'s `_ ->
+    # nil` catch-all, not the `rescue` clause. Tearing down the sandbox owner
+    # mid-test is what forces that error tuple deterministically, with no
+    # production change.
+    test "returns nil when the attribution lookup errors instead of matching", ctx do
+      owner_pid = Process.get(:sandbox_owner_pid)
+      Ecto.Adapters.SQL.Sandbox.stop_owner(owner_pid)
+
+      assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop]) == nil
+    end
   end
 end
