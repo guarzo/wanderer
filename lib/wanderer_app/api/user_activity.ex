@@ -55,6 +55,7 @@ defmodule WandererApp.Api.UserActivity do
   code_interface do
     define(:read, action: :read)
     define(:new, action: :new)
+    define(:read_route_attribution, action: :read_route_attribution)
   end
 
   actions do
@@ -81,6 +82,41 @@ defmodule WandererApp.Api.UserActivity do
     create :new do
       accept [:entity_id, :entity_type, :event_type, :event_data, :user_id, :character_id]
       primary?(true)
+    end
+
+    # Attribution lookup for Discord route alerts: the newest add event that
+    # could have opened a given route, inside a recency window.
+    #
+    # Both add event types are candidates because a route can open without any
+    # system being added — `DiscordDispatcher.do_dispatch/2` re-evaluates on
+    # :connection_added and :connection_updated too, so crediting the newest
+    # system on the path would regularly name someone who did nothing.
+    #
+    # `event_data` is matched exactly rather than with a LIKE: the encoding is
+    # deterministic (`SecurityAudit.track_map_event/2` drops character_id,
+    # user_id and map_id, then `sanitize_metadata/1` stringifies the remaining
+    # keys before `Jason.encode!/1`), so callers can reproduce it byte for byte.
+    #
+    # No pagination, unlike the primary `:read` — this always wants exactly the
+    # top row. The `entity_id, event_type` prefix of the
+    # [:entity_id, :event_type, :inserted_at] index serves the filter.
+    read :read_route_attribution do
+      argument(:map_id, :string, allow_nil?: false)
+      argument(:since, :utc_datetime_usec, allow_nil?: false)
+      argument(:system_event_data, {:array, :string}, allow_nil?: false)
+      argument(:connection_event_data, {:array, :string}, allow_nil?: false)
+
+      filter(
+        expr(
+          entity_type == :map and entity_id == ^arg(:map_id) and
+            inserted_at >= ^arg(:since) and
+            ((event_type == :system_added and event_data in ^arg(:system_event_data)) or
+               (event_type == :map_connection_added and
+                  event_data in ^arg(:connection_event_data)))
+        )
+      )
+
+      prepare(build(sort: [inserted_at: :desc], limit: 1, load: [:character]))
     end
 
     destroy :archive do
