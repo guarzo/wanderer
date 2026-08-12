@@ -584,6 +584,15 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       {:ok, pid} = start_watcher(map.id, settle_ms: 20)
       RouteWatcher.notify(map.id)
+
+      # Drained explicitly (rather than left for `await_settled/1` to skip
+      # past): this is the FIRST hold cycle's `:held`, from the same
+      # unconfirmed-then-confirmed sequence every qualifying transition goes
+      # through. Left undrained, it would still be sitting in the mailbox when
+      # the `:held` assertion below runs — `assert_receive` scans for any
+      # match, so it would pass against this stale message regardless of
+      # whether the improved transition below is actually gated at all.
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
       await_settled(pid)
       assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
 
@@ -652,6 +661,15 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
     # The invariant "one solve at a time" was implicit; the settle timer is a
     # second path into start_evaluation/1 and must not break it.
+    #
+    # `settle_ms: 60, debounce_ms: 50` alone does NOT reliably exercise this:
+    # `StubSolver` returns in microseconds, so the debounce-triggered solve
+    # normally lands well before `:settle` (60ms) ever fires — by then `task`
+    # is already back to `nil`, and the `if state.task do` branch in the
+    # `:settle` handler never runs. `BlockingSolver` pins a task in flight
+    # (the same technique as the "solve is in flight" test above) so `:settle`
+    # is GUARANTEED to find `task` non-nil, deterministically exercising that
+    # branch rather than depending on ~10ms of scheduler timing.
     test "a notify landing just before the settle fires does not double-solve", %{map: map} do
       Application.put_env(
         :wanderer_app,
@@ -659,16 +677,109 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
         qualifying_result(4, 30_000_001)
       )
 
-      {:ok, pid} = start_watcher(map.id, settle_ms: 60, debounce_ms: 50)
+      {:ok, pid} = start_watcher(map.id, settle_ms: 200, debounce_ms: 20)
+
+      # Cycle 1 (fast solver): held, arms the settle timer (~200ms out).
       RouteWatcher.notify(map.id)
       assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+      %{settle_ref: settle_ref} = :sys.get_state(pid)
+      assert is_reference(settle_ref)
 
-      # Arms a debounce timer that would otherwise still be pending when
-      # :settle fires and launches its own solve.
+      # Switch to a solver that blocks, then arm the debounce timer that will
+      # launch a solve of its own — unrelated to the settle timer above, and
+      # still running when it fires.
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_solver,
+        WandererApp.ExternalEvents.Discord.RouteWatcherTest.BlockingSolver
+      )
+
       RouteWatcher.notify(map.id)
+
+      assert :ok = wait_until(fn -> match?(%{task: %Task{}}, :sys.get_state(pid)) end)
+
+      # The original settle timer fires now, WHILE the debounce-launched solve
+      # above is still in flight. Without the `if state.task do` branch, this
+      # would call `start_evaluation/1` again and `launch_task/2` would
+      # overwrite `task`/`task_deadline_ref`, orphaning the in-flight solve.
+      assert :ok =
+               wait_until(fn ->
+                 match?(%{settle_ref: nil, rerun?: true, task: %Task{}}, :sys.get_state(pid))
+               end)
+
+      # Release the blocked solve. Its answer is discarded (rerun? was set,
+      # not a fresh confirmed evaluation on its own), so a single, freshly
+      # re-solved, CONFIRMED evaluation runs next and publishes exactly once.
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_solver,
+        WandererApp.ExternalEvents.Discord.RouteWatcherTest.StubSolver
+      )
+
+      %{task: task} = :sys.get_state(pid)
+      send(task.pid, :release)
+
       await_settled(pid)
 
       # Exactly one alert, and no orphaned timer left behind.
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 200
+      assert %{task: nil, timer_ref: nil, settle_ref: nil} = :sys.get_state(pid)
+    end
+
+    # The companion guard (route_watcher.ex's guarded `handle_info(:evaluate,
+    # %{task: task})` clause) protects the reverse ordering: a debounce
+    # `:evaluate` message that was ALREADY placed in this process's mailbox at
+    # the moment `handle_info(:settle, ...)` called `Process.cancel_timer/1`
+    # on it — cancellation is not guaranteed to beat a message already
+    # delivered (the same caveat the existing `:task_timeout` handler already
+    # documents). `:settle` itself always attempts to cancel any pending
+    # debounce timer first and normally wins, so this exact interleaving
+    # cannot be reproduced by wall-clock timing alone; it is constructed
+    # directly here by delivering the message once `task` is already set.
+    test "a stray :evaluate for an already-cancelled debounce does not launch a second solve",
+         %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_solver,
+        WandererApp.ExternalEvents.Discord.RouteWatcherTest.BlockingSolver
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 20)
+      RouteWatcher.notify(map.id)
+
+      # :settle fires with task: nil (nothing else is running), so the ELSE
+      # branch of the `:settle` handler runs `start_evaluation/1` directly,
+      # launching a (now blocking) solve.
+      assert :ok = wait_until(fn -> match?(%{task: %Task{}}, :sys.get_state(pid)) end)
+      %{task: task_before} = :sys.get_state(pid)
+
+      send(pid, :evaluate)
+
+      # The guard fires: `task` is untouched (same reference — not replaced
+      # by a second task), and `rerun?` is set exactly as the analogous
+      # `handle_cast(:notify, ...)` clause already does for this situation.
+      assert :ok =
+               wait_until(fn ->
+                 match?(%{task: ^task_before, rerun?: true}, :sys.get_state(pid))
+               end)
+
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_solver,
+        WandererApp.ExternalEvents.Discord.RouteWatcherTest.StubSolver
+      )
+
+      send(task_before.pid, :release)
+      await_settled(pid)
+
+      # Exactly one alert, from the rerun — never two.
       assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
       refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 200
       assert %{task: nil, timer_ref: nil, settle_ref: nil} = :sys.get_state(pid)
