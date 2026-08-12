@@ -784,6 +784,57 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 200
       assert %{task: nil, timer_ref: nil, settle_ref: nil} = :sys.get_state(pid)
     end
+
+    test "a published alert credits the character who added a path system", %{map: map} do
+      user = Factory.insert(:user, %{})
+      character = Factory.insert(:character, %{user_id: user.id, name: "Kraven Ordos"})
+
+      # 30_000_002 is the first hop of qualifying_result(4, 30_000_001).
+      {:ok, _} =
+        WandererApp.User.ActivityTracker.track_map_event(:system_added, %{
+          character_id: character.id,
+          user_id: user.id,
+          map_id: map.id,
+          solar_system_id: 30_000_002
+        })
+
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 20)
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      assert :ok = wait_until(fn -> HttpStub.requests_for(@route_url) != [] end)
+
+      [{_url, body}] = HttpStub.requests_for(@route_url)
+
+      assert %{"embeds" => [%{"author" => author}]} = body
+      assert author["name"] == "Route opened · scouted by Kraven Ordos"
+      assert author["icon_url"] =~ "/characters/#{character.eve_id}/portrait"
+    end
+
+    test "an alert with no attributable add still posts", %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 20)
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      assert :ok = wait_until(fn -> HttpStub.requests_for(@route_url) != [] end)
+
+      [{_url, body}] = HttpStub.requests_for(@route_url)
+
+      assert %{"embeds" => [%{"author" => author}]} = body
+      assert author == %{"name" => "Route opened"}
+    end
   end
 
   test "the task deadline shuts the task down without crashing the watcher", %{map: map} do

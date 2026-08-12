@@ -49,7 +49,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   require Logger
 
   alias WandererApp.Api.MapDiscordNotification
-  alias WandererApp.ExternalEvents.Discord.{Router, WorkerSupervisor, EmbedFormatter}
+  alias WandererApp.ExternalEvents.Discord.{Router, WorkerSupervisor, EmbedFormatter, RouteScout}
   alias WandererApp.Map.RouteAlert.Evaluator
 
   @registry WandererApp.ExternalEvents.Discord.RouteWatcherRegistry
@@ -492,7 +492,13 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
       path: qualifying.path,
       exit_system: qualifying.exit_system,
       map_id: state.map_id,
-      home_system_id: notification.home_system_id
+      home_system_id: notification.home_system_id,
+      # Resolved here rather than in the formatter so the lookup is testable
+      # on its own and the formatter stays a pure rendering of what it is
+      # handed. Synchronous DB work in this process matches what
+      # `load_notification/1` already does; `resolve/2` is total and returns
+      # nil rather than raising, so it cannot cost a delivery.
+      scout: RouteScout.resolve(state.map_id, qualifying.path)
     }
 
     messages = EmbedFormatter.format_route_alert(alert, mention_targets: webhook.mention_targets)
