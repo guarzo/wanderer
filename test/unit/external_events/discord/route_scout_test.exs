@@ -1,0 +1,329 @@
+defmodule WandererApp.ExternalEvents.Discord.RouteScoutTest do
+  use WandererApp.DataCase, async: false
+
+  alias WandererApp.Api.UserActivity
+  alias WandererApp.ExternalEvents.Discord.RouteScout
+  alias WandererAppWeb.Factory
+
+  @home 31_000_005
+  @wh_hop 31_000_006
+  @exit_system 30_002_053
+
+  # Budgets for waiting on the sandbox internals the two failure-path tests
+  # drive. Both wait on a condition, never on a duration.
+  @settle_ms 5_000
+  @poll_ms 10
+
+  setup do
+    user = Factory.insert(:user, %{})
+    character = Factory.insert(:character, %{user_id: user.id, name: "Kraven Ordos"})
+    map = Factory.insert(:map, %{})
+
+    %{user: user, character: character, map: map}
+  end
+
+  # Written through the REAL tracker, not a hand-built event_data string.
+  # `SecurityAudit.sanitize_metadata/1` stringifies keys before
+  # `Jason.encode!/1`, so a hand-written fixture could agree with the lookup
+  # while both disagree with production. Going through the tracker pins the
+  # encoding end to end.
+  defp track_system_added(map, character, user, solar_system_id) do
+    {:ok, _} =
+      WandererApp.User.ActivityTracker.track_map_event(:system_added, %{
+        character_id: character.id,
+        user_id: user.id,
+        map_id: map.id,
+        solar_system_id: solar_system_id
+      })
+
+    :ok
+  end
+
+  describe "read_route_attribution" do
+    test "finds a system_added row for a system on the path", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @wh_hop)
+
+      {:ok, [activity]} =
+        UserActivity.read_route_attribution(%{
+          map_id: ctx.map.id,
+          since: DateTime.add(DateTime.utc_now(), -900, :second),
+          system_event_data: [Jason.encode!(%{"solar_system_id" => @wh_hop})],
+          connection_event_data: []
+        })
+
+      assert activity.character.name == "Kraven Ordos"
+    end
+
+    test "ignores rows older than the since bound", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @wh_hop)
+
+      {:ok, []} =
+        UserActivity.read_route_attribution(%{
+          map_id: ctx.map.id,
+          since: DateTime.add(DateTime.utc_now(), 60, :second),
+          system_event_data: [Jason.encode!(%{"solar_system_id" => @wh_hop})],
+          connection_event_data: []
+        })
+    end
+
+    test "ignores rows belonging to another map", ctx do
+      other_map = Factory.insert(:map, %{})
+      :ok = track_system_added(other_map, ctx.character, ctx.user, @wh_hop)
+
+      {:ok, []} =
+        UserActivity.read_route_attribution(%{
+          map_id: ctx.map.id,
+          since: DateTime.add(DateTime.utc_now(), -900, :second),
+          system_event_data: [Jason.encode!(%{"solar_system_id" => @wh_hop})],
+          connection_event_data: []
+        })
+    end
+
+    test "returns only the newest of several candidates", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @home)
+      Process.sleep(5)
+      other = Factory.insert(:character, %{user_id: ctx.user.id, name: "Later Scout"})
+      :ok = track_system_added(ctx.map, other, ctx.user, @exit_system)
+
+      {:ok, [activity]} =
+        UserActivity.read_route_attribution(%{
+          map_id: ctx.map.id,
+          since: DateTime.add(DateTime.utc_now(), -900, :second),
+          system_event_data: [
+            Jason.encode!(%{"solar_system_id" => @home}),
+            Jason.encode!(%{"solar_system_id" => @exit_system})
+          ],
+          connection_event_data: []
+        })
+
+      assert activity.character.name == "Later Scout"
+    end
+
+    # A one-system path produces no adjacent pairs. Ecto renders `in ^[]` as a
+    # false literal rather than invalid `IN ()` SQL, and this pins that.
+    test "tolerates an empty candidate list on either side", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @wh_hop)
+
+      {:ok, [_]} =
+        UserActivity.read_route_attribution(%{
+          map_id: ctx.map.id,
+          since: DateTime.add(DateTime.utc_now(), -900, :second),
+          system_event_data: [Jason.encode!(%{"solar_system_id" => @wh_hop})],
+          connection_event_data: []
+        })
+
+      {:ok, []} =
+        UserActivity.read_route_attribution(%{
+          map_id: ctx.map.id,
+          since: DateTime.add(DateTime.utc_now(), -900, :second),
+          system_event_data: [],
+          connection_event_data: []
+        })
+    end
+  end
+
+  describe "resolve/2" do
+    defp track_connection_added(map, character, user, source, target) do
+      {:ok, _} =
+        WandererApp.User.ActivityTracker.track_map_event(:map_connection_added, %{
+          character_id: character.id,
+          user_id: user.id,
+          map_id: map.id,
+          solar_system_source_id: source,
+          solar_system_target_id: target
+        })
+
+      :ok
+    end
+
+    test "credits the character who added a system on the path", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @wh_hop)
+
+      assert %{name: "Kraven Ordos", eve_id: eve_id} =
+               RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system])
+
+      assert eve_id == ctx.character.eve_id
+    end
+
+    test "credits the character who added a connection on the path", ctx do
+      :ok = track_connection_added(ctx.map, ctx.character, ctx.user, @home, @wh_hop)
+
+      assert %{name: "Kraven Ordos"} =
+               RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system])
+    end
+
+    # The recorded source/target follow the direction the character jumped,
+    # which need not match the direction the solved route runs.
+    test "matches a connection recorded in the reverse orientation", ctx do
+      :ok = track_connection_added(ctx.map, ctx.character, ctx.user, @wh_hop, @home)
+
+      assert %{name: "Kraven Ordos"} =
+               RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system])
+    end
+
+    test "does not credit a non-adjacent pair", ctx do
+      :ok = track_connection_added(ctx.map, ctx.character, ctx.user, @home, @exit_system)
+
+      assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system]) == nil
+    end
+
+    test "returns nil when nothing recent explains the route", ctx do
+      # No activity at all: the transition came from a :connection_updated
+      # label edit, which credits nobody.
+      assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop, @exit_system]) == nil
+    end
+
+    test "returns nil for an unknown map", ctx do
+      :ok = track_system_added(ctx.map, ctx.character, ctx.user, @wh_hop)
+      assert RouteScout.resolve(Ecto.UUID.generate(), [@home, @wh_hop]) == nil
+    end
+
+    test "returns nil for a degenerate path or bad map id", ctx do
+      assert RouteScout.resolve(ctx.map.id, []) == nil
+      assert RouteScout.resolve(nil, [@home, @wh_hop]) == nil
+    end
+
+    # A path element with no `Jason.Encoder` implementation (a PID, here)
+    # makes `Jason.encode!/1` raise inside `system_event_data/1`, before any
+    # Ash call happens. This exercises the `rescue` clause directly: without
+    # it, this test fails with an unhandled `Protocol.UndefinedError` instead
+    # of the assertion below.
+    test "returns nil instead of raising when the path cannot be encoded", ctx do
+      assert RouteScout.resolve(ctx.map.id, [self()]) == nil
+    end
+
+    # The realistic operational failure this module protects against: the DB
+    # connection is unavailable when `read_route_attribution/1` is called.
+    # AshPostgres's own `handle_raised_error/4` catch-all
+    # (ash_postgres/lib/data_layer.ex) converts that into `{:error, %Ash.Error...}`
+    # before it ever reaches `resolve/2` — so this exercises the `case`'s `_ ->
+    # nil` catch-all, not the `rescue` clause. Tearing down the sandbox owner
+    # mid-test is what forces that error tuple, with no production change;
+    # `await_lookup_error/2` is what makes it deterministic (see below).
+    test "returns nil when the attribution lookup errors instead of matching", ctx do
+      owner_pid = Process.get(:sandbox_owner_pid)
+      Ecto.Adapters.SQL.Sandbox.stop_owner(owner_pid)
+      :ok = await_lookup_error(ctx.map.id)
+
+      assert RouteScout.resolve(ctx.map.id, [@home, @wh_hop]) == nil
+    end
+
+    # The failure the `catch :exit` clause exists for, and the one `rescue`
+    # cannot cover: a connection checkout whose target proxy is already dead
+    # *exits* (`DBConnection.Holder.checkout/3` monitors the pid, gets an
+    # immediate `:noproc` DOWN, and exits). Nothing between there and
+    # `resolve/2` converts that into a value — AshPostgres only rescues
+    # exceptions — so before the `catch` clause this test died with
+    # `** (EXIT from #PID<...>) exited in: DBConnection.Holder.checkout(...)
+    # ** (EXIT) no process`, taking the calling process with it. That is
+    # `RouteWatcher` dying mid-delivery, which is the whole thing this module
+    # promises not to do; running `resolve/2` in a linked task asserts the
+    # promise, not just the return value.
+    #
+    # Determinism comes from mailbox order, not from sleeping. With the
+    # ownership manager suspended, the task's checkout request sits in the
+    # manager's mailbox; we kill the proxy only after seeing that exact message
+    # (matched on the task's pid, so another process's checkout cannot stand in
+    # for it), so the proxy's DOWN is necessarily queued behind it. On resume
+    # the manager therefore answers the checkout first, redirecting to a proxy
+    # it has not yet learned is dead. Reverse that order and the manager would
+    # answer with an ownership *error* instead — the branch the test above
+    # already covers — so the ordering is what keeps this test honest.
+    test "returns nil instead of exiting when the connection checkout exits", ctx do
+      manager = ownership_manager()
+      proxy = owner_proxy(manager, Process.get(:sandbox_owner_pid))
+
+      :sys.suspend(manager)
+      on_exit(fn -> if Process.alive?(manager), do: :sys.resume(manager) end)
+
+      task = Task.async(fn -> RouteScout.resolve(ctx.map.id, [@home, @wh_hop]) end)
+      :ok = await_checkout_queued(manager, task.pid)
+
+      ref = Process.monitor(proxy)
+      Process.exit(proxy, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^proxy, _}, @settle_ms
+
+      :sys.resume(manager)
+
+      assert Task.await(task, @settle_ms) == nil
+    end
+  end
+
+  # `stop_owner/1` is a synchronous `GenServer.stop`, but only on the owner
+  # agent: its connection proxy and `DBConnection.Ownership.Manager` tear down
+  # afterwards, on their own monitors. A query landing inside that window does
+  # not return an error — it *exits* (`DBConnection.Holder.checkout ... EXIT
+  # shutdown: "owner #PID<...> exited"`), which no `rescue` catches and which is
+  # not the branch under test. So poll the very read `resolve/2` makes until
+  # teardown has settled into the steady "no ownership" state, where the manager
+  # answers every checkout with `DBConnection.OwnershipError` and AshPostgres
+  # turns that into `{:error, ...}` from then on. That state is terminal for the
+  # rest of the test, so the assertion below can't race back into the window.
+  defp await_lookup_error(map_id, waited \\ 0)
+
+  defp await_lookup_error(_map_id, waited) when waited >= @settle_ms do
+    flunk("sandbox teardown did not settle into an ownership error in #{@settle_ms}ms")
+  end
+
+  defp await_lookup_error(map_id, waited) do
+    settled? =
+      try do
+        match?({:error, _}, probe_lookup(map_id))
+      catch
+        # Teardown still in flight; the checkout exited rather than erroring.
+        # This absorbs ANY exit, so an unrelated failure in the read would be
+        # swallowed here and surface only as the generic flunk above.
+        :exit, _ -> false
+      end
+
+    if settled? do
+      :ok
+    else
+      Process.sleep(@poll_ms)
+      await_lookup_error(map_id, waited + @poll_ms)
+    end
+  end
+
+  defp probe_lookup(map_id) do
+    UserActivity.read_route_attribution(%{
+      map_id: map_id,
+      since: DateTime.add(DateTime.utc_now(), -900, :second),
+      system_event_data: [Jason.encode!(%{"solar_system_id" => @wh_hop})],
+      connection_event_data: []
+    })
+  end
+
+  # The sandbox pool *is* the `DBConnection.Ownership.Manager`, and the adapter
+  # meta is the supported way to reach it without guessing at process names.
+  defp ownership_manager do
+    Ecto.Adapter.lookup_meta(WandererApp.Repo.get_dynamic_repo()).pid
+  end
+
+  # The manager keys its checkouts by owner pid; the third element is the proxy
+  # process that actually holds the connection.
+  defp owner_proxy(manager, owner_pid) do
+    {:owner, _ref, proxy} = Map.fetch!(:sys.get_state(manager).checkouts, owner_pid)
+    proxy
+  end
+
+  # Waits for `pid`'s checkout request to be sitting in the suspended manager's
+  # mailbox. Matching the requester pid is what makes the wait exact: an
+  # unrelated process's checkout must not be mistaken for the one we are about
+  # to order a proxy death behind.
+  defp await_checkout_queued(manager, pid, waited \\ 0)
+
+  defp await_checkout_queued(_manager, pid, waited) when waited >= @settle_ms do
+    flunk("no checkout request from #{inspect(pid)} reached the manager in #{@settle_ms}ms")
+  end
+
+  defp await_checkout_queued(manager, pid, waited) do
+    {:messages, messages} = Process.info(manager, :messages)
+
+    if Enum.any?(messages, &match?({:db_connection, {^pid, _}, {:checkout, _, _, _}}, &1)) do
+      :ok
+    else
+      Process.sleep(@poll_ms)
+      await_checkout_queued(manager, pid, waited + @poll_ms)
+    end
+  end
+end
