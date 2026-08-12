@@ -59,6 +59,18 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   @ceiling_ms 60_000
   @task_timeout_ms 20_000
 
+  # How long a qualifying transition waits before it is re-solved and
+  # published. The connection labels the embed's footer claims (crit, EOL,
+  # frigate) are user-entered and default permissive, so an alert sent the
+  # instant a route qualifies routinely promises "no crit" about a hole that
+  # is seconds away from being marked crit. Waiting lets the label land; the
+  # re-solve then drops the route and no alert is sent at all.
+  #
+  # This is NOT the debounce. @debounce_ms coalesces notifications; this waits
+  # on a human. Lengthening the debounce instead would delay the solve and
+  # still read stale labels when it ran.
+  @settle_ms 120_000
+
   def start_link(opts) do
     map_id = Keyword.fetch!(opts, :map_id)
     GenServer.start_link(__MODULE__, opts, name: via(map_id))
@@ -89,8 +101,11 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
       task_deadline_ref: nil,
       rerun?: false,
       pending_notification: nil,
+      settle_ref: nil,
+      settle_confirmed?: false,
       debounce_ms: Keyword.get(opts, :debounce_ms, @debounce_ms),
       ceiling_ms: Keyword.get(opts, :ceiling_ms, @ceiling_ms),
+      settle_ms: Keyword.get(opts, :settle_ms, @settle_ms),
       task_timeout_ms: Keyword.get(opts, :task_timeout_ms, @task_timeout_ms)
     }
 
@@ -143,9 +158,45 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   end
 
   @impl true
+  # Guards the "one solve at a time" invariant explicitly. Today it holds
+  # implicitly: `arm_timer/1` is only reachable from the `task == nil` clause
+  # of `handle_cast(:notify, ...)`, so an :evaluate can never be pending while
+  # a task runs. The settle timer is a SECOND path into `start_evaluation/1`,
+  # so that reasoning no longer covers every case — without this clause a
+  # notify shortly before :settle launches a second task, and `launch_task/2`
+  # overwrites `task` and `task_deadline_ref`, orphaning the first.
+  #
+  # A no-op for today's behaviour, and deliberately mirrors what
+  # `handle_cast(:notify, ...)` already does in the same situation.
+  def handle_info(:evaluate, %{task: task} = state) when not is_nil(task) do
+    {:noreply, %{state | timer_ref: nil, first_notify_at: nil, rerun?: true}}
+  end
+
   def handle_info(:evaluate, state) do
     state = %{state | timer_ref: nil, first_notify_at: nil}
     {:noreply, start_evaluation(state)}
+  end
+
+  # The settle window has elapsed: re-solve, and let this evaluation publish.
+  # Any pending debounce timer is cancelled first — its :evaluate would
+  # otherwise fire mid-solve and be demoted to a rerun, which is correct but
+  # wasteful, and leaves a stale `first_notify_at` skewing the next ceiling.
+  def handle_info(:settle, state) do
+    if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
+
+    state = %{
+      state
+      | settle_ref: nil,
+        timer_ref: nil,
+        first_notify_at: nil,
+        settle_confirmed?: true
+    }
+
+    if state.task do
+      {:noreply, %{state | rerun?: true}}
+    else
+      {:noreply, start_evaluation(state)}
+    end
   end
 
   # -- the result --------------------------------------------------------------
@@ -199,7 +250,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
       if state.rerun? do
         start_evaluation(%{state | rerun?: false})
       else
-        state
+        clear_settle(state)
       end
 
     {:noreply, state}
@@ -223,7 +274,9 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   defp start_evaluation(state) do
     case load_notification(state.map_id) do
       {:ok, notification} -> start_evaluation(state, notification)
-      :error -> state
+      # The confirmation is lost and the route is simply re-held on the next
+      # notify: a late alert, never an unheld one.
+      :error -> clear_settle(state)
     end
   end
 
@@ -235,7 +288,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
     # versioned by config" in the design doc).
     state =
       if cv != state.config_version do
-        %{state | route_state: :unknown, config_version: cv} |> persist()
+        %{clear_settle(state) | route_state: :unknown, config_version: cv} |> persist()
       else
         state
       end
@@ -246,7 +299,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
       # Disabling clears outright. Re-enabling then starts from :none, which
       # the transition table treats identically to :unknown — the next
       # qualifying result posts "opened" either way, so no special case.
-      %{state | route_state: :none, config_version: cv, pending_notification: nil}
+      %{clear_settle(state) | route_state: :none, config_version: cv, pending_notification: nil}
       |> persist()
     end
   end
@@ -287,7 +340,7 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
         "[Discord.RouteWatcher] Discord.TaskSupervisor not running; skipping route solve for map #{state.map_id}"
       )
 
-      state
+      clear_settle(state)
     end
   end
 
@@ -330,20 +383,56 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
 
   defp transition(state, _notification, :unknown) do
     emit_telemetry(state, :unknown)
-    persist(state)
+    persist(clear_settle(state))
   end
 
   defp transition(state, _notification, :none) do
     emit_telemetry(state, :none)
-    persist(%{state | route_state: :none})
+    persist(%{clear_settle(state) | route_state: :none})
   end
 
   defp transition(%{route_state: prev} = state, notification, {:qualifying, %{jumps: jumps} = q}) do
     case prev do
-      p when p in [:unknown, :none] -> alert(state, notification, :opened, q, jumps, nil)
-      {:qualifying, old} when jumps < old -> alert(state, notification, :improved, q, jumps, old)
-      {:qualifying, _old} -> persist(%{state | route_state: {:qualifying, jumps}})
+      p when p in [:unknown, :none] ->
+        maybe_alert(state, notification, :opened, q, jumps, nil)
+
+      {:qualifying, old} when jumps < old ->
+        maybe_alert(state, notification, :improved, q, jumps, old)
+
+      {:qualifying, _old} ->
+        persist(%{clear_settle(state) | route_state: {:qualifying, jumps}})
     end
+  end
+
+  # The settle gate. An unconfirmed transition arms the hold and publishes
+  # nothing — deliberately WITHOUT the optimistic `persist/1` that `alert/6`
+  # does, so `route_state` keeps its previous value and there is nothing to
+  # revert if the route stops qualifying before the window elapses.
+  defp maybe_alert(%{settle_confirmed?: true} = state, notification, kind, q, jumps, previous) do
+    alert(clear_settle(state), notification, kind, q, jumps, previous)
+  end
+
+  defp maybe_alert(state, _notification, _kind, _q, _jumps, _previous) do
+    emit_telemetry(state, :held)
+    arm_settle(state)
+  end
+
+  # Armed once per hold and never re-armed. Re-arming on each intervening
+  # notify would starve a chain under continuous scanning of alerts entirely —
+  # the same failure `@ceiling_ms` exists to prevent on the debounce.
+  defp arm_settle(%{settle_ref: ref} = state) when not is_nil(ref), do: state
+
+  defp arm_settle(state) do
+    %{state | settle_ref: Process.send_after(self(), :settle, state.settle_ms)}
+  end
+
+  # Called on every path that consumes or abandons a hold without publishing.
+  # A confirmation that survives into a later, unrelated transition would let
+  # that one publish with no hold of its own — silently reintroducing the bug
+  # this whole mechanism exists to fix.
+  defp clear_settle(state) do
+    if state.settle_ref, do: Process.cancel_timer(state.settle_ref)
+    %{state | settle_ref: nil, settle_confirmed?: false}
   end
 
   # State is written BEFORE delivery, matching DiscordDispatcher's

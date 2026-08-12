@@ -70,18 +70,21 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
     %{map: map, notification: notification}
   end
 
-  # A deterministic barrier for "the debounce timer that was just armed has
-  # fired and any task it launched has finished." `timer_ref` is guaranteed
-  # non-nil immediately after `notify/1` returns (the cast is ordered ahead of
-  # any subsequent call from this same test process, so it has always already
-  # been processed — see the first test below, which asserts this directly),
-  # so this predicate cannot be vacuously true before the real cycle runs: it
-  # only becomes true once the timer has actually fired AND the resulting
-  # task (if any) has actually completed. Checking `task: nil` alone would NOT
-  # have this property, since `task` is already nil in the steady state before
-  # a notify is even processed.
+  # A deterministic barrier for "every evaluation this notify will cause has
+  # finished." A qualifying transition now runs TWO evaluations: the first
+  # arms the settle timer and publishes nothing, the second (after the timer
+  # fires) publishes. Waiting on `task: nil, timer_ref: nil` alone would
+  # return in the gap between them, before the alert exists.
+  #
+  # The three-key predicate cannot be vacuously true mid-cycle: between the
+  # two evaluations `settle_ref` is non-nil, and during the second `task` is
+  # non-nil. A non-qualifying outcome arms no settle timer, so it still
+  # settles after one cycle.
   defp await_settled(pid) do
-    assert :ok = wait_until(fn -> match?(%{task: nil, timer_ref: nil}, :sys.get_state(pid)) end)
+    assert :ok =
+             wait_until(fn ->
+               match?(%{task: nil, timer_ref: nil, settle_ref: nil}, :sys.get_state(pid))
+             end)
   end
 
   # Proves an alert was (or was not) actually posted, rather than merely
@@ -106,7 +109,13 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
   end
 
   defp start_watcher(map_id, opts \\ []) do
-    default = [map_id: map_id, debounce_ms: 30, ceiling_ms: 200, task_timeout_ms: 500]
+    default = [
+      map_id: map_id,
+      debounce_ms: 30,
+      ceiling_ms: 200,
+      task_timeout_ms: 500,
+      settle_ms: 20
+    ]
 
     # start_supervised!/2 returns the child pid directly (not `{:ok, pid}`);
     # wrapped here so every call site can match `{:ok, pid} = start_watcher(...)`.
@@ -472,6 +481,197 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
 
       await_settled(pid)
       assert %{route_state: {:qualifying, 2}, rerun?: false} = :sys.get_state(pid)
+    end
+  end
+
+  describe "settle hold" do
+    # No shared `setup` here: `RouteWatcher` registers by `map_id` alone (see
+    # `via/1`), so a watcher started here for `map.id` would collide with the
+    # one each test below starts with its own `settle_ms` for that same map.
+    # Each test starts exactly one watcher for its `map.id`.
+
+    test "a qualifying transition holds instead of publishing", %{map: map} do
+      {:ok, pid} = start_watcher(map.id, settle_ms: 10_000)
+
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      RouteWatcher.notify(map.id)
+
+      # The first evaluation lands, arms the hold, and publishes nothing.
+      assert :ok =
+               wait_until(fn ->
+                 match?(
+                   %{task: nil, timer_ref: nil, settle_ref: r} when is_reference(r),
+                   :sys.get_state(pid)
+                 )
+               end)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 100
+
+      # route_state is NOT optimistically advanced during the hold.
+      assert %{route_state: :unknown, settle_confirmed?: false} = :sys.get_state(pid)
+      assert HttpStub.requests_for(@route_url) == []
+    end
+
+    test "the held alert publishes when the window elapses", %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 20)
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+      assert %{route_state: {:qualifying, 4}, settle_confirmed?: false} = :sys.get_state(pid)
+
+      assert :ok = wait_until(fn -> HttpStub.requests_for(@route_url) != [] end)
+    end
+
+    # The reported bug: a hole marked crit during the hold must cancel the
+    # alert entirely, not publish a corrected one.
+    test "a route that stops qualifying during the hold publishes nothing", %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 100)
+      RouteWatcher.notify(map.id)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+
+      # The label lands: the solver now disqualifies the route.
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        {:ok,
+         %{
+           routes: [
+             %{
+               has_connection: false,
+               systems: [],
+               origin: 30_000_001,
+               destination: @jita,
+               success: false
+             }
+           ],
+           systems_static_data: []
+         }}
+      )
+
+      await_settled(pid)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :none}}
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 100
+      assert HttpStub.requests_for(@route_url) == []
+    end
+
+    test "an improved transition holds on the same rule", %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 20)
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(2, 30_000_001)
+      )
+
+      RouteWatcher.notify(map.id)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+      await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :improved}}
+    end
+
+    # Re-arming on every notify would starve a continuously-scanned chain of
+    # alerts entirely — the failure @ceiling_ms already exists to prevent.
+    test "notifies during the hold neither publish early nor extend it", %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 250)
+      RouteWatcher.notify(map.id)
+
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+      %{settle_ref: original} = :sys.get_state(pid)
+
+      RouteWatcher.notify(map.id)
+      assert :ok = wait_until(fn -> match?(%{task: nil, timer_ref: nil}, :sys.get_state(pid)) end)
+
+      # Same timer, so the original deadline still governs.
+      assert %{settle_ref: ^original} = :sys.get_state(pid)
+      assert HttpStub.requests_for(@route_url) == []
+
+      await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+    end
+
+    # Losing a confirmation must re-hold, never publish unheld.
+    test "disabling route alerts mid-hold cancels it", %{map: map, notification: notification} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 100)
+      RouteWatcher.notify(map.id)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+
+      {:ok, _} = MapDiscordNotification.update(notification, %{route_alerts_enabled?: false})
+
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      assert %{settle_ref: nil, settle_confirmed?: false, route_state: :none} =
+               :sys.get_state(pid)
+
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 200
+      assert HttpStub.requests_for(@route_url) == []
+    end
+
+    # The invariant "one solve at a time" was implicit; the settle timer is a
+    # second path into start_evaluation/1 and must not break it.
+    test "a notify landing just before the settle fires does not double-solve", %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      {:ok, pid} = start_watcher(map.id, settle_ms: 60, debounce_ms: 50)
+      RouteWatcher.notify(map.id)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+
+      # Arms a debounce timer that would otherwise still be pending when
+      # :settle fires and launches its own solve.
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+
+      # Exactly one alert, and no orphaned timer left behind.
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 200
+      assert %{task: nil, timer_ref: nil, settle_ref: nil} = :sys.get_state(pid)
     end
   end
 
