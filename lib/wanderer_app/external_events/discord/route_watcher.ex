@@ -42,6 +42,16 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   `:unknown -> {:qualifying, _}` is the "opened" transition. That is the
   deliberate trade — the alternative is persisting alert state to the database
   on every evaluation to suppress one duplicate message per map per deploy.
+
+  A hold in progress survives even less: `settle_ref` and `settle_confirmed?`
+  are process-only state and are never persisted, so a crash or a deploy in the
+  middle of a settle window drops the pending alert. Nothing is published
+  unheld as a result — the route is simply re-held from scratch on the next
+  notify. But watchers only run on demand (`RouteWatcherSupervisor.notify/1`
+  starts them), so if the chain goes quiet after the restart there is no next
+  notify and that alert is never sent at all. Accepted for the same reason as
+  above: persisting a hold would mean a database write per held evaluation to
+  save at most one alert per map per restart.
   """
 
   use GenServer, restart: :transient
@@ -177,10 +187,23 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
     {:noreply, start_evaluation(state)}
   end
 
+  # A `:settle` for a hold that has already been abandoned. `clear_settle/1`
+  # cancels the timer, but `Process.cancel_timer/1` cannot recall a message
+  # already delivered to the mailbox — the same caveat the `:task_timeout`
+  # handler below documents. Without this clause such a message would mark the
+  # state confirmed and start an evaluation that publishes with no hold at all,
+  # which is exactly what the settle window exists to prevent. `settle_ref` is
+  # non-nil on every legitimate arrival (the handler below nils it itself), so
+  # it is a sound discriminator.
+  def handle_info(:settle, %{settle_ref: nil} = state), do: {:noreply, state}
+
   # The settle window has elapsed: re-solve, and let this evaluation publish.
   # Any pending debounce timer is cancelled first — its :evaluate would
   # otherwise fire mid-solve and be demoted to a rerun, which is correct but
   # wasteful, and leaves a stale `first_notify_at` skewing the next ceiling.
+  # The cancel is best-effort in the same way the one in `clear_settle/1` is:
+  # an :evaluate already in the mailbox still arrives, and the guarded
+  # `handle_info(:evaluate, %{task: task})` clause above is what absorbs it.
   def handle_info(:settle, state) do
     if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
 
@@ -430,6 +453,10 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   # A confirmation that survives into a later, unrelated transition would let
   # that one publish with no hold of its own — silently reintroducing the bug
   # this whole mechanism exists to fix.
+  #
+  # Cancelling the timer does NOT recall a `:settle` that was already delivered
+  # to the mailbox; the guarded `handle_info(:settle, %{settle_ref: nil})`
+  # clause above is what makes that case a no-op.
   defp clear_settle(state) do
     if state.settle_ref, do: Process.cancel_timer(state.settle_ref)
     %{state | settle_ref: nil, settle_confirmed?: false}
@@ -445,6 +472,25 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
   # delta is what makes an `:improved` alert worth reading, and the transition
   # table above is the only place that still knows it.
   defp alert(state, notification, kind, qualifying, jumps, previous_jumps) do
+    # Resolved here rather than in the formatter so the lookup is testable on
+    # its own and the formatter stays a pure rendering of what it is handed.
+    # Synchronous DB work in this process matches what `load_notification/1`
+    # already does. Done BEFORE the optimistic `persist/1` below so that no
+    # failure mode of the lookup — including an exit, which its `rescue` does
+    # not catch — can leave the advanced route_state written with no alert
+    # delivered, which would take the silent `{:qualifying, _old}` branch
+    # forever afterwards.
+    alert = %{
+      kind: kind,
+      jumps: jumps,
+      previous_jumps: previous_jumps,
+      path: qualifying.path,
+      exit_system: qualifying.exit_system,
+      map_id: state.map_id,
+      home_system_id: notification.home_system_id,
+      scout: RouteScout.resolve(state.map_id, qualifying.path)
+    }
+
     # `state` still carries the PREVIOUS route_state here — captured as
     # `prev_state` before the optimistic write, so a reverted delivery
     # restores exactly what was there before this transition, not the new
@@ -454,19 +500,10 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
 
     case Router.route_destination(notification) do
       {:ok, webhook} ->
-        deliver_alert(
-          new_state,
-          prev_state,
-          notification,
-          webhook,
-          kind,
-          qualifying,
-          jumps,
-          previous_jumps
-        )
+        deliver_alert(new_state, prev_state, webhook, alert)
 
       # Also "nothing was enqueued", so it reverts exactly like
-      # `deliver_alert/8`'s {:error, :not_running}. Keeping the optimistic
+      # `deliver_alert/4`'s {:error, :not_running}. Keeping the optimistic
       # write here would mean the same route at the same jump count takes the
       # silent `{:qualifying, _old}` branch forever once the destination is
       # usable again, and is never announced.
@@ -475,37 +512,12 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcher do
     end
   end
 
-  defp deliver_alert(
-         state,
-         prev_state,
-         notification,
-         webhook,
-         kind,
-         qualifying,
-         jumps,
-         previous_jumps
-       ) do
-    alert = %{
-      kind: kind,
-      jumps: jumps,
-      previous_jumps: previous_jumps,
-      path: qualifying.path,
-      exit_system: qualifying.exit_system,
-      map_id: state.map_id,
-      home_system_id: notification.home_system_id,
-      # Resolved here rather than in the formatter so the lookup is testable
-      # on its own and the formatter stays a pure rendering of what it is
-      # handed. Synchronous DB work in this process matches what
-      # `load_notification/1` already does; `resolve/2` is total and returns
-      # nil rather than raising, so it cannot cost a delivery.
-      scout: RouteScout.resolve(state.map_id, qualifying.path)
-    }
-
+  defp deliver_alert(state, prev_state, webhook, alert) do
     messages = EmbedFormatter.format_route_alert(alert, mention_targets: webhook.mention_targets)
 
     case worker_supervisor_impl().deliver(webhook.id, messages) do
       :ok ->
-        emit_telemetry(state, kind)
+        emit_telemetry(state, alert.kind)
         state
 
       # Nothing was enqueued: revert the optimistic write to what it was

@@ -754,9 +754,10 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       {:ok, pid} = start_watcher(map.id, settle_ms: 20)
       RouteWatcher.notify(map.id)
 
-      # :settle fires with task: nil (nothing else is running), so the ELSE
-      # branch of the `:settle` handler runs `start_evaluation/1` directly,
-      # launching a (now blocking) solve.
+      # `BlockingSolver` is installed before the first notify, so cycle 1's
+      # evaluation never lands and no settle timer is ever armed: the task in
+      # flight here is the ordinary debounce-launched solve, pinned open so
+      # the `:evaluate` below is guaranteed to find `task` non-nil.
       assert :ok = wait_until(fn -> match?(%{task: %Task{}}, :sys.get_state(pid)) end)
       %{task: task_before} = :sys.get_state(pid)
 
@@ -783,6 +784,76 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
       assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :opened}}
       refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 200
       assert %{task: nil, timer_ref: nil, settle_ref: nil} = :sys.get_state(pid)
+    end
+
+    # `clear_settle/1` cancels the settle timer, but `Process.cancel_timer/1`
+    # cannot recall a `:settle` already delivered to this process's mailbox —
+    # the hold's timer can expire in the instant before an unrelated path (a
+    # `:none` outcome here, but a config change or a failed
+    # `load_notification/1` reach `clear_settle/1` the same way) abandons the
+    # hold. Without the `%{settle_ref: nil}` guard clause that stale message
+    # marks the state confirmed, and the evaluation it starts publishes with
+    # NO hold at all. Constructed by delivering the message directly, exactly
+    # as the stray-`:evaluate` test above does, rather than by racing timers.
+    test "a stale :settle for an abandoned hold does not publish unheld", %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      # Long enough that the real timer cannot fire during this test: the only
+      # `:settle` the watcher sees is the one sent by hand below.
+      {:ok, pid} = start_watcher(map.id, settle_ms: 60_000)
+      RouteWatcher.notify(map.id)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+
+      # The route stops qualifying: `transition(_, _, :none)` abandons the hold.
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        {:ok,
+         %{
+           routes: [
+             %{
+               has_connection: false,
+               systems: [],
+               origin: 30_000_001,
+               destination: @jita,
+               success: false
+             }
+           ],
+           systems_static_data: []
+         }}
+      )
+
+      RouteWatcher.notify(map.id)
+      await_settled(pid)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :none}}
+
+      assert %{settle_ref: nil, settle_confirmed?: false, route_state: :none} =
+               :sys.get_state(pid)
+
+      # It qualifies again, and the `:settle` that was already in the mailbox
+      # when the hold was abandoned is delivered now.
+      Application.put_env(
+        :wanderer_app,
+        :route_alert_stub_result,
+        qualifying_result(4, 30_000_001)
+      )
+
+      send(pid, :settle)
+
+      # The guard makes it a no-op. Without it, the evaluation it starts finds
+      # `settle_confirmed?: true` and posts a `:none -> qualifying` alert here.
+      refute_receive {:route_alert_telemetry, _, %{outcome: :opened}}, 300
+      assert HttpStub.requests_for(@route_url) == []
+      assert %{settle_confirmed?: false, route_state: :none} = :sys.get_state(pid)
+
+      # And the next qualifying transition is still held normally.
+      RouteWatcher.notify(map.id)
+      assert_receive {:route_alert_telemetry, %{count: 1}, %{outcome: :held}}
+      assert HttpStub.requests_for(@route_url) == []
     end
 
     test "a published alert credits the character who added a path system", %{map: map} do
