@@ -154,6 +154,12 @@ defmodule WandererApp.Character.TrackerManager.Impl do
       end)
 
       remove_from_untrack_queue(map_id, character_id)
+      # The sidecar reason has to go with the queue entry it describes. A
+      # character untracked and re-tracked inside the drain window cancels the
+      # queue entry here; leaving the reason behind would both leak the key —
+      # the drain that would have deleted it never runs — and let a stale cause
+      # label an unrelated untrack later on.
+      WandererApp.Cache.delete(untrack_reason_key(map_id, character_id))
 
       case WandererApp.Character.Tracker.update_settings(character_id, track_settings) do
         {:ok, character_state} ->
@@ -178,10 +184,38 @@ defmodule WandererApp.Character.TrackerManager.Impl do
           "will be processed within #{div(@untrack_characters_interval, 60_000)} minutes"
       end)
 
-      add_to_untrack_queue(map_id, character_id)
+      add_to_untrack_queue(map_id, character_id, Map.get(track_settings, :untrack_reason))
     end
 
     state
+  end
+
+  # The queue itself stays a {map_id, character_id} tuple — its uniqueness key
+  # and every existing reader depend on that shape. The reason rides alongside in
+  # its own cache key so a repeat untrack of the same pair simply overwrites it.
+  defp untrack_reason_key(map_id, character_id),
+    do: "character:#{character_id}:map:#{map_id}:untrack_reason"
+
+  # Comfortably longer than the drain interval, so the reason is always present
+  # when its queue entry is processed, and short enough that a key orphaned by
+  # any path that empties the queue without draining it disappears on its own.
+  # An explicit ttl is required: this cache applies no default expiry.
+  @untrack_reason_ttl :timer.minutes(30)
+
+  # Private on purpose: the reason is a metric label, and a public arity-3 entry
+  # point would be a second, unguarded way to set it. The only reasons that can
+  # reach here come through `CharactersImpl.untrack_characters/3`, whose guard
+  # already restricts them to :presence_driven, :acl_revoked or :manual_untrack.
+  # The arity-2 form stays public — it takes no reason, so it cannot widen the
+  # label set, and an integration test calls it directly.
+  defp add_to_untrack_queue(map_id, character_id, reason) do
+    if not is_nil(reason) do
+      WandererApp.Cache.insert(untrack_reason_key(map_id, character_id), reason,
+        ttl: @untrack_reason_ttl
+      )
+    end
+
+    add_to_untrack_queue(map_id, character_id)
   end
 
   def add_to_untrack_queue(map_id, character_id) do
@@ -356,12 +390,21 @@ defmodule WandererApp.Character.TrackerManager.Impl do
     untrack_queue
     |> Task.async_stream(
       fn {map_id, character_id} ->
+        # Last writer wins, and the queue dedupes on {map_id, character_id} via
+        # Enum.uniq_by. So if two untracks with different causes land on the same
+        # pair inside one drain window, one queue entry survives and it carries
+        # the *later* cause. The untrack still happens exactly once and the label
+        # is still one of the real causes — but if you are staring at a
+        # reason that does not match the log line you expected, this is why.
+        reason = WandererApp.Cache.lookup!(untrack_reason_key(map_id, character_id), :unknown)
+
         Logger.info(
           "[TrackerManager] Untracking character #{character_id} from map #{map_id}, " <>
-            "reason=presence_queue_processed"
+            "reason=#{reason}"
         )
 
         remove_from_untrack_queue(map_id, character_id)
+        WandererApp.Cache.delete(untrack_reason_key(map_id, character_id))
 
         WandererApp.Cache.delete("map:#{map_id}:character:#{character_id}:solar_system_id")
         WandererApp.Cache.delete("map:#{map_id}:character:#{character_id}:station_id")
@@ -370,7 +413,8 @@ defmodule WandererApp.Character.TrackerManager.Impl do
         {:ok, character_state} =
           WandererApp.Character.Tracker.update_settings(character_id, %{
             map_id: map_id,
-            track: false
+            track: false,
+            untrack_reason: reason
           })
 
         {:ok, character} = WandererApp.Character.get_character(character_id)

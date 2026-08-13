@@ -30,7 +30,7 @@ defmodule WandererApp.Map.Server do
     end
   end
 
-  defdelegate untrack_characters(map_id, character_ids), to: Impl
+  defdelegate untrack_characters(map_id, character_ids, reason \\ :presence_driven), to: Impl
 
   defdelegate add_system(map_id, system_info, user_id, character_id, opts \\ []), to: Impl
 

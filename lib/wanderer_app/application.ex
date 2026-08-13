@@ -90,66 +90,60 @@ defmodule WandererApp.Application do
         }
       },
       WandererApp.Cache,
-      Supervisor.child_spec({Cachex, name: :api_cache, default_ttl: :timer.hours(1)},
-        id: :api_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :esi_auth_cache, default_ttl: :timer.minutes(30)},
-        id: :esi_auth_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :system_static_info_cache, default_ttl: :timer.hours(4)},
+      # NONE of the caches below expire anything.
+      #
+      # Each of these specs carried a `default_ttl:` option. That option is
+      # Cachex 2.x; this project is on Cachex 3.6, where the equivalent is
+      # `expiration: expiration(default: ...)`. Cachex 3 ignores options it does
+      # not recognise, so every one of those TTLs was silently discarded at
+      # startup and every entry has lived until the process died. The options
+      # are removed rather than translated because turning real expiration on
+      # across fifteen caches at once is a behaviour change that deserves to be
+      # made deliberately, per cache, with the eviction consequences considered
+      # — not smuggled in as a "fix" to a line that has never done anything.
+      #
+      # The TTLs that were intended, kept here so restoring one is a decision
+      # and not an archaeology exercise:
+      #
+      #   :api_cache                    1h    :map_state_cache            2h
+      #   :esi_auth_cache              30m    :character_state_cache      1h
+      #   :system_static_info_cache     4h    :tracked_characters         1h
+      #   :ship_types_cache             4h    :wanderer_app_cache         1h
+      #   :character_cache              1h    :webhook_subscriptions_cache 5m
+      #   :acl_cache                    1h    :discord_notification_cache  5m
+      #   :map_cache                    2h    :discord_dedup_cache        24h
+      #   :map_pool_cache               2h
+      #
+      # Per-entry TTLs passed explicitly to `Cachex.put/4` were never affected
+      # and still work; only the per-cache default was dead.
+      Supervisor.child_spec({Cachex, name: :api_cache}, id: :api_cache_worker),
+      Supervisor.child_spec({Cachex, name: :esi_auth_cache}, id: :esi_auth_cache_worker),
+      Supervisor.child_spec({Cachex, name: :system_static_info_cache},
         id: :system_static_info_cache_worker
       ),
-      Supervisor.child_spec(
-        {Cachex, name: :ship_types_cache, default_ttl: :timer.hours(4)},
-        id: :ship_types_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :character_cache, default_ttl: :timer.hours(1)},
-        id: :character_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :acl_cache, default_ttl: :timer.hours(1)},
-        id: :acl_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :map_cache, default_ttl: :timer.hours(2)},
-        id: :map_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :map_pool_cache, default_ttl: :timer.hours(2)},
-        id: :map_pool_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :map_state_cache, default_ttl: :timer.hours(2)},
-        id: :map_state_cache_worker
-      ),
-      Supervisor.child_spec(
-        {Cachex, name: :character_state_cache, default_ttl: :timer.hours(1)},
+      Supervisor.child_spec({Cachex, name: :ship_types_cache}, id: :ship_types_cache_worker),
+      Supervisor.child_spec({Cachex, name: :character_cache}, id: :character_cache_worker),
+      Supervisor.child_spec({Cachex, name: :acl_cache}, id: :acl_cache_worker),
+      Supervisor.child_spec({Cachex, name: :map_cache}, id: :map_cache_worker),
+      Supervisor.child_spec({Cachex, name: :map_pool_cache}, id: :map_pool_cache_worker),
+      Supervisor.child_spec({Cachex, name: :map_state_cache}, id: :map_state_cache_worker),
+      Supervisor.child_spec({Cachex, name: :character_state_cache},
         id: :character_state_cache_worker
       ),
-      Supervisor.child_spec(
-        {Cachex, name: :tracked_characters, default_ttl: :timer.hours(1)},
+      Supervisor.child_spec({Cachex, name: :tracked_characters},
         id: :tracked_characters_cache_worker
       ),
-      Supervisor.child_spec(
-        {Cachex, name: :wanderer_app_cache, default_ttl: :timer.hours(1)},
+      Supervisor.child_spec({Cachex, name: :wanderer_app_cache},
         id: :wanderer_app_cache_worker
       ),
-      # Cache for webhook subscriptions - 5 minute TTL to reduce DB load
-      Supervisor.child_spec(
-        {Cachex, name: :webhook_subscriptions_cache, default_ttl: :timer.minutes(5)},
+      Supervisor.child_spec({Cachex, name: :webhook_subscriptions_cache},
         id: :webhook_subscriptions_cache_worker
       ),
-      # Cache for per-map Discord notification config - 5 minute TTL
-      Supervisor.child_spec(
-        {Cachex, name: :discord_notification_cache, default_ttl: :timer.minutes(5)},
+      Supervisor.child_spec({Cachex, name: :discord_notification_cache},
         id: :discord_notification_cache_worker
       ),
-      # Dedup marks for {map_id, killmail_id} - 24h, matching kill cache TTLs
-      Supervisor.child_spec(
-        {Cachex, name: :discord_dedup_cache, default_ttl: :timer.hours(24)},
+      # Dedup marks for {map_id, killmail_id}.
+      Supervisor.child_spec({Cachex, name: :discord_dedup_cache},
         id: :discord_dedup_cache_worker
       ),
       # Route-alert state per map (route_state + config_version) — no TTL:

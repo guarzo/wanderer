@@ -382,5 +382,53 @@ defmodule WandererApp.Character.TrackerUpdateSettingsTest do
                       [:wanderer_app, :character, :tracking, :location_skipped_while_active], _,
                       _}
     end
+
+    # The reason is a Prometheus label. prom_ex_plugin.ex declares exactly
+    # [:presence_driven, :acl_revoked, :manual_untrack, :unknown]; an atom
+    # outside that set would materialise a series PromEx never declared, and
+    # since reasons originate from atoms in code the damage is a permanently
+    # mislabelled series rather than unbounded growth. Bounding it here — at the
+    # point the label is produced — covers every caller of update_settings/2,
+    # including the ones that bypass CharactersImpl.untrack_characters/3.
+    test "carries a recognised untrack reason through to the cleared event", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      seed_state(character_id, %{is_online: true, track_location: true, active_maps: [map_id]})
+
+      {:ok, state} =
+        Tracker.update_settings(character_id, %{
+          map_id: map_id,
+          track: false,
+          untrack_reason: :acl_revoked
+        })
+
+      assert_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_cleared],
+                      _, %{reason: :acl_revoked}}
+
+      assert state.last_cleared_reason == :acl_revoked
+    end
+
+    test "degrades an unrecognised untrack reason to :unknown rather than raising", %{
+      character_id: character_id,
+      map_id: map_id
+    } do
+      seed_state(character_id, %{is_online: true, track_location: true, active_maps: [map_id]})
+
+      # Raising here would turn a cardinality slip into the very freeze this
+      # instrumentation exists to detect: the character's tracker would crash
+      # mid-untrack instead of recording why its location flag was cleared.
+      {:ok, state} =
+        Tracker.update_settings(character_id, %{
+          map_id: map_id,
+          track: false,
+          untrack_reason: :something_a_future_caller_invented
+        })
+
+      assert_receive {:telemetry, [:wanderer_app, :character, :tracking, :location_flag_cleared],
+                      _, %{reason: :unknown}}
+
+      assert state.last_cleared_reason == :unknown
+    end
   end
 end

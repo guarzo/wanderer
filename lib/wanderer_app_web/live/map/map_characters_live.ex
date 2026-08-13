@@ -84,7 +84,38 @@ defmodule WandererAppWeb.MapCharactersLive do
         character_setting ->
           case character_setting.tracked do
             true ->
-              WandererApp.Map.Server.untrack_characters(map_id, [character_setting.character_id])
+              # The DB write has to happen here as well as the tracker call: this
+              # handler used to call untrack_characters/2 alone, which left the
+              # settings row saying tracked: true. Every other reader — this
+              # page's own button included — then reported the character as
+              # tracked, and the operator's action showed no effect anywhere it
+              # could be seen.
+              #
+              # This does not make the untrack permanent. track_character/2
+              # (map_server_characters_impl.ex:1077) deliberately re-tracks a
+              # character whose settings say tracked: false when they next enter
+              # presence with valid tokens and permissions, so an untracked
+              # character returns on their next map entry by design.
+              # The tracker call runs whether or not the settings write succeeds:
+              # a failed write leaves the row stale, which is the state the
+              # previous code always produced, but it must not also skip the
+              # untrack.
+              case WandererApp.MapCharacterSettingsRepo.untrack(character_setting) do
+                {:ok, _updated} ->
+                  :ok
+
+                error ->
+                  Logger.error(
+                    "[MapCharacters] Failed to persist untrack for character " <>
+                      "#{character_setting.character_id} on map #{map_id}: #{inspect(error)}"
+                  )
+              end
+
+              WandererApp.Map.Server.untrack_characters(
+                map_id,
+                [character_setting.character_id],
+                :manual_untrack
+              )
 
               socket |> put_flash(:info, "Character untracked!") |> load_characters()
 
@@ -133,10 +164,32 @@ defmodule WandererAppWeb.MapCharactersLive do
   end
 
   defp load_characters(%{assigns: %{map_id: map_id}} = socket) do
+    {:ok, character_settings} =
+      case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
+        {:ok, settings} -> {:ok, settings}
+        _ -> {:ok, []}
+      end
+
+    # `tracked` is rendered from the settings row rather than from the presence
+    # cache the character arrived in. The untrack this page performs writes the
+    # settings row and cannot write another user's presence entry, so reading
+    # presence here showed the Untrack button still lit after a successful
+    # untrack. Derive the displayed state from the state the action writes.
+    tracked_by_character_id =
+      character_settings
+      |> Map.new(fn setting -> {setting.character_id, setting.tracked} end)
+
     map_characters =
       map_id
       |> get_all_characters()
       |> Enum.map(fn character -> map_ui_character(map_id, character) end)
+      |> Enum.map(fn character ->
+        Map.put(
+          character,
+          :tracked,
+          Map.get(tracked_by_character_id, character.id, Map.get(character, :tracked, false))
+        )
+      end)
 
     groups =
       map_characters
@@ -144,12 +197,6 @@ defmodule WandererAppWeb.MapCharactersLive do
       |> Enum.reduce([], fn {user_id, values}, acc ->
         acc ++ [%{id: user_id, characters: values}]
       end)
-
-    {:ok, character_settings} =
-      case WandererApp.MapCharacterSettingsRepo.get_all_by_map(map_id) do
-        {:ok, settings} -> {:ok, settings}
-        _ -> {:ok, []}
-      end
 
     socket
     |> assign(:character_settings, character_settings)

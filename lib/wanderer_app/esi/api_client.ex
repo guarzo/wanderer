@@ -369,9 +369,11 @@ defmodule WandererApp.Esi.ApiClient do
           {:ok, body}
 
         {:ok, %{status: 504}} ->
+          emit_esi_error(path, :timeout, pool)
           {:error, :timeout}
 
         {:ok, %{status: 404}} ->
+          emit_esi_error(path, :not_found, pool)
           {:error, :not_found}
 
         {:ok, %{status: 420, headers: headers} = _error} ->
@@ -441,6 +443,7 @@ defmodule WandererApp.Esi.ApiClient do
           do_get_retry(path, api_opts, opts)
 
         {:ok, %{status: status}} ->
+          emit_esi_error(path, :unexpected_status, pool)
           {:error, "Unexpected status: #{status}"}
 
         {:error, %Mint.TransportError{reason: :timeout}} ->
@@ -450,6 +453,8 @@ defmodule WandererApp.Esi.ApiClient do
             %{count: 1},
             %{method: "GET", path: path, pool: pool}
           )
+
+          emit_esi_error(path, :pool_timeout, pool)
 
           {:error, :pool_timeout}
 
@@ -463,6 +468,8 @@ defmodule WandererApp.Esi.ApiClient do
               %{method: "GET", path: path, pool: pool}
             )
           end
+
+          emit_esi_error(path, :request_failed, pool)
 
           {:error, "Request failed"}
       end
@@ -487,9 +494,36 @@ defmodule WandererApp.Esi.ApiClient do
           Logger.error(error_msg)
         end
 
+        emit_esi_error(path, :exception, pool)
+
         {:error, "Request failed"}
     end
   end
+
+  # [:wanderer_app, :esi, :error] had a PromEx counter declared and no emitter
+  # anywhere in lib/, so the series never materialized and the panel reading it
+  # showed "no data" — visually identical to "ESI is healthy". These are the
+  # branches that were already returning errors silently.
+  #
+  # error_type is a fixed set of atoms and endpoint is the path with its numeric
+  # ids stripped, because both become Prometheus labels: the raw path would open
+  # one series per character id.
+  defp emit_esi_error(path, error_type, pool) do
+    :telemetry.execute(
+      [:wanderer_app, :esi, :error],
+      %{count: 1, system_time: System.system_time()},
+      %{endpoint: endpoint_label(path), error_type: error_type, tracking_pool: inspect(pool)}
+    )
+  end
+
+  defp endpoint_label(path) when is_binary(path) do
+    path
+    |> String.replace(~r{/\d+}, "/:id")
+    |> String.split("?")
+    |> List.first()
+  end
+
+  defp endpoint_label(_path), do: "unknown"
 
   defp maybe_cache_response(path, body, %{"expires" => [expires]} = _headers, opts)
        when is_binary(path) and not is_nil(expires) do

@@ -17,6 +17,12 @@ defmodule WandererApp.Character.Tracker do
     track_location: false,
     track_ship: false,
     track_wallet: false,
+    # Which branch point last cleared track_location, so report_location_repair/1
+    # can say what it is repairing. Nil means "no clear recorded in this tracker's
+    # lifetime" — including every character whose clear predates a restart, since
+    # :character_state_cache is in-memory — and is reported as :unknown rather
+    # than omitted, so the tag is always present in the series.
+    last_cleared_reason: nil,
     status: "new"
   ]
 
@@ -33,6 +39,7 @@ defmodule WandererApp.Character.Tracker do
           track_location: boolean,
           track_ship: boolean,
           track_wallet: boolean,
+          last_cleared_reason: atom() | nil,
           status: binary()
         }
 
@@ -1115,7 +1122,10 @@ defmodule WandererApp.Character.Tracker do
          _track_settings
        ) do
     report_location_repair(state)
-    %{state | track_location: true}
+    # last_cleared_reason is consumed here: the clear it described has now been
+    # undone, and leaving it set would let the *next* repair inherit a label
+    # belonging to an older clear.
+    %{state | track_location: true, last_cleared_reason: nil}
   end
 
   defp maybe_start_location_tracking(
@@ -1135,21 +1145,32 @@ defmodule WandererApp.Character.Tracker do
   # a character who WOULD have frozen on the map before this fix. Pair with
   # :location_flag_cleared (where the bad state is created) and
   # :location_skipped_while_active (which must stay at zero).
+  # Tagged with the reason for the clear this repair undoes, because the two are
+  # not the same kind of event: repaired{reason: presence_driven} is the fix
+  # saving a character who would have frozen, while
+  # repaired{reason: manual_untrack} is the fix reverting an operator who
+  # deliberately pressed Untrack. Only the first belongs in the headline number.
+  # :unknown covers clears this tracker did not witness — its state is held in an
+  # in-memory cache, so every restart resets the field.
   defp report_location_repair(%{
          is_online: true,
          track_location: false,
-         character_id: character_id
+         character_id: character_id,
+         last_cleared_reason: last_cleared_reason
        }) do
+    reason = last_cleared_reason || :unknown
+
     Logger.info(
       "[Tracker] Restored location tracking for online character #{character_id} on map " <>
-        "re-entry; before this fix the character would have stopped moving on the map.",
+        "re-entry; before this fix the character would have stopped moving on the map. " <>
+        "cleared_reason=#{reason}",
       character_id: character_id
     )
 
     :telemetry.execute(
       [:wanderer_app, :character, :tracking, :location_flag_repaired],
       %{count: 1, system_time: System.system_time()},
-      %{character_id: character_id}
+      %{character_id: character_id, reason: reason}
     )
   end
 
@@ -1242,7 +1263,7 @@ defmodule WandererApp.Character.Tracker do
            track_location: track_location,
            opts: opts
          } = state,
-         _track_settings
+         track_settings
        ) do
     if is_nil(opts[:keep_alive]) do
       WandererApp.Cache.put(
@@ -1266,11 +1287,19 @@ defmodule WandererApp.Character.Tracker do
       :telemetry.execute(
         [:wanderer_app, :character, :tracking, :location_flag_cleared],
         %{count: 1, system_time: System.system_time()},
-        %{character_id: character_id}
+        %{character_id: character_id, reason: untrack_reason(track_settings)}
       )
     end
 
-    %{state | track_location: false, track_ship: false}
+    # Recorded even when the counter above does not fire, so a later repair can
+    # still name its cause. Only overwritten on a real clear, so it always
+    # describes the clear that the next repair undoes.
+    %{
+      state
+      | track_location: false,
+        track_ship: false,
+        last_cleared_reason: untrack_reason(track_settings)
+    }
   end
 
   defp maybe_stop_tracking(
@@ -1278,6 +1307,27 @@ defmodule WandererApp.Character.Tracker do
          _track_settings
        ),
        do: state
+
+  # The label set `location_flag_cleared` and `last_cleared_reason` are grouped
+  # by. Must stay in step with @untrack_reasons in prom_ex_plugin.ex, which
+  # declares exactly these four to Prometheus; an atom outside the list would
+  # create a series PromEx never declared.
+  @untrack_reasons [:presence_driven, :acl_revoked, :manual_untrack]
+
+  # Callers that predate the bounded reason (and the internal re-entry paths in
+  # reconcile_tracking/1) send no untrack_reason at all; label those :unknown
+  # rather than guessing :presence_driven, which would quietly attribute them to
+  # the majority cause.
+  #
+  # An unrecognised atom degrades to :unknown rather than raising. The outer
+  # boundary — CharactersImpl.untrack_characters/3 — already raises on a bad
+  # reason, so anything arriving here has bypassed it; failing a character's
+  # tracker over a metric label would turn a cardinality slip into the freeze
+  # this instrumentation exists to detect.
+  defp untrack_reason(%{untrack_reason: reason}) when reason in @untrack_reasons,
+    do: reason
+
+  defp untrack_reason(_track_settings), do: :unknown
 
   defp get_location(%{
          "solar_system_id" => solar_system_id,

@@ -77,11 +77,25 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     end)
   end
 
-  def untrack_characters(map_id, character_ids) do
+  @untrack_reasons [:presence_driven, :acl_revoked, :manual_untrack]
+
+  @doc """
+  Stops map tracking for the given characters.
+
+  `reason` records which of the three branch points asked for this, and is
+  carried through to the `:stopped` telemetry event and into the tracker as
+  `last_cleared_reason`. It used to be hardcoded to `:presence_expired` here,
+  which labelled a deliberate operator untrack and an ACL revocation as
+  presence expiry — a constant wearing a variable's name. Callers must pass one
+  of #{inspect(@untrack_reasons)}; anything else raises rather than silently
+  widening the label set the metrics are grouped by.
+  """
+  def untrack_characters(map_id, character_ids, reason \\ :presence_driven)
+      when reason in @untrack_reasons do
     if length(character_ids) > 0 do
       Logger.debug(fn ->
         "[CharactersImpl] Untracking #{length(character_ids)} characters from map #{map_id} - " <>
-          "reason: characters no longer in presence_character_ids (grace period expired or user disconnected)"
+          "reason=#{reason}"
       end)
     end
 
@@ -90,30 +104,31 @@ defmodule WandererApp.Map.Server.CharactersImpl do
       character_map_active = is_character_map_active?(map_id, character_id)
 
       character_map_active
-      |> untrack_character(map_id, character_id)
+      |> untrack_character(map_id, character_id, reason)
     end)
   end
 
-  defp untrack_character(true, map_id, character_id) do
+  defp untrack_character(true, map_id, character_id, reason) do
     Logger.info(fn ->
       "[CharactersImpl] Untracking character #{character_id} from map #{map_id} - " <>
-        "character was actively tracking this map"
+        "character was actively tracking this map, reason=#{reason}"
     end)
 
     # Emit telemetry for tracking
     :telemetry.execute(
       [:wanderer_app, :character, :tracking, :stopped],
       %{system_time: System.system_time()},
-      %{character_id: character_id, map_id: map_id, reason: :presence_expired}
+      %{character_id: character_id, map_id: map_id, reason: reason}
     )
 
     WandererApp.Character.TrackerManager.update_track_settings(character_id, %{
       map_id: map_id,
-      track: false
+      track: false,
+      untrack_reason: reason
     })
   end
 
-  defp untrack_character(false, map_id, character_id) do
+  defp untrack_character(false, map_id, character_id, _reason) do
     Logger.debug(fn ->
       "[CharactersImpl] Skipping untrack for character #{character_id} on map #{map_id} - " <>
         "character was not actively tracking this map"
@@ -325,7 +340,7 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     )
 
     map_id
-    |> untrack_characters(character_ids)
+    |> untrack_characters(character_ids, :acl_revoked)
 
     map_id
     |> WandererApp.MapCharacterSettingsRepo.get_by_map_filtered(character_ids)

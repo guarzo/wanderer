@@ -28,6 +28,7 @@ defmodule WandererApp.Metrics.PromExPlugin do
   # skipped > 0 means a route to the frozen state the fix does not cover.
   @location_flag_cleared_event [:wanderer_app, :character, :tracking, :location_flag_cleared]
   @location_flag_repaired_event [:wanderer_app, :character, :tracking, :location_flag_repaired]
+  @tracking_stopped_event [:wanderer_app, :character, :tracking, :stopped]
   @location_skipped_while_active_event [
     :wanderer_app,
     :character,
@@ -79,18 +80,32 @@ defmodule WandererApp.Metrics.PromExPlugin do
           @location_flag_cleared_event ++ [:count],
           event_name: @location_flag_cleared_event,
           description:
-            "Times location tracking was cleared while the character was still online in EVE",
-          tags: [],
-          tag_values: &get_empty_tag_values/1
+            "Times location tracking was cleared while the character was still online in EVE, " <>
+              "by which branch point asked for the untrack",
+          tags: [:reason],
+          tag_values: &get_untrack_reason_tag_values/1
         ),
         counter(
           @location_flag_repaired_event ++ [:count],
           event_name: @location_flag_repaired_event,
           description:
             "Times an online character's location tracking was restored on map re-entry, " <>
-              "each of which would previously have frozen on the map",
-          tags: [],
-          tag_values: &get_empty_tag_values/1
+              "tagged with the reason for the clear being undone; only reason=presence_driven " <>
+              "counts as the fix saving a character that would otherwise have frozen",
+          tags: [:reason],
+          tag_values: &get_untrack_reason_tag_values/1
+        ),
+        # Emitted on every map untrack since long before this plugin existed and
+        # collected nowhere until now. It is the denominator the two counters
+        # above are read against: cleared/stopped is the share of untracks that
+        # caught a character still online in EVE.
+        counter(
+          @tracking_stopped_event ++ [:count],
+          event_name: @tracking_stopped_event,
+          description:
+            "Times map tracking was stopped for a character, by which branch point asked",
+          tags: [:reason],
+          tag_values: &get_untrack_reason_tag_values/1
         ),
         counter(
           @location_skipped_while_active_event ++ [:count],
@@ -299,6 +314,19 @@ defmodule WandererApp.Metrics.PromExPlugin do
 
   defp get_empty_tag_values(_) do
     %{}
+  end
+
+  # Bounded on purpose: the emitters only ever send one of the three branch
+  # reasons or :unknown, and anything else collapses to :unknown rather than
+  # opening an unbounded label dimension on a counter Prometheus keeps forever.
+  @untrack_reasons [:presence_driven, :acl_revoked, :manual_untrack, :unknown]
+
+  defp get_untrack_reason_tag_values(%{reason: reason}) when reason in @untrack_reasons do
+    %{reason: reason}
+  end
+
+  defp get_untrack_reason_tag_values(_metadata) do
+    %{reason: :unknown}
   end
 
   defp json_api_metrics do
