@@ -15,6 +15,13 @@ const sig = (overrides: Partial<SystemSignature> = {}): SystemSignature => ({
 
 const hoursAgo = (h: number) => new Date(NOW - h * HOUR).toISOString();
 
+// The format the server actually puts on the wire: `Calendar.strftime(dt,
+// "%Y/%m/%d %H:%M:%S")` in `get_system_signatures/1`. It is UTC, but carries
+// nothing that says so. Fixtures built with `toISOString()` are ISO-8601 with a
+// `Z`, so they never exercised this path.
+const serverHoursAgo = (h: number) =>
+  new Date(NOW - h * HOUR).toISOString().replace(/-/g, '/').slice(0, 19).replace('T', ' ');
+
 describe('computeSignatureAge', () => {
   it('reports no age when the system has no signatures at all', () => {
     expect(computeSignatureAge([], NOW).signatureAgeHours).toBe(-1);
@@ -78,6 +85,27 @@ describe('computeSignatureAge', () => {
 
     expect(signatureAgeHours).toBe(7);
     expect(newestUpdatedAt).toBe(NOW - 7 * HOUR);
+  });
+
+  // The reported bug: west of UTC, `new Date('2026/08/09 10:00:00')` resolves to
+  // 10:00 *local*, which is later than the real instant, so every age landed in
+  // the `Math.max(0, ...)` clamp and the bookmark read 0h for hours on end.
+  it('reads the zone-less server timestamp format as UTC', () => {
+    const sigs = [sig({ updated_at: serverHoursAgo(6) })];
+
+    expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(6);
+  });
+
+  it('reads the server format on the inserted_at fallback too', () => {
+    const sigs = [sig({ inserted_at: serverHoursAgo(9) })];
+
+    expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(9);
+  });
+
+  it('still reads an ISO-8601 timestamp with an explicit zone', () => {
+    const sigs = [sig({ updated_at: hoursAgo(6) })];
+
+    expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(6);
   });
 
   it('reports no age when neither timestamp will parse', () => {

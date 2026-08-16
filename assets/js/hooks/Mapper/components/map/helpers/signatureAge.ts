@@ -51,7 +51,21 @@ export function formatSignatureAge(signatureAgeHours: number): string {
 }
 
 /**
+ * The zone-less timestamp format the LiveView puts on the wire, from
+ * `Calendar.strftime(dt, "%Y/%m/%d %H:%M:%S")` in `get_system_signatures/1`.
+ */
+const SERVER_TIMESTAMP = /^(\d{4})\/(\d{2})\/(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/;
+
+/**
  * Parses a signature timestamp, treating anything unparseable as absent.
+ *
+ * The server sends UTC with nothing marking it as UTC, and `new Date` reads that
+ * format as *local* time. West of UTC that puts every timestamp in the future,
+ * so `now - updated_at` went negative and the age clamped to 0 — the bookmark
+ * sat at "0h" no matter how long ago the system was really scanned. The offset
+ * is applied explicitly here rather than by the `getTimezoneOffset()` correction
+ * `TimeLeft` uses, so the value this returns is a real instant that callers can
+ * compare against `Date.now()` without knowing how it was encoded.
  *
  * `new Date('garbage').getTime()` is NaN, and NaN loses every `>` comparison,
  * so an unparseable value would otherwise be indistinguishable from "no
@@ -61,7 +75,10 @@ function parseTimestamp(value?: string | null): number {
   if (!value) {
     return 0;
   }
-  const ts = new Date(value).getTime();
+  const parts = SERVER_TIMESTAMP.exec(value);
+  const ts = parts
+    ? Date.UTC(+parts[1], +parts[2] - 1, +parts[3], +parts[4], +parts[5], +parts[6])
+    : new Date(value).getTime();
   return Number.isFinite(ts) ? ts : 0;
 }
 
