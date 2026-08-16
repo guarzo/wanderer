@@ -108,6 +108,28 @@ describe('computeSignatureAge', () => {
     expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(6);
   });
 
+  // `Date.UTC` normalises rather than rejects, so without a round-trip check
+  // these build a real-looking instant out of garbage — indistinguishable, to
+  // every caller, from a timestamp the server actually sent.
+  it.each([
+    ['a month that does not exist', '2026/13/09 10:00:00'],
+    ['a day the month does not have', '2026/02/31 10:00:00'],
+    ['an hour past the end of the day', '2026/08/09 99:99:99'],
+    ['trailing text after a valid prefix', '2026/08/09 10:00:00 and then some'],
+  ])('falls back to inserted_at for %s', (_label, updated_at) => {
+    const sigs = [sig({ updated_at, inserted_at: serverHoursAgo(4) })];
+
+    expect(computeSignatureAge(sigs, NOW).signatureAgeHours).toBe(4);
+  });
+
+  it('accepts the last second of a leap day', () => {
+    const sigs = [sig({ updated_at: '2024/02/29 23:59:59' })];
+
+    expect(computeSignatureAge(sigs, Date.parse('2024/02/29T23:59:59Z') + HOUR).newestUpdatedAt).toBe(
+      Date.UTC(2024, 1, 29, 23, 59, 59),
+    );
+  });
+
   it('reports no age when neither timestamp will parse', () => {
     const sigs = [sig({ updated_at: 'not-a-date', inserted_at: 'also-not-a-date' })];
 

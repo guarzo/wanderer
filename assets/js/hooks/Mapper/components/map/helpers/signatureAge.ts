@@ -53,8 +53,39 @@ export function formatSignatureAge(signatureAgeHours: number): string {
 /**
  * The zone-less timestamp format the LiveView puts on the wire, from
  * `Calendar.strftime(dt, "%Y/%m/%d %H:%M:%S")` in `get_system_signatures/1`.
+ *
+ * Anchored at both ends: an unanchored match would accept a well-formed prefix
+ * followed by anything at all, which `new Date` would have rejected outright.
  */
-const SERVER_TIMESTAMP = /^(\d{4})\/(\d{2})\/(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/;
+const SERVER_TIMESTAMP = /^(\d{4})\/(\d{2})\/(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/;
+
+/**
+ * Resolves the zone-less server format as UTC, or 0 if the components do not
+ * describe a real instant.
+ *
+ * `Date.UTC` normalises out-of-range components rather than rejecting them, so
+ * month 13 becomes February of the next year and 2026/02/31 becomes March 3rd —
+ * a plausible-looking timestamp built out of garbage, which is worse than no
+ * timestamp at all because the caller cannot tell it apart from a real one.
+ * Reading the components back off the result rejects exactly the values that
+ * were normalised, which covers every out-of-range field without enumerating
+ * per-field bounds or special-casing leap years.
+ */
+function parseServerTimestamp(parts: RegExpExecArray): number {
+  const [, year, month, day, hour, minute, second] = parts.map(Number);
+  const ts = Date.UTC(year, month - 1, day, hour, minute, second);
+  const back = new Date(ts);
+
+  const roundTrips =
+    back.getUTCFullYear() === year &&
+    back.getUTCMonth() === month - 1 &&
+    back.getUTCDate() === day &&
+    back.getUTCHours() === hour &&
+    back.getUTCMinutes() === minute &&
+    back.getUTCSeconds() === second;
+
+  return roundTrips ? ts : 0;
+}
 
 /**
  * Parses a signature timestamp, treating anything unparseable as absent.
@@ -76,9 +107,10 @@ function parseTimestamp(value?: string | null): number {
     return 0;
   }
   const parts = SERVER_TIMESTAMP.exec(value);
-  const ts = parts
-    ? Date.UTC(+parts[1], +parts[2] - 1, +parts[3], +parts[4], +parts[5], +parts[6])
-    : new Date(value).getTime();
+  if (parts) {
+    return parseServerTimestamp(parts);
+  }
+  const ts = new Date(value).getTime();
   return Number.isFinite(ts) ? ts : 0;
 }
 
