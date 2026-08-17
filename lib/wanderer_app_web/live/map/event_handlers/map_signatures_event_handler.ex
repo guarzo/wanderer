@@ -545,8 +545,8 @@ defmodule WandererAppWeb.MapSignaturesEventHandler do
       ])
       |> Map.put(:character_name, Map.get(character_names_map, s.character_eve_id))
       |> Map.put(:linked_system, MapEventHandler.get_system_static_info(linked_system_id))
-      |> Map.put(:inserted_at, inserted_at |> Calendar.strftime("%Y/%m/%d %H:%M:%S"))
-      |> Map.put(:updated_at, updated_at |> Calendar.strftime("%Y/%m/%d %H:%M:%S"))
+      |> Map.put(:inserted_at, DateTime.to_iso8601(inserted_at))
+      |> Map.put(:updated_at, DateTime.to_iso8601(updated_at))
     end)
   end
 
