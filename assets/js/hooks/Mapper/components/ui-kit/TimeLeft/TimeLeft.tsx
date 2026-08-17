@@ -31,7 +31,12 @@ export const TimeLeft: FC<TimeLeftProps> = ({ cDate = new Date() }) => {
 
   const update = () => {
     const currentDate = new Date();
-    const diff = currentDate.getTime() + currentDate.getTimezoneOffset() * 60000 - date.getTime();
+    // No timezone correction: `cDate` is built from a timestamp that names its
+    // own zone, so it is already a real instant. This used to add
+    // `getTimezoneOffset()` to compensate for signature timestamps arriving as
+    // zone-less UTC that `new Date` read as local time; the server now sends
+    // ISO-8601 and correcting again would reintroduce the same error, inverted.
+    const diff = currentDate.getTime() - date.getTime();
     setTimeDiff(calculateTimeDiff(diff));
   };
 
