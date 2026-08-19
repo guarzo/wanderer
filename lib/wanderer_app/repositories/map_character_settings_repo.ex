@@ -27,13 +27,35 @@ defmodule WandererApp.MapCharacterSettingsRepo do
   def update(map_id, character_id, updated_settings) do
     case get(map_id, character_id) do
       {:ok, settings} when not is_nil(settings) ->
+        # This function takes arbitrary attributes, so a caller passing
+        # tracked: false would flip the flag without going through untrack/1 and
+        # the uncheck would never be recorded — silently breaking the guarantee
+        # that untrack/1 observes every one. Nothing does that today; this keeps
+        # the guarantee true if something ever starts.
+        untracking? = Map.get(settings, :tracked) == true and untracks?(updated_settings)
+
         settings
         |> WandererApp.Api.MapCharacterSettings.update(updated_settings)
+        |> case do
+          {:ok, _updated} = result ->
+            if untracking?, do: report_untrack(map_id, character_id)
+            result
+
+          error ->
+            error
+        end
 
       _ ->
         {:ok, nil}
     end
   end
+
+  # Ash accepts atom or string keys, so check both rather than trusting callers.
+  defp untracks?(attrs) when is_map(attrs) do
+    Map.get(attrs, :tracked, Map.get(attrs, "tracked")) == false
+  end
+
+  defp untracks?(_attrs), do: false
 
   def get_tracked_by_map_filtered(map_id, character_ids),
     do:

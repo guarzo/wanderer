@@ -73,6 +73,32 @@ defmodule WandererApp.Repositories.MapCharacterSettingsRepoUntrackTest do
     end
   end
 
+  describe "update/3 cannot bypass the instrumentation" do
+    test "reports an uncheck made through the generic update path" do
+      %{map_id: map_id, character_id: character_id} = tracked_settings()
+
+      {:ok, _} = MapCharacterSettingsRepo.update(map_id, character_id, %{tracked: false})
+
+      assert_receive {:telemetry, %{count: 1}, %{character_id: ^character_id, map_id: ^map_id}}
+    end
+
+    test "does not report when the update leaves tracking alone" do
+      %{map_id: map_id, character_id: character_id} = tracked_settings()
+
+      {:ok, _} = MapCharacterSettingsRepo.update(map_id, character_id, %{ship_name: "Loki"})
+
+      refute_receive {:telemetry, _, _}, 200
+    end
+
+    test "does not report when the update sets tracking on" do
+      %{map_id: map_id, character_id: character_id} = tracked_settings()
+
+      {:ok, _} = MapCharacterSettingsRepo.update(map_id, character_id, %{tracked: true})
+
+      refute_receive {:telemetry, _, _}, 200
+    end
+  end
+
   defp tracked_settings do
     map = WandererAppWeb.Factory.insert(:map, %{})
     character = WandererAppWeb.Factory.insert(:character, %{})
