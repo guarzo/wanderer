@@ -35,6 +35,56 @@ defmodule WandererApp.Metrics.PromExPlugin do
     :location_skipped_while_active
   ]
 
+  # Tracking-lifecycle instrumentation. The three location_flag counters above
+  # only cover the flag defect fixed in #146; these cover the neighbouring paths
+  # that could stop a character updating on the map.
+  #
+  # The first three were already being emitted at their call sites with no
+  # handler attached anywhere, so nothing was reaching Prometheus. The fourth,
+  # online_transition, is emitted for the first time by this change.
+  #
+  #   stopped            - tracking ended. `reason` is threaded from the caller
+  #                        (:presence_expired, :permission_revoked,
+  #                        :user_untracked); it used to be hardcoded to
+  #                        :presence_expired for all three causes
+  #   permission_revoked - ACL check removed characters (no grace period).
+  #                        A sum, not a counter: one event carries a whole batch
+  #   token_refresh_failed - ESI refresh failed. Only the invalid_grant variety
+  #                        wipes a token, and only 3 within the 2h counter TTL
+  #   online_transition  - update_online/1 rewrote track_location because EVE
+  #                        online status flipped. A genuine logout lands here
+  #                        too and is NOT a defect (see update_location/1's
+  #                        comment); this counter exists to show the rate and
+  #                        catch spurious offline reports, not to be alerted on
+  @tracking_stopped_event [:wanderer_app, :character, :tracking, :stopped]
+  @tracking_permission_revoked_event [
+    :wanderer_app,
+    :character,
+    :tracking,
+    :permission_revoked
+  ]
+  @tracking_online_transition_event [
+    :wanderer_app,
+    :character,
+    :tracking,
+    :online_transition
+  ]
+  @token_refresh_failed_event [:wanderer_app, :token, :refresh_failed]
+
+  # Named :tracker, not :tracking — one letter from the events above, and just
+  # as capable of ending a character's location updates.
+  #
+  # Its sibling [:character, :tracker, :stopped] is NOT declared here: it is
+  # already registered by character_event_metrics/0. Declaring it again would
+  # collide on the metric name, and the registry resolves a collision by logging
+  # a warning and skipping one of them.
+  @tracker_untracked_from_map_event [
+    :wanderer_app,
+    :character,
+    :tracker,
+    :untracked_from_map
+  ]
+
   # ESI-related events
   @esi_rate_limited_event [:wanderer_app, :esi, :rate_limited]
   @esi_error_event [:wanderer_app, :esi, :error]
@@ -51,10 +101,25 @@ defmodule WandererApp.Metrics.PromExPlugin do
       user_event_metrics(),
       map_event_metrics(),
       map_subscription_metrics(),
-      # Registered as a base metric on purpose: this instrumentation exists to
-      # catch a rare, hard-to-reproduce defect, so it must not be switched off
-      # by WANDERER_BASE_METRICS_ONLY. Three counters, no tags — negligible cost.
-      location_tracking_defect_metrics()
+      # Registered as base metrics on purpose: this instrumentation exists to
+      # catch rare, hard-to-reproduce defects, so it must not be switched off by
+      # WANDERER_BASE_METRICS_ONLY.
+      #
+      # Most of these carry a :character_id tag (permission_revoked is the
+      # exception — it reports a batch, so it is tagged by :map_id). That is a
+      # deliberate reversal of the original "no tags" choice: an untagged
+      # counter can say a freeze happened N times but never which character, and
+      # every report these exist to serve names one pilot.
+      #
+      # Cardinality is roughly (characters x ~10), since online_transition and
+      # token_refresh_failed each multiply by their own small tag sets. That is
+      # fine at this deployment's size but is NOT free: series are never
+      # reclaimed, so characters that have since been deleted keep their rows
+      # for the life of the VM. Revisit if the character count grows by orders
+      # of magnitude. online_transition in particular fires on every EVE login
+      # and logout, so unlike the defect counters it is not rare.
+      location_tracking_defect_metrics(),
+      tracking_lifecycle_metrics()
     ]
 
     advanced_metrics = [
@@ -80,8 +145,8 @@ defmodule WandererApp.Metrics.PromExPlugin do
           event_name: @location_flag_cleared_event,
           description:
             "Times location tracking was cleared while the character was still online in EVE",
-          tags: [],
-          tag_values: &get_empty_tag_values/1
+          tags: [:character_id],
+          tag_values: &get_character_tag_values/1
         ),
         counter(
           @location_flag_repaired_event ++ [:count],
@@ -89,8 +154,8 @@ defmodule WandererApp.Metrics.PromExPlugin do
           description:
             "Times an online character's location tracking was restored on map re-entry, " <>
               "each of which would previously have frozen on the map",
-          tags: [],
-          tag_values: &get_empty_tag_values/1
+          tags: [:character_id],
+          tag_values: &get_character_tag_values/1
         ),
         counter(
           @location_skipped_while_active_event ++ [:count],
@@ -98,8 +163,8 @@ defmodule WandererApp.Metrics.PromExPlugin do
           description:
             "Character-minutes during which an online, map-active character had location " <>
               "tracking disabled; expected to be zero",
-          tags: [],
-          tag_values: &get_empty_tag_values/1
+          tags: [:character_id],
+          tag_values: &get_character_tag_values/1
         )
       ]
     )
@@ -138,12 +203,16 @@ defmodule WandererApp.Metrics.PromExPlugin do
           tags: [],
           tag_values: &get_empty_tag_values/1
         ),
+        # Tagged for the same reason as the tracking-lifecycle counters: this
+        # event already carries character_id and reason (:garbage_collection),
+        # and a tracker stopping is one of the ways a character silently stops
+        # being polled.
         counter(
           @character_tracker_stopped_event ++ [:count],
           event_name: @character_tracker_stopped_event,
           description: "The number of character tracker stopped events that have occurred",
-          tags: [],
-          tag_values: &get_empty_tag_values/1
+          tags: [:character_id, :reason],
+          tag_values: &get_tracking_stopped_tag_values/1
         )
       ]
     )
@@ -294,6 +363,105 @@ defmodule WandererApp.Metrics.PromExPlugin do
       endpoint: Map.get(metadata, :endpoint, "unknown"),
       error_type: inspect(Map.get(metadata, :error_type, "unknown")),
       tracking_pool: Map.get(metadata, :tracking_pool, "default")
+    }
+  end
+
+  defp tracking_lifecycle_metrics do
+    Event.build(
+      :wanderer_app_tracking_lifecycle_metrics,
+      [
+        counter(
+          @tracking_stopped_event ++ [:count],
+          event_name: @tracking_stopped_event,
+          description:
+            "Times tracking was stopped for a character on a map, tagged with the cause: " <>
+              "presence_expired (browser gone past the grace period, not an EVE logout), " <>
+              "permission_revoked (ACL sweep) or user_untracked (clicked in the UI)",
+          tags: [:character_id, :reason],
+          tag_values: &get_tracking_stopped_tag_values/1
+        ),
+        # sum/2, not counter/2: this event fires once per batch and carries the
+        # batch size in its :count measurement. A counter ignores measurements
+        # entirely, so an ACL sweep removing 40 characters would increment it by
+        # 1 — and this metric is meant to be read against :stopped, which fires
+        # 40 times for that same sweep.
+        sum(
+          @tracking_permission_revoked_event ++ [:count],
+          event_name: @tracking_permission_revoked_event,
+          measurement: :count,
+          description:
+            "Characters removed from a map by the ACL permission check, which untracks them " <>
+              "in the database with no grace period",
+          tags: [:map_id, :reason],
+          tag_values: &get_permission_revoked_tag_values/1
+        ),
+        counter(
+          @tracking_online_transition_event ++ [:count],
+          event_name: @tracking_online_transition_event,
+          description:
+            "Times EVE online status flipped for a character, rewriting track_location. " <>
+              "online=false with active maps is a silent pause in location updates",
+          tags: [:character_id, :online, :has_active_maps],
+          tag_values: &get_online_transition_tag_values/1
+        ),
+        counter(
+          @token_refresh_failed_event ++ [:count],
+          event_name: @token_refresh_failed_event,
+          description:
+            "ESI token refresh failures. Three consecutive invalid_grant results wipe the " <>
+              "token, after which every poll for that character skips silently",
+          tags: [:character_id, :error_type],
+          tag_values: &get_token_refresh_tag_values/1
+        ),
+        counter(
+          @tracker_untracked_from_map_event ++ [:count],
+          event_name: @tracker_untracked_from_map_event,
+          description:
+            "Characters untracked from a map by the tracker manager's delayed untrack queue",
+          tags: [:character_id, :reason],
+          tag_values: &get_tracking_stopped_tag_values/1
+        )
+      ]
+    )
+  end
+
+  defp get_character_tag_values(metadata) do
+    %{character_id: Map.get(metadata, :character_id, "unknown")}
+  end
+
+  defp get_tracking_stopped_tag_values(metadata) do
+    %{
+      character_id: Map.get(metadata, :character_id, "unknown"),
+      reason: Map.get(metadata, :reason, "unknown")
+    }
+  end
+
+  # Tagged by map rather than character: this event reports a batch removal and
+  # carries :character_ids (a list), so there is no single character to name.
+  #
+  # `reason` is inspected here but passed through raw for :stopped. That is not
+  # an oversight: :stopped emits a plain atom, while this event's reason reaches
+  # permission_removal_reason_to_string/1's catch-all clause, which exists
+  # precisely because the value is not guaranteed to be an atom.
+  defp get_permission_revoked_tag_values(metadata) do
+    %{
+      map_id: Map.get(metadata, :map_id, "unknown"),
+      reason: inspect(Map.get(metadata, :reason, "unknown"))
+    }
+  end
+
+  defp get_online_transition_tag_values(metadata) do
+    %{
+      character_id: Map.get(metadata, :character_id, "unknown"),
+      online: Map.get(metadata, :online, "unknown"),
+      has_active_maps: Map.get(metadata, :has_active_maps, "unknown")
+    }
+  end
+
+  defp get_token_refresh_tag_values(metadata) do
+    %{
+      character_id: Map.get(metadata, :character_id, "unknown"),
+      error_type: Map.get(metadata, :error_type, "unknown")
     }
   end
 

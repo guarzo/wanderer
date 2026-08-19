@@ -77,11 +77,17 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     end)
   end
 
-  def untrack_characters(map_id, character_ids) do
+  # `reason` is threaded from the caller rather than assumed. Three unrelated
+  # causes converge here — presence expiry, an ACL permission sweep, and a user
+  # clicking untrack in the UI — and this function previously stamped all three
+  # as :presence_expired on the tracking telemetry. That sent anyone reading the
+  # metric to investigate browser disconnects for what was actually a
+  # permissions change.
+  def untrack_characters(map_id, character_ids, reason) do
     if length(character_ids) > 0 do
       Logger.debug(fn ->
         "[CharactersImpl] Untracking #{length(character_ids)} characters from map #{map_id} - " <>
-          "reason: characters no longer in presence_character_ids (grace period expired or user disconnected)"
+          "reason: #{reason}"
       end)
     end
 
@@ -90,21 +96,21 @@ defmodule WandererApp.Map.Server.CharactersImpl do
       character_map_active = is_character_map_active?(map_id, character_id)
 
       character_map_active
-      |> untrack_character(map_id, character_id)
+      |> untrack_character(map_id, character_id, reason)
     end)
   end
 
-  defp untrack_character(true, map_id, character_id) do
+  defp untrack_character(true, map_id, character_id, reason) do
     Logger.info(fn ->
       "[CharactersImpl] Untracking character #{character_id} from map #{map_id} - " <>
-        "character was actively tracking this map"
+        "character was actively tracking this map, reason: #{reason}"
     end)
 
     # Emit telemetry for tracking
     :telemetry.execute(
       [:wanderer_app, :character, :tracking, :stopped],
       %{system_time: System.system_time()},
-      %{character_id: character_id, map_id: map_id, reason: :presence_expired}
+      %{character_id: character_id, map_id: map_id, reason: reason}
     )
 
     WandererApp.Character.TrackerManager.update_track_settings(character_id, %{
@@ -113,7 +119,7 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     })
   end
 
-  defp untrack_character(false, map_id, character_id) do
+  defp untrack_character(false, map_id, character_id, _reason) do
     Logger.debug(fn ->
       "[CharactersImpl] Skipping untrack for character #{character_id} on map #{map_id} - " <>
         "character was not actively tracking this map"
@@ -325,7 +331,7 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     )
 
     map_id
-    |> untrack_characters(character_ids)
+    |> untrack_characters(character_ids, :permission_revoked)
 
     map_id
     |> WandererApp.MapCharacterSettingsRepo.get_by_map_filtered(character_ids)

@@ -240,7 +240,7 @@ defmodule WandererApp.Map.Server.Impl do
   defdelegate cleanup_systems(map_id), to: SystemsImpl
   defdelegate cleanup_connections(map_id), to: ConnectionsImpl
   defdelegate cleanup_characters(map_id), to: CharactersImpl
-  defdelegate untrack_characters(map_id, characters_ids), to: CharactersImpl
+  defdelegate untrack_characters(map_id, characters_ids, reason), to: CharactersImpl
   defdelegate add_system(map_id, system_info, user_id, character_id, opts \\ []), to: SystemsImpl
   defdelegate paste_connections(map_id, connections, user_id, character_id), to: ConnectionsImpl
   defdelegate paste_systems(map_id, systems, user_id, character_id, opts), to: SystemsImpl
@@ -782,7 +782,7 @@ defmodule WandererApp.Map.Server.Impl do
           )
         end
 
-        CharactersImpl.untrack_characters(map_id, not_present_character_ids)
+        CharactersImpl.untrack_characters(map_id, not_present_character_ids, :presence_expired)
 
         broadcast!(
           map_id,
