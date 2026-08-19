@@ -42,6 +42,7 @@ defmodule WandererApp.Metrics.PromExPluginTest do
     [:wanderer_app, :character, :tracking, :online_transition, :count],
     [:wanderer_app, :character, :tracker, :stopped, :count],
     [:wanderer_app, :character, :tracker, :untracked_from_map, :count],
+    [:wanderer_app, :map, :character_settings, :untracked, :count],
     [:wanderer_app, :token, :refresh_failed, :count]
   ]
 
@@ -182,6 +183,24 @@ defmodule WandererApp.Metrics.PromExPluginTest do
                  character_id: "char-1",
                  error_type: "invalid_grant",
                  time_since_expiry: 12
+               })
+    end
+
+    test "the database uncheck is registered and names the code path" do
+      # Every writer of tracked=false funnels through
+      # MapCharacterSettingsRepo.untrack/1, so this counter sees an uncheck no
+      # matter which path caused it. :source is what makes it diagnostic rather
+      # than just a count.
+      metric = find!([:wanderer_app, :map, :character_settings, :untracked, :count])
+
+      assert :source in metric.tags
+      assert :character_id in metric.tags
+
+      assert %{source: :acl_sweep, character_id: "char-1"} =
+               metric.tag_values.(%{
+                 character_id: "char-1",
+                 map_id: "map-1",
+                 source: :acl_sweep
                })
     end
   end
