@@ -85,6 +85,18 @@ defmodule WandererApp.Metrics.PromExPlugin do
     :untracked_from_map
   ]
 
+  # The database-level uncheck. Emitted from MapCharacterSettingsRepo.untrack/1,
+  # which every writer of `tracked: false` funnels through — the UI toggle, the
+  # ACL sweep and character deletion alike. Tagged by :source so a dashboard
+  # separates them; a :source of "unknown" means a caller nobody has accounted
+  # for, and the accompanying log line carries its stacktrace.
+  @character_settings_untracked_event [
+    :wanderer_app,
+    :map,
+    :character_settings,
+    :untracked
+  ]
+
   # ESI-related events
   @esi_rate_limited_event [:wanderer_app, :esi, :rate_limited]
   @esi_error_event [:wanderer_app, :esi, :error]
@@ -420,9 +432,25 @@ defmodule WandererApp.Metrics.PromExPlugin do
             "Characters untracked from a map by the tracker manager's delayed untrack queue",
           tags: [:character_id, :reason],
           tag_values: &get_tracking_stopped_tag_values/1
+        ),
+        counter(
+          @character_settings_untracked_event ++ [:count],
+          event_name: @character_settings_untracked_event,
+          description:
+            "Times a character's tracking box was unchecked in the database, tagged with the " <>
+              "code path responsible. source=unknown means an unaccounted-for caller",
+          tags: [:character_id, :source],
+          tag_values: &get_untracked_tag_values/1
         )
       ]
     )
+  end
+
+  defp get_untracked_tag_values(metadata) do
+    %{
+      character_id: Map.get(metadata, :character_id, "unknown"),
+      source: Map.get(metadata, :source, "unknown")
+    }
   end
 
   defp get_character_tag_values(metadata) do
