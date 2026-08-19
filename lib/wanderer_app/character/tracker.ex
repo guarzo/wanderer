@@ -233,6 +233,33 @@ defmodule WandererApp.Character.Tracker do
                       # Re-raise to maintain existing error handling
                       reraise error, __STACKTRACE__
                   end
+
+                  # The state write above rewrites track_location on every online
+                  # transition, and did so with no telemetry at all:
+                  # maybe_stop_tracking/2 has :location_flag_cleared and
+                  # maybe_start_location_tracking/2 has :location_flag_repaired,
+                  # but this path had nothing.
+                  #
+                  # An online=false transition pauses location updates until EVE
+                  # reports the character online again. For a real logout that is
+                  # correct behaviour, not a defect — update_location/1's clause
+                  # below says as much. This counter exists because the pause is
+                  # indistinguishable from the intermittent tracking loss users
+                  # report, and there was previously no way to see the rate at
+                  # all, let alone spot a spurious offline reading from ESI.
+                  # Treat a rise here as a lead, not an incident.
+                  #
+                  # Emitted after the write, so a raised state update is not
+                  # counted as a transition that took effect.
+                  :telemetry.execute(
+                    [:wanderer_app, :character, :tracking, :online_transition],
+                    %{count: 1, system_time: System.system_time()},
+                    %{
+                      character_id: character_id,
+                      online: online.online,
+                      has_active_maps: Map.get(character_state, :active_maps, []) != []
+                    }
+                  )
                 end
 
                 :ok
