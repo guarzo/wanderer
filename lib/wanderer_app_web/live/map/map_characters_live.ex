@@ -98,7 +98,8 @@ defmodule WandererAppWeb.MapCharactersLive do
                 {:ok, _settings} ->
                   WandererApp.Map.Server.untrack_characters(
                     map_id,
-                    [character_setting.character_id]
+                    [character_setting.character_id],
+                    :user_untracked
                   )
 
                   socket |> put_flash(:info, "Character untracked!") |> load_characters()
