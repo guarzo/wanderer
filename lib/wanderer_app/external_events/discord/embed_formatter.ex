@@ -15,6 +15,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   alias WandererApp.ExternalEvents.Discord.Mentions
   alias WandererApp.ExternalEvents.Discord.SystemName
+  alias WandererApp.SystemClass
 
   @type verdict ::
           {:involved, :victim} | {:involved, :attacker} | :not_involved | :unknown
@@ -29,15 +30,14 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # and `temporary_name` carry no length constraint on `MapSystem`, so the
   # title bound is reachable from ordinary user input, not just malice.
   @max_title_length 256
+  # The route path renders as the description. Its HOP COUNT has always been
+  # bounded — route_max_jumps caps at 20 (`map_discord_notification.ex:182-191`),
+  # so a path is at most 21 systems, and the collapsed rendering is shorter still.
+  # What is unbounded is each hop's NAME: `custom_name`/`temporary_name` carry no
+  # length constraint on `MapSystem`, so an uncollapsed chain of long-named
+  # systems reaches this bound from ordinary user input, and exceeding it is a
+  # 400, not a truncation.
   @max_description_length 4096
-  # Discord's per-field value bound. Still the tightest bound in the route
-  # embed's exit field, whose system names carry no length constraint on
-  # `MapSystem`. The route PATH now renders as the description rather than a
-  # field, so it is bounded by @max_description_length instead — that is the
-  # looser of the two, and the path is the one string built from an unbounded
-  # number of unbounded names (up to route_max_jumps + 1 systems, each of which
-  # may carry a length-unconstrained custom_name).
-  @max_field_length 1024
   # The per-message ceiling counts the text of every embed in the message
   # together, so it can be breached by a batch that satisfies each field bound
   # individually.
@@ -169,58 +169,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
       # so "how old is this alert" is part of the decision, not metadata.
       "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
     }
-    |> put_route_fields(alert)
     |> drop_nils()
-  end
-
-  # The exit field earns its place only when the exit is NOT the destination.
-  # `find_exit_system/2` returns the first non-wormhole system in path order, so
-  # on a chain that pops straight into Jita it returns Jita — and "Exit system:
-  # Jita" then restates the last token of the path line directly above it. When
-  # the exit is somewhere else it is the most decision-relevant fact in the
-  # message (where the chain touches k-space), so it gets stated with the gate
-  # distance that makes it actionable.
-  defp put_route_fields(embed, alert) do
-    case route_exit_field(alert) do
-      nil -> embed
-      field -> Map.put(embed, "fields", [field])
-    end
-  end
-
-  defp route_exit_field(%{exit_system: nil}), do: nil
-
-  defp route_exit_field(alert) do
-    destination = List.last(alert.path)
-
-    if alert.exit_system == destination do
-      nil
-    else
-      %{
-        "name" => "Exit",
-        "value" =>
-          truncate(
-            "#{route_system_name(alert, alert.exit_system)} · #{gates_from_exit(alert)} from #{route_system_name(alert, destination)}",
-            @max_field_length
-          ),
-        "inline" => true
-      }
-    end
-  end
-
-  # Gates remaining between the exit and the destination. Read off the solved
-  # path by position rather than recomputed: the path IS the route, so the hops
-  # after the exit's index are exactly the k-space legs left to fly. Falls back
-  # to the full jump count if the exit is somehow not on the path, which
-  # `find_exit_system/2` cannot produce but which keeps this function total —
-  # a raise here costs the whole alert, not just the field.
-  defp gates_from_exit(alert) do
-    remaining =
-      case Enum.find_index(alert.path, &(&1 == alert.exit_system)) do
-        nil -> alert.jumps
-        index -> length(alert.path) - 1 - index
-      end
-
-    pluralize(remaining, "gate")
   end
 
   # The scout's portrait rides in the author line rather than the thumbnail
@@ -282,20 +231,124 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   end
 
   defp route_origin_name(alert), do: route_system_name(alert, List.first(alert.path))
-  defp route_destination_name(alert), do: route_system_name(alert, List.last(alert.path))
+
+  # Canonical, with no parenthetical: a mobile push preview shows the title and
+  # nothing else, so it stays as short as it can while still naming a system the
+  # reader can act on. The origin keeps its map-local name on the same line — it
+  # is the map's home and the map's own word for it is the right one — so the two
+  # halves of the title deliberately speak different languages.
+  defp route_destination_name(alert) do
+    destination = List.last(alert.path)
+    SystemName.canonical_name(destination) || route_system_name(alert, destination)
+  end
 
   defp pluralize(1, unit), do: "1 #{unit}"
   defp pluralize(count, unit), do: "#{count} #{unit}s"
 
+  # The path stops naming hops the moment it leaves the chain FOR GOOD.
+  #
+  # Inside the chain, a map-local tag ("3") IS the name the reader navigates by
+  # and the canonical J-name is useless, so chain hops keep `route_system_name/2`
+  # untouched. Once the route is gating and will not re-enter a hole, the reverse
+  # holds: those hops are gates, not decisions, and the reader has to type the
+  # first of them into autopilot — so it gets the name CCP knows it by, with the
+  # map's tag alongside. Everything between it and the destination collapses to a
+  # gate count.
+  #
+  # The anchor is the start of the FINAL k-space run, deliberately not
+  # `alert.exit_system`. `find_exit_system/2` returns the FIRST non-wormhole hop,
+  # and `path_qualifies?/2` (`evaluator.ex:102`) admits wormhole systems at any
+  # position — the route graph is the gate graph plus every map connection
+  # (`map_routes.ex:120-140`), so a two-chain route may gate through k-space,
+  # take a second hole, and come out again. Anchoring on the first exit would
+  # delete those chain systems from the message and count their wormhole jumps
+  # as "gates". Scanning back from the destination cannot: every hop it
+  # collapses is a gate by construction.
+  #
   # The destination is bolded because it is the one hop the reader is scanning
-  # for; every other hop is context for getting there.
+  # for; every other token is context for getting there.
   defp route_path_text(alert) do
-    destination = List.last(alert.path)
+    path = alert.path
+    last_index = length(path) - 1
+    start = kspace_tail_start(path)
 
-    Enum.map_join(alert.path, " → ", fn system_id ->
-      name = route_system_name(alert, system_id)
-      if system_id == destination, do: "**#{name}**", else: name
-    end)
+    cond do
+      # No k-space tail at all: the destination could not be classified. Renders
+      # exactly as it did before this change rather than guessing.
+      start > last_index ->
+        Enum.map_join(path, " → ", fn system_id ->
+          name = route_system_name(alert, system_id)
+          if system_id == List.last(path), do: "**#{name}**", else: name
+        end)
+
+      # The tail is the destination alone — nothing between them to collapse, and
+      # "Jita · 0 gates → **Jita**" would say it twice.
+      start == last_index ->
+        chain = Enum.map(Enum.take(path, last_index), &route_system_name(alert, &1))
+        Enum.join(chain ++ ["**#{kspace_name(alert, List.last(path))}**"], " → ")
+
+      true ->
+        chain = Enum.map(Enum.take(path, start), &route_system_name(alert, &1))
+        gates = pluralize(last_index - start, "gate")
+        exit_token = "#{kspace_name(alert, Enum.at(path, start))} · #{gates}"
+
+        Enum.join(chain ++ [exit_token, "**#{kspace_name(alert, List.last(path))}**"], " → ")
+    end
+  end
+
+  # Index of the first hop in the path's final unbroken run of k-space systems,
+  # or `length(path)` when the last hop is not k-space (which leaves the caller
+  # nothing to collapse).
+  defp kspace_tail_start(path) do
+    tail =
+      path
+      |> Enum.reverse()
+      |> Enum.take_while(&kspace_hop?/1)
+      |> length()
+
+    length(path) - tail
+  end
+
+  # Unclassifiable systems answer false — "not part of the gating tail" — so an
+  # unresolvable hop shortens the collapse rather than being swallowed by it. The
+  # message then shows MORE than it needed to, which is the safe direction: the
+  # unsafe one silently deletes a chain system and calls its hole a gate.
+  defp kspace_hop?(system_id) do
+    case WandererApp.CachedInfo.get_system_static_info(system_id) do
+      {:ok, %{system_class: class}} -> not SystemClass.wormhole?(class)
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  # A k-space system in EVE's language rather than the map's, with the map's tag
+  # kept alongside it. Used for the two hops a reader carries out of Discord and
+  # into the client: where they start gating, and where they stop.
+  #
+  # This is NOT the "fix" that `SystemName`'s moduledoc warns off. That warning
+  # protects the privacy boundary BETWEEN ROLES — map-local chain naming must not
+  # reach the public character-kill channel. Route alerts go only to an opt-in
+  # `:route` webhook that has already consented to full chain topology
+  # (`router.ex:48-58`), and this adds the canonical name rather than removing
+  # the tag, so it discloses nothing the message did not already carry.
+  #
+  # The parenthetical is dropped when it would add nothing: a system that is not
+  # on the map has no tag, and one tagged with its own canonical name would read
+  # "Amarr (Amarr)". When the canonical lookup fails there is no bridge to build,
+  # so this degrades to exactly what the old code rendered — the tag alone. That
+  # is the best name available, not a fabricated one.
+  defp kspace_name(alert, system_id) do
+    canonical = SystemName.canonical_name(system_id)
+    tag = SystemName.map_local_name(alert.map_id, system_id)
+
+    case {canonical, tag} do
+      {nil, _} -> route_system_name(alert, system_id)
+      {name, nil} -> name
+      # Repeated variable: this clause matches only when the two are equal.
+      {name, name} -> name
+      {name, tag} -> "#{name} (#{tag})"
+    end
   end
 
   # Makes the embed title a link back to the map that raised the alert, so the

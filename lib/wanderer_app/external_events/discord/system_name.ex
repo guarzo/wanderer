@@ -46,8 +46,21 @@ defmodule WandererApp.ExternalEvents.Discord.SystemName do
     map_local_name(map_id, solar_system_id) || canonical_name(solar_system_id)
   end
 
-  defp map_local_name(map_id, solar_system_id)
-       when is_binary(map_id) and is_integer(solar_system_id) do
+  @doc """
+  The map's own name for a system — `temporary_name`, then `custom_name`.
+
+  Returns `nil` when the system is not on the map, carries neither name, the
+  arguments fall outside the spec, or the read raises (which is logged at
+  `:debug` and rescued — the caller gets no signal beyond the `nil`).
+
+  Public so the route formatter can compose a name from both halves
+  ("Amarr (3A)") rather than pick one. Callers rendering a single name should
+  use `display_name/3`, which applies the per-role privacy boundary above;
+  this function does not.
+  """
+  @spec map_local_name(String.t(), integer()) :: String.t() | nil
+  def map_local_name(map_id, solar_system_id)
+      when is_binary(map_id) and is_integer(solar_system_id) do
     # NOTE: `read_by_map_and_solar_system`, not `by_map_id_and_solar_system_id`.
     # The latter targets the primary `:read` action, whose
     # `FilterSystemsByActorMap` preparation filters to nothing when there is no
@@ -73,9 +86,14 @@ defmodule WandererApp.ExternalEvents.Discord.SystemName do
       nil
   end
 
-  defp map_local_name(_map_id, _solar_system_id), do: nil
+  def map_local_name(_map_id, _solar_system_id), do: nil
 
-  defp canonical_name(solar_system_id) do
+  @doc """
+  A system's canonical EVE name, or `nil` when the static info cache cannot
+  resolve it. Public for the same reason as `map_local_name/2`.
+  """
+  @spec canonical_name(integer()) :: String.t() | nil
+  def canonical_name(solar_system_id) do
     case WandererApp.CachedInfo.get_system_static_info(solar_system_id) do
       {:ok, %{solar_system_name: name}} -> present(name)
       _ -> nil
