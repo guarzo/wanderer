@@ -773,6 +773,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
     @home 31_000_005
     @wh_hop 31_000_006
     @exit_system 30_002_053
+    @midpoint 30_002_054
     @jita 30_000_142
 
     setup do
@@ -794,6 +795,12 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
         system_class: 0
       })
 
+      Cachex.put(:system_static_info_cache, @midpoint, %{
+        solar_system_id: @midpoint,
+        solar_system_name: "Ashab",
+        system_class: 0
+      })
+
       Cachex.put(:system_static_info_cache, @jita, %{
         solar_system_id: @jita,
         solar_system_name: "Jita",
@@ -802,7 +809,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
 
       on_exit(fn ->
         Enum.each(
-          [@home, @wh_hop, @exit_system, @jita],
+          [@home, @wh_hop, @exit_system, @midpoint, @jita],
           &Cachex.del(:system_static_info_cache, &1)
         )
       end)
@@ -851,12 +858,134 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
       refute opened["color"] == improved["color"]
     end
 
-    test "the path renders home through Jita as the description, destination bolded", %{
-      alert: alert
-    } do
+    # Reported from Discord: a K-space system that has been added to the map
+    # carries a chain tag ("3A"), and the path rendered that tag instead of the
+    # real EVE name — so the one hop the reader has to type into autopilot was
+    # the one hop they could not read. K-space hops past the exit are dropped
+    # entirely; they are gates, not decisions, and the count carries them.
+    test "the path collapses the k-space leg into the exit and a gate count", %{alert: alert} do
+      Factory.insert(:map_system, %{
+        map_id: alert.map_id,
+        solar_system_id: @exit_system,
+        name: "Amarr",
+        temporary_name: "3A"
+      })
+
+      long = %{alert | path: [@home, @wh_hop, @exit_system, @midpoint, @jita], jumps: 4}
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(long, [])
+
+      assert embed["description"] == "J115405 → J132412 → Amarr (3A) · 2 gates → **Jita**"
+    end
+
+    # The parenthetical exists to bridge the map's language to EVE's. With no
+    # map-local name there is nothing to bridge.
+    test "an untagged exit renders its canonical name with no parenthetical", %{alert: alert} do
       [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
 
-      assert embed["description"] == "J115405 → J132412 → Amarr → **Jita**"
+      assert embed["description"] == "J115405 → J132412 → Amarr · 1 gate → **Jita**"
+    end
+
+    # ...and with the tag equal to the canonical name, "Amarr (Amarr)" is noise.
+    test "an exit tagged with its own canonical name renders no parenthetical", %{alert: alert} do
+      Factory.insert(:map_system, %{
+        map_id: alert.map_id,
+        solar_system_id: @exit_system,
+        name: "Amarr",
+        temporary_name: "Amarr"
+      })
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      assert embed["description"] == "J115405 → J132412 → Amarr · 1 gate → **Jita**"
+    end
+
+    # Chain hops keep their map-local tags: inside the chain the tag IS the name
+    # the reader navigates by, and a J-space canonical name is unusable.
+    test "wormhole hops before the exit keep their map-local tags", %{alert: alert} do
+      Factory.insert(:map_system, %{
+        map_id: alert.map_id,
+        solar_system_id: @wh_hop,
+        name: "J132412",
+        temporary_name: "3"
+      })
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      assert embed["description"] == "J115405 → 3 → Amarr · 1 gate → **Jita**"
+    end
+
+    # Nothing to collapse and no gates left to count, so the exit is simply the
+    # destination. Rendering "Jita · 0 gates → **Jita**" would say it twice.
+    test "an exit that is the destination renders once, with no gate count", %{alert: alert} do
+      direct = %{alert | path: [@home, @wh_hop, @jita], jumps: 2, exit_system: @jita}
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(direct, [])
+
+      assert embed["description"] == "J115405 → J132412 → **Jita**"
+    end
+
+    # A two-chain route: the shortest highsec path gates out of one chain, takes
+    # a second mapped hole, and comes out again. `path_qualifies?/2` admits
+    # wormholes at any position, so this shape is representable — and collapsing
+    # at the FIRST k-space hop would delete @wh_hop from the message and count
+    # its wormhole jump as a gate. Only the final gating run may collapse.
+    test "a route that re-enters the chain after k-space collapses only the final run", %{
+      alert: alert
+    } do
+      two_chain = %{
+        alert
+        | path: [@home, @exit_system, @wh_hop, @midpoint, @jita],
+          jumps: 4,
+          exit_system: @exit_system
+      }
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(two_chain, [])
+
+      assert embed["description"] == "J115405 → Amarr → J132412 → Ashab · 1 gate → **Jita**"
+    end
+
+    # An unclassifiable hop must shorten the collapse rather than be swallowed
+    # by it: showing one hop too many is recoverable, silently deleting a chain
+    # system and calling its hole a gate is not.
+    test "an unclassifiable hop is not collapsed into the gate count", %{alert: alert} do
+      Cachex.put(:system_static_info_cache, @midpoint, %{
+        solar_system_id: @midpoint,
+        solar_system_name: "Ashab"
+      })
+
+      long = %{alert | path: [@home, @wh_hop, @exit_system, @midpoint, @jita], jumps: 4}
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(long, [])
+
+      assert embed["description"] == "J115405 → J132412 → Amarr → Ashab → **Jita**"
+    end
+
+    # The destination is the other hop the reader types into autopilot, and a map
+    # that has Jita on it can tag it. A chain popping straight into the hub is the
+    # commonest shape a route alert has, so this is the case the fix must not miss.
+    test "a tagged destination still renders its canonical name", %{alert: alert} do
+      Factory.insert(:map_system, %{
+        map_id: alert.map_id,
+        solar_system_id: @jita,
+        name: "Jita",
+        temporary_name: "HUB"
+      })
+
+      direct = %{alert | path: [@home, @wh_hop, @jita], jumps: 2, exit_system: @jita}
+
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(direct, [])
+
+      assert embed["description"] == "J115405 → J132412 → **Jita (HUB)**"
+      assert embed["title"] == "J115405 → Jita · 2 jumps"
+    end
+
+    # The exit now names itself inline and the gate count rides with it, so a
+    # separate field would restate both.
+    test "the embed carries no separate exit field", %{alert: alert} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
+
+      refute Map.has_key?(embed, "fields")
     end
 
     test "the embed carries the solver guarantee and a timestamp", %{alert: alert} do
@@ -887,7 +1016,9 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
     # MapSystem's custom_name/temporary_name carry no length constraint, so an
     # ordinary long name breaches Discord's description bound and the POST is
     # rejected 400 (which counts toward @max_consecutive_failures and can
-    # auto-disable the destination).
+    # auto-disable the destination). All-wormhole so nothing collapses: the
+    # collapsed rendering is short by construction, and it is the uncollapsed
+    # chain that can still run long.
     test "a path too long for Discord's description bound is truncated", %{alert: alert} do
       long_name = String.duplicate("A", 250)
 
@@ -897,7 +1028,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
         Cachex.put(:system_static_info_cache, id, %{
           solar_system_id: id,
           solar_system_name: long_name,
-          system_class: 0
+          system_class: 3
         })
       end)
 
@@ -908,24 +1039,6 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
 
       assert String.length(embed["description"]) == 4096
       assert String.ends_with?(embed["description"], "…")
-    end
-
-    test "the exit field names the exit and its distance from the destination", %{alert: alert} do
-      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(alert, [])
-
-      exit_field = Enum.find(embed["fields"], &(&1["name"] == "Exit"))
-      assert exit_field["value"] == "Amarr · 1 gate from Jita"
-    end
-
-    # The old embed always rendered this field, so a chain popping straight into
-    # Jita produced "Exit system: Jita" directly under a path ending in Jita.
-    test "the exit field is omitted when the exit is the destination", %{alert: alert} do
-      direct = %{alert | path: [@home, @wh_hop, @jita], jumps: 2, exit_system: @jita}
-
-      [%{"embeds" => [embed]}] = EmbedFormatter.format_route_alert(direct, [])
-
-      refute Map.has_key?(embed, "fields")
-      assert embed["description"] == "J115405 → J132412 → **Jita**"
     end
 
     test "a one-jump route says 'jump', not 'jumps'", %{alert: alert} do
