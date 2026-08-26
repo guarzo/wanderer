@@ -61,6 +61,18 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
   the user did not pick for *this* message is misdirection, and silence is the
   safe failure. A configured-but-disabled `:route` webhook drops for the same
   reason a missing one does.
+
+  ## Rally pings have their own destination, and no fallback
+
+  `rally_destination/1` resolves a rally ping to the `:rally` webhook and
+  nothing else. A missing `:rally` row drops.
+
+  The old external notifier did fall back — its rally channel defaulted to the
+  primary channel — and we deliberately do not reproduce that. A rally embed
+  names the system by the map's own tag (`SystemName.display_name/3` with
+  `:rally` resolves map-local first), so a fallback would put a chain tag into a
+  channel chosen for killmails, with no user action and no way to notice. Rally
+  pings are opt-in by configuring a `:rally` webhook.
   """
 
   alias WandererApp.SystemClass
@@ -106,6 +118,17 @@ defmodule WandererApp.ExternalEvents.Discord.Router do
   @spec route_destination(struct()) :: {:ok, struct()} | :drop
   def route_destination(notification) do
     usable(webhook(notification, :route))
+  end
+
+  @doc """
+  Resolves a rally ping to a destination. `notification` must have `:webhooks`
+  loaded.
+
+  No fallback: without a `:rally` webhook this drops. See the moduledoc.
+  """
+  @spec rally_destination(struct()) :: {:ok, struct()} | :drop
+  def rally_destination(notification) do
+    usable(webhook(notification, :rally))
   end
 
   # Guarded on `is_list`: `:webhooks` is a relationship, so an unloaded

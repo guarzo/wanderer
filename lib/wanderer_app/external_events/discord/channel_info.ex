@@ -62,7 +62,7 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
   alias WandererApp.Api.MapDiscordWebhook
   alias WandererApp.ExternalEvents.Discord.HttpClient
 
-  @type role :: :system | :character | :route
+  @type role :: :system | :character | :route | :rally
 
   @type info :: %{
           label: String.t(),
@@ -73,7 +73,7 @@ defmodule WandererApp.ExternalEvents.Discord.ChannelInfo do
 
   # Role order, and the order collisions are reported in. Mirrors
   # `MapDiscordWebhook`'s `:role` constraint.
-  @roles [:system, :character, :route]
+  @roles [:system, :character, :route, :rally]
 
   # `:api_cache` per CLAUDE.md's "Caching Strategy" — the cache for
   # third-party lookups, already at a 1h default TTL. Named explicitly rather

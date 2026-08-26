@@ -247,7 +247,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
 
     attribute :role, :atom do
       allow_nil? false
-      constraints one_of: [:system, :character, :route]
+      constraints one_of: [:system, :character, :route, :rally]
     end
 
     attribute :webhook_url, :string do
