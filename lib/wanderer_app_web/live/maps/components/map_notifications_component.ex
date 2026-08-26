@@ -85,7 +85,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   @min_search_length 2
   @max_search_results 20
 
-  @roles [:system, :character, :route]
+  @roles [:system, :character, :route, :rally]
 
   # Mirrors the resource's own default (map_discord_notification.ex:166), so a
   # blank/non-numeric max-jumps input falls back to the same number a brand new
@@ -371,7 +371,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     role = parse_role(role)
 
     case {role, socket.assigns.webhooks[role]} do
-      {role, %{} = webhook} when role in [:system, :character, :route] ->
+      {role, %{} = webhook} when role in [:system, :character, :route, :rally] ->
         case MapDiscordWebhook.destroy(webhook) do
           :ok ->
             {:noreply,
@@ -722,6 +722,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp parse_role(:character), do: :character
   defp parse_role("route"), do: :route
   defp parse_role(:route), do: :route
+  defp parse_role("rally"), do: :rally
+  defp parse_role(:rally), do: :rally
   defp parse_role(_), do: :system
 
   # One clause per role, and every role has one. `:system` was missing while
@@ -736,6 +738,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp role_label(:system), do: "Kill channel"
   defp role_label(:character), do: "Character kill channel"
   defp role_label(:route), do: "Route alert channel"
+  defp role_label(:rally), do: "Rally channel"
 
   defp reload_notification(map_id) do
     case MapDiscordNotification.by_map(map_id) do
@@ -1057,7 +1060,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     assign(socket, :replacing_url?, Map.new(@roles, &{&1, false}))
   end
 
-  defp load_webhooks(nil), do: %{system: nil, character: nil, route: nil}
+  defp load_webhooks(nil), do: %{system: nil, character: nil, route: nil, rally: nil}
 
   defp load_webhooks(%{id: notification_id}) do
     records =
@@ -1527,6 +1530,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp role_name(:system), do: "the system channel"
   defp role_name(:character), do: "the character channel"
   defp role_name(:route), do: "route alerts"
+  defp role_name(:rally), do: "rally pings"
 
   defp to_sentence([one]), do: one
 
@@ -2438,6 +2442,20 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             myself={@myself}
           />
           <.collision_warning role={:route} collisions={@collisions} />
+
+          <.webhook_row
+            role={:rally}
+            title="Rally channel"
+            help="Where rally points are posted. The embed names the system by the map's own tag, so treat this channel as trusted."
+            webhook={@webhooks[:rally]}
+            channel_info={@channel_hints[:rally]}
+            form={@webhook_forms[:rally]}
+            replacing?={@replacing_url?[:rally]}
+            removable?={true}
+            empty_status_text="No rally pings delivered yet."
+            myself={@myself}
+          />
+          <.collision_warning role={:rally} collisions={@collisions} />
 
           <.disclosure
             :if={@webhooks[:route]}

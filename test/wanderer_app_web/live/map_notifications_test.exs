@@ -1694,6 +1694,39 @@ defmodule WandererAppWeb.MapNotificationsTest do
     end
   end
 
+  describe "rally pings" do
+    test "saves a rally webhook", %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+
+      edit_row(view, :rally)
+
+      view
+      |> form("#webhook-form-rally", %{
+        "webhook" => %{"webhook_url" => "https://discord.com/api/webhooks/7/rallytoken"}
+      })
+      |> render_submit()
+
+      assert render(view) =~ "Rally channel"
+
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      assert %{role: :rally} = Enum.find(webhooks, &(&1.role == :rally))
+    end
+
+    test "removing the rally channel does not raise", %{conn: conn, map: map} do
+      notification_with_webhooks(map, [:system, :rally])
+      view = open_notifications(conn, map)
+
+      html =
+        view
+        |> edit_row(:rally)
+        |> element("#webhook-row-rally button[phx-click='remove-webhook']")
+        |> render_click()
+
+      assert html =~ "Rally channel removed."
+    end
+  end
+
   # Every one of these messages used to be scoped `:filters` and rendered
   # inside the filters disclosure. That disclosure now starts collapsed
   # unconditionally and no longer auto-expands on a problem (D2), so a message
