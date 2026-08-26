@@ -1232,4 +1232,75 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
       on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
     end
   end
+
+  describe "format_rally_ping/2" do
+    setup do
+      rally = %{
+        map_id: "00000000-0000-0000-0000-000000000001",
+        rally_point_id: "eae7c5b4-2727-4a88-a041-3b5a5d4e5332",
+        solar_system_id: "31000005",
+        character_name: "Stealthbot",
+        character_eve_id: "2115754172",
+        message: nil,
+        created_at: ~N[2026-08-03 02:05:00]
+      }
+
+      %{rally: rally}
+    end
+
+    test "renders title, fields and footer", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
+
+      assert embed["title"] == "⚔️ Rally Point Created"
+      assert embed["footer"]["text"] == "Rally ID: eae7c5b4-2727-4a88-a041-3b5a5d4e5332"
+
+      assert [
+               %{"name" => "System", "inline" => true},
+               %{"name" => "Created By", "value" => "Stealthbot", "inline" => true}
+             ] = embed["fields"]
+    end
+
+    test "carries the pilot portrait in the author line", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
+
+      assert embed["author"]["name"] == "Stealthbot"
+
+      assert embed["author"]["icon_url"] ==
+               "https://images.evetech.net/characters/2115754172/portrait?size=64"
+    end
+
+    test "timestamps from created_at, not from now", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
+
+      assert embed["timestamp"] == "2026-08-03T02:05:00Z"
+    end
+
+    test "appends the pilot's message when there is one", %{rally: rally} do
+      [%{"embeds" => [embed]}] =
+        EmbedFormatter.format_rally_ping(%{rally | message: "form up"}, [])
+
+      assert embed["description"] =~ "💬 form up"
+    end
+
+    test "omits the message section when blank", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(%{rally | message: ""}, [])
+
+      refute embed["description"] =~ "💬"
+    end
+
+    test "no content line without mention targets", %{rally: rally} do
+      [message] = EmbedFormatter.format_rally_ping(rally, [])
+
+      refute Map.has_key?(message, "content")
+    end
+
+    test "pings the configured role and allowlists it", %{rally: rally} do
+      [message] =
+        EmbedFormatter.format_rally_ping(rally, mention_targets: ["role:123456789012345678"])
+
+      assert message["content"] == "<@&123456789012345678> Rally point created!"
+      assert message["allowed_mentions"]["parse"] == []
+      assert message["allowed_mentions"]["roles"] == ["123456789012345678"]
+    end
+  end
 end
