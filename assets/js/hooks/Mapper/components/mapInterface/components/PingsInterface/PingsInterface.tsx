@@ -19,6 +19,7 @@ import { Toast } from 'primereact/toast';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import useRefState from 'react-usestateref';
 import { useConfirmPopup } from '@/hooks/Mapper/hooks';
+import { useRallyRoute } from '@/hooks/Mapper/hooks/useRallyRoute';
 
 const PING_PLACEMENT_MAP = {
   [PingsPlacement.rightTop]: 'top-right',
@@ -80,6 +81,7 @@ export const PingsInterface = ({ hasLeftOffset }: PingsInterfaceProps) => {
   const toast = useRef<Toast>(null);
   const [isShow, setIsShow, isShowRef] = useRefState(false);
   const { cfShow, cfHide, cfVisible, cfRef } = useConfirmPopup();
+  const rallyRoute = useRallyRoute();
 
   const {
     storedSettings: { interfaceSettings },
@@ -214,6 +216,31 @@ export const PingsInterface = ({ hasLeftOffset }: PingsInterfaceProps) => {
                   <div className="flex flex-col items-end">
                     <CharacterCardById className="" characterId={ping.character_eve_id} simpleMode />
                     <TimeAgo timestamp={ping.inserted_at.toString()} className="text-stone-400 text-[11px]" />
+                    {ping.type === PingType.Rally && rallyRoute.reason !== 'no-ping' && (
+                      <div className="flex flex-col items-end gap-1 mt-1">
+                        {rallyRoute.reason === null && rallyRoute.sourceCharacterEveId && (
+                          <>
+                            <span className="text-stone-400 text-[11px]">Route from</span>
+                            <CharacterCardById
+                              className=""
+                              characterId={rallyRoute.sourceCharacterEveId}
+                              simpleMode
+                            />
+                          </>
+                        )}
+                        {rallyRoute.reason === 'no-source' && (
+                          <span className="text-stone-400 text-[11px]">No online pilot with a location.</span>
+                        )}
+                        {rallyRoute.reason === 'no-selection' && (
+                          <span className="text-stone-400 text-[11px]">
+                            Set a main character to see the route from it.
+                          </span>
+                        )}
+                        {rallyRoute.reason === 'unreachable' && (
+                          <span className="text-stone-400 text-[11px]">No mapped route to the rally.</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 

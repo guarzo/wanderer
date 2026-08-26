@@ -49,6 +49,8 @@ describe('resolveRallyRoute', () => {
 
     expect(result.isActive).toBe(true);
     expect(result.sourceCharacterSystemId).toBe('30000001');
+    expect(result.sourceCharacterEveId).toBe('111');
+    expect(result.reason).toBeNull();
     expect([...result.highlightedSystems]).toEqual(['30000001', '30000002', '30000003']);
   });
 
@@ -62,10 +64,12 @@ describe('resolveRallyRoute', () => {
 
     expect(result.isActive).toBe(true);
     expect(result.sourceCharacterSystemId).toBe('30000001');
+    expect(result.sourceCharacterEveId).toBe('222');
+    expect(result.reason).toBeNull();
     expect([...result.highlightedSystems]).toEqual(['30000001', '30000002', '30000003']);
   });
 
-  it('reports no route when neither character can reach the rally point', () => {
+  it('reports "unreachable" when neither character can reach the rally point', () => {
     const strandedMain = character({ eve_id: '111', online: true, solar_system_id: 30002187 });
     const strandedFollowed = character({ eve_id: '222', online: true, solar_system_id: 30002187 });
 
@@ -76,6 +80,37 @@ describe('resolveRallyRoute', () => {
     expect(result.rallySystemId).toBe(RALLY);
     // Still reports where it routed *from* — the first candidate, the stranded main.
     expect(result.sourceCharacterSystemId).toBe('30002187');
+    expect(result.sourceCharacterEveId).toBe('111');
+    expect(result.reason).toBe('unreachable');
+  });
+
+  it('reports "no-source" when no candidate qualifies', () => {
+    // Main is offline and there is no followed character — rallySourceCandidates returns nothing.
+    const offlineMain = character({ eve_id: '111', online: false, solar_system_id: 30000001 });
+
+    const result = resolve([offlineMain], '111', null);
+
+    expect(result.isActive).toBe(false);
+    expect(result.sourceCharacterEveId).toBeNull();
+    expect(result.sourceCharacterSystemId).toBeNull();
+    expect(result.reason).toBe('no-source');
+  });
+
+  it('reports "no-ping" when there is no rally ping', () => {
+    const main = character({ eve_id: '111', online: true, solar_system_id: 30000001 });
+
+    const result = resolveRallyRoute({
+      characters: [main],
+      mainCharacterEveId: '111',
+      followingCharacterEveId: null,
+      pings: [],
+      systems: SYSTEMS,
+      connections: CONNECTIONS,
+    });
+
+    expect(result.isActive).toBe(false);
+    expect(result.reason).toBe('no-ping');
+    expect(result.sourceCharacterEveId).toBeNull();
   });
 
   it('highlights only the rally system when the source character is already there', () => {
@@ -96,27 +131,13 @@ describe('resolveRallyRoute', () => {
     expect([...result.highlightedConnections].sort()).toEqual(['30000001-30000002', '30000002-30000003']);
   });
 
-  it('is inactive when there is no rally ping', () => {
-    const main = character({ eve_id: '111', online: true, solar_system_id: 30000001 });
-
-    const result = resolveRallyRoute({
-      characters: [main],
-      mainCharacterEveId: '111',
-      followingCharacterEveId: null,
-      pings: [],
-      systems: SYSTEMS,
-      connections: CONNECTIONS,
-    });
-
-    expect(result.isActive).toBe(false);
-    expect(result.rallySystemId).toBeNull();
-  });
-
-  it('is inactive when no character is available to route from', () => {
+  it('reports "no-selection" when neither a main nor a followed character is set', () => {
     const result = resolve([], null, null);
 
     expect(result.isActive).toBe(false);
     expect(result.sourceCharacterSystemId).toBeNull();
+    expect(result.sourceCharacterEveId).toBeNull();
     expect(result.rallySystemId).toBe(RALLY);
+    expect(result.reason).toBe('no-selection');
   });
 });
