@@ -435,6 +435,7 @@ defmodule WandererApp.ExternalEvents.JsonApiFormatter do
         "character_name" => fetch(payload, :character_name),
         "character_eve_id" => fetch(payload, :character_eve_id),
         "message" => fetch(payload, :message),
+        "notify_discord" => fetch(payload, :notify_discord) != false,
         "created_at" => fetch(payload, :created_at) || event.timestamp
       },
       "relationships" => %{
