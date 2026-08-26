@@ -9,7 +9,9 @@ const character = (over: Partial<CharacterTypeRaw> & { eve_id: string; solar_sys
     ship: null,
     tracking_paused: false,
     ...over,
-    location: { solar_system_id: over.solar_system_id, structure_id: null, station_id: null },
+    // `solar_system_id` is the shorthand every case here uses, but an explicit `location`
+    // override wins — otherwise passing one would be silently discarded.
+    location: over.location ?? { solar_system_id: over.solar_system_id, structure_id: null, station_id: null },
   }) as CharacterTypeRaw;
 
 const system = (id: string) => ({ id }) as SolarSystemRawType;
@@ -72,6 +74,8 @@ describe('resolveRallyRoute', () => {
     expect(result.isActive).toBe(false);
     expect(result.highlightedSystems.size).toBe(0);
     expect(result.rallySystemId).toBe(RALLY);
+    // Still reports where it routed *from* — the first candidate, the stranded main.
+    expect(result.sourceCharacterSystemId).toBe('30002187');
   });
 
   it('highlights only the rally system when the source character is already there', () => {
