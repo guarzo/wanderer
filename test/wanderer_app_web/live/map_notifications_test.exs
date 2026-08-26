@@ -1639,6 +1639,36 @@ defmodule WandererAppWeb.MapNotificationsTest do
       assert Enum.find(webhooks, &(&1.role == :route)).mention_targets == []
     end
 
+    # The invariant Task 6 exists to establish: mentions are scoped per
+    # destination, so editing rally's targets can never read or write route's,
+    # even though both rows share the same handlers and the same underlying
+    # `add-mention-id`/`remove-mention` events.
+    test "editing rally mentions leaves route mentions untouched", %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system, :route, :rally])
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      route_wh = Enum.find(webhooks, &(&1.role == :route))
+      rally_wh = Enum.find(webhooks, &(&1.role == :rally))
+
+      {:ok, _} =
+        MapDiscordWebhook.update(route_wh, %{mention_targets: ["role:111111111111111111"]})
+
+      view = open_notifications(conn, map)
+
+      view
+      |> with_target("#map-notifications")
+      |> render_click("add-mention-id", %{
+        "kind" => "role",
+        "role" => "rally",
+        "mention_id" => %{"value" => "222222222222222222"}
+      })
+
+      {:ok, rally_reloaded} = MapDiscordWebhook.by_id(rally_wh.id)
+      {:ok, route_reloaded} = MapDiscordWebhook.by_id(route_wh.id)
+
+      assert rally_reloaded.mention_targets == ["role:222222222222222222"]
+      assert route_reloaded.mention_targets == ["role:111111111111111111"]
+    end
+
     # The dead end `Router.route_destination/1`'s no-fallback rule creates: the
     # form lets an owner enable route alerts, set a home system and max jumps,
     # and save successfully while every alert is silently dropped for want of a
