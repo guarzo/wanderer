@@ -2121,6 +2121,66 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     end
   end
 
+  describe "rally ping dispatch" do
+    setup %{map: map} do
+      Application.put_env(
+        :wanderer_app,
+        :rally_ping_worker_supervisor,
+        WandererApp.ExternalEvents.DiscordDispatcherTest.RallyWorkerSupervisor
+      )
+
+      on_exit(fn -> Application.delete_env(:wanderer_app, :rally_ping_worker_supervisor) end)
+
+      Process.register(self(), :rally_worker_supervisor_observer)
+
+      # Same guard as `RouteWatcherObserver`'s: `on_exit/1` runs from a separate
+      # runner process after the test process has already terminated, and the
+      # VM auto-deregisters a name when its owner dies.
+      on_exit(fn ->
+        if Process.whereis(:rally_worker_supervisor_observer),
+          do: Process.unregister(:rally_worker_supervisor_observer)
+      end)
+
+      %{map_id: map.id}
+    end
+
+    test "enqueues a message to the rally destination", %{map_id: map_id, notification: n} do
+      {:ok, webhook} =
+        MapDiscordWebhook.create(%{
+          notification_id: n.id,
+          role: :rally,
+          webhook_url: "https://discord.com/api/webhooks/9/rally"
+        })
+
+      DiscordDispatcher.dispatch_event(map_id, rally_event())
+
+      assert_receive {:delivered, webhook_id, [message]}, 2_000
+      assert webhook_id == webhook.id
+      assert [%{"title" => "⚔️ Rally Point Created"}] = message["embeds"]
+    end
+
+    test "drops when the map has no rally destination", %{map_id: map_id} do
+      DiscordDispatcher.dispatch_event(map_id, rally_event())
+
+      refute_receive {:delivered, _webhook_id, _messages}, 500
+    end
+
+    test "drops when webhooks are globally disabled", %{map_id: map_id, notification: n} do
+      {:ok, _} =
+        MapDiscordWebhook.create(%{
+          notification_id: n.id,
+          role: :rally,
+          webhook_url: "https://discord.com/api/webhooks/9/rally"
+        })
+
+      disable_gate()
+
+      DiscordDispatcher.dispatch_event(map_id, rally_event())
+
+      refute_receive {:delivered, _webhook_id, _messages}, 500
+    end
+  end
+
   # -- corporation ticker helpers ---------------------------------------------
 
   defp returns_tickers(mode),
@@ -2201,5 +2261,34 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
         "killmails" => killmails
       }
     }
+  end
+
+  defp rally_event do
+    %WandererApp.ExternalEvents.Event{
+      type: :rally_point_added,
+      payload: %{
+        rally_point_id: "eae7c5b4-2727-4a88-a041-3b5a5d4e5332",
+        solar_system_id: "31000005",
+        character_name: "Stealthbot",
+        character_eve_id: "2115754172",
+        message: nil,
+        created_at: ~N[2026-08-03 02:05:00]
+      }
+    }
+  end
+end
+
+# Stands in for `WorkerSupervisor.deliver/2` so rally ping tests can assert on
+# the enqueued message without crossing into real HTTP delivery. Sends to a
+# registered name rather than a captured pid: `RallyPing.deliver/3` runs off
+# `Discord.TaskSupervisor`, in a process the test process never sees directly.
+defmodule WandererApp.ExternalEvents.DiscordDispatcherTest.RallyWorkerSupervisor do
+  def deliver(webhook_id, messages) do
+    case Process.whereis(:rally_worker_supervisor_observer) do
+      nil -> :ok
+      pid -> send(pid, {:delivered, webhook_id, messages})
+    end
+
+    :ok
   end
 end

@@ -1232,4 +1232,100 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
       on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
     end
   end
+
+  describe "format_rally_ping/2" do
+    setup do
+      rally = %{
+        map_id: "00000000-0000-0000-0000-000000000001",
+        rally_point_id: "eae7c5b4-2727-4a88-a041-3b5a5d4e5332",
+        solar_system_id: "31000005",
+        character_name: "Stealthbot",
+        character_eve_id: "2115754172",
+        message: nil,
+        created_at: ~U[2026-08-03 02:05:00.123456Z]
+      }
+
+      %{rally: rally}
+    end
+
+    test "renders title, fields and footer", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
+
+      assert embed["title"] == "⚔️ Rally Point Created"
+      assert embed["footer"]["text"] == "Rally ID: eae7c5b4-2727-4a88-a041-3b5a5d4e5332"
+
+      assert [
+               %{"name" => "System", "inline" => true},
+               %{"name" => "Created By", "value" => "Stealthbot", "inline" => true}
+             ] = embed["fields"]
+    end
+
+    # `custom_name`/`temporary_name` carry no length constraint on `MapSystem`,
+    # so the System field's value can reach Discord's 1024-character
+    # field-value bound from ordinary user input, and exceeding it is a 400
+    # (a delivery failure, not a truncation).
+    test "the System field value is bounded to Discord's field-value limit", %{rally: rally} do
+      long_name = String.duplicate("A", 1100)
+      id = 31_999_999
+
+      Cachex.put(:system_static_info_cache, id, %{
+        solar_system_id: id,
+        solar_system_name: long_name,
+        system_class: 3
+      })
+
+      on_exit(fn -> Cachex.del(:system_static_info_cache, id) end)
+
+      [%{"embeds" => [embed]}] =
+        EmbedFormatter.format_rally_ping(%{rally | solar_system_id: to_string(id)}, [])
+
+      system_field = Enum.find(embed["fields"], &(&1["name"] == "System"))
+
+      assert String.length(system_field["value"]) == 1024
+      assert String.ends_with?(system_field["value"], "…")
+    end
+
+    test "carries the pilot portrait in the author line", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
+
+      assert embed["author"]["name"] == "Stealthbot"
+
+      assert embed["author"]["icon_url"] ==
+               "https://images.evetech.net/characters/2115754172/portrait?size=64"
+    end
+
+    test "timestamps from created_at, not from now", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
+
+      assert embed["timestamp"] == "2026-08-03T02:05:00.123456Z"
+    end
+
+    test "appends the pilot's message when there is one", %{rally: rally} do
+      [%{"embeds" => [embed]}] =
+        EmbedFormatter.format_rally_ping(%{rally | message: "form up"}, [])
+
+      assert embed["description"] =~ "💬 form up"
+    end
+
+    test "omits the message section when blank", %{rally: rally} do
+      [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(%{rally | message: ""}, [])
+
+      refute embed["description"] =~ "💬"
+    end
+
+    test "no content line without mention targets", %{rally: rally} do
+      [message] = EmbedFormatter.format_rally_ping(rally, [])
+
+      refute Map.has_key?(message, "content")
+    end
+
+    test "pings the configured role and allowlists it", %{rally: rally} do
+      [message] =
+        EmbedFormatter.format_rally_ping(rally, mention_targets: ["role:123456789012345678"])
+
+      assert message["content"] == "<@&123456789012345678> Rally point created!"
+      assert message["allowed_mentions"]["parse"] == []
+      assert message["allowed_mentions"]["roles"] == ["123456789012345678"]
+    end
+  end
 end

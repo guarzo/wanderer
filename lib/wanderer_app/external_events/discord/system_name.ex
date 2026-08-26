@@ -23,7 +23,7 @@ defmodule WandererApp.ExternalEvents.Discord.SystemName do
 
   alias WandererApp.Api.MapSystem
 
-  @type role :: :system | :character | :route
+  @type role :: :system | :character | :route | :rally
 
   @doc """
   The system name to render for `role`.
@@ -43,6 +43,13 @@ defmodule WandererApp.ExternalEvents.Discord.SystemName do
   # :system exactly rather than falling through to :character's canonical-only
   # behavior.
   def display_name(map_id, solar_system_id, :route) do
+    map_local_name(map_id, solar_system_id) || canonical_name(solar_system_id)
+  end
+
+  # A rally destination is the fleet's own channel and the map tag is the name
+  # people navigate by, so resolution matches :system and :route rather than
+  # :character's canonical-only rule.
+  def display_name(map_id, solar_system_id, :rally) do
     map_local_name(map_id, solar_system_id) || canonical_name(solar_system_id)
   end
 
