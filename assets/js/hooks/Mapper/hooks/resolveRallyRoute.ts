@@ -94,7 +94,7 @@ export function resolveRallyRoute({
 
     const sourceCharacterSystemId = candidate.location.solar_system_id.toString();
     firstSourceSystemId ??= sourceCharacterSystemId;
-    firstSourceEveId ??= candidate.eve_id;
+    firstSourceEveId ??= String(candidate.eve_id);
 
     // Already at the rally point
     if (sourceCharacterSystemId === rallyPing.solar_system_id) {
@@ -104,7 +104,7 @@ export function resolveRallyRoute({
         isActive: true,
         rallySystemId: rallyPing.solar_system_id,
         sourceCharacterSystemId,
-        sourceCharacterEveId: candidate.eve_id,
+        sourceCharacterEveId: String(candidate.eve_id),
         reason: null,
       };
     }
@@ -139,7 +139,7 @@ export function resolveRallyRoute({
       isActive: true,
       rallySystemId: rallyPing.solar_system_id,
       sourceCharacterSystemId,
-      sourceCharacterEveId: candidate.eve_id,
+      sourceCharacterEveId: String(candidate.eve_id),
       reason: null,
     };
   }
