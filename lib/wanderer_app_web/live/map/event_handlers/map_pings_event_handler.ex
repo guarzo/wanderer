@@ -124,8 +124,14 @@ defmodule WandererAppWeb.MapPingsEventHandler do
     if no_exisiting_pings do
       # Absent means "notify" — the checkbox defaults checked, and an
       # older client or a caller that never learned about this field must
-      # keep notifying exactly as it does today.
-      notify_discord = Map.get(event, "notify_discord", true)
+      # keep notifying exactly as it does today. Coerced to a real boolean
+      # here, the untrusted-input boundary, so PingsImpl and everything
+      # downstream (including the Discord dispatcher's own defensive gate)
+      # receives a guaranteed `true`/`false` rather than a stray `nil`,
+      # string, or number that would otherwise fail a strict `== true`
+      # match and silently suppress a notification nobody asked to opt out
+      # of.
+      notify_discord = notify_discord?(event)
 
       map_id
       |> WandererApp.Map.Server.add_ping(%{
@@ -247,6 +253,14 @@ defmodule WandererAppWeb.MapPingsEventHandler do
 
   def handle_ui_event(event, body, socket),
     do: MapCoreEventHandler.handle_ui_event(event, body, socket)
+
+  # Coerces the client's `notify_discord` into a real boolean, absent means
+  # true. Only an explicit false (as sent by the checkbox, or its stringified
+  # form) opts out; anything else — nil, a stray string, a number — falls back
+  # to true rather than being treated as an opt-out nobody asked for.
+  defp notify_discord?(%{"notify_discord" => false}), do: false
+  defp notify_discord?(%{"notify_discord" => "false"}), do: false
+  defp notify_discord?(_event), do: true
 
   def map_ui_ping(
         %{

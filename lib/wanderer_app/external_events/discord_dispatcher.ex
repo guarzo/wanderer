@@ -321,8 +321,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # that predates this field never send the key at all, and they must keep
   # notifying exactly as before. The check runs before the destination lookup,
   # so a suppressed rally does no routing work either.
+  #
+  # This gate is defense in depth, not the boundary that coerces the field —
+  # that is `MapPingsEventHandler.notify_discord?/1`, on the untrusted-input
+  # side. FAILS OPEN: only an explicit `false` suppresses. Matching on `true`
+  # here would drop the notification for a `nil`, a stringly-typed value, or
+  # any other non-boolean the LiveView boundary ever let slip through, which
+  # is the wrong direction for an opt-OUT.
   defp do_dispatch(map_id, %{type: :rally_point_added, payload: payload}) do
-    with true <- Map.get(payload, :notify_discord, true),
+    with true <- Map.get(payload, :notify_discord) != false,
          true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          {:ok, webhook} <- Router.rally_destination(notification) do

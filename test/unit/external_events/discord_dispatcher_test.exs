@@ -2198,6 +2198,31 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
       refute_receive {:delivered, _webhook_id, _messages}, 500
     end
 
+    # Defense-in-depth for the dispatcher's own gate: the LiveView boundary
+    # (`MapPingsEventHandler.notify_discord?/1`) is what coerces client input
+    # into a real boolean before it ever reaches here, but this gate must not
+    # depend on that coercion having happened correctly. Only an explicit
+    # `false` may suppress; anything else — including values a stricter
+    # `== true` match would have rejected — must still notify.
+    test "delivers when notify_discord is an unexpected non-boolean value", %{
+      map_id: map_id,
+      notification: n
+    } do
+      {:ok, webhook} =
+        MapDiscordWebhook.create(%{
+          notification_id: n.id,
+          role: :rally,
+          webhook_url: "https://discord.com/api/webhooks/9/rally"
+        })
+
+      DiscordDispatcher.dispatch_event(map_id, rally_event(%{notify_discord: nil}))
+      assert_receive {:delivered, webhook_id, [_message]}, 2_000
+      assert webhook_id == webhook.id
+
+      DiscordDispatcher.dispatch_event(map_id, rally_event(%{notify_discord: "false"}))
+      assert_receive {:delivered, ^webhook_id, [_message]}, 2_000
+    end
+
     test "drops when the map has no rally destination", %{map_id: map_id} do
       DiscordDispatcher.dispatch_event(map_id, rally_event())
 
