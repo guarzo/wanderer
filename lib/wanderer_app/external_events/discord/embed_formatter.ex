@@ -47,6 +47,11 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # constraint, and exceeding this is a 400 — a delivery failure, not a
   # truncation.
   @max_author_length 256
+  # Discord's field-value bound. The rally embed's "System" field carries
+  # `custom_name`/`temporary_name`, which has no length constraint on
+  # `MapSystem`, so it can reach this bound from ordinary user input and turn
+  # into a 400 the same way the title and author bounds above do.
+  @max_field_value_length 1024
 
   @color_loss 0xE74C3C
   @color_kill 0x2ECC71
@@ -63,6 +68,16 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # `route_ping/2`), so the dimmer stripe matches how loud the message is.
   @color_route_opened 0x2E9BD6
   @color_route_improved 0x2A6E90
+
+  # Rally pings share a channel with nothing by default, but the palette is
+  # shared across the Discord surface and every other hue is spoken for: red,
+  # green, yellow and orange by @color_loss, @color_kill and the @value_colors
+  # tiers, blue by the route family. Purple is unclaimed, and reads as neither
+  # combat nor logistics — which is what a rally is.
+  #
+  # Deliberately NOT the old external notifier's 0xFF6B00: that orange collides
+  # with the 1B-ISK @value_colors tier.
+  @color_rally 0x9B59B6
 
   # What `Evaluator`'s pinned @solver_settings actually guarantee, in the
   # reader's language rather than the config's. This is the whole value of the
@@ -146,6 +161,29 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
     message =
       case route_ping(alert.kind, mention_targets) do
+        nil ->
+          %{"embeds" => [embed]}
+
+        {content, allowed_mentions} ->
+          %{"embeds" => [embed], "content" => content, "allowed_mentions" => allowed_mentions}
+      end
+
+    [message]
+  end
+
+  @doc """
+  A rally ping as a single Discord message.
+
+  Unlike route alerts, there is no "quieter" variant: a rally point *is* the
+  ping, so the mention fires whenever the destination has targets configured.
+  """
+  @spec format_rally_ping(map(), keyword()) :: [map()]
+  def format_rally_ping(rally, opts) do
+    embed = rally_embed(rally)
+    mention_targets = Keyword.get(opts, :mention_targets, [])
+
+    message =
+      case rally_ping(mention_targets) do
         nil ->
           %{"embeds" => [embed]}
 
@@ -411,6 +449,107 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
       case Mentions.prefix(mention_targets) do
         nil -> nil
         content -> {content, Mentions.allowed_mentions(mention_targets)}
+      end
+    end
+  end
+
+  defp rally_embed(rally) do
+    system_name = rally_system_name(rally)
+
+    %{
+      "author" => rally_author(rally),
+      "title" => truncate("⚔️ Rally Point Created", @max_title_length),
+      "url" => map_url(rally.map_id),
+      "color" => @color_rally,
+      "description" => truncate(rally_description(rally, system_name), @max_description_length),
+      "fields" => [
+        %{
+          "name" => "System",
+          "value" => truncate(system_name, @max_field_value_length),
+          "inline" => true
+        },
+        %{"name" => "Created By", "value" => rally.character_name, "inline" => true}
+      ],
+      "footer" => %{"text" => "Rally ID: #{rally.rally_point_id}"},
+      "timestamp" => rally_timestamp(rally)
+    }
+    |> drop_nils()
+  end
+
+  defp rally_author(%{character_name: name, character_eve_id: eve_id}) when is_binary(eve_id) do
+    %{
+      "name" => truncate(name, @max_author_length),
+      "icon_url" => "#{@image_base}/characters/#{eve_id}/portrait?size=64"
+    }
+  end
+
+  defp rally_author(%{character_name: name}) do
+    %{"name" => truncate(name, @max_author_length)}
+  end
+
+  defp rally_description(rally, system_name) do
+    base = "**#{rally.character_name}** has created a rally point in **#{system_name}**"
+
+    case rally.message do
+      message when is_binary(message) ->
+        case String.trim(message) do
+          "" -> base
+          trimmed -> "#{base}\n\n💬 #{trimmed}"
+        end
+
+      _ ->
+        base
+    end
+  end
+
+  # Literal :rally, per SystemName's map-local-names privacy boundary — never
+  # threaded through as a variable. The payload's own `system_name` field is the
+  # raw MapSystem name and bypasses that boundary; do not use it.
+  defp rally_system_name(%{map_id: map_id, solar_system_id: solar_system_id}) do
+    with id when is_integer(id) <- to_solar_system_id(solar_system_id),
+         name when is_binary(name) <- SystemName.display_name(map_id, id, :rally) do
+      name
+    else
+      _ -> "Unknown system"
+    end
+  end
+
+  defp to_solar_system_id(id) when is_integer(id), do: id
+
+  defp to_solar_system_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp to_solar_system_id(_id), do: nil
+
+  # The ping's own creation time, not `DateTime.utc_now/0`. The old external
+  # formatter stamped "now", which misreports the time on any delivery retry —
+  # and this queue retries up to five times with backoff. `MapPing.inserted_at`
+  # is `:utc_datetime_usec`, so production always hands over a `%DateTime{}`
+  # here; the `%NaiveDateTime{}` clause below is kept defensively for any other
+  # caller that hands `rally_timestamp/1` a zone-less value, and still attaches
+  # UTC rather than emitting an offset-free string Discord would read as local.
+  defp rally_timestamp(%{created_at: %DateTime{} = created_at}),
+    do: DateTime.to_iso8601(created_at)
+
+  defp rally_timestamp(%{created_at: %NaiveDateTime{} = created_at}) do
+    created_at
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.to_iso8601()
+  end
+
+  defp rally_timestamp(_rally), do: nil
+
+  defp rally_ping([]), do: nil
+
+  defp rally_ping(mention_targets) do
+    if WandererApp.Env.discord_mentions_enabled?() do
+      case Mentions.prefix(mention_targets) do
+        nil -> nil
+        content -> {"#{content} Rally point created!", Mentions.allowed_mentions(mention_targets)}
       end
     end
   end
