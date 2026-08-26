@@ -15,8 +15,13 @@ defmodule WandererApp.Map.Server.PingsImpl do
           message: message,
           character_id: character_id,
           user_id: user_id
-        } = _ping_info
+        } = ping_info
       ) do
+    # Absent means "notify" — see `MapPingsEventHandler.handle_ui_event/3` and
+    # the dispatcher's `:rally_point_added` clause, which apply the same
+    # default so an API caller that never learned this field still notifies.
+    notify_discord = Map.get(ping_info, :notify_discord, true)
+
     with {:ok, character} <- WandererApp.Character.get_character(character_id),
          system <-
            WandererApp.Map.find_system_by_location(map_id, %{
@@ -47,7 +52,8 @@ defmodule WandererApp.Map.Server.PingsImpl do
           character_eve_id: character.eve_id,
           system_name: system.name,
           message: message,
-          created_at: ping.inserted_at
+          created_at: ping.inserted_at,
+          notify_discord: notify_discord
         })
       end
 
