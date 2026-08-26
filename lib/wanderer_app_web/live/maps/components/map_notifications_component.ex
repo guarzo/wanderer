@@ -80,12 +80,40 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   @excluded_select_id "excluded_system_live_select_component"
   @focus_corp_select_id "focus_corp_live_select_component"
   @home_system_select_id "home_system_live_select_component"
-  @mention_user_select_id "mention_user_live_select_component"
-  @mention_role_select_id "mention_role_live_select_component"
   @min_search_length 2
   @max_search_results 20
 
-  @roles [:system, :character, :route]
+  @roles [:system, :character, :route, :rally]
+
+  # Only these two destinations carry a "who to ping" concept: kill/character
+  # notifications have no chip lists, only route and rally alert channels do.
+  # Every mentions assign below is a map keyed by one of these, never a bare
+  # value — that is what makes editing one destination's mentions provably
+  # unable to touch the other's.
+  @mentionable_roles [:route, :rally]
+
+  # LiveSelect ids for the two mentions pickers, one pair per mentionable role.
+  # `:route`'s ids are unchanged from before this rework — existing tests
+  # assert them literally — and `:rally` gets its own so the two sections
+  # never share a DOM id (duplicate ids break LiveView patching: the symptom
+  # is "the wrong chip list updates", not an error).
+  #
+  # Flat attributes, not one map, because a function-head pattern match can
+  # only compare against a literal — `@attr.route` is a `Map.fetch!/2` call
+  # and is not allowed there.
+  @route_mention_role_select_id "mention_role_live_select_component"
+  @rally_mention_role_select_id "mention_role_live_select_component_rally"
+  @route_mention_user_select_id "mention_user_live_select_component"
+  @rally_mention_user_select_id "mention_user_live_select_component_rally"
+
+  @mention_role_select_ids %{
+    route: @route_mention_role_select_id,
+    rally: @rally_mention_role_select_id
+  }
+  @mention_user_select_ids %{
+    route: @route_mention_user_select_id,
+    rally: @rally_mention_user_select_id
+  }
 
   # Mirrors the resource's own default (map_discord_notification.ex:166), so a
   # blank/non-numeric max-jumps input falls back to the same number a brand new
@@ -141,23 +169,29 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     {:ok,
      socket
      |> assign_channel_hints(socket.assigns.webhooks)
-     |> assign_mention_guild(socket.assigns.webhooks[:route])
+     |> assign_mention_guilds(socket.assigns.webhooks)
      |> request_guild_roles()}
   end
 
-  # The guild's role list landed. Only accepted for the guild currently on
-  # screen: an operator who repointed the route destination while the request
-  # was in flight must not get the previous guild's roles offered as if they
-  # were valid here — they would save cleanly and ping nobody.
+  # The guild's role list landed. Only accepted for a role currently pointed at
+  # THIS guild: an operator who repointed a destination while the request was
+  # in flight must not get the previous guild's roles offered as if they were
+  # valid here — they would save cleanly and ping nobody. Checked per role,
+  # not once for the whole socket, so a reply for route's guild cannot also
+  # populate rally's roles just because rally happens to share the same guild.
   def update(%{guild_roles: {guild_id, result}}, socket) do
-    if guild_id == socket.assigns[:mention_guild_id] do
-      {:ok,
-       socket
-       |> assign(:guild_roles, result)
-       |> learn_role_labels(result)}
-    else
-      {:ok, socket}
-    end
+    socket =
+      Enum.reduce(@mentionable_roles, socket, fn role, socket ->
+        if socket.assigns[:mention_guild_id][role] == guild_id do
+          socket
+          |> put_role_assign(:guild_roles, role, result)
+          |> learn_role_labels(result)
+        else
+          socket
+        end
+      end)
+
+    {:ok, socket}
   end
 
   def update(%{map_id: map_id} = assigns, socket) do
@@ -173,8 +207,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      |> assign(:excluded_select_id, @excluded_select_id)
      |> assign(:focus_corp_select_id, @focus_corp_select_id)
      |> assign(:home_system_select_id, @home_system_select_id)
-     |> assign(:mention_user_select_id, @mention_user_select_id)
-     |> assign(:mention_role_select_id, @mention_role_select_id)
+     |> assign(:mention_user_select_id, @mention_user_select_ids)
+     |> assign(:mention_role_select_id, @mention_role_select_ids)
      |> assign(:min_search_length, @min_search_length)
      |> assign(:min_route_max_jumps, @min_route_max_jumps)
      |> assign(:max_route_max_jumps, @max_route_max_jumps)
@@ -197,11 +231,13 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      # operator saved an unrelated field. Ids are the state; see the mention
      # helpers below.
      |> assign_new(:mention_labels, fn -> %{} end)
-     |> assign_new(:guild_roles, fn -> nil end)
-     |> assign_new(:mention_user_options, fn -> [] end)
-     |> assign_new(:mention_role_options, fn -> [] end)
-     |> assign_new(:mention_search_error, fn -> nil end)
-     |> assign_new(:mention_error, fn -> nil end)
+     |> assign_new(:mention_guild_id, fn -> %{} end)
+     |> assign_new(:guild_roles, fn -> %{} end)
+     |> assign_new(:guild_roles_requested_for, fn -> %{} end)
+     |> assign_new(:mention_user_options, fn -> %{} end)
+     |> assign_new(:mention_role_options, fn -> %{} end)
+     |> assign_new(:mention_search_error, fn -> %{} end)
+     |> assign_new(:mention_error, fn -> %{} end)
      |> assign_notification(notification)}
   end
 
@@ -371,7 +407,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     role = parse_role(role)
 
     case {role, socket.assigns.webhooks[role]} do
-      {role, %{} = webhook} when role in [:system, :character, :route] ->
+      {role, %{} = webhook} when role in [:system, :character, :route, :rally] ->
         case MapDiscordWebhook.destroy(webhook) do
           :ok ->
             {:noreply,
@@ -393,36 +429,59 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # Four events, mirroring `add-excluded` / `remove-excluded` exactly: each one
   # rewrites both lists and saves immediately, so there is no unsaved mention
   # state and no dirty gate to reason about.
+  #
+  # Every one of the four carries which destination it is for. `parse_mentions_role/1`
+  # has no catch-all clause — unlike `parse_role/1`, which falls back to
+  # `:system` for its OTHER callers — because an unrecognized value here must
+  # crash loudly rather than silently rewrite the kill channel's mention
+  # targets. The only caller of these events is this component's own markup,
+  # where the value is always a literal `:route` or `:rally`.
 
-  def handle_event("add-mention-user", %{"mention_user" => %{"mention_user" => raw}}, socket) do
-    add_mention(socket, :user, raw)
+  def handle_event(
+        "add-mention-user",
+        %{"role" => role, "mention_user" => %{"mention_user" => raw}},
+        socket
+      ) do
+    add_mention(socket, parse_mentions_role(role), :user, raw)
   end
 
-  def handle_event("add-mention-role", %{"mention_role" => %{"mention_role" => raw}}, socket) do
-    add_mention(socket, :role, raw)
+  def handle_event(
+        "add-mention-role",
+        %{"role" => role, "mention_role" => %{"mention_role" => raw}},
+        socket
+      ) do
+    add_mention(socket, parse_mentions_role(role), :role, raw)
   end
 
   # The D7 manual fallback. Same validation, same save — the only difference is
-  # where the id came from, which is why it converges on `add_mention/3` rather
+  # where the id came from, which is why it converges on `add_mention/4` rather
   # than carrying its own path to the resource.
-  def handle_event("add-mention-id", %{"kind" => kind, "mention_id" => %{"value" => raw}}, socket) do
-    add_mention(socket, mention_kind(kind), raw)
+  def handle_event(
+        "add-mention-id",
+        %{"kind" => kind, "role" => role, "mention_id" => %{"value" => raw}},
+        socket
+      ) do
+    add_mention(socket, parse_mentions_role(role), mention_kind(kind), raw)
   end
 
-  def handle_event("remove-mention", %{"kind" => kind, "id" => id}, socket) do
+  def handle_event("remove-mention", %{"kind" => kind, "role" => role, "id" => id}, socket) do
+    role = parse_mentions_role(role)
+
     case mention_kind(kind) do
       :user ->
         save_mentions(
           socket,
-          List.delete(socket.assigns.mention_users, id),
-          socket.assigns.mention_roles
+          role,
+          List.delete(socket.assigns.mention_users[role], id),
+          socket.assigns.mention_roles[role]
         )
 
       :role ->
         save_mentions(
           socket,
-          socket.assigns.mention_users,
-          List.delete(socket.assigns.mention_roles, id)
+          role,
+          socket.assigns.mention_users[role],
+          List.delete(socket.assigns.mention_roles[role], id)
         )
     end
   end
@@ -473,38 +532,44 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   # Roles are filtered in memory: `Guild.roles/1` already returned the whole
   # list, so a keystroke here is a `String.contains?` rather than a request.
+  #
+  # One clause per mentionable role rather than a single id-agnostic clause,
+  # because each role's LiveSelect has its own id (see `@mention_role_select_ids`)
+  # and its own `guild_roles`/`mention_role_options` slot — reading or writing
+  # the wrong slot here is exactly the cross-contamination this task exists to
+  # rule out.
   def handle_event(
         "live_select_change",
-        %{"id" => @mention_role_select_id, "text" => text},
+        %{"id" => @route_mention_role_select_id, "text" => text},
         socket
       ) do
-    options =
-      case socket.assigns.guild_roles do
-        {:ok, roles} -> role_options(roles, text)
-        _unavailable -> []
-      end
+    handle_mention_role_search(socket, :route, text)
+  end
 
-    send_update(LiveSelect.Component, id: @mention_role_select_id, options: options)
-
-    {:noreply, assign(socket, :mention_role_options, options)}
+  def handle_event(
+        "live_select_change",
+        %{"id" => @rally_mention_role_select_id, "text" => text},
+        socket
+      ) do
+    handle_mention_role_search(socket, :rally, text)
   end
 
   # Members, unlike roles, cannot be listed — the search IS the lookup, so this
   # one does go to Discord per keystroke (debounced by the picker).
   def handle_event(
         "live_select_change",
-        %{"id" => @mention_user_select_id, "text" => text},
+        %{"id" => @route_mention_user_select_id, "text" => text},
         socket
       ) do
-    {options, error} = search_members(socket.assigns[:mention_guild_id], text)
+    handle_mention_user_search(socket, :route, text)
+  end
 
-    send_update(LiveSelect.Component, id: @mention_user_select_id, options: options)
-
-    {:noreply,
-     socket
-     |> assign(:mention_user_options, options)
-     |> assign(:mention_search_error, error)
-     |> learn_labels(:user, member_entries(options))}
+  def handle_event(
+        "live_select_change",
+        %{"id" => @rally_mention_user_select_id, "text" => text},
+        socket
+      ) do
+    handle_mention_user_search(socket, :rally, text)
   end
 
   def handle_event("live_select_change", %{"id" => id, "text" => text}, socket) do
@@ -722,6 +787,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp parse_role(:character), do: :character
   defp parse_role("route"), do: :route
   defp parse_role(:route), do: :route
+  defp parse_role("rally"), do: :rally
+  defp parse_role(:rally), do: :rally
   defp parse_role(_), do: :system
 
   # One clause per role, and every role has one. `:system` was missing while
@@ -736,6 +803,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp role_label(:system), do: "Kill channel"
   defp role_label(:character), do: "Character kill channel"
   defp role_label(:route), do: "Route alert channel"
+  defp role_label(:rally), do: "Rally channel"
 
   defp reload_notification(map_id) do
     case MapDiscordNotification.by_map(map_id) do
@@ -839,14 +907,25 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # byte-identically instead of being silently dropped for lacking one.
 
   defp assign_mentions(socket, webhooks) do
-    route = Map.get(webhooks, :route)
-    targets = (route && route.mention_targets) || []
+    Enum.reduce(@mentionable_roles, socket, fn role, socket ->
+      webhook = Map.get(webhooks, role)
+      targets = (webhook && webhook.mention_targets) || []
 
-    socket
-    |> assign(:mention_users, mention_ids(targets, "user"))
-    |> assign(:mention_roles, mention_ids(targets, "role"))
-    |> assign_mention_guild(route)
-    |> assign(:mention_error, nil)
+      socket
+      |> put_role_assign(:mention_users, role, mention_ids(targets, "user"))
+      |> put_role_assign(:mention_roles, role, mention_ids(targets, "role"))
+      |> assign_mention_guild(role, webhook)
+      |> put_role_assign(:mention_error, role, nil)
+    end)
+  end
+
+  # Recomputes every mentionable role's guild id off a fresh `webhooks` map,
+  # for the one caller (a background channel-identity refresh) that does not
+  # otherwise touch mentions state at all.
+  defp assign_mention_guilds(socket, webhooks) do
+    Enum.reduce(@mentionable_roles, socket, fn role, socket ->
+      assign_mention_guild(socket, role, Map.get(webhooks, role))
+    end)
   end
 
   # The cached hint is preferred over the stored column because it is the
@@ -854,14 +933,21 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # warms the cache, but the record already in this socket predates it. Reading
   # the hint is what lets the pickers come alive on the same refresh that names
   # the channel, instead of on the next full reload.
-  defp assign_mention_guild(socket, route) do
+  defp assign_mention_guild(socket, role, webhook) do
     guild_id =
-      case socket.assigns[:channel_hints][:route] do
+      case socket.assigns[:channel_hints][role] do
         %{guild_id: guild_id} when is_binary(guild_id) -> guild_id
-        _no_hint -> route && route.guild_id
+        _no_hint -> webhook && webhook.guild_id
       end
 
-    assign(socket, :mention_guild_id, guild_id)
+    put_role_assign(socket, :mention_guild_id, role, guild_id)
+  end
+
+  # Every mentions assign keyed by destination lives in a map rather than a
+  # bare value, and this is the one place that writes into one — so editing
+  # route's slot can never touch rally's by construction.
+  defp put_role_assign(socket, key, role, value) do
+    assign(socket, key, Map.put(socket.assigns[key] || %{}, role, value))
   end
 
   defp mention_ids(targets, prefix) do
@@ -876,17 +962,25 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # back through `MapsLive` as `{:discord_guild_roles, guild_id, result}` — a
   # three-tuple for the same reason the channel-refresh message is one.
   #
-  # Requested once per guild. `assign_notification/2` runs on every save, and
-  # re-asking each time would put a request behind every button on the tab.
+  # Requested once per guild PER ROLE. `assign_notification/2` runs on every
+  # save, and re-asking each time would put a request behind every button on
+  # the tab. Route and rally are requested independently even when they happen
+  # to share a guild — a small duplicate fetch, but it keeps each role's state
+  # provably its own rather than fetched-for-one-and-copied-to-the-other.
   defp request_guild_roles(socket) do
-    guild_id = socket.assigns[:mention_guild_id]
+    Enum.reduce(@mentionable_roles, socket, &request_guild_roles_for_role(&2, &1))
+  end
+
+  defp request_guild_roles_for_role(socket, role) do
+    guild_id = socket.assigns[:mention_guild_id][role]
+    requested_for = socket.assigns[:guild_roles_requested_for][role]
     pid = self()
 
     cond do
       is_nil(guild_id) ->
-        assign(socket, :guild_roles, {:error, :no_guild})
+        put_role_assign(socket, :guild_roles, role, {:error, :no_guild})
 
-      socket.assigns[:guild_roles_requested_for] == guild_id ->
+      requested_for == guild_id ->
         socket
 
       true ->
@@ -895,8 +989,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         end)
 
         socket
-        |> assign(:guild_roles_requested_for, guild_id)
-        |> assign(:guild_roles, :loading)
+        |> put_role_assign(:guild_roles_requested_for, role, guild_id)
+        |> put_role_assign(:guild_roles, role, :loading)
     end
   end
 
@@ -915,35 +1009,33 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     assign(socket, :mention_labels, labels)
   end
 
-  # Whether the typeahead can work at all. Both pickers need the same bot token
-  # and the same guild membership, so one signal drives both: a guild we cannot
-  # read roles from is one we cannot search members in either, and asking the
-  # operator to discover that by typing into a dropdown that stays empty is
-  # exactly the failure D7 exists to prevent.
-  defp mention_picker_available?(%{guild_roles: {:error, reason}}),
-    do: not Guild.unavailable?(reason)
-
-  defp mention_picker_available?(_assigns), do: true
+  # Whether the typeahead can work at all, for one role's guild. Both pickers
+  # need the same bot token and the same guild membership, so one signal
+  # drives both: a guild we cannot read roles from is one we cannot search
+  # members in either, and asking the operator to discover that by typing into
+  # a dropdown that stays empty is exactly the failure D7 exists to prevent.
+  defp mention_picker_available?({:error, reason}), do: not Guild.unavailable?(reason)
+  defp mention_picker_available?(_guild_roles), do: true
 
   # Every one of these is read by an operator who is mid-task and wants to know
   # whether they can proceed. So each says what still works (typing ids always
   # does), and the one with an actionable cause names it: searching by name
   # needs a bot token, `DISCORD_BOT_TOKEN`, set on the server — which is a
   # deployment change, not something this screen can offer a button for.
-  defp mention_unavailable_reason(%{guild_roles: {:error, :no_bot_token}}),
+  defp mention_unavailable_reason({:error, :no_bot_token}),
     do:
       "Searching Discord names needs a bot token (DISCORD_BOT_TOKEN) on the server, and this " <>
         "one has none. Mentions still work — paste the user or role id instead."
 
-  defp mention_unavailable_reason(%{guild_roles: {:error, :no_guild}}),
+  defp mention_unavailable_reason({:error, :no_guild}),
     do:
       "The Discord server behind this channel is not known yet. It resolves once the bot can " <>
         "see the channel; until then, paste ids instead."
 
-  defp mention_unavailable_reason(%{guild_roles: {:error, _reason}}),
+  defp mention_unavailable_reason({:error, _reason}),
     do: "The bot cannot read this Discord server, so names cannot be searched. Paste ids instead."
 
-  defp mention_unavailable_reason(_assigns), do: nil
+  defp mention_unavailable_reason(_guild_roles), do: nil
 
   # Chip text. A target whose name was never resolved renders as its raw id
   # rather than being hidden — it is saved, it pings, and it must be removable.
@@ -960,21 +1052,31 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # the same `Mentions.valid_target?/1` the dispatcher uses, without asking the
   # operator to retype a `user:`/`role:` prefix the input they typed into
   # already implies.
-  defp add_mention(socket, kind, raw) do
+  defp add_mention(socket, role, kind, raw) do
     case parse_mention_id(kind, raw) do
       {:ok, id} ->
-        users = socket.assigns.mention_users
-        roles = socket.assigns.mention_roles
+        users = socket.assigns.mention_users[role]
+        roles = socket.assigns.mention_roles[role]
 
         case kind do
-          :user -> save_mentions(socket, Enum.uniq(users ++ [id]), roles)
-          :role -> save_mentions(socket, users, Enum.uniq(roles ++ [id]))
+          :user -> save_mentions(socket, role, Enum.uniq(users ++ [id]), roles)
+          :role -> save_mentions(socket, role, users, Enum.uniq(roles ++ [id]))
         end
 
       {:error, message} ->
-        {:noreply, assign(socket, :mention_error, message)}
+        {:noreply, put_role_assign(socket, :mention_error, role, message)}
     end
   end
+
+  # No catch-all clause, unlike `parse_role/1` (which exists for OTHER callers
+  # and falls back to `:system`). An unrecognized value here must crash rather
+  # than silently write to the kill channel's `mention_targets` — the only
+  # caller is this component's own markup, which always sends a literal
+  # `:route` or `:rally`.
+  defp parse_mentions_role("route"), do: :route
+  defp parse_mentions_role("rally"), do: :rally
+  defp parse_mentions_role(:route), do: :route
+  defp parse_mentions_role(:rally), do: :rally
 
   defp mention_kind("role"), do: :role
   defp mention_kind(_kind), do: :user
@@ -996,11 +1098,15 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # Writes both lists back as one `mention_targets` value. Ids only: nothing
   # here can consult a label, so nothing here can drop a target for missing
   # one.
-  defp save_mentions(socket, users, roles) do
-    case socket.assigns.webhooks[:route] do
+  defp save_mentions(socket, role, users, roles) do
+    case socket.assigns.webhooks[role] do
       nil ->
         {:noreply,
-         put_message(socket, :error, "Add a route alert channel before setting mentions.")}
+         put_message(
+           socket,
+           :error,
+           "Add a #{String.downcase(role_label(role))} before setting mentions."
+         )}
 
       webhook ->
         targets =
@@ -1011,7 +1117,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             {:noreply,
              socket
              |> assign_notification(reload_notification(socket.assigns.map_id))
-             |> assign(:mention_error, nil)}
+             |> put_role_assign(:mention_error, role, nil)}
 
           {:error, error} ->
             {:noreply, put_message(socket, :error, humanize_error(error))}
@@ -1057,7 +1163,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     assign(socket, :replacing_url?, Map.new(@roles, &{&1, false}))
   end
 
-  defp load_webhooks(nil), do: %{system: nil, character: nil, route: nil}
+  defp load_webhooks(nil), do: %{system: nil, character: nil, route: nil, rally: nil}
 
   defp load_webhooks(%{id: notification_id}) do
     records =
@@ -1367,6 +1473,26 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     |> Enum.map(fn %{id: id, name: name} -> {name, id} end)
   end
 
+  # Shared by both role-select `live_select_change` clauses, reading and
+  # writing only the slot for `role` — never the other mentionable role's.
+  defp handle_mention_role_search(socket, role, text) do
+    options =
+      case socket.assigns.guild_roles[role] do
+        {:ok, roles} -> role_options(roles, text)
+        _unavailable -> []
+      end
+
+    send_update(LiveSelect.Component, id: mention_role_select_id(role), options: options)
+
+    {:noreply, put_role_assign(socket, :mention_role_options, role, options)}
+  end
+
+  defp mention_role_select_id(:route), do: @route_mention_role_select_id
+  defp mention_role_select_id(:rally), do: @rally_mention_role_select_id
+
+  defp mention_user_select_id(:route), do: @route_mention_user_select_id
+  defp mention_user_select_id(:rally), do: @rally_mention_user_select_id
+
   # Member search does go to Discord. Failures render next to the box rather
   # than only in the log: an empty dropdown is indistinguishable from a guild
   # with no matching members, which is the ambiguity D7 exists to remove.
@@ -1391,6 +1517,22 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   end
 
   defp member_entries(options), do: Enum.map(options, fn {name, id} -> %{id: id, name: name} end)
+
+  # Shared by both user-select `live_select_change` clauses, reading and
+  # writing only the slot for `role` — never the other mentionable role's.
+  # `mention_guild_id[role]` is what keeps a rally search from running against
+  # route's guild (or vice versa) when the two point at different servers.
+  defp handle_mention_user_search(socket, role, text) do
+    {options, error} = search_members(socket.assigns.mention_guild_id[role], text)
+
+    send_update(LiveSelect.Component, id: mention_user_select_id(role), options: options)
+
+    {:noreply,
+     socket
+     |> put_role_assign(:mention_user_options, role, options)
+     |> put_role_assign(:mention_search_error, role, error)
+     |> learn_labels(:user, member_entries(options))}
+  end
 
   # Log-only; the rendered message goes through `corp_search_error/2`.
   defp search_character_name(characters) do
@@ -1527,6 +1669,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   defp role_name(:system), do: "the system channel"
   defp role_name(:character), do: "the character channel"
   defp role_name(:route), do: "route alerts"
+  defp role_name(:rally), do: "rally pings"
 
   defp to_sentence([one]), do: one
 
@@ -1906,10 +2049,16 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     """
   end
 
-  # Mention targets for the route alert channel. Rendered as chips plus two
-  # pickers rather than a CSV field: a Discord mention of an id that does not
-  # exist in this guild renders as inert text with no error, so the only
+  # Mention targets for a route or rally alert channel. Rendered as chips plus
+  # two pickers rather than a CSV field: a Discord mention of an id that does
+  # not exist in this guild renders as inert text with no error, so the only
   # reliable defence is to source ids from the guild itself.
+  #
+  # `role` (`:route` or `:rally`) is what every id and every event payload
+  # below derives from, so the two destinations' sections can render side by
+  # side without either one's chips, forms or LiveSelect components colliding
+  # with the other's.
+  attr :role, :atom, required: true
   attr :users, :list, required: true
   attr :roles, :list, required: true
   attr :labels, :map, required: true
@@ -1926,14 +2075,15 @@ defmodule WandererAppWeb.MapNotificationsComponent do
 
   defp mentions_section(assigns) do
     ~H"""
-    <div id="route-mentions" class="flex flex-col gap-3">
+    <div id={"#{@role}-mentions"} class="flex flex-col gap-3">
       <%!-- No heading or border of its own: this now renders inside the
             "Mentions" disclosure, which supplies both. --%>
       <p class="text-xs opacity-70">
-        Who to ping when a route opens. Leave both empty to post with no ping.
+        {mentions_intro(@role)}
       </p>
 
       <.mention_group
+        role={@role}
         kind={:role}
         title="Roles"
         chips={@roles}
@@ -1942,6 +2092,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         myself={@myself}
       />
       <.mention_group
+        role={@role}
         kind={:user}
         title="Users"
         chips={@users}
@@ -1954,8 +2105,9 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         <.form
           :let={f}
           for={to_form(%{}, as: :mention_role)}
-          id="mention-role-form"
+          id={"#{@role}-mention-role-form"}
           phx-change="add-mention-role"
+          phx-value-role={@role}
           phx-target={@myself}
         >
           <.live_select
@@ -1978,8 +2130,9 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         <.form
           :let={f}
           for={to_form(%{}, as: :mention_user)}
-          id="mention-user-form"
+          id={"#{@role}-mention-user-form"}
           phx-change="add-mention-user"
+          phx-value-role={@role}
           phx-target={@myself}
         >
           <.live_select
@@ -2007,8 +2160,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       <div :if={!@picker_available?} class="flex flex-col gap-2">
         <p :if={@unavailable_reason} class="text-sm opacity-70">{@unavailable_reason}</p>
 
-        <.mention_manual_form kind="role" label="Add a role by id" myself={@myself} />
-        <.mention_manual_form kind="user" label="Add a user by id" myself={@myself} />
+        <.mention_manual_form role={@role} kind="role" label="Add a role by id" myself={@myself} />
+        <.mention_manual_form role={@role} kind="user" label="Add a user by id" myself={@myself} />
       </div>
 
       <p :if={@error} class="text-sm text-red-400">{@error}</p>
@@ -2016,6 +2169,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     """
   end
 
+  attr :role, :atom, required: true
   attr :kind, :atom, required: true
   attr :title, :string, required: true
   attr :chips, :list, required: true
@@ -2042,6 +2196,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             aria-label={"Remove #{@kind} #{mention_label(@labels, @kind, id)}"}
             phx-click="remove-mention"
             phx-value-kind={@kind}
+            phx-value-role={@role}
             phx-value-id={id}
             phx-target={@myself}
           >
@@ -2053,6 +2208,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     """
   end
 
+  attr :role, :atom, required: true
   attr :kind, :string, required: true
   attr :label, :string, required: true
   attr :myself, :any, required: true
@@ -2062,9 +2218,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     <.form
       :let={f}
       for={to_form(%{}, as: :mention_id)}
-      id={"mention-manual-#{@kind}"}
+      id={mention_manual_id(@role, @kind)}
       phx-submit="add-mention-id"
       phx-value-kind={@kind}
+      phx-value-role={@role}
       phx-target={@myself}
       class="flex items-end gap-2"
     >
@@ -2073,6 +2230,19 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     </.form>
     """
   end
+
+  # `:route`'s ids are unchanged from before this rework — existing tests
+  # assert "mention-manual-role"/"mention-manual-user" literally — so only
+  # `:rally` (and any future role) gets a prefix, which keeps the two
+  # sections' manual-entry forms from sharing an id when both render at once.
+  defp mention_manual_id(:route, kind), do: "mention-manual-#{kind}"
+  defp mention_manual_id(role, kind), do: "#{role}-mention-manual-#{kind}"
+
+  defp mentions_intro(:route),
+    do: "Who to ping when a route opens. Leave both empty to post with no ping."
+
+  defp mentions_intro(:rally),
+    do: "Who to ping when a rally point posts. Leave both empty to post with no ping."
 
   attr :notification, :any, required: true
   attr :webhooks, :any, required: true
@@ -2438,31 +2608,56 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             myself={@myself}
           />
           <.collision_warning role={:route} collisions={@collisions} />
-
-          <.disclosure
-            :if={@webhooks[:route]}
-            id="mentions-disclosure"
-            title="Mentions"
-            open?={MapSet.member?(@open_sections, "mentions-disclosure")}
+          <.mentions_disclosure
+            role={:route}
+            webhook={@webhooks[:route]}
+            open_sections={@open_sections}
+            mention_users={@mention_users}
+            mention_roles={@mention_roles}
+            mention_labels={@mention_labels}
+            guild_roles={@guild_roles}
+            mention_role_select_id={@mention_role_select_id}
+            mention_user_select_id={@mention_user_select_id}
+            mention_role_options={@mention_role_options}
+            mention_user_options={@mention_user_options}
+            mention_search_error={@mention_search_error}
+            mention_error={@mention_error}
             myself={@myself}
-            badge={mentions_badge(@mention_users, @mention_roles)}
-          >
-            <.mentions_section
-              users={@mention_users}
-              roles={@mention_roles}
-              labels={@mention_labels}
-              guild_roles={@guild_roles}
-              picker_available?={mention_picker_available?(assigns)}
-              unavailable_reason={mention_unavailable_reason(assigns)}
-              user_select_id={@mention_user_select_id}
-              role_select_id={@mention_role_select_id}
-              user_options={@mention_user_options}
-              role_options={@mention_role_options}
-              search_error={@mention_search_error}
-              error={@mention_error}
-              myself={@myself}
-            />
-          </.disclosure>
+          />
+        </div>
+
+        <div class="flex flex-col gap-3 border-t border-white/10 pt-4">
+          <h3 class="text-base font-semibold">Rally pings</h3>
+
+          <.webhook_row
+            role={:rally}
+            title="Rally channel"
+            help="Where rally points are posted. The embed names the system by the map's own tag, so treat this channel as trusted."
+            webhook={@webhooks[:rally]}
+            channel_info={@channel_hints[:rally]}
+            form={@webhook_forms[:rally]}
+            replacing?={@replacing_url?[:rally]}
+            removable?={true}
+            empty_status_text="No rally pings delivered yet."
+            myself={@myself}
+          />
+          <.collision_warning role={:rally} collisions={@collisions} />
+          <.mentions_disclosure
+            role={:rally}
+            webhook={@webhooks[:rally]}
+            open_sections={@open_sections}
+            mention_users={@mention_users}
+            mention_roles={@mention_roles}
+            mention_labels={@mention_labels}
+            guild_roles={@guild_roles}
+            mention_role_select_id={@mention_role_select_id}
+            mention_user_select_id={@mention_user_select_id}
+            mention_role_options={@mention_role_options}
+            mention_user_options={@mention_user_options}
+            mention_search_error={@mention_search_error}
+            mention_error={@mention_error}
+            myself={@myself}
+          />
         </div>
       </div>
 
@@ -2475,6 +2670,60 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     </div>
     """
   end
+
+  # One "Mentions" disclosure per mentionable role (`:route`, `:rally`), reading
+  # every mentions assign at `@role`'s key — never at a hardcoded `:route` —
+  # which is what lets the two disclosures render side by side without either
+  # one's chip lists or LiveSelect components colliding with the other's.
+  attr :role, :atom, required: true
+  attr :webhook, :any, required: true
+  attr :open_sections, :any, required: true
+  attr :mention_users, :map, required: true
+  attr :mention_roles, :map, required: true
+  attr :mention_labels, :map, required: true
+  attr :guild_roles, :map, required: true
+  attr :mention_role_select_id, :map, required: true
+  attr :mention_user_select_id, :map, required: true
+  attr :mention_role_options, :map, required: true
+  attr :mention_user_options, :map, required: true
+  attr :mention_search_error, :map, required: true
+  attr :mention_error, :map, required: true
+  attr :myself, :any, required: true
+
+  defp mentions_disclosure(assigns) do
+    ~H"""
+    <.disclosure
+      :if={@webhook}
+      id={mentions_disclosure_id(@role)}
+      title="Mentions"
+      open?={MapSet.member?(@open_sections, mentions_disclosure_id(@role))}
+      myself={@myself}
+      badge={mentions_badge(@mention_users[@role], @mention_roles[@role])}
+    >
+      <.mentions_section
+        role={@role}
+        users={@mention_users[@role]}
+        roles={@mention_roles[@role]}
+        labels={@mention_labels}
+        guild_roles={@guild_roles[@role]}
+        picker_available?={mention_picker_available?(@guild_roles[@role])}
+        unavailable_reason={mention_unavailable_reason(@guild_roles[@role])}
+        user_select_id={@mention_user_select_id[@role]}
+        role_select_id={@mention_role_select_id[@role]}
+        user_options={Map.get(@mention_user_options, @role, [])}
+        role_options={Map.get(@mention_role_options, @role, [])}
+        search_error={@mention_search_error[@role]}
+        error={@mention_error[@role]}
+        myself={@myself}
+      />
+    </.disclosure>
+    """
+  end
+
+  # `:route`'s id is unchanged from before this rework — existing tests assert
+  # "mentions-disclosure"/"mentions-disclosure-body" literally.
+  defp mentions_disclosure_id(:route), do: "mentions-disclosure"
+  defp mentions_disclosure_id(role), do: "#{role}-mentions-disclosure"
 
   defp mentions_badge([], []), do: "None"
 
