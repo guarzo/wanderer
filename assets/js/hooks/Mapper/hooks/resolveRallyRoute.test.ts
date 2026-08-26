@@ -54,6 +54,18 @@ describe('resolveRallyRoute', () => {
     expect([...result.highlightedSystems]).toEqual(['30000001', '30000002', '30000003']);
   });
 
+  it('coerces a numeric candidate eve_id to a string', () => {
+    // rallySourceCandidates matches ids leniently (String(a) === String(b)), but CharacterCardById
+    // looks characters up with strict ===. A numeric eve_id surviving to here would resolve a
+    // candidate and then fail that lookup, so it must come back as a string.
+    const main = character({ eve_id: 333 as unknown as string, online: true, solar_system_id: 30000001 });
+
+    const result = resolve([main], 333 as unknown as string, null);
+
+    expect(result.sourceCharacterEveId).toBe('333');
+    expect(typeof result.sourceCharacterEveId).toBe('string');
+  });
+
   it('falls back to the followed character when the main character cannot reach the rally point', () => {
     // The regression the fallback exists to prevent: main is online and located, but parked on an
     // island with no mapped path to the rally, while the followed character is two jumps away.
