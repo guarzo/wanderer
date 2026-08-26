@@ -4,9 +4,12 @@ defmodule WandererAppWeb.MapNotificationsTest do
   import Phoenix.LiveViewTest
   import ExUnit.CaptureLog
 
+  import WandererApp.TestHelpers, only: [wait_until: 1]
+
   alias WandererApp.Api.MapDiscordNotification
   alias WandererApp.Api.MapDiscordWebhook
   alias WandererApp.ExternalEvents.Discord.ChannelInfo
+  alias WandererApp.ExternalEvents.Discord.HttpStub
   alias WandererAppWeb.Factory
 
   setup %{conn: conn} do
@@ -36,6 +39,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
   @home_select "home_system_live_select_component"
   @route_checkbox "input[name='notification[route_alerts_enabled]'][type='checkbox']"
+  @route_mention_role_select_id "mention_role_live_select_component"
+  @rally_mention_role_select_id "mention_role_live_select_component_rally"
 
   defp insert_jita do
     Factory.insert(:solar_system, %{
@@ -2052,8 +2057,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       assert has_element?(view, "#mention-manual-role")
       assert has_element?(view, "#mention-manual-user")
-      refute has_element?(view, "#mention-role-form")
-      refute has_element?(view, "#mention-user-form")
+      refute has_element?(view, "#route-mention-role-form")
+      refute has_element?(view, "#route-mention-user-form")
     end
 
     test "and the section is absent entirely with no route destination", %{
@@ -2065,6 +2070,115 @@ defmodule WandererAppWeb.MapNotificationsTest do
       view = open_notifications(conn, map)
 
       refute has_element?(view, "#route-mentions")
+    end
+  end
+
+  describe "mention pickers, resolved" do
+    # The rest of the suite runs with no bot token configured and never
+    # exercises this branch, which is exactly what let a Critical bug through
+    # once: `@mention_role_options`/`@mention_user_options` default to `%{}`
+    # and nothing writes a role's key until the first keystroke, so the first
+    # render of an available picker fed `nil` straight into LiveSelect's
+    # `options` assign and crashed. This drives the real success path — guild
+    # resolves, roles come back — for BOTH destinations, so a regression here
+    # cannot hide behind "only route was exercised" either.
+    setup do
+      original_events = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original_events, :discord_bot_token, "test-bot-token")
+      )
+
+      {:ok, _pid} = HttpStub.start()
+
+      on_exit(fn ->
+        Application.put_env(:wanderer_app, :external_events, original_events)
+      end)
+
+      :ok
+    end
+
+    test "the picker renders once each destination's guild roles resolve", %{
+      conn: conn,
+      map: map
+    } do
+      rec = notification_with_webhooks(map, [:system, :route, :rally])
+      {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
+      route_wh = Enum.find(webhooks, &(&1.role == :route))
+      rally_wh = Enum.find(webhooks, &(&1.role == :rally))
+
+      route_guild = "111111111111111111"
+      rally_guild = "222222222222222222"
+
+      {:ok, _} = MapDiscordWebhook.cache_channel_info(route_wh, %{guild_id: route_guild})
+      {:ok, _} = MapDiscordWebhook.cache_channel_info(rally_wh, %{guild_id: rally_guild})
+
+      HttpStub.set_get_response(
+        "https://discord.com/api/v10/guilds/#{route_guild}/roles",
+        {:ok, 200, Jason.encode!([%{"id" => "1", "name" => "Route-Guild-Officer"}])}
+      )
+
+      HttpStub.set_get_response(
+        "https://discord.com/api/v10/guilds/#{rally_guild}/roles",
+        {:ok, 200, Jason.encode!([%{"id" => "2", "name" => "Rally-Guild-FC"}])}
+      )
+
+      view = open_notifications(conn, map)
+
+      # `request_guild_roles_for_role/2` spawns the fetch on a Task; give both
+      # destinations' round trips (Task -> `{:discord_guild_roles, ...}` ->
+      # MapsLive's `handle_info` -> `send_update`) time to land before
+      # asserting on the render. A crash here would exit the view process, so
+      # `has_element?/2` — not just an empty check — is what would fail.
+      wait_until(fn ->
+        has_element?(view, "#route-mention-role-form") and
+          has_element?(view, "#rally-mention-role-form")
+      end)
+
+      assert has_element?(view, "#route-mention-role-form")
+      assert has_element?(view, "#route-mention-user-form")
+      assert has_element?(view, "#rally-mention-role-form")
+      assert has_element?(view, "#rally-mention-user-form")
+
+      # The scoping this whole feature exists to prove: each destination's
+      # role picker is searched against its OWN guild, never the other's.
+      # A regression here has no error anywhere — it just offers (and lets you
+      # save) a role id from the wrong server, and the ping silently lands on
+      # nobody. Opens each LiveSelect the way the browser does (its own
+      # "change" un-hides the dropdown), then drives our search handler the
+      # way `pick_home_system/2` drives the home-system one. Scoped to each
+      # destination's own `#{role}-mentions` subtree — both dropdowns stay
+      # open at once, so an unscoped `render(view) =~ ...` would find route's
+      # own (correct) options while checking rally, and prove nothing.
+      view
+      |> with_target("##{@route_mention_role_select_id}")
+      |> render_change("change", %{"text" => ""})
+
+      view
+      |> with_target("#map-notifications")
+      |> render_change("live_select_change", %{
+        "id" => @route_mention_role_select_id,
+        "text" => ""
+      })
+
+      assert has_element?(view, "#route-mentions", "Route-Guild-Officer")
+      refute has_element?(view, "#route-mentions", "Rally-Guild-FC")
+
+      view
+      |> with_target("##{@rally_mention_role_select_id}")
+      |> render_change("change", %{"text" => ""})
+
+      view
+      |> with_target("#map-notifications")
+      |> render_change("live_select_change", %{
+        "id" => @rally_mention_role_select_id,
+        "text" => ""
+      })
+
+      assert has_element?(view, "#rally-mentions", "Rally-Guild-FC")
+      refute has_element?(view, "#rally-mentions", "Route-Guild-Officer")
     end
   end
 end

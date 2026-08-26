@@ -2706,8 +2706,8 @@ defmodule WandererAppWeb.MapNotificationsComponent do
         unavailable_reason={mention_unavailable_reason(@guild_roles[@role])}
         user_select_id={@mention_user_select_id[@role]}
         role_select_id={@mention_role_select_id[@role]}
-        user_options={@mention_user_options[@role]}
-        role_options={@mention_role_options[@role]}
+        user_options={Map.get(@mention_user_options, @role, [])}
+        role_options={Map.get(@mention_role_options, @role, [])}
         search_error={@mention_search_error[@role]}
         error={@mention_error[@role]}
         myself={@myself}
