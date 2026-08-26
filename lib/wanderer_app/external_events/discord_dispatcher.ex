@@ -56,6 +56,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     EmbedFormatter,
     Matcher,
     NotableItems,
+    RallyPing,
     Router,
     SystemName,
     VoiceParticipants
@@ -305,6 +306,20 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
          true <- notification.route_alerts_enabled?,
          home_system_id when not is_nil(home_system_id) <- notification.home_system_id do
       route_watcher_supervisor().notify(map_id)
+    end
+
+    :ok
+  end
+
+  # Gate and hand off, nothing more — this process is a singleton for every map.
+  # Rendering and enqueueing run in a task, like every other non-trivial step
+  # here. Creation only; see `RallyPing`'s moduledoc for why removals are not
+  # wired.
+  defp do_dispatch(map_id, %{type: :rally_point_added, payload: payload}) do
+    with true <- enabled_globally?(),
+         {:ok, notification} <- fetch_config(map_id),
+         {:ok, webhook} <- Router.rally_destination(notification) do
+      start_task(fn -> RallyPing.deliver(map_id, webhook, payload) end)
     end
 
     :ok
