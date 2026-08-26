@@ -3,6 +3,7 @@ import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { OutCommand } from '@/hooks/Mapper/types';
 import { PingType } from '@/hooks/Mapper/types/ping.ts';
 import clsx from 'clsx';
+import { Checkbox } from 'primereact/checkbox';
 import { Dialog } from 'primereact/dialog';
 import { InputTextarea } from 'primereact/inputtextarea';
 import { useCallback, useRef, useState } from 'react';
@@ -23,13 +24,14 @@ export const SystemPingDialog = ({ systemId, type, visible, setVisible }: System
   const { outCommand } = useMapRootState();
 
   const [message, setMessage] = useState('');
+  const [notifyDiscord, setNotifyDiscord] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>();
 
-  const ref = useRef({ message, outCommand, systemId, type });
-  ref.current = { message, outCommand, systemId, type };
+  const ref = useRef({ message, notifyDiscord, outCommand, systemId, type });
+  ref.current = { message, notifyDiscord, outCommand, systemId, type };
 
   const handleSave = useCallback(() => {
-    const { message, outCommand, systemId, type } = ref.current;
+    const { message, notifyDiscord, outCommand, systemId, type } = ref.current;
 
     outCommand({
       type: OutCommand.addPing,
@@ -37,6 +39,7 @@ export const SystemPingDialog = ({ systemId, type, visible, setVisible }: System
         solar_system_id: systemId,
         type,
         message,
+        notify_discord: notifyDiscord,
       },
     });
     setVisible(false);
@@ -89,6 +92,19 @@ export const SystemPingDialog = ({ systemId, type, visible, setVisible }: System
               onChange={e => setMessage(e.target.value)}
             />
           </div>
+
+          {type === PingType.Rally && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                inputId="notify-discord"
+                checked={notifyDiscord}
+                onChange={e => setNotifyDiscord(e.checked ?? false)}
+              />
+              <label className="text-[11px]" htmlFor="notify-discord">
+                Send to Discord
+              </label>
+            </div>
+          )}
 
           <div className="flex gap-2 justify-end">
             <WdButton type="submit" onClick={handleSave} size="small" severity="danger" label="Ping!" />
