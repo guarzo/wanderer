@@ -231,6 +231,11 @@ export const PingsInterface = ({ hasLeftOffset }: PingsInterfaceProps) => {
                         {rallyRoute.reason === 'no-source' && (
                           <span className="text-stone-400 text-[11px]">No online pilot with a location.</span>
                         )}
+                        {rallyRoute.reason === 'no-selection' && (
+                          <span className="text-stone-400 text-[11px]">
+                            Set a main character to see the route from it.
+                          </span>
+                        )}
                         {rallyRoute.reason === 'unreachable' && (
                           <span className="text-stone-400 text-[11px]">No mapped route to the rally.</span>
                         )}

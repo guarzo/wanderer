@@ -131,13 +131,13 @@ describe('resolveRallyRoute', () => {
     expect([...result.highlightedConnections].sort()).toEqual(['30000001-30000002', '30000002-30000003']);
   });
 
-  it('reports "no-source" when no character is available to route from', () => {
+  it('reports "no-selection" when neither a main nor a followed character is set', () => {
     const result = resolve([], null, null);
 
     expect(result.isActive).toBe(false);
     expect(result.sourceCharacterSystemId).toBeNull();
     expect(result.sourceCharacterEveId).toBeNull();
     expect(result.rallySystemId).toBe(RALLY);
-    expect(result.reason).toBe('no-source');
+    expect(result.reason).toBe('no-selection');
   });
 });

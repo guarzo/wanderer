@@ -18,7 +18,7 @@ export interface RallyRouteData {
   // the unreachable case). Null whenever no candidate was ever selected.
   sourceCharacterEveId: string | null;
   // Why no route is showing. Null when a route drew successfully.
-  reason: 'no-ping' | 'no-source' | 'unreachable' | null;
+  reason: 'no-ping' | 'no-selection' | 'no-source' | 'unreachable' | null;
 }
 
 export interface ResolveRallyRouteParams {
@@ -64,6 +64,13 @@ export function resolveRallyRoute({
 
   if (!rallyPing) {
     return inactive(null, null, null, 'no-ping');
+  }
+
+  // Distinguish "nobody selected a main or followed character" from "one is selected but isn't
+  // usable" — the former can still have plenty of online, located pilots on the map; the latter
+  // means rallySourceCandidates genuinely found nothing to route from.
+  if (mainCharacterEveId == null && followingCharacterEveId == null) {
+    return inactive(rallyPing.solar_system_id, null, null, 'no-selection');
   }
 
   const candidates = rallySourceCandidates(characters, {
