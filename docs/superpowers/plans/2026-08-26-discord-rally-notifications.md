@@ -830,6 +830,16 @@ In `map_notifications_component.ex`, after the `:route` row's `collision_warning
 
 Then copy the `:route` row's mentions disclosure block verbatim, substituting `:rally` for `:route` and giving the disclosure a unique `id` (`"rally-mentions-disclosure"`) — duplicate DOM ids break LiveView patching. The mention chips are how the role-to-ping is configured, so the row is not complete without them.
 
+> **AMENDED DURING EXECUTION — do not follow the paragraph above.** The
+> mentions subsystem is not role-parameterized: `assign_mentions/2` reads
+> `webhooks[:route]` (`:841-850`), `save_mentions/3` writes `webhooks[:route]`
+> (`:999-1020`), the four add/remove handlers carry no role
+> (`:397-428`), and the DOM ids are singletons (`:83-84`, `:1929`). Copying the
+> block with `:rally` substituted would make rally mention edits silently
+> overwrite the route channel's `mention_targets`, and would duplicate the
+> LiveSelect component ids. **Task 5 ships no mentions disclosure. Task 6 owns
+> this.**
+
 - [ ] **Step 5: Run the LiveView tests**
 
 Run: `mix test test/wanderer_app_web/live/map_notifications_test.exs`
@@ -858,9 +868,100 @@ rally submit overwrites the kill channel's URL."
 
 ---
 
+### Task 6: Role-parameterized mentions
+
+**Added during execution.** Task 5 discovered that the mentions subsystem is hardwired to `:route`, so a rally destination cannot be given a role to ping. The spec's decision 6 requires a content line pinging a configured role, and the user's stated requirement is "a webhook url, as well as a role id to tag in the message" — so this is not optional polish.
+
+**Files:**
+- Modify: `lib/wanderer_app_web/live/maps/components/map_notifications_component.ex` — `assign_mentions/2` (`:841-850`), `save_mentions/3` (`:999-1020`), the four mention event handlers (`:397-428`), the select-id module attributes (`:83-84`), `mentions_section/1` (`:1927+`), and both rows' disclosure blocks
+- Test: `test/wanderer_app_web/live/map_notifications_test.exs`
+
+**Interfaces:**
+- Consumes: the `:rally` role and its settings row (Task 5).
+- Produces: no new public functions. Every mention read/write becomes role-scoped.
+
+**The invariant this task exists to establish:** editing one destination's mentions must never read or write another's. A test must prove it directly — configure mentions on both `:route` and `:rally`, change one, assert the other's `mention_targets` is untouched. Without that test this task has not been done, however clean the diff looks.
+
+- [ ] **Step 1: Take the inventory**
+
+Before editing, list every site in `map_notifications_component.ex` that reads or writes `mention_targets`, or that assumes a single mentions context: `grep -n "mention" lib/wanderer_app_web/live/maps/components/map_notifications_component.ex`. Task 5's report contains a partial inventory — start there, but re-derive it, since the plan's original list was already proven incomplete.
+
+Write the list into your report before changing anything. Every site is either parameterized or explicitly justified as not needing it.
+
+- [ ] **Step 2: Write the failing cross-contamination test**
+
+In `test/wanderer_app_web/live/map_notifications_test.exs`:
+
+```elixir
+  test "editing rally mentions leaves route mentions untouched", %{conn: conn, map: map} do
+    route_wh = create_webhook(map, :route, "https://discord.com/api/webhooks/8/route")
+    rally_wh = create_webhook(map, :rally, "https://discord.com/api/webhooks/9/rally")
+
+    {:ok, _} = MapDiscordWebhook.update(route_wh, %{mention_targets: ["role:111111111111111111"]})
+
+    {:ok, view, _html} = live(conn, ~p"/maps?tab=notifications&map_id=#{map.id}")
+
+    render_click(view, "add-mention-id", %{
+      "kind" => "role",
+      "role" => "rally",
+      "mention_id" => %{"value" => "222222222222222222"}
+    })
+
+    assert {:ok, %{mention_targets: ["role:222222222222222222"]}} = reload(rally_wh)
+    assert {:ok, %{mention_targets: ["role:111111111111111111"]}} = reload(route_wh)
+  end
+```
+
+Adapt `create_webhook/3` and `reload/1` to whatever helpers the file already has; the assertions are what matter. If the event payload shape for carrying the role differs from `"role" => "rally"` once you design it, use your shape — but the two assertions must survive unchanged.
+
+- [ ] **Step 3: Run it and watch it fail**
+
+Run: `mix test test/wanderer_app_web/live/map_notifications_test.exs` (the new test by line number).
+
+Expected: FAIL — either the handler ignores the role and writes the route webhook, or it raises on the unexpected payload key.
+
+- [ ] **Step 4: Parameterize**
+
+Thread a role through, keeping these rules:
+
+- The four handlers (`add-mention-user`, `add-mention-role`, `add-mention-id`, `remove-mention`) carry the role in their payload; `parse_role/1` converts it, so an unknown value cannot silently become `:system` in a *mentions* context — pattern-match the role explicitly here and fail loudly rather than defaulting.
+- `assign_mentions/2` and `save_mentions/3` become role-scoped. Key the assigns by role (`@mention_users[role]`, or a single `@mentions` map keyed by role) rather than adding a parallel set of rally-specific assigns — a second copy is how the two drift apart.
+- `save_mentions/3`'s "Add a route alert channel before setting mentions" error message becomes role-specific, reusing `role_label/1` from Task 5.
+- LiveSelect component ids and the `mentions_section` wrapper id derive from the role. Two disclosures rendering the same id breaks LiveView patching, and the bug presents as "the wrong chip list updates", not as an error.
+
+- [ ] **Step 5: Run the test, then the file, then the suite**
+
+Run, in order:
+`mix test test/wanderer_app_web/live/map_notifications_test.exs`
+`mix test`
+
+Expected: PASS. The pre-existing route mention tests must pass **unchanged** — if one needs editing to accommodate the new shape, that is a signal the parameterization changed route's behavior, which it must not. Report any such edit rather than making it silently.
+
+- [ ] **Step 6: Add the rally row's disclosure**
+
+Only now, add the mentions disclosure to the rally row in the markup, with its role-derived id — the block Task 5 deliberately omitted.
+
+- [ ] **Step 7: Format, lint, commit**
+
+```bash
+mix format
+mix credo --strict
+git add lib/wanderer_app_web/live/maps/components/map_notifications_component.ex test/wanderer_app_web/live/map_notifications_test.exs
+git commit -m "feat(discord): make mention targets per-destination
+
+The mentions subsystem read and wrote the :route webhook unconditionally, so
+a second destination could not have its own ping targets — and a rally row
+copied from the route row would have silently overwritten route's.
+
+Mentions are now scoped by role, with the ids derived from it. The test that
+matters asserts editing one destination leaves the other's targets alone."
+```
+
+---
+
 ## Manual verification
 
-After Task 5, before opening a PR:
+After Task 6, before opening a PR:
 
 - [ ] Configure a rally webhook against a test Discord channel, add a role to its mention targets, and use **Send test** to confirm the destination works.
 - [ ] Drop a rally point on a map and confirm the message posts: role pinged, title, pilot portrait, map-local system name, `Rally ID` footer, and the timestamp matching when the rally was created.
