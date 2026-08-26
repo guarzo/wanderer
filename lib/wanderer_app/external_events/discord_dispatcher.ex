@@ -154,7 +154,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
     if enabled_globally?() do
       with {:ok, webhook} <- resolve_test_webhook(webhook_id) do
         message = %{
-          "content" => "Wanderer test message — Discord kill notifications are configured."
+          "content" => "Wanderer test message — Discord notifications are configured."
         }
 
         case WorkerSupervisor.deliver(webhook.id, [message]) do
@@ -411,7 +411,10 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
       task ->
         # The documented `yield || shutdown` idiom. `Task.yield/2` returns
         # `{:exit, reason}` INLINE when the task crashes, so all three outcomes
-        # are handled here and none of them reaches `handle_info/2`.
+        # are handled here for this caller. The rally clause above is
+        # fire-and-forget and never yields its task, so its `{ref, result}`
+        # and `:DOWN` messages do land in `handle_info/2` — deliberately
+        # absorbed by the catch-all there rather than tracked here.
         result =
           Task.yield(task, Env.notable_items_timeout_ms()) ||
             Task.shutdown(task, :brutal_kill)

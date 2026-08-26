@@ -518,9 +518,11 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
 
   # The ping's own creation time, not `DateTime.utc_now/0`. The old external
   # formatter stamped "now", which misreports the time on any delivery retry —
-  # and this queue retries up to five times with backoff. `inserted_at` arrives
-  # as a zone-less NaiveDateTime, so the zone is attached here rather than
-  # emitting an offset-free string Discord would read as local.
+  # and this queue retries up to five times with backoff. `MapPing.inserted_at`
+  # is `:utc_datetime_usec`, so production always hands over a `%DateTime{}`
+  # here; the `%NaiveDateTime{}` clause below is kept defensively for any other
+  # caller that hands `rally_timestamp/1` a zone-less value, and still attaches
+  # UTC rather than emitting an offset-free string Discord would read as local.
   defp rally_timestamp(%{created_at: %DateTime{} = created_at}),
     do: DateTime.to_iso8601(created_at)
 

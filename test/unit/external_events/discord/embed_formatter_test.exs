@@ -1242,7 +1242,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
         character_name: "Stealthbot",
         character_eve_id: "2115754172",
         message: nil,
-        created_at: ~N[2026-08-03 02:05:00]
+        created_at: ~U[2026-08-03 02:05:00.123456Z]
       }
 
       %{rally: rally}
@@ -1272,7 +1272,7 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
     test "timestamps from created_at, not from now", %{rally: rally} do
       [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
 
-      assert embed["timestamp"] == "2026-08-03T02:05:00Z"
+      assert embed["timestamp"] == "2026-08-03T02:05:00.123456Z"
     end
 
     test "appends the pilot's message when there is one", %{rally: rally} do
