@@ -2152,11 +2152,50 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
           webhook_url: "https://discord.com/api/webhooks/9/rally"
         })
 
-      DiscordDispatcher.dispatch_event(map_id, rally_event())
+      DiscordDispatcher.dispatch_event(map_id, rally_event(%{notify_discord: true}))
 
       assert_receive {:delivered, webhook_id, [message]}, 2_000
       assert webhook_id == webhook.id
       assert [%{"title" => "⚔️ Rally Point Created"}] = message["embeds"]
+    end
+
+    # The regression this task exists to prevent: an API caller (or any client
+    # that predates `notify_discord`) never sends the key at all, and MUST
+    # keep notifying exactly as it did before the opt-out was added.
+    test "delivers when notify_discord is absent from the payload", %{
+      map_id: map_id,
+      notification: n
+    } do
+      {:ok, webhook} =
+        MapDiscordWebhook.create(%{
+          notification_id: n.id,
+          role: :rally,
+          webhook_url: "https://discord.com/api/webhooks/9/rally"
+        })
+
+      event = rally_event()
+      refute Map.has_key?(event.payload, :notify_discord)
+
+      DiscordDispatcher.dispatch_event(map_id, event)
+
+      assert_receive {:delivered, webhook_id, [_message]}, 2_000
+      assert webhook_id == webhook.id
+    end
+
+    test "drops when notify_discord is false, without a destination lookup", %{
+      map_id: map_id,
+      notification: n
+    } do
+      {:ok, _webhook} =
+        MapDiscordWebhook.create(%{
+          notification_id: n.id,
+          role: :rally,
+          webhook_url: "https://discord.com/api/webhooks/9/rally"
+        })
+
+      DiscordDispatcher.dispatch_event(map_id, rally_event(%{notify_discord: false}))
+
+      refute_receive {:delivered, _webhook_id, _messages}, 500
     end
 
     test "drops when the map has no rally destination", %{map_id: map_id} do
@@ -2263,17 +2302,19 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcherTest do
     }
   end
 
-  defp rally_event do
+  defp rally_event(payload_overrides \\ %{}) do
     %WandererApp.ExternalEvents.Event{
       type: :rally_point_added,
-      payload: %{
-        rally_point_id: "eae7c5b4-2727-4a88-a041-3b5a5d4e5332",
-        solar_system_id: "31000005",
-        character_name: "Stealthbot",
-        character_eve_id: "2115754172",
-        message: nil,
-        created_at: ~N[2026-08-03 02:05:00]
-      }
+      payload:
+        %{
+          rally_point_id: "eae7c5b4-2727-4a88-a041-3b5a5d4e5332",
+          solar_system_id: "31000005",
+          character_name: "Stealthbot",
+          character_eve_id: "2115754172",
+          message: nil,
+          created_at: ~N[2026-08-03 02:05:00]
+        }
+        |> Map.merge(payload_overrides)
     }
   end
 end

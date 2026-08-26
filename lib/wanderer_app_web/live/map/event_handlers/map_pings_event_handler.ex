@@ -69,7 +69,7 @@ defmodule WandererAppWeb.MapPingsEventHandler do
 
   def handle_ui_event(
         "add_ping",
-        %{"solar_system_id" => solar_system_id, "message" => message, "type" => type} = _event,
+        %{"solar_system_id" => solar_system_id, "message" => message, "type" => type} = event,
         %{
           assigns: %{
             map_id: map_id,
@@ -122,13 +122,19 @@ defmodule WandererAppWeb.MapPingsEventHandler do
     end
 
     if no_exisiting_pings do
+      # Absent means "notify" — the checkbox defaults checked, and an
+      # older client or a caller that never learned about this field must
+      # keep notifying exactly as it does today.
+      notify_discord = Map.get(event, "notify_discord", true)
+
       map_id
       |> WandererApp.Map.Server.add_ping(%{
         solar_system_id: solar_system_id,
         message: message,
         type: type,
         character_id: main_character_id,
-        user_id: current_user.id
+        user_id: current_user.id,
+        notify_discord: notify_discord
       })
 
       {:noreply, socket}

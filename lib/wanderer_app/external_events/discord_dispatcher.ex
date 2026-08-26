@@ -315,8 +315,15 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   # Rendering and enqueueing run in a task, like every other non-trivial step
   # here. Creation only; see `RallyPing`'s moduledoc for why removals are not
   # wired.
+  #
+  # `notify_discord` is a per-event opt-out, not persisted state (see
+  # `PingsImpl.add_ping/2`). ABSENT MUST MEAN TRUE: API callers and any client
+  # that predates this field never send the key at all, and they must keep
+  # notifying exactly as before. The check runs before the destination lookup,
+  # so a suppressed rally does no routing work either.
   defp do_dispatch(map_id, %{type: :rally_point_added, payload: payload}) do
-    with true <- enabled_globally?(),
+    with true <- Map.get(payload, :notify_discord, true),
+         true <- enabled_globally?(),
          {:ok, notification} <- fetch_config(map_id),
          {:ok, webhook} <- Router.rally_destination(notification) do
       start_task(fn -> RallyPing.deliver(map_id, webhook, payload) end)
