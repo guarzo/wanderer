@@ -294,4 +294,38 @@ defmodule WandererApp.ExternalEvents.Discord.RouterTest do
       assert Router.route_destination(unloaded) == :drop
     end
   end
+
+  describe "rally_destination/1" do
+    defp add_rally_webhook(notification) do
+      {:ok, wh} =
+        MapDiscordWebhook.create(%{
+          notification_id: notification.id,
+          role: :rally,
+          webhook_url: "https://discord.com/api/webhooks/4/rally"
+        })
+
+      wh
+    end
+
+    test "a :rally webhook is selected when present and enabled", %{notification: n} do
+      rally_wh = add_rally_webhook(n)
+
+      assert {:ok, %{id: id}} = Router.rally_destination(with_webhooks(n))
+      assert id == rally_wh.id
+    end
+
+    # NO fallback, deliberately. A rally embed names the system by its map-local
+    # tag, so inheriting the :system webhook would hand a chain tag to a channel
+    # chosen for killmails, with no user action and no way to notice.
+    test "drops when no :rally row exists, rather than inheriting :system", %{notification: n} do
+      assert Router.rally_destination(with_webhooks(n)) == :drop
+    end
+
+    test "a disabled :rally webhook drops rather than rerouting", %{notification: n} do
+      rally_wh = add_rally_webhook(n)
+      {:ok, _} = MapDiscordWebhook.set_enabled(rally_wh, %{enabled?: false})
+
+      assert Router.rally_destination(with_webhooks(n)) == :drop
+    end
+  end
 end
