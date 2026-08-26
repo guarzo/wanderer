@@ -1260,6 +1260,31 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatterRouteAlertTest do
              ] = embed["fields"]
     end
 
+    # `custom_name`/`temporary_name` carry no length constraint on `MapSystem`,
+    # so the System field's value can reach Discord's 1024-character
+    # field-value bound from ordinary user input, and exceeding it is a 400
+    # (a delivery failure, not a truncation).
+    test "the System field value is bounded to Discord's field-value limit", %{rally: rally} do
+      long_name = String.duplicate("A", 1100)
+      id = 31_999_999
+
+      Cachex.put(:system_static_info_cache, id, %{
+        solar_system_id: id,
+        solar_system_name: long_name,
+        system_class: 3
+      })
+
+      on_exit(fn -> Cachex.del(:system_static_info_cache, id) end)
+
+      [%{"embeds" => [embed]}] =
+        EmbedFormatter.format_rally_ping(%{rally | solar_system_id: to_string(id)}, [])
+
+      system_field = Enum.find(embed["fields"], &(&1["name"] == "System"))
+
+      assert String.length(system_field["value"]) == 1024
+      assert String.ends_with?(system_field["value"], "…")
+    end
+
     test "carries the pilot portrait in the author line", %{rally: rally} do
       [%{"embeds" => [embed]}] = EmbedFormatter.format_rally_ping(rally, [])
 

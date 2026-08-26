@@ -47,6 +47,11 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
   # constraint, and exceeding this is a 400 — a delivery failure, not a
   # truncation.
   @max_author_length 256
+  # Discord's field-value bound. The rally embed's "System" field carries
+  # `custom_name`/`temporary_name`, which has no length constraint on
+  # `MapSystem`, so it can reach this bound from ordinary user input and turn
+  # into a 400 the same way the title and author bounds above do.
+  @max_field_value_length 1024
 
   @color_loss 0xE74C3C
   @color_kill 0x2ECC71
@@ -458,7 +463,11 @@ defmodule WandererApp.ExternalEvents.Discord.EmbedFormatter do
       "color" => @color_rally,
       "description" => truncate(rally_description(rally, system_name), @max_description_length),
       "fields" => [
-        %{"name" => "System", "value" => system_name, "inline" => true},
+        %{
+          "name" => "System",
+          "value" => truncate(system_name, @max_field_value_length),
+          "inline" => true
+        },
         %{"name" => "Created By", "value" => rally.character_name, "inline" => true}
       ],
       "footer" => %{"text" => "Rally ID: #{rally.rally_point_id}"},

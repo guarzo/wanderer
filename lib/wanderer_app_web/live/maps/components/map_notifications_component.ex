@@ -2624,6 +2624,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
             mention_error={@mention_error}
             myself={@myself}
           />
+        </div>
+
+        <div class="flex flex-col gap-3 border-t border-white/10 pt-4">
+          <h3 class="text-base font-semibold">Rally pings</h3>
 
           <.webhook_row
             role={:rally}

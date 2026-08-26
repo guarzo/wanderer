@@ -1660,12 +1660,8 @@ defmodule WandererAppWeb.MapNotificationsTest do
       view = open_notifications(conn, map)
 
       view
-      |> with_target("#map-notifications")
-      |> render_click("add-mention-id", %{
-        "kind" => "role",
-        "role" => "rally",
-        "mention_id" => %{"value" => "222222222222222222"}
-      })
+      |> form("#rally-mention-manual-role", %{"mention_id" => %{"value" => "222222222222222222"}})
+      |> render_submit()
 
       {:ok, rally_reloaded} = MapDiscordWebhook.by_id(rally_wh.id)
       {:ok, route_reloaded} = MapDiscordWebhook.by_id(route_wh.id)
@@ -1742,7 +1738,13 @@ defmodule WandererAppWeb.MapNotificationsTest do
       })
       |> render_submit()
 
-      assert render(view) =~ "Rally channel"
+      # "Rally channel" is the row's static title and renders whether or not a
+      # webhook is configured, so it proves nothing about the save. Once
+      # configured, the row's own form closes and its button reads "Edit"
+      # rather than "Not set" / "Add" — that is what only holds after a save.
+      refute has_element?(view, "#webhook-form-rally")
+      assert has_element?(view, "#webhook-row-rally", "Edit")
+      refute has_element?(view, "#webhook-row-rally", "Not set")
 
       {:ok, webhooks} = MapDiscordWebhook.by_notification(rec.id)
       assert %{role: :rally} = Enum.find(webhooks, &(&1.role == :rally))

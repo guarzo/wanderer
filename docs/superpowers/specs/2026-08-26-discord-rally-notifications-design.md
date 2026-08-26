@@ -17,7 +17,7 @@ while rally notifications went silent.
 
 The message users are accustomed to:
 
-```
+```text
 @FLYGD Rally point created!
 ⚔️ Rally Point Created
 Stealthbot has created a rally point in A22A
@@ -152,7 +152,7 @@ information the message does not need.
 
 No new processes.
 
-```
+```text
 PingsImpl.add_ping/2  (map server GenServer)
   └─ ExternalEvents.broadcast(map_id, :rally_point_added, payload)
        └─ MapEventRelay.deliver_single_event/2
