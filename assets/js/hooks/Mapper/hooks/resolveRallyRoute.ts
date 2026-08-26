@@ -14,6 +14,11 @@ export interface RallyRouteData {
   // The source character's current system, if one was selected. Populated even when no route was
   // found, so it says where we routed *from*, not that anything is drawn.
   sourceCharacterSystemId: string | null;
+  // eve_id of the character the route was actually drawn from (or the best candidate we tried, in
+  // the unreachable case). Null whenever no candidate was ever selected.
+  sourceCharacterEveId: string | null;
+  // Why no route is showing. Null when a route drew successfully.
+  reason: 'no-ping' | 'no-source' | 'unreachable' | null;
 }
 
 export interface ResolveRallyRouteParams {
@@ -25,12 +30,19 @@ export interface ResolveRallyRouteParams {
   connections: SolarSystemConnection[];
 }
 
-const inactive = (rallySystemId: string | null, sourceCharacterSystemId: string | null = null): RallyRouteData => ({
+const inactive = (
+  rallySystemId: string | null,
+  sourceCharacterSystemId: string | null,
+  sourceCharacterEveId: string | null,
+  reason: RallyRouteData['reason'],
+): RallyRouteData => ({
   highlightedSystems: new Set(),
   highlightedConnections: new Set(),
   isActive: false,
   rallySystemId,
   sourceCharacterSystemId,
+  sourceCharacterEveId,
+  reason,
 });
 
 /**
@@ -51,7 +63,7 @@ export function resolveRallyRoute({
   const rallyPing = pings.find(ping => ping.type === PingType.Rally);
 
   if (!rallyPing) {
-    return inactive(null);
+    return inactive(null, null, null, 'no-ping');
   }
 
   const candidates = rallySourceCandidates(characters, {
@@ -61,6 +73,7 @@ export function resolveRallyRoute({
 
   const systemIds = systems.map(s => s.id);
   let firstSourceSystemId: string | null = null;
+  let firstSourceEveId: string | null = null;
 
   // Candidates are ordered best-first. Walk them rather than committing to the first, so a main
   // character with no path to the rally hands off to the followed character instead of blanking a
@@ -74,6 +87,7 @@ export function resolveRallyRoute({
 
     const sourceCharacterSystemId = candidate.location.solar_system_id.toString();
     firstSourceSystemId ??= sourceCharacterSystemId;
+    firstSourceEveId ??= candidate.eve_id;
 
     // Already at the rally point
     if (sourceCharacterSystemId === rallyPing.solar_system_id) {
@@ -83,6 +97,8 @@ export function resolveRallyRoute({
         isActive: true,
         rallySystemId: rallyPing.solar_system_id,
         sourceCharacterSystemId,
+        sourceCharacterEveId: candidate.eve_id,
+        reason: null,
       };
     }
 
@@ -116,10 +132,16 @@ export function resolveRallyRoute({
       isActive: true,
       rallySystemId: rallyPing.solar_system_id,
       sourceCharacterSystemId,
+      sourceCharacterEveId: candidate.eve_id,
+      reason: null,
     };
   }
 
-  return inactive(rallyPing.solar_system_id, firstSourceSystemId);
+  // No candidate ever produced a usable location: there was nothing to route from at all. At least
+  // one candidate had a location but couldn't reach the rally point: both main and followed failed.
+  return firstSourceSystemId === null
+    ? inactive(rallyPing.solar_system_id, null, null, 'no-source')
+    : inactive(rallyPing.solar_system_id, firstSourceSystemId, firstSourceEveId, 'unreachable');
 }
 
 /**
