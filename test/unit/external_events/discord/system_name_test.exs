@@ -192,4 +192,24 @@ defmodule WandererApp.ExternalEvents.Discord.SystemNameTest do
       assert SystemName.display_name(map.id, @ks_system, :route) == "Jita"
     end
   end
+
+  describe "display_name/3 for :rally" do
+    # A rally destination is the fleet's own channel and the map tag is the
+    # name people navigate by, so this carries the same privacy boundary as
+    # :system and :route rather than :character's canonical-only rule.
+    test "resolves map-local names, same as :system", %{map: map} do
+      Factory.insert(:map_system, %{
+        map_id: map.id,
+        solar_system_id: @wh_system,
+        name: "J115405",
+        temporary_name: "HOME"
+      })
+
+      assert SystemName.display_name(map.id, @wh_system, :rally) == "HOME"
+    end
+
+    test "falls through to the canonical name when no map-local name is set", %{map: map} do
+      assert SystemName.display_name(map.id, @ks_system, :rally) == "Jita"
+    end
+  end
 end

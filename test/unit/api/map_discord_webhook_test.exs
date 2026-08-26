@@ -121,6 +121,15 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
              })
   end
 
+  test "accepts the :rally role", %{notification: notification} do
+    assert {:ok, %{role: :rally}} =
+             MapDiscordWebhook.create(%{
+               notification_id: notification.id,
+               role: :rally,
+               webhook_url: valid_url()
+             })
+  end
+
   test "enforces one webhook per (notification, role)", %{notification: notification} do
     # `MapDiscordNotification.create/1` (setup) already creates the :system
     # webhook — this asserts a second :system create for the same notification
