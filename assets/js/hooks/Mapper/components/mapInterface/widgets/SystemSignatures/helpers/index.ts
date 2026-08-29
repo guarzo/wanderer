@@ -3,5 +3,6 @@ export * from './getRowBackgroundColor';
 export * from './getActualSigs';
 export * from './contentHelpers';
 export * from './rowStyles';
+export * from './applyQuickGroup';
 export * from './getSignatureUpdateGlows';
 export * from './isSignatureEnabledByFilters';
