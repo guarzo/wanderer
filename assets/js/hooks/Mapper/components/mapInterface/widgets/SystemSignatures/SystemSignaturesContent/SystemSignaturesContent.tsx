@@ -1,4 +1,5 @@
 import { PrimeIcons } from 'primereact/api';
+import { ContextMenu } from 'primereact/contextmenu';
 import { Column } from 'primereact/column';
 import {
   DataTable,
@@ -7,7 +8,8 @@ import {
   DataTableStateEvent,
   SortOrder,
 } from 'primereact/datatable';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MenuItem } from 'primereact/menuitem';
+import { SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SignatureView } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/SignatureView';
 import {
@@ -17,9 +19,11 @@ import {
   MEDIUM_MAX_WIDTH,
   OTHER_COLUMNS_WIDTH,
 } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/constants';
+import { applyQuickGroup } from '@/hooks/Mapper/components/mapInterface/widgets/SystemSignatures/helpers/applyQuickGroup';
 import { SignatureSettings } from '@/hooks/Mapper/components/mapRootContent/components/SignatureSettings';
 import { TooltipPosition, WdTooltip, WdTooltipHandlers, WdTooltipWrapper } from '@/hooks/Mapper/components/ui-kit';
-import { ExtendedSystemSignature, SignatureGroup, SignatureKind, SystemSignature } from '@/hooks/Mapper/types';
+import { ExtendedSystemSignature, OutCommand, SignatureGroup, SignatureKind, SystemSignature } from '@/hooks/Mapper/types';
+import { ctxManager } from '@/hooks/Mapper/utils/contextManager';
 
 import {
   renderAddedTimeLeft,
@@ -73,11 +77,14 @@ export const SystemSignaturesContent = ({
   const [hoveredSignature, setHoveredSignature] = useState<SystemSignature | null>(null);
 
   const {
+    outCommand,
     storedSettings: { settingsSignatures, settingsSignaturesUpdate },
   } = useMapRootState();
 
   const tableRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<WdTooltipHandlers>(null);
+  const contextMenuRef = useRef<ContextMenu>(null);
+  const contextSignatureRef = useRef<ExtendedSystemSignature | null>(null);
 
   const isCompact = useMaxWidth(tableRef, COMPACT_MAX_WIDTH);
   const isMedium = useMaxWidth(tableRef, MEDIUM_MAX_WIDTH);
@@ -133,6 +140,109 @@ export const SystemSignaturesContent = ({
     setSelectedSignatureForDialog(e.data as SystemSignature);
     setShowSignatureSettings(true);
   }, []);
+
+  const refVars = useRef({ settings, selectedSignatures, settingsSignatures, settingsSignaturesUpdate });
+  refVars.current = { settings, selectedSignatures, settingsSignatures, settingsSignaturesUpdate };
+
+  const handleQuickGroupChange = useCallback(
+    async (group: SignatureGroup) => {
+      const contextSignature = contextSignatureRef.current;
+      if (!contextSignature) {
+        return;
+      }
+
+      const selection = refVars.current.selectedSignatures || [];
+      const targets = selection.some(s => s.eve_id === contextSignature.eve_id)
+        ? selection.filter(s => !s.deleted)
+        : [contextSignature];
+
+      const updated: SystemSignature[] = [];
+      for (const sig of targets) {
+        const { signature, needsUnlink } = applyQuickGroup(sig, group);
+
+        if (needsUnlink) {
+          await outCommand({
+            type: OutCommand.unlinkSignature,
+            data: { signature_eve_id: sig.eve_id, solar_system_source: systemId },
+          });
+        }
+
+        updated.push(signature);
+      }
+
+      await outCommand({
+        type: OutCommand.updateSignatures,
+        data: {
+          system_id: systemId,
+          added: [],
+          updated,
+          removed: [],
+          deleteTimeout: 0,
+        },
+      });
+    },
+    [outCommand, systemId],
+  );
+
+  const handleEditContextSignature = useCallback(() => {
+    const contextSignature = contextSignatureRef.current;
+    if (!contextSignature) {
+      return;
+    }
+
+    setSelectedSignatureForDialog(contextSignature);
+    setShowSignatureSettings(true);
+  }, []);
+
+  const handleRowContextMenu = useCallback(
+    (e: { originalEvent: SyntheticEvent; value: ExtendedSystemSignature }) => {
+      const signature = e.value;
+
+      // The selectable mode is a read-only signature picker (e.g. link dialog)
+      if (selectable || !signature || signature.deleted) {
+        return;
+      }
+
+      contextSignatureRef.current = signature;
+      e.originalEvent.preventDefault();
+
+      const selection = refVars.current.selectedSignatures || [];
+      if (!selection.some(s => s.eve_id === signature.eve_id)) {
+        onSelectSignatures?.([signature]);
+      }
+
+      ctxManager.next('ctxSignatures', contextMenuRef.current);
+      contextMenuRef.current?.show(e.originalEvent);
+    },
+    [onSelectSignatures, selectable],
+  );
+
+  const contextMenuItems: MenuItem[] = useMemo(
+    () => [
+      ...GROUPS_LIST.map(group => ({
+        label: group,
+        template: () => (
+          <div className="flex gap-2 items-center">
+            <span className="w-[20px] mt-[1px] flex justify-center items-center">
+              {renderIcon(
+                { group } as SystemSignature,
+                group === SignatureGroup.CosmicSignature ? { w: 10, h: 10 } : { w: 16, h: 16 },
+              )}
+            </span>
+            <span>{group}</span>
+          </div>
+        ),
+        command: () => handleQuickGroupChange(group),
+      })),
+      { separator: true },
+      {
+        label: 'Edit signature...',
+        icon: PrimeIcons.PENCIL,
+        command: handleEditContextSignature,
+      },
+    ],
+    [handleQuickGroupChange, handleEditContextSignature],
+  );
 
   const handleSelectSignatures = useCallback(
     (e: { value: SystemSignature[] }) => {
@@ -214,9 +324,6 @@ export const SystemSignaturesContent = ({
     tooltipRef.current?.hide();
   }, []);
 
-  const refVars = useRef({ settings, selectedSignatures, settingsSignatures, settingsSignaturesUpdate });
-  refVars.current = { settings, selectedSignatures, settingsSignatures, settingsSignaturesUpdate };
-
   // @ts-ignore
   const getRowClassName = useCallback(rowData => {
     if (!rowData) {
@@ -266,6 +373,7 @@ export const SystemSignaturesContent = ({
             rowHover
             selectAll
             onRowDoubleClick={handleRowClick}
+            onContextMenuSelectionChange={handleRowContextMenu}
             sortField={settingsSignatures[SETTINGS_KEYS.SORT_FIELD] as string}
             sortOrder={settingsSignatures[SETTINGS_KEYS.SORT_ORDER] as SortOrder}
             onSort={handleSortSettings}
@@ -356,7 +464,7 @@ export const SystemSignaturesContent = ({
                 header=""
                 body={() => (
                   <div className="flex justify-end items-center gap-2 mr-[4px]">
-                    <WdTooltipWrapper content="Double-click a row to edit signature">
+                    <WdTooltipWrapper content="Right-click to set group, double-click to edit">
                       <span className={PrimeIcons.PENCIL + ' text-[10px]'} />
                     </WdTooltipWrapper>
                   </div>
@@ -378,6 +486,13 @@ export const SystemSignaturesContent = ({
             <SignatureView signature={hoveredSignature} showCharacterPortrait={showCharacterPortrait} />
           ) : null
         }
+      />
+
+      <ContextMenu
+        model={contextMenuItems}
+        ref={contextMenuRef}
+        className="min-w-[180px]"
+        breakpoint="767px"
       />
 
       {showSignatureSettings && (
