@@ -1,0 +1,252 @@
+import { isPossibleSpace } from '@/hooks/Mapper/components/map/helpers/isKnownSpace.ts';
+import { SystemViewStandalone, WdButton } from '@/hooks/Mapper/components/ui-kit';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic.ts';
+import { OutCommand, SearchSystemItem } from '@/hooks/Mapper/types';
+import { AutoComplete } from 'primereact/autocomplete';
+import { Dropdown } from 'primereact/dropdown';
+import { Sidebar } from 'primereact/sidebar';
+import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import clsx from 'clsx';
+import classes from './JumpPlanner.module.scss';
+import { JUMP_PLANNER_SPACE, JumpPlannerField } from './constants.ts';
+
+const SHIP_TYPE_OPTIONS = [
+  { label: 'Black Ops', value: 'Marshal' },
+  { label: 'Jump Freighter', value: 'Anshar' },
+  { label: 'Rorqual', value: 'Rorqual' },
+  { label: 'Capital', value: 'Thanatos' },
+  { label: 'Super Capital', value: 'Avatar' },
+];
+
+const SYSTEM_SEARCH_MIN_LENGTH = 2;
+
+const toSearchSystemItem = (system: SearchSystemItem['system_static_info']): SearchSystemItem => {
+  return {
+    class_title: system.class_title,
+    constellation_name: system.constellation_name,
+    label: system.solar_system_name,
+    region_name: system.region_name,
+    system_static_info: system,
+    value: system.solar_system_id,
+  };
+};
+
+const getInitialSystem = (systemId: string | null): SearchSystemItem | null => {
+  if (!systemId) {
+    return null;
+  }
+
+  const system = getSystemStaticInfo(systemId);
+  if (!system || !isPossibleSpace(JUMP_PLANNER_SPACE, system.system_class)) {
+    return null;
+  }
+
+  return toSearchSystemItem(system);
+};
+
+const getJumpPlannerUrl = (shipType: string, from: string, destination: string) => {
+  const ship = `${encodeURIComponent(shipType)},544`;
+  const route = `${encodeURIComponent(from)}:${encodeURIComponent(destination)}`;
+  return `https://evemaps.dotlan.net/jump/${ship}/${route}`;
+};
+
+const renderSystem = (item: SearchSystemItem) => {
+  const system = item.system_static_info;
+  return (
+    <SystemViewStandalone
+      security={system.security}
+      system_class={system.system_class}
+      solar_system_id={item.value}
+      class_title={item.class_title}
+      solar_system_name={item.label}
+      region_name={item.region_name}
+    />
+  );
+};
+
+export interface SystemSearchProps {
+  id: string;
+  inputRef: RefObject<AutoComplete>;
+  value: SearchSystemItem | null;
+  placeholder: string;
+  onChange(value: SearchSystemItem | null): void;
+}
+
+export const SystemSearch = ({ id, inputRef, value, placeholder, onChange }: SystemSearchProps) => {
+  const { outCommand } = useMapRootState();
+  const [suggestions, setSuggestions] = useState<SearchSystemItem[]>([]);
+
+  const searchSystems = useCallback(
+    async ({ query }: { query: string }) => {
+      if (query.length < SYSTEM_SEARCH_MIN_LENGTH) {
+        setSuggestions([]);
+        return;
+      }
+
+      try {
+        const result = await outCommand<{ systems: SearchSystemItem[] }>({
+          type: OutCommand.searchSystems,
+          data: { text: query },
+        });
+        const normalizedQuery = query.toLowerCase();
+        const systems = result.systems
+          .filter(item => isPossibleSpace(JUMP_PLANNER_SPACE, item.system_static_info.system_class))
+          .sort((a, b) => {
+            return a.label.toLowerCase().indexOf(normalizedQuery) - b.label.toLowerCase().indexOf(normalizedQuery);
+          });
+
+        setSuggestions(systems);
+      } catch (error) {
+        console.error('Error fetching systems for Jump Planner:', error);
+        setSuggestions([]);
+      }
+    },
+    [outCommand],
+  );
+
+  return (
+    <AutoComplete
+      ref={inputRef}
+      id={id}
+      value={value ? [value] : []}
+      suggestions={suggestions}
+      completeMethod={searchSystems}
+      onChange={event => {
+        const selectedSystems = event.value as SearchSystemItem[];
+        onChange(selectedSystems[selectedSystems.length - 1] ?? null);
+      }}
+      field="label"
+      placeholder={placeholder}
+      emptyMessage="Not found any system..."
+      showEmptyMessage
+      minLength={SYSTEM_SEARCH_MIN_LENGTH}
+      scrollHeight="300px"
+      autoComplete="off"
+      forceSelection
+      multiple
+      selectionLimit={1}
+      className={clsx(classes.SystemSearch, 'flex h-10 w-full')}
+      itemTemplate={renderSystem}
+      selectedItemTemplate={renderSystem}
+    />
+  );
+};
+
+export interface JumpPlannerInitialSystem {
+  field: JumpPlannerField;
+  systemId: string;
+}
+
+export interface JumpPlannerProps {
+  initialSystem: JumpPlannerInitialSystem | null;
+  onHide(): void;
+}
+
+export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
+  const fromInputRef = useRef<AutoComplete>(null);
+  const destinationInputRef = useRef<AutoComplete>(null);
+  const selectedSystem = useMemo(() => getInitialSystem(initialSystem?.systemId ?? null), [initialSystem?.systemId]);
+  const [source, setSource] = useState<SearchSystemItem | null>(null);
+  const [destination, setDestination] = useState<SearchSystemItem | null>(null);
+  const [shipType, setShipType] = useState(SHIP_TYPE_OPTIONS[0].value);
+
+  useEffect(() => {
+    if (initialSystem?.field === JumpPlannerField.From) {
+      setSource(selectedSystem);
+      setDestination(null);
+    } else {
+      setSource(null);
+      setDestination(selectedSystem);
+    }
+
+    setShipType(SHIP_TYPE_OPTIONS[0].value);
+  }, [initialSystem?.field, selectedSystem]);
+
+  const handleShow = useCallback(() => {
+    if (initialSystem?.field === JumpPlannerField.From) {
+      destinationInputRef.current?.focus();
+      return;
+    }
+
+    fromInputRef.current?.focus();
+  }, [initialSystem?.field]);
+
+  const canOpen = source != null && destination != null && shipType.length > 0;
+
+  const handleOpen = useCallback(() => {
+    if (!source || !destination || !shipType) {
+      return;
+    }
+
+    const url = getJumpPlannerUrl(shipType, source.label, destination.label);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, [destination, shipType, source]);
+
+  return (
+    <Sidebar
+      className={clsx(classes.Sidebar, 'w-[600px] !p-0 bg-neutral-900')}
+      visible={initialSystem != null && selectedSystem != null}
+      position="right"
+      onShow={handleShow}
+      onHide={onHide}
+      header="Jump Planner"
+      icons={<></>}
+    >
+      <form
+        className="flex flex-col gap-4 px-3 pb-3 pt-1"
+        onSubmit={event => {
+          event.preventDefault();
+          handleOpen();
+        }}
+      >
+        <div className="grid grid-cols-[1fr_1fr] items-end gap-2">
+          <label className="flex min-w-0 flex-col gap-1.5 text-xs text-stone-400" htmlFor="jump-planner-from">
+            <span>From</span>
+            <SystemSearch
+              id="jump-planner-from"
+              inputRef={fromInputRef}
+              value={source}
+              placeholder="Type system name..."
+              onChange={setSource}
+            />
+          </label>
+
+          <label className="flex min-w-0 flex-col gap-1.5 text-xs text-stone-400" htmlFor="jump-planner-destination">
+            <span>Destination</span>
+            <SystemSearch
+              id="jump-planner-destination"
+              inputRef={destinationInputRef}
+              value={destination}
+              placeholder="Type system name..."
+              onChange={setDestination}
+            />
+          </label>
+        </div>
+
+        <label className="flex min-w-0 flex-col gap-1.5 text-xs text-stone-400" htmlFor="jump-planner-ship-type">
+          <span>Ship Type</span>
+          <Dropdown
+            id="jump-planner-ship-type"
+            value={shipType}
+            options={SHIP_TYPE_OPTIONS}
+            onChange={event => setShipType(event.value)}
+            className={clsx(classes.ShipSelect, 'flex h-10 w-full items-center')}
+          />
+        </label>
+
+        <div className="flex items-center justify-end gap-3">
+          <WdButton
+            type="submit"
+            outlined
+            size="small"
+            label="Open in Dotlan"
+            icon="pi pi-external-link"
+            disabled={!canOpen}
+            className="h-9 shrink-0"
+          />
+        </div>
+      </form>
+    </Sidebar>
+  );
+};

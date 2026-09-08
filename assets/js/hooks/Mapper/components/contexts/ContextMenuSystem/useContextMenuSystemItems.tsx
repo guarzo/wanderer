@@ -1,4 +1,5 @@
 import {
+  useJumpMenu,
   useLabelsMenu,
   useStatusMenu,
   useTagMenu,
@@ -33,6 +34,8 @@ export const useContextMenuSystemItems = ({
   onSystemLabels,
   onCustomLabelDialog,
   onOpenSettings,
+  onJumpFrom,
+  onJumpTo,
   onWaypointSet,
   systemId,
   hubs,
@@ -42,6 +45,7 @@ export const useContextMenuSystemItems = ({
   const getTags = useTagMenu(systems, systemId, onSystemTag);
   const getStatus = useStatusMenu(systems, systemId, onSystemStatus);
   const getLabels = useLabelsMenu(systems, systemId, onSystemLabels, onCustomLabelDialog);
+  const getJumpMenu = useJumpMenu({ onJumpFrom, onJumpTo });
   const getWaypointMenu = useWaypointMenu(onWaypointSet);
   const canLockSystem = useMapCheckPermissions([UserPermission.LOCK_SYSTEM]);
   const canManageSystem = useMapCheckPermissions([UserPermission.UPDATE_SYSTEM]);
@@ -106,7 +110,8 @@ export const useContextMenuSystemItems = ({
         command: onHubToggle,
       },
       ...getUserRoutes(),
-
+      { separator: true },
+      ...getJumpMenu(systemId, systemStaticInfo.system_class),
       { separator: true },
       {
         command: () => onTogglePing(PingType.Rally, systemId, ping?.id, hasPing),
@@ -188,11 +193,13 @@ export const useContextMenuSystemItems = ({
     getTags,
     getStatus,
     getLabels,
+    getJumpMenu,
     getWaypointMenu,
     getUserRoutes,
     hubs,
     onHubToggle,
     canLockSystem,
+    canManageSystem,
     onLockToggle,
     canDeleteSystem,
     onDeleteSystem,
