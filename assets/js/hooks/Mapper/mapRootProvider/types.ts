@@ -84,6 +84,10 @@ export type MapSettings = {
   viewport: MapViewPort;
 };
 
+export type JumpPlannerSettings = {
+  shipType: string;
+};
+
 export type SettingsWrapper<T> = T;
 
 export type MapUserSettings = {
@@ -98,6 +102,7 @@ export type MapUserSettings = {
   signaturesWidget: SettingsWrapper<SignatureSettingsType>;
   killsWidget: SettingsWrapper<KillsWidgetSettings>;
   map: SettingsWrapper<MapSettings>;
+  jumpPlanner: SettingsWrapper<JumpPlannerSettings>;
 };
 
 export type MapUserSettingsStructure = {
@@ -118,6 +123,7 @@ export enum SettingsTypes {
   signaturesWidget = 'signaturesWidget',
   interface = 'interface',
   map = 'map',
+  jumpPlanner = 'jumpPlanner',
 }
 
 export type MigrationFunc = (prev: any) => any;

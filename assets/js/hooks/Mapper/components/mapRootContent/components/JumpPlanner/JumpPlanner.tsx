@@ -9,17 +9,27 @@ import { Sidebar } from 'primereact/sidebar';
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import classes from './JumpPlanner.module.scss';
-import { JUMP_PLANNER_SPACE, JumpPlannerField } from './constants.ts';
-
-const SHIP_TYPE_OPTIONS = [
-  { label: 'Black Ops', value: 'Marshal' },
-  { label: 'Jump Freighter', value: 'Anshar' },
-  { label: 'Rorqual', value: 'Rorqual' },
-  { label: 'Capital', value: 'Thanatos' },
-  { label: 'Super Capital', value: 'Avatar' },
-];
+import { JUMP_PLANNER_SPACE, JUMP_SHIP_GROUPS, JumpPlannerField } from './constants.ts';
+import { DEFAULT_JUMP_PLANNER_SETTINGS } from '@/hooks/Mapper/mapRootProvider/constants.ts';
 
 const SYSTEM_SEARCH_MIN_LENGTH = 2;
+
+interface JumpShipGroupOption {
+  label: string;
+}
+
+const renderShipGroup = ({ label }: JumpShipGroupOption) => {
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-sky-300">{label}</span>
+      <span className="h-px flex-1 bg-neutral-700" />
+    </div>
+  );
+};
+
+const renderShipOption = ({ label }: JumpShipGroupOption) => {
+  return <span className="block pl-3 text-sm text-stone-200">{label}</span>;
+};
 
 const toSearchSystemItem = (system: SearchSystemItem['system_static_info']): SearchSystemItem => {
   return {
@@ -144,12 +154,14 @@ export interface JumpPlannerProps {
 }
 
 export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
+  const {
+    storedSettings: { settingsJumpPlanner, settingsJumpPlannerUpdate },
+  } = useMapRootState();
   const fromInputRef = useRef<AutoComplete>(null);
   const destinationInputRef = useRef<AutoComplete>(null);
   const selectedSystem = useMemo(() => getInitialSystem(initialSystem?.systemId ?? null), [initialSystem?.systemId]);
   const [source, setSource] = useState<SearchSystemItem | null>(null);
   const [destination, setDestination] = useState<SearchSystemItem | null>(null);
-  const [shipType, setShipType] = useState(SHIP_TYPE_OPTIONS[0].value);
 
   useEffect(() => {
     if (initialSystem?.field === JumpPlannerField.From) {
@@ -159,8 +171,6 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
       setSource(null);
       setDestination(selectedSystem);
     }
-
-    setShipType(SHIP_TYPE_OPTIONS[0].value);
   }, [initialSystem?.field, selectedSystem]);
 
   const handleShow = useCallback(() => {
@@ -172,10 +182,11 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
     fromInputRef.current?.focus();
   }, [initialSystem?.field]);
 
-  const canOpen = source != null && destination != null && shipType.length > 0;
+  const shipType = settingsJumpPlanner.shipType ?? DEFAULT_JUMP_PLANNER_SETTINGS.shipType;
+  const canOpen = source != null && destination != null;
 
   const handleOpen = useCallback(() => {
-    if (!source || !destination || !shipType) {
+    if (!source || !destination) {
       return;
     }
 
@@ -229,8 +240,14 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
           <Dropdown
             id="jump-planner-ship-type"
             value={shipType}
-            options={SHIP_TYPE_OPTIONS}
-            onChange={event => setShipType(event.value)}
+            options={JUMP_SHIP_GROUPS}
+            optionLabel="label"
+            optionValue="value"
+            optionGroupLabel="label"
+            optionGroupChildren="items"
+            optionGroupTemplate={renderShipGroup}
+            itemTemplate={renderShipOption}
+            onChange={event => settingsJumpPlannerUpdate({ shipType: event.value })}
             className={clsx(classes.ShipSelect, 'flex h-10 w-full items-center')}
           />
         </label>
