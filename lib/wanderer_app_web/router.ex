@@ -315,13 +315,13 @@ defmodule WandererAppWeb.Router do
 
     get "/events", MapEventsAPIController, :list_events
 
+    # This static route must precede the resource routes so "toggle" is not parsed as :id.
+    put "/webhooks/toggle", MapAPIController, :toggle_webhooks
+
     # Webhook management endpoints
     resources "/webhooks", MapWebhooksAPIController, except: [:new, :edit] do
       post "/rotate-secret", MapWebhooksAPIController, :rotate_secret
     end
-
-    # Webhook control endpoint
-    put "/webhooks/toggle", MapAPIController, :toggle_webhooks
   end
 
   #

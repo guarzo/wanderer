@@ -1071,7 +1071,7 @@ defmodule WandererAppWeb.MapAPIController do
   operation(:toggle_webhooks,
     summary: "Toggle webhooks for a map",
     parameters: [
-      map_id: [
+      map_identifier: [
         in: :path,
         schema: %OpenApiSpex.Schema{type: :string},
         required: true,
@@ -1106,7 +1106,7 @@ defmodule WandererAppWeb.MapAPIController do
     }
   )
 
-  def toggle_webhooks(conn, %{"map_id" => map_identifier, "enabled" => enabled}) do
+  def toggle_webhooks(conn, %{"map_identifier" => map_identifier, "enabled" => enabled}) do
     with {:ok, enabled_boolean} <- validate_boolean_param(enabled, "enabled"),
          :ok <- check_global_webhooks_enabled(),
          {:ok, map} <- resolve_map_identifier(map_identifier),
@@ -1140,6 +1140,13 @@ defmodule WandererAppWeb.MapAPIController do
         |> put_status(:bad_request)
         |> json(%{error: "Failed to update webhook settings: #{APIUtils.format_error(reason)}"})
     end
+  end
+
+  def toggle_webhooks(conn, %{"map_id" => map_identifier} = params) do
+    toggle_webhooks(
+      conn,
+      params |> Map.delete("map_id") |> Map.put("map_identifier", map_identifier)
+    )
   end
 
   # Helper functions for webhook toggle
