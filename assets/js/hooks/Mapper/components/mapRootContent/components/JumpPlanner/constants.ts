@@ -7,6 +7,8 @@ export enum JumpPlannerField {
   Destination = 'destination',
 }
 
+export const JUMP_SKILL_LEVEL_OPTIONS = [0, 1, 2, 3, 4, 5];
+
 export const JUMP_SHIP_GROUPS = [
   {
     label: 'Black Ops',

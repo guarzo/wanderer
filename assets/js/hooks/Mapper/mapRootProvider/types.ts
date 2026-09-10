@@ -84,8 +84,15 @@ export type MapSettings = {
   viewport: MapViewPort;
 };
 
+export type JumpSkillLevel = 0 | 1 | 2 | 3 | 4 | 5;
+
 export type JumpPlannerSettings = {
   shipType: string;
+  jumpDriveCalibration: JumpSkillLevel;
+  jumpFuelConservation: JumpSkillLevel;
+  jumpFreighter: JumpSkillLevel;
+  preferStationSystems: boolean;
+  avoidIncursions: boolean;
 };
 
 export type SettingsWrapper<T> = T;

@@ -69,6 +69,11 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
 
 export const DEFAULT_JUMP_PLANNER_SETTINGS: JumpPlannerSettings = {
   shipType: 'Rorqual',
+  jumpDriveCalibration: 5,
+  jumpFuelConservation: 4,
+  jumpFreighter: 4,
+  preferStationSystems: true,
+  avoidIncursions: true,
 };
 
 export const getDefaultWidgetProps = () => ({

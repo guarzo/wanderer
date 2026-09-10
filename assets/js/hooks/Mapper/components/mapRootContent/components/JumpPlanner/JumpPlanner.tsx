@@ -1,5 +1,5 @@
 import { isPossibleSpace } from '@/hooks/Mapper/components/map/helpers/isKnownSpace.ts';
-import { SystemViewStandalone, WdButton } from '@/hooks/Mapper/components/ui-kit';
+import { SystemViewStandalone, WdButton, WdCheckbox } from '@/hooks/Mapper/components/ui-kit';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic.ts';
 import { OutCommand, SearchSystemItem } from '@/hooks/Mapper/types';
@@ -11,6 +11,7 @@ import clsx from 'clsx';
 import classes from './JumpPlanner.module.scss';
 import { JUMP_PLANNER_SPACE, JUMP_SHIP_GROUPS, JumpPlannerField } from './constants.ts';
 import { DEFAULT_JUMP_PLANNER_SETTINGS } from '@/hooks/Mapper/mapRootProvider/constants.ts';
+import { JumpSkillLevelSelect } from './JumpSkillLevelSelect.tsx';
 
 const SYSTEM_SEARCH_MIN_LENGTH = 2;
 
@@ -55,8 +56,16 @@ const getInitialSystem = (systemId: string | null): SearchSystemItem | null => {
   return toSearchSystemItem(system);
 };
 
-const getJumpPlannerUrl = (shipType: string, from: string, destination: string) => {
-  const ship = `${encodeURIComponent(shipType)},544`;
+const getJumpPlannerUrl = (settings: typeof DEFAULT_JUMP_PLANNER_SETTINGS, from: string, destination: string) => {
+  const { shipType, jumpDriveCalibration, jumpFuelConservation, jumpFreighter } = settings;
+  let ship = `${encodeURIComponent(shipType)},${jumpDriveCalibration}${jumpFuelConservation}${jumpFreighter}`;
+  if (settings.preferStationSystems) {
+    ship += ',S';
+  }
+  if (settings.avoidIncursions) {
+    ship += ',I';
+  }
+
   const route = `${encodeURIComponent(from)}:${encodeURIComponent(destination)}`;
   return `https://evemaps.dotlan.net/jump/${ship}/${route}`;
 };
@@ -182,7 +191,10 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
     fromInputRef.current?.focus();
   }, [initialSystem?.field]);
 
-  const shipType = settingsJumpPlanner.shipType ?? DEFAULT_JUMP_PLANNER_SETTINGS.shipType;
+  const plannerSettings = useMemo(
+    () => ({ ...DEFAULT_JUMP_PLANNER_SETTINGS, ...settingsJumpPlanner }),
+    [settingsJumpPlanner],
+  );
   const canOpen = source != null && destination != null;
 
   const handleOpen = useCallback(() => {
@@ -190,9 +202,9 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
       return;
     }
 
-    const url = getJumpPlannerUrl(shipType, source.label, destination.label);
+    const url = getJumpPlannerUrl(plannerSettings, source.label, destination.label);
     window.open(url, '_blank', 'noopener,noreferrer');
-  }, [destination, shipType, source]);
+  }, [destination, plannerSettings, source]);
 
   return (
     <Sidebar
@@ -239,7 +251,7 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
           <span>Ship Type</span>
           <Dropdown
             id="jump-planner-ship-type"
-            value={shipType}
+            value={plannerSettings.shipType}
             options={JUMP_SHIP_GROUPS}
             optionLabel="label"
             optionValue="value"
@@ -247,10 +259,67 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
             optionGroupChildren="items"
             optionGroupTemplate={renderShipGroup}
             itemTemplate={renderShipOption}
-            onChange={event => settingsJumpPlannerUpdate({ shipType: event.value })}
+            onChange={event => settingsJumpPlannerUpdate(current => ({ ...current, shipType: event.value }))}
             className={clsx(classes.ShipSelect, 'flex h-10 w-full items-center')}
           />
         </label>
+
+        <div className="grid grid-cols-3 gap-8">
+          <JumpSkillLevelSelect
+            id="jump-planner-jdc"
+            label="Jump Drive Calibration"
+            value={plannerSettings.jumpDriveCalibration}
+            accent="sky"
+            onChange={jumpDriveCalibration =>
+              settingsJumpPlannerUpdate(current => ({ ...current, jumpDriveCalibration }))
+            }
+          />
+          <JumpSkillLevelSelect
+            id="jump-planner-jfc"
+            label="Jump Fuel Conservation"
+            value={plannerSettings.jumpFuelConservation}
+            accent="emerald"
+            onChange={jumpFuelConservation =>
+              settingsJumpPlannerUpdate(current => ({ ...current, jumpFuelConservation }))
+            }
+          />
+          <JumpSkillLevelSelect
+            id="jump-planner-jf"
+            label="Jump Freighter"
+            value={plannerSettings.jumpFreighter}
+            accent="violet"
+            onChange={jumpFreighter => settingsJumpPlannerUpdate(current => ({ ...current, jumpFreighter }))}
+          />
+        </div>
+
+        <div className="flex items-center gap-6">
+          <WdCheckbox
+            id="jump-planner-prefer-stations"
+            label="Prefer Station Systems"
+            value={plannerSettings.preferStationSystems}
+            size="m"
+            classNameLabel="text-xs text-stone-300"
+            onChange={event =>
+              settingsJumpPlannerUpdate(current => ({
+                ...current,
+                preferStationSystems: event.checked ?? false,
+              }))
+            }
+          />
+          <WdCheckbox
+            id="jump-planner-avoid-incursions"
+            label="Avoid Incursions"
+            value={plannerSettings.avoidIncursions}
+            size="m"
+            classNameLabel="text-xs text-stone-300"
+            onChange={event =>
+              settingsJumpPlannerUpdate(current => ({
+                ...current,
+                avoidIncursions: event.checked ?? false,
+              }))
+            }
+          />
+        </div>
 
         <div className="flex items-center justify-end gap-3">
           <WdButton
