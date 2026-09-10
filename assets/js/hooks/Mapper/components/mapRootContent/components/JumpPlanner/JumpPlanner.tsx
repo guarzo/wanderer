@@ -297,6 +297,7 @@ export const JumpPlanner = ({ visible, initialSystem, onHide }: JumpPlannerProps
             itemTemplate={renderShipOption}
             onChange={event => settingsJumpPlannerUpdate(current => ({ ...current, shipType: event.value }))}
             className={clsx(classes.ShipSelect, 'flex h-10 w-full items-center')}
+            scrollHeight="350px"
           />
         </label>
 
