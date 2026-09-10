@@ -1,5 +1,8 @@
 import { isPossibleSpace } from '@/hooks/Mapper/components/map/helpers/isKnownSpace.ts';
-import { JUMP_PLANNER_SPACE } from '@/hooks/Mapper/components/mapRootContent/components/JumpPlanner/constants.ts';
+import {
+  JUMP_PLANNER_DESTINATION_SPACE,
+  JUMP_PLANNER_FROM_SPACE,
+} from '@/hooks/Mapper/components/mapRootContent/components/JumpPlanner/constants.ts';
 import { MenuItem } from 'primereact/menuitem';
 import { PrimeIcons } from 'primereact/api';
 import { useCallback, useRef } from 'react';
@@ -14,16 +17,22 @@ export const useJumpMenu = ({ onJumpFrom, onJumpTo }: UseJumpMenuProps) => {
   ref.current = { onJumpFrom, onJumpTo };
 
   return useCallback((systemId: string, systemClass: number): MenuItem[] => {
-    if (!isPossibleSpace(JUMP_PLANNER_SPACE, systemClass)) {
+    if (!isPossibleSpace(JUMP_PLANNER_FROM_SPACE, systemClass)) {
       return [];
     }
 
+    const jumpFrom: MenuItem = {
+      label: 'Jump From',
+      icon: PrimeIcons.SIGN_OUT,
+      command: () => ref.current.onJumpFrom(systemId),
+    };
+
+    if (!isPossibleSpace(JUMP_PLANNER_DESTINATION_SPACE, systemClass)) {
+      return [jumpFrom];
+    }
+
     return [
-      {
-        label: 'Jump From',
-        icon: PrimeIcons.SIGN_OUT,
-        command: () => ref.current.onJumpFrom(systemId),
-      },
+      jumpFrom,
       {
         label: 'Jump To',
         icon: PrimeIcons.SIGN_IN,

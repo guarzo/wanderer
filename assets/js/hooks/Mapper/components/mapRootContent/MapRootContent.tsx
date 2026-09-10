@@ -17,6 +17,17 @@ import { Commands } from '@/hooks/Mapper/types';
 import { PingsInterface } from '@/hooks/Mapper/components/mapInterface/components';
 import { OldSettingsDialog } from '@/hooks/Mapper/components/mapRootContent/components/OldSettingsDialog.tsx';
 import { TopSearch } from '@/hooks/Mapper/components/mapRootContent/components/TopSearch';
+import { JumpPlanner, JumpPlannerInitialSystem } from '@/hooks/Mapper/components/mapRootContent/components/JumpPlanner';
+
+interface JumpPlannerDialogState {
+  visible: boolean;
+  initialSystem: JumpPlannerInitialSystem | null;
+}
+
+const CLOSED_JUMP_PLANNER_STATE: JumpPlannerDialogState = {
+  visible: false,
+  initialSystem: null,
+};
 
 export interface MapRootContentProps {}
 
@@ -36,6 +47,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
   const [showMapSettings, setShowMapSettings] = useState(false);
   const [showTrackingDialog, setShowTrackingDialog] = useState(false);
   const [showWormholeList, setShowWormholeList] = useState(false);
+  const [jumpPlannerState, setJumpPlannerState] = useState<JumpPlannerDialogState>(CLOSED_JUMP_PLANNER_STATE);
 
   /* Important Notice - this solution needs for use one instance of MapInterface */
   const mapInterface = isReady ? <MapInterface /> : null;
@@ -44,6 +56,15 @@ export const MapRootContent = ({}: MapRootContentProps) => {
   const handleShowMapSettings = useCallback(() => setShowMapSettings(true), []);
   const handleShowTrackingDialog = useCallback(() => setShowTrackingDialog(true), []);
   const handleShowWormholesReference = useCallback(() => setShowWormholeList(true), []);
+  const handleShowJumpPlanner = useCallback(() => {
+    setJumpPlannerState({ visible: true, initialSystem: null });
+  }, []);
+  const handleShowJumpPlannerForSystem = useCallback((initialSystem: JumpPlannerInitialSystem) => {
+    setJumpPlannerState({ visible: true, initialSystem });
+  }, []);
+  const handleHideJumpPlanner = useCallback(() => {
+    setJumpPlannerState(CLOSED_JUMP_PLANNER_STATE);
+  }, []);
 
   useMapEventListener(event => {
     if (event.name === Commands.showTracking) {
@@ -56,7 +77,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
 
   return (
     <div className={themeClass}>
-      <Layout map={<MapWrapper />}>
+      <Layout map={<MapWrapper onShowJumpPlanner={handleShowJumpPlannerForSystem} />}>
         {!isShowMenu ? (
           <div className="absolute top-0 left-14 w-[calc(100%-3.5rem)] h-[calc(100%-3.5rem)] pointer-events-none">
             <div className="absolute top-0 left-0 w-[calc(100%-3.5rem)] h-full pointer-events-none">
@@ -69,6 +90,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
                 onShowMapSettings={handleShowMapSettings}
                 onShowTrackingDialog={handleShowTrackingDialog}
                 onShowWormholesReference={handleShowWormholesReference}
+                onShowJumpPlanner={handleShowJumpPlanner}
                 additionalContent={<PingsInterface hasLeftOffset />}
               />
             </div>
@@ -99,6 +121,11 @@ export const MapRootContent = ({}: MapRootContentProps) => {
           <TrackingDialog visible={showTrackingDialog} onHide={() => setShowTrackingDialog(false)} />
         )}
         <WormholeSignaturesDialog visible={showWormholeList} onHide={() => setShowWormholeList(false)} />
+        <JumpPlanner
+          visible={jumpPlannerState.visible}
+          initialSystem={jumpPlannerState.initialSystem}
+          onHide={handleHideJumpPlanner}
+        />
 
         {hasOldSettings && <OldSettingsDialog />}
       </Layout>

@@ -33,13 +33,16 @@ import type { PanelPosition } from '@reactflow/core';
 import { useHotkey } from '../../hooks/useHotkey';
 import { MINI_MAP_PLACEMENT_OFFSETS } from './constants.ts';
 import {
-  JumpPlanner,
   JumpPlannerField,
   JumpPlannerInitialSystem,
 } from '@/hooks/Mapper/components/mapRootContent/components/JumpPlanner';
 
+export interface MapWrapperProps {
+  onShowJumpPlanner(initialSystem: JumpPlannerInitialSystem): void;
+}
+
 // TODO: INFO - this component needs for abstract work with Map instance
-export const MapWrapper = () => {
+export const MapWrapper = ({ onShowJumpPlanner }: MapWrapperProps) => {
   const {
     update,
     outCommand,
@@ -80,7 +83,6 @@ export const MapWrapper = () => {
   const [openCustomLabel, setOpenCustomLabel] = useState<string | null>(null);
   const [openAddSystem, setOpenAddSystem] = useState<XYPosition | null>(null);
   const [selectedConnection, setSelectedConnection] = useState<SolarSystemConnection | null>(null);
-  const [jumpPlannerInitialSystem, setJumpPlannerInitialSystem] = useState<JumpPlannerInitialSystem | null>(null);
 
   const ref = useRef({
     selectedConnections,
@@ -212,13 +214,19 @@ export const MapWrapper = () => {
     ref.current.systemContextProps.systemId && setOpenSettings(ref.current.systemContextProps.systemId);
   }, []);
 
-  const handleJumpFrom = useCallback((systemId: string) => {
-    setJumpPlannerInitialSystem({ field: JumpPlannerField.From, systemId });
-  }, []);
+  const handleJumpFrom = useCallback(
+    (systemId: string) => {
+      onShowJumpPlanner({ field: JumpPlannerField.From, systemId });
+    },
+    [onShowJumpPlanner],
+  );
 
-  const handleJumpTo = useCallback((systemId: string) => {
-    setJumpPlannerInitialSystem({ field: JumpPlannerField.Destination, systemId });
-  }, []);
+  const handleJumpTo = useCallback(
+    (systemId: string) => {
+      onShowJumpPlanner({ field: JumpPlannerField.Destination, systemId });
+    },
+    [onShowJumpPlanner],
+  );
 
   const handleTogglePing = useCallback(
     async (type: PingType, solar_system_id: string, ping_id: string | undefined, hasPing: boolean) => {
@@ -328,8 +336,6 @@ export const MapWrapper = () => {
       />
 
       <Connections selectedConnection={selectedConnection} onHide={() => setSelectedConnection(null)} />
-
-      <JumpPlanner initialSystem={jumpPlannerInitialSystem} onHide={() => setJumpPlannerInitialSystem(null)} />
 
       <ContextMenuSystem
         systems={systems}

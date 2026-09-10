@@ -9,7 +9,12 @@ import { Sidebar } from 'primereact/sidebar';
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import classes from './JumpPlanner.module.scss';
-import { JUMP_PLANNER_SPACE, JUMP_SHIP_GROUPS, JumpPlannerField } from './constants.ts';
+import {
+  JUMP_PLANNER_DESTINATION_SPACE,
+  JUMP_PLANNER_FROM_SPACE,
+  JUMP_SHIP_GROUPS,
+  JumpPlannerField,
+} from './constants.ts';
 import { DEFAULT_JUMP_PLANNER_SETTINGS } from '@/hooks/Mapper/mapRootProvider/constants.ts';
 import { JumpSkillLevelSelect } from './JumpSkillLevelSelect.tsx';
 
@@ -43,13 +48,13 @@ const toSearchSystemItem = (system: SearchSystemItem['system_static_info']): Sea
   };
 };
 
-const getInitialSystem = (systemId: string | null): SearchSystemItem | null => {
+const getInitialSystem = (systemId: string | null, allowedSystemClasses: number[]): SearchSystemItem | null => {
   if (!systemId) {
     return null;
   }
 
   const system = getSystemStaticInfo(systemId);
-  if (!system || !isPossibleSpace(JUMP_PLANNER_SPACE, system.system_class)) {
+  if (!system || !isPossibleSpace(allowedSystemClasses, system.system_class)) {
     return null;
   }
 
@@ -89,10 +94,18 @@ export interface SystemSearchProps {
   inputRef: RefObject<AutoComplete>;
   value: SearchSystemItem | null;
   placeholder: string;
+  allowedSystemClasses: number[];
   onChange(value: SearchSystemItem | null): void;
 }
 
-export const SystemSearch = ({ id, inputRef, value, placeholder, onChange }: SystemSearchProps) => {
+export const SystemSearch = ({
+  id,
+  inputRef,
+  value,
+  placeholder,
+  allowedSystemClasses,
+  onChange,
+}: SystemSearchProps) => {
   const { outCommand } = useMapRootState();
   const [suggestions, setSuggestions] = useState<SearchSystemItem[]>([]);
 
@@ -110,7 +123,7 @@ export const SystemSearch = ({ id, inputRef, value, placeholder, onChange }: Sys
         });
         const normalizedQuery = query.toLowerCase();
         const systems = result.systems
-          .filter(item => isPossibleSpace(JUMP_PLANNER_SPACE, item.system_static_info.system_class))
+          .filter(item => isPossibleSpace(allowedSystemClasses, item.system_static_info.system_class))
           .sort((a, b) => {
             return a.label.toLowerCase().indexOf(normalizedQuery) - b.label.toLowerCase().indexOf(normalizedQuery);
           });
@@ -121,7 +134,7 @@ export const SystemSearch = ({ id, inputRef, value, placeholder, onChange }: Sys
         setSuggestions([]);
       }
     },
-    [outCommand],
+    [allowedSystemClasses, outCommand],
   );
 
   return (
@@ -158,21 +171,39 @@ export interface JumpPlannerInitialSystem {
 }
 
 export interface JumpPlannerProps {
+  visible: boolean;
   initialSystem: JumpPlannerInitialSystem | null;
   onHide(): void;
 }
 
-export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
+export const JumpPlanner = ({ visible, initialSystem, onHide }: JumpPlannerProps) => {
   const {
     storedSettings: { settingsJumpPlanner, settingsJumpPlannerUpdate },
   } = useMapRootState();
   const fromInputRef = useRef<AutoComplete>(null);
   const destinationInputRef = useRef<AutoComplete>(null);
-  const selectedSystem = useMemo(() => getInitialSystem(initialSystem?.systemId ?? null), [initialSystem?.systemId]);
+  const selectedSystem = useMemo(() => {
+    let allowedSystemClasses = JUMP_PLANNER_FROM_SPACE;
+    if (initialSystem?.field === JumpPlannerField.Destination) {
+      allowedSystemClasses = JUMP_PLANNER_DESTINATION_SPACE;
+    }
+
+    return getInitialSystem(initialSystem?.systemId ?? null, allowedSystemClasses);
+  }, [initialSystem?.field, initialSystem?.systemId]);
   const [source, setSource] = useState<SearchSystemItem | null>(null);
   const [destination, setDestination] = useState<SearchSystemItem | null>(null);
 
   useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    if (initialSystem == null) {
+      setSource(null);
+      setDestination(null);
+      return;
+    }
+
     if (initialSystem?.field === JumpPlannerField.From) {
       setSource(selectedSystem);
       setDestination(null);
@@ -180,7 +211,7 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
       setSource(null);
       setDestination(selectedSystem);
     }
-  }, [initialSystem?.field, selectedSystem]);
+  }, [initialSystem, selectedSystem, visible]);
 
   const handleShow = useCallback(() => {
     if (initialSystem?.field === JumpPlannerField.From) {
@@ -195,7 +226,10 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
     () => ({ ...DEFAULT_JUMP_PLANNER_SETTINGS, ...settingsJumpPlanner }),
     [settingsJumpPlanner],
   );
-  const canOpen = source != null && destination != null;
+  const canOpen =
+    source != null &&
+    destination != null &&
+    isPossibleSpace(JUMP_PLANNER_DESTINATION_SPACE, destination.system_static_info.system_class);
 
   const handleOpen = useCallback(() => {
     if (!source || !destination) {
@@ -209,7 +243,7 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
   return (
     <Sidebar
       className={clsx(classes.Sidebar, 'w-[600px] !p-0 bg-neutral-900')}
-      visible={initialSystem != null && selectedSystem != null}
+      visible={visible}
       position="right"
       onShow={handleShow}
       onHide={onHide}
@@ -231,6 +265,7 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
               inputRef={fromInputRef}
               value={source}
               placeholder="Type system name..."
+              allowedSystemClasses={JUMP_PLANNER_FROM_SPACE}
               onChange={setSource}
             />
           </label>
@@ -242,6 +277,7 @@ export const JumpPlanner = ({ initialSystem, onHide }: JumpPlannerProps) => {
               inputRef={destinationInputRef}
               value={destination}
               placeholder="Type system name..."
+              allowedSystemClasses={JUMP_PLANNER_DESTINATION_SPACE}
               onChange={setDestination}
             />
           </label>
