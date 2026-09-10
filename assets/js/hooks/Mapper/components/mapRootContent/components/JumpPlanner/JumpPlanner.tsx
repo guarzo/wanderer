@@ -1,5 +1,11 @@
 import { isPossibleSpace } from '@/hooks/Mapper/components/map/helpers/isKnownSpace.ts';
-import { SystemViewStandalone, WdButton, WdCheckbox } from '@/hooks/Mapper/components/ui-kit';
+import {
+  SystemViewStandalone,
+  TooltipPosition,
+  WdButton,
+  WdCheckbox,
+  WdTooltipWrapper,
+} from '@/hooks/Mapper/components/ui-kit';
 import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
 import { getSystemStaticInfo } from '@/hooks/Mapper/mapRootProvider/hooks/useLoadSystemStatic.ts';
 import { OutCommand, SearchSystemItem } from '@/hooks/Mapper/types';
@@ -17,8 +23,11 @@ import {
 } from './constants.ts';
 import { DEFAULT_JUMP_PLANNER_SETTINGS } from '@/hooks/Mapper/mapRootProvider/constants.ts';
 import { JumpSkillLevelSelect } from './JumpSkillLevelSelect.tsx';
+import { getJumpPlannerUrl } from './getJumpPlannerUrl.ts';
 
 const SYSTEM_SEARCH_MIN_LENGTH = 2;
+const DOTLAN_COOKIE_WARNING =
+  'DOTLAN may still apply preferences stored in its cookies when these options are unchecked. Clear the corresponding saved preferences on DOTLAN if the generated route does not match these settings.';
 
 interface JumpShipGroupOption {
   label: string;
@@ -59,20 +68,6 @@ const getInitialSystem = (systemId: string | null, allowedSystemClasses: number[
   }
 
   return toSearchSystemItem(system);
-};
-
-const getJumpPlannerUrl = (settings: typeof DEFAULT_JUMP_PLANNER_SETTINGS, from: string, destination: string) => {
-  const { shipType, jumpDriveCalibration, jumpFuelConservation, jumpFreighter } = settings;
-  let ship = `${encodeURIComponent(shipType)},${jumpDriveCalibration}${jumpFuelConservation}${jumpFreighter}`;
-  if (settings.preferStationSystems) {
-    ship += ',S';
-  }
-  if (settings.avoidIncursions) {
-    ship += ',I';
-  }
-
-  const route = `${encodeURIComponent(from)}:${encodeURIComponent(destination)}`;
-  return `https://evemaps.dotlan.net/jump/${ship}/${route}`;
 };
 
 const renderSystem = (item: SearchSystemItem) => {
@@ -140,7 +135,7 @@ export const SystemSearch = ({
   return (
     <AutoComplete
       ref={inputRef}
-      id={id}
+      inputId={id}
       value={value ? [value] : []}
       suggestions={suggestions}
       completeMethod={searchSystems}
@@ -157,7 +152,6 @@ export const SystemSearch = ({
       autoComplete="off"
       forceSelection
       multiple
-      selectionLimit={1}
       className={clsx(classes.SystemSearch, 'flex h-10 w-full')}
       itemTemplate={renderSystem}
       selectedItemTemplate={renderSystem}
@@ -356,6 +350,16 @@ export const JumpPlanner = ({ visible, initialSystem, onHide }: JumpPlannerProps
               }))
             }
           />
+          <WdTooltipWrapper
+            content={DOTLAN_COOKIE_WARNING}
+            position={TooltipPosition.top}
+            tooltipClassName="max-w-80 whitespace-normal"
+          >
+            <i
+              className="pi pi-info-circle cursor-help text-sm text-amber-400/80"
+              aria-label="Information about saved DOTLAN preferences"
+            />
+          </WdTooltipWrapper>
         </div>
 
         <div className="flex items-center justify-end gap-3">
