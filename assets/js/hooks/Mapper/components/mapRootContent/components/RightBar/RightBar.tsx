@@ -105,23 +105,23 @@ export const RightBar = ({
                   type="button"
                   onClick={onShowWormholesReference}
                 >
-                  <i className="pi pi-bullseye"></i>
+                  <i className="pi pi-book"></i>
+                </button>
+              </WdTooltipWrapper>
+
+              <WdTooltipWrapper content="Jump Planner" position={TooltipPosition.left}>
+                <button
+                  className="btn bg-transparent text-gray-400 hover:text-white border-transparent hover:bg-transparent py-2 h-auto min-h-auto"
+                  type="button"
+                  onClick={onShowJumpPlanner}
+                  aria-label="Open Jump Planner"
+                >
+                  <i className="hero-jump-range-diagonal w-5 h-5 relative left-[-2px]" />
                 </button>
               </WdTooltipWrapper>
             </div>
           </>
         )}
-
-        <WdTooltipWrapper content="Jump Planner" position={TooltipPosition.left}>
-          <button
-            className="btn bg-transparent text-gray-400 hover:text-white border-transparent hover:bg-transparent py-2 h-auto min-h-auto"
-            type="button"
-            onClick={onShowJumpPlanner}
-            aria-label="Open Jump Planner"
-          >
-            <i className="pi pi-send"></i>
-          </button>
-        </WdTooltipWrapper>
 
         {additionalContent}
       </div>

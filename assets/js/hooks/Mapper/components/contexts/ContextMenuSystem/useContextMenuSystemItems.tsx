@@ -1,5 +1,4 @@
 import {
-  useJumpMenu,
   useLabelsMenu,
   useStatusMenu,
   useTagMenu,
@@ -10,7 +9,7 @@ import { getSystemById } from '@/hooks/Mapper/helpers';
 import classes from './ContextMenuSystem.module.scss';
 import { PrimeIcons } from 'primereact/api';
 import { ContextMenuSystemProps } from '@/hooks/Mapper/components/contexts';
-import { useWaypointMenu } from '@/hooks/Mapper/components/contexts/hooks';
+import { useJumpMenu, useWaypointMenu } from '@/hooks/Mapper/components/contexts/hooks';
 import { FastSystemActions } from '@/hooks/Mapper/components/contexts/components';
 import { useMapCheckPermissions } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { UserPermission } from '@/hooks/Mapper/types/permissions.ts';

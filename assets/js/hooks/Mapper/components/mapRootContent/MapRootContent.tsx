@@ -71,6 +71,11 @@ export const MapRootContent = ({}: MapRootContentProps) => {
       setShowTrackingDialog(true);
       return true;
     }
+
+    if (event.name === Commands.showJumpPlanner) {
+      handleShowJumpPlannerForSystem(event.data as JumpPlannerInitialSystem);
+      return true;
+    }
   });
 
   useSkipContextMenu();
@@ -106,6 +111,7 @@ export const MapRootContent = ({}: MapRootContentProps) => {
                   onShowMapSettings={handleShowMapSettings}
                   onShowTrackingDialog={handleShowTrackingDialog}
                   onShowWormholesReference={handleShowWormholesReference}
+                  onShowJumpPlanner={handleShowJumpPlanner}
                 />
               </div>
             </Topbar>
