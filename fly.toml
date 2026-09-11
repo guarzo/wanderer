@@ -32,6 +32,9 @@ swap_size_mb = 512
 [env]
   PHX_SERVER = 'true'
   PORT = '8080'
+  # Enable the single-process read-only integration for live acceptance after
+  # the normal PR/CI deployment. Tokens must still be created by a map admin.
+  WANDERER_MAP_INTEGRATIONS_ENABLED = 'true'
   # PHX_HOST and WEB_APP_URL are secrets, not env: they are per-deployment and
   # change at cutover. WEB_APP_URL must use https:// — force_https below means
   # browsers always arrive over https, and with an http:// scheme every
