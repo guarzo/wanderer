@@ -7,7 +7,7 @@ defmodule WandererApp.Api.MapIntegrationToken do
     table "map_integration_tokens_v1"
 
     references do
-      reference :map, on_delete: :delete
+      reference :map, on_delete: :delete, index?: true
     end
   end
 

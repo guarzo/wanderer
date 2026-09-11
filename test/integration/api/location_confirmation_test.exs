@@ -6,9 +6,26 @@ defmodule WandererApp.LocationConfirmationTest do
   alias WandererApp.Esi.ApiClient
 
   setup do
-    character = insert(:character)
+    user = insert(:user)
+    character = insert(:character, %{user_id: user.id})
+    map = insert(:map, %{owner_id: character.id})
+
+    character =
+      Api.Character.update!(character, %{
+        access_token: "fixture-access-#{character.id}",
+        expires_at: DateTime.to_unix(DateTime.utc_now()) + 3600
+      })
+
     {:ok, character} = Api.Character.update_location(character, %{solar_system_id: 30_000_142})
-    state = Tracker.new(character_id: character.id, track_location: true, is_online: true)
+
+    state =
+      Tracker.new(
+        character_id: character.id,
+        active_maps: [map.id],
+        track_location: true,
+        is_online: true
+      )
+
     original = Req.default_options()
     Application.put_env(:wanderer_app, :map_integrations_enabled, true)
 
@@ -20,12 +37,27 @@ defmodule WandererApp.LocationConfirmationTest do
       Cachex.del(:api_cache, "/characters/#{character.eve_id}/online")
     end)
 
-    %{character: character, state: state}
+    {:ok, token, _} = WandererApp.MapIntegrationTokens.create(map.id, user, "Location fixture")
+    %{character: character, state: state, map: map, user: user, token: token}
   end
 
   test "scheduled stationary tracking confirms real 200s before movement dedup without DB heartbeat",
        %{character: char, state: state} do
     parent = self()
+    handler = {__MODULE__, :eligibility, parent}
+
+    :telemetry.attach(
+      handler,
+      [:wanderer_app, :repo, :query],
+      fn _, _, metadata, _ ->
+        if self() == parent and
+             String.contains?(metadata.query, ~s(FROM "map_integration_tokens_v1")),
+           do: send(parent, {:eligibility_query, metadata.query})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
 
     Req.default_options(
       plug: fn conn ->
@@ -43,6 +75,9 @@ defmodule WandererApp.LocationConfirmationTest do
     before = Api.Character.by_id!(char.id)
     assert :ok = Tracker.update_location(state)
     assert_receive {:http, ^path, []}
+    assert_receive {:eligibility_query, query}
+    assert query =~ "LIMIT"
+    refute query =~ "digest"
     assert {:ok, %{entries: entries}} = Store.snapshot()
     first = Map.fetch!(entries, char.id)
     assert first.solar_system_id == 30_000_142
@@ -153,6 +188,107 @@ defmodule WandererApp.LocationConfirmationTest do
 
     Req.default_options(plug: fn _ -> flunk("offline tracking must not call HTTP") end)
     assert {:error, :skipped} = Tracker.update_location(%{state | is_online: false})
+  end
+
+  for eligibility <- [
+        :no_token,
+        :revoked,
+        :foreign_scope,
+        :inactive_map,
+        :disabled,
+        :query_failure
+      ] do
+    test "scheduled location stays cached without confirmation when #{eligibility}", %{
+      character: char,
+      state: state,
+      map: map,
+      user: user,
+      token: token
+    } do
+      state =
+        case unquote(eligibility) do
+          :no_token ->
+            WandererApp.Repo.query!("DELETE FROM map_integration_tokens_v1")
+            state
+
+          :revoked ->
+            WandererApp.MapIntegrationTokens.revoke(map.id, user, token.id, 1)
+            state
+
+          :foreign_scope ->
+            WandererApp.Repo.query!("UPDATE map_integration_tokens_v1 SET scope = 'other:read'")
+            state
+
+          :inactive_map ->
+            %{state | active_maps: [Ash.UUID.generate()]}
+
+          :disabled ->
+            Application.put_env(:wanderer_app, :map_integrations_enabled, false)
+            state
+
+          :query_failure ->
+            WandererApp.Repo.query!("ALTER TABLE map_integration_tokens_v1 DROP COLUMN scope")
+            state
+        end
+
+      # Deliberately different cached state: eligibility must use this dispatch's state.
+      Cachex.put(:character_state_cache, char.id, %{state | active_maps: [map.id]})
+      path = "/characters/#{char.eve_id}/location"
+      Cachex.put(:api_cache, path, %{"solar_system_id" => 30_000_142})
+
+      Req.default_options(
+        plug: fn _ -> flunk("ineligible tracking must use the cached location") end
+      )
+
+      assert :ok = Tracker.update_location(state)
+      assert {:ok, %{entries: entries}} = Store.snapshot()
+      refute Map.has_key?(entries, char.id)
+      refute Map.has_key?(:sys.get_state(Store).requests, char.id)
+    end
+  end
+
+  test "an empty active-map list stays cached without querying tokens", %{
+    character: char,
+    state: state
+  } do
+    WandererApp.Repo.query!("ALTER TABLE map_integration_tokens_v1 DROP COLUMN scope")
+
+    Cachex.put(:api_cache, "/characters/#{char.eve_id}/location", %{
+      "solar_system_id" => 30_000_142
+    })
+
+    Req.default_options(plug: fn _ -> flunk("empty maps must stay cached") end)
+    assert :ok = Tracker.update_location(%{state | active_maps: []})
+    refute Map.has_key?(:sys.get_state(Store).requests, char.id)
+  end
+
+  test "in-flight requests survive entry freshness pruning but truly expired requests cannot confirm",
+       %{character: char} do
+    {:ok, ticket} = Store.begin_request(char.id, char.access_token)
+
+    :sys.replace_state(Store, fn state ->
+      put_in(
+        state,
+        [:requests, char.id, :started_at],
+        DateTime.add(DateTime.utc_now(), -160, :second)
+      )
+    end)
+
+    assert {:ok, _} = Store.snapshot()
+    assert :ok = Store.confirm(ticket, 30_000_142, DateTime.utc_now())
+
+    {:ok, ticket} = Store.begin_request(char.id, char.access_token)
+
+    :sys.replace_state(Store, fn state ->
+      put_in(
+        state,
+        [:requests, char.id, :started_at],
+        DateTime.add(DateTime.utc_now(), -181, :second)
+      )
+    end)
+
+    assert {:ok, _} = Store.snapshot()
+    assert :discarded = Store.confirm(ticket, 30_000_142, DateTime.utc_now())
   end
 
   test "expiry boundary and future timestamps cannot extend freshness", %{character: char} do

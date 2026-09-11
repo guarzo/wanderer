@@ -83,31 +83,12 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
         |> PlugHelpers.set_actor(actor)
 
       {:error, :token_scope_forbidden} ->
+        audit_auth_failure(conn, :token_scope_forbidden, start_time)
         RejectIntegrationToken.reject(conn)
 
       {:error, reason} when is_atom(reason) ->
-        # Error handling with atom reasons
-        end_time = System.monotonic_time(:millisecond)
-        duration = end_time - start_time
-
-        # Get user-facing message from error messages map
         message = Map.get(@error_messages, reason, "Authentication failed")
-
-        # Log failed authentication with detailed internal reason
-        request_details = extract_request_details(conn)
-
-        SecurityAudit.log_auth_event(
-          :auth_failure,
-          nil,
-          Map.put(request_details, :failure_reason, reason)
-        )
-
-        # Emit failed authentication event
-        :telemetry.execute(
-          [:wanderer_app, :json_api, :auth],
-          %{count: 1, duration: duration},
-          %{auth_type: get_auth_type(conn), result: "failure"}
-        )
+        audit_auth_failure(conn, reason, start_time)
 
         conn
         |> put_status(:unauthorized)
@@ -115,6 +96,22 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
         |> send_resp(401, Jason.encode!(%{error: message}))
         |> halt()
     end
+  end
+
+  defp audit_auth_failure(conn, reason, start_time) do
+    duration = System.monotonic_time(:millisecond) - start_time
+
+    SecurityAudit.log_auth_event(
+      :auth_failure,
+      nil,
+      conn |> extract_request_details() |> Map.put(:failure_reason, reason)
+    )
+
+    :telemetry.execute(
+      [:wanderer_app, :json_api, :auth],
+      %{count: 1, duration: duration},
+      %{auth_type: get_auth_type(conn), result: "failure"}
+    )
   end
 
   defp authenticate_request(conn) do

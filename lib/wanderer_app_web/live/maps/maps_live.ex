@@ -186,7 +186,6 @@ defmodule WandererAppWeb.MapsLive do
         |> assign(:public_api_key, map.public_api_key)
         |> assign(:integration_tokens, [])
         |> assign(:revealed_integration_token, nil)
-        |> load_integration_tokens()
         |> assign(:sse_enabled, map.sse_enabled)
         |> assign(:map, map)
         |> assign(
@@ -259,7 +258,9 @@ defmodule WandererAppWeb.MapsLive do
   defp integration_token_result(socket, {:ok, token, plaintext}) do
     socket = load_integration_tokens(socket)
 
-    if token in socket.assigns.integration_tokens do
+    if Enum.any?(socket.assigns.integration_tokens, fn current ->
+         current.id == token.id and current.generation == token.generation
+       end) do
       revealed = %WandererApp.MapIntegrationTokens.Revealed{value: plaintext}
       {:noreply, assign(socket, :revealed_integration_token, revealed)}
     else
@@ -270,6 +271,16 @@ defmodule WandererAppWeb.MapsLive do
   defp integration_token_result(socket, {:ok, _token}),
     do:
       {:noreply, socket |> assign(:revealed_integration_token, nil) |> load_integration_tokens()}
+
+  defp integration_token_result(socket, {:error, :conflict}) do
+    socket =
+      socket
+      |> assign(:revealed_integration_token, nil)
+      |> put_flash(:error, "Integration token changed. Review the current list and try again.")
+      |> load_integration_tokens()
+
+    {:noreply, socket}
+  end
 
   defp integration_token_result(socket, _), do: {:noreply, integration_token_error(socket)}
 

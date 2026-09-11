@@ -3,6 +3,9 @@ defmodule WandererApp.Character.LocationConfirmations do
   use GenServer
 
   @freshness_us 15_000_000
+  # Two location attempts can each spend 15s in the pool and 60s receiving,
+  # plus token refresh/dispatch overhead. This budget does not extend entry freshness.
+  @request_ttl_us 180_000_000
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
 
@@ -86,7 +89,10 @@ defmodule WandererApp.Character.LocationConfirmations do
   defp prune(state, now) do
     %{
       requests:
-        Map.filter(state.requests, fn {_, request} -> fresh?(request.started_at, now) end),
+        Map.filter(state.requests, fn {_, request} ->
+          age = DateTime.diff(now, request.started_at, :microsecond)
+          age >= 0 and age < @request_ttl_us
+        end),
       entries: Map.filter(state.entries, fn {_, entry} -> fresh?(entry.observed_at, now) end)
     }
   end

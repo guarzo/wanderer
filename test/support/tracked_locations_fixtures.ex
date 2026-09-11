@@ -44,6 +44,23 @@ defmodule WandererApp.Test.TrackedLocationsFixtures do
     at
   end
 
+  def cleanup(records, destroy \\ &Ash.destroy!/1) do
+    error =
+      Enum.reduce(records, nil, fn record, first_error ->
+        try do
+          destroy.(record)
+          first_error
+        rescue
+          error -> first_error || {error, __STACKTRACE__}
+        end
+      end)
+
+    case error do
+      nil -> :ok
+      {exception, stacktrace} -> reraise exception, stacktrace
+    end
+  end
+
   def static_system(id \\ 30_000_142, name \\ "Jita") do
     Ash.create!(Api.MapSolarSystem, %{solar_system_id: id, solar_system_name: name},
       action: :create

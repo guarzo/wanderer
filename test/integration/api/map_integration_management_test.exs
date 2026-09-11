@@ -17,6 +17,102 @@ defmodule WandererAppWeb.MapIntegrationManagementTest do
     %{user: user, map: map, view: view, conn: conn}
   end
 
+  test "settings entry loads tokens only when the allowed Public API tab is selected", %{
+    conn: conn,
+    map: map,
+    user: user
+  } do
+    {:ok, token, _} = Tokens.create(map.id, user, "Lazy")
+    parent = self()
+    id = {__MODULE__, :lazy, parent}
+
+    :telemetry.attach(
+      id,
+      [:wanderer_app, :repo, :query],
+      fn _, _, metadata, _ ->
+        if String.contains?(metadata.query, ~s(FROM "map_integration_tokens_v1")),
+          do: send(parent, :token_read)
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+
+    {:ok, view, _} = live(conn, "/maps/#{map.slug}/settings")
+    assert :sys.get_state(view.pid).socket.assigns.integration_tokens == []
+    refute_receive :token_read, 0
+    render_click(view, "change_settings_tab", %{"tab" => "public_api"})
+    assert_receive :token_read
+    assert [%{id: id}] = :sys.get_state(view.pid).socket.assigns.integration_tokens
+    assert id == token.id
+
+    render_click(view, "change_settings_tab", %{"tab" => "general"})
+    Application.put_env(:wanderer_app, :public_api_disabled, true)
+    on_exit(fn -> Application.put_env(:wanderer_app, :public_api_disabled, false) end)
+    render_click(view, "change_settings_tab", %{"tab" => "public_api"})
+    assert :sys.get_state(view.pid).socket.assigns.active_settings_tab == "general"
+    refute_receive :token_read, 0
+  end
+
+  for {mutation, reveal?} <- [
+        {"name = 'Updated metadata'", true},
+        {"generation = generation + 1", false},
+        {"revoked_at = now(), generation = generation + 1", false}
+      ] do
+    test "one-time reveal rechecks identity and generation after #{mutation}", %{view: view} do
+      after_token_issue(fn ->
+        WandererApp.Repo.query!("UPDATE map_integration_tokens_v1 SET " <> unquote(mutation))
+      end)
+
+      html = view |> form("#create-integration-token", %{name: "Reveal check"}) |> render_submit()
+      assert html =~ ~r/wmi_v1_[0-9a-f-]{36}_[A-Za-z0-9_-]{43}/ == unquote(reveal?)
+    end
+  end
+
+  test "an issued token missing from the fresh list is never revealed", %{view: view} do
+    after_token_issue(fn -> WandererApp.Repo.query!("DELETE FROM map_integration_tokens_v1") end)
+    html = view |> form("#create-integration-token", %{name: "Hidden"}) |> render_submit()
+    refute html =~ ~r/wmi_v1_[0-9a-f-]{36}_[A-Za-z0-9_-]{43}/
+    assert :sys.get_state(view.pid).socket.assigns.revealed_integration_token == nil
+  end
+
+  test "stale generation clears reveal and refreshes the current token list", %{
+    view: view,
+    map: map,
+    user: user
+  } do
+    view |> form("#create-integration-token", %{name: "Conflict"}) |> render_submit()
+    {:ok, [token]} = Tokens.list(map.id, user)
+    {:ok, current, _} = Tokens.replace(map.id, user, token.id, token.generation)
+
+    html =
+      render_click(view, "replace-integration-token", %{"id" => token.id, "generation" => "1"})
+
+    assert html =~ "Integration token changed"
+    assigns = :sys.get_state(view.pid).socket.assigns
+    assert assigns.revealed_integration_token == nil
+    assert assigns.integration_tokens == [current]
+  end
+
+  test "conflict refresh failure clears metadata without retrying recursively", %{
+    view: view,
+    map: map
+  } do
+    stranger = insert(:character)
+    Api.Map.assign_owner!(map, %{owner_id: stranger.id})
+
+    html =
+      render_click(view, "replace-integration-token", %{
+        "id" => Ash.UUID.generate(),
+        "generation" => "bad"
+      })
+
+    assert html =~ "Unable to manage integration tokens"
+    assigns = :sys.get_state(view.pid).socket.assigns
+    assert assigns.integration_tokens == []
+    assert assigns.revealed_integration_token == nil
+  end
+
   test "creates, reveals once, lists, replaces and revokes from existing Public API settings", %{
     view: view,
     map: map,
@@ -70,7 +166,7 @@ defmodule WandererAppWeb.MapIntegrationManagementTest do
           "generation" => generation
         })
 
-      assert html =~ "Unable to manage integration tokens"
+      assert html =~ "Integration token changed"
       assert {:ok, _} = Tokens.authenticate(wire)
     end
   end
@@ -116,5 +212,23 @@ defmodule WandererAppWeb.MapIntegrationManagementTest do
     render_click(view, "create-integration-token", %{"name" => "Selected", "map_id" => other.id})
     assert {:ok, [%{name: "Selected"}]} = Tokens.list(map.id, user)
     assert {:ok, [%{name: "Other"}]} = Tokens.list(other.id, user)
+  end
+
+  defp after_token_issue(fun) do
+    id = {__MODULE__, :issue, make_ref()}
+
+    :telemetry.attach(
+      id,
+      [:wanderer_app, :repo, :query],
+      fn _, _, metadata, _ ->
+        if String.starts_with?(metadata.query, ~s(INSERT INTO "map_integration_tokens_v1")) do
+          :telemetry.detach(id)
+          fun.()
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(id) end)
   end
 end

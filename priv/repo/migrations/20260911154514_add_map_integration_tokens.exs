@@ -33,9 +33,13 @@ defmodule WandererApp.Repo.Migrations.AddMapIntegrationTokens do
           ),
           null: false
     end
+
+    create index(:map_integration_tokens_v1, [:map_id])
   end
 
   def down do
+    drop_if_exists index(:map_integration_tokens_v1, [:map_id])
+
     drop constraint(:map_integration_tokens_v1, "map_integration_tokens_v1_map_id_fkey")
 
     drop table(:map_integration_tokens_v1)

@@ -545,7 +545,7 @@ defmodule WandererApp.Character.Tracker do
             {:error, :skipped}
 
           _ ->
-            case request_location(eve_id, character_id, access_token) do
+            case request_location(eve_id, character_id, access_token, character_state.active_maps) do
               {:ok, location} when is_map(location) and not is_struct(location) ->
                 reset_location_error_count(character_id)
                 WandererApp.Cache.delete("character:#{character_id}:location_error_time")
@@ -723,8 +723,8 @@ defmodule WandererApp.Character.Tracker do
 
   def update_location(_), do: {:error, :skipped}
 
-  defp request_location(eve_id, character_id, access_token) do
-    enabled? = WandererApp.Env.map_integrations_enabled?()
+  defp request_location(eve_id, character_id, access_token, active_maps) do
+    enabled? = WandererApp.MapIntegrationTokens.active_for_maps?(active_maps)
     confirmations = WandererApp.Character.LocationConfirmations
 
     # Capture the store lifetime, request order and grant before dispatch. A

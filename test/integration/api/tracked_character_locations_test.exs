@@ -517,6 +517,54 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
     assert_error(request(map.id, wire), 429, "rate_limited")
   end
 
+  test "wrong and missing maps consume authenticated quota before any map lookup", %{
+    wire: wire,
+    token: token
+  } do
+    other = insert(:map)
+    assert_error(request(other.id, wire), 403, "wrong_map")
+    assert_error(request("missing-map", wire), 404, "map_not_found")
+
+    {count, _, _, _, _} =
+      ExRated.inspect_bucket({:tracked_locations_minute, token.id}, 60_000, 60)
+
+    assert count == 2
+
+    for _ <- 1..60, do: ExRated.check_rate({:tracked_locations_minute, token.id}, 60_000, 60)
+    parent = self()
+    id = {__MODULE__, :quota, parent}
+
+    :telemetry.attach(
+      id,
+      [:wanderer_app, :repo, :query],
+      fn _, _, metadata, _ ->
+        if self() == parent and String.contains?(metadata.query, ~s(FROM "maps_v1")),
+          do: send(parent, :map_lookup)
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+
+    assert_error(request(other.id, wire), 429, "rate_limited")
+    assert_error(request("missing-map", wire), 429, "rate_limited")
+    refute_receive :map_lookup, 0
+  end
+
+  test "invalid token cannot consume its claimed identity's quota", %{
+    map: map,
+    wire: wire,
+    token: token
+  } do
+    invalid = String.slice(wire, 0, 44) <> String.duplicate("A", 43)
+    assert_error(request(map.id, invalid), 401, "invalid_token")
+
+    {count, _, _, _, _} =
+      ExRated.inspect_bucket({:tracked_locations_minute, token.id}, 60_000, 60)
+
+    assert count == 0
+  end
+
   test "scope mismatch is forbidden with a bearer challenge", %{
     map: map,
     wire: wire,

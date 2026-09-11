@@ -30,7 +30,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
     refute inspect(listed) =~ wire
     stored = Repo.get!(Api.MapIntegrationToken, token.id)
     assert byte_size(stored.digest) == 32
-    refute inspect(stored) =~ Base.encode64(stored.digest)
+    refute inspect(stored) =~ inspect(stored.digest)
     refute :erlang.term_to_binary(stored) =~ wire
     refute AshJsonApi.Resource.Info.type(Api.MapIntegrationToken)
   end
@@ -137,6 +137,79 @@ defmodule WandererApp.MapIntegrationTokensTest do
     assert Api.Map.by_id!(map.id).owner_id == map.owner_id
   end
 
+  test "unrelated map updates do not take the integration lifecycle row lock", %{map: map} do
+    parent = self()
+    id = {__MODULE__, :locks, parent}
+
+    :telemetry.attach(
+      id,
+      [:wanderer_app, :repo, :query],
+      fn _, _, metadata, _ ->
+        if self() == parent and String.contains?(metadata.query, "FOR UPDATE"),
+          do: send(parent, :map_lock)
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+    assert {:ok, _} = Api.Map.update(map, %{name: "Unrelated update"})
+    refute_receive :map_lock, 0
+  end
+
+  test "disabled integrations still revoke on transfer and deletion before re-enable", %{
+    map: map,
+    user: user
+  } do
+    {:ok, _, transferred} = Tokens.create(map.id, user, "Transfer")
+    other = insert(:character, %{user_id: user.id})
+    Application.put_env(:wanderer_app, :map_integrations_enabled, false)
+    moved = Api.Map.assign_owner!(map, %{owner_id: other.id})
+    Application.put_env(:wanderer_app, :map_integrations_enabled, true)
+    assert {:error, :invalid_token} = Tokens.authenticate(transferred)
+    {:ok, _, deleted} = Tokens.create(map.id, user, "Delete")
+    Application.put_env(:wanderer_app, :map_integrations_enabled, false)
+    restored = moved |> Api.Map.mark_as_deleted!() |> Api.Map.restore!()
+    assert restored.deleted == false
+    Application.put_env(:wanderer_app, :map_integrations_enabled, true)
+    assert {:error, :invalid_token} = Tokens.authenticate(deleted)
+  end
+
+  test "stale lifecycle writes return an Ash error when the map row is missing", %{map: map} do
+    Ash.destroy!(map)
+    assert {:error, %Ash.Error.Invalid{}} = Api.Map.mark_as_deleted(map)
+  end
+
+  test "invalid lifecycle identity returns an Ash error instead of raising", %{map: map} do
+    assert {:error, _} = Api.Map.mark_as_deleted(%{map | id: "invalid-uuid"})
+  end
+
+  test "token list data-layer failure returns a service error", %{map: map, user: user} do
+    Repo.query!("ALTER TABLE map_integration_tokens_v1 DROP COLUMN name")
+    assert {:error, :service_unavailable} = Tokens.list(map.id, user)
+  end
+
+  test "replacement data-layer failure returns a service error", %{map: map, user: user} do
+    {:ok, token, _} = Tokens.create(map.id, user, "Overflow")
+
+    Repo.query!(
+      "UPDATE map_integration_tokens_v1 SET generation = 9223372036854775807 WHERE id = $1",
+      [Ecto.UUID.dump!(token.id)]
+    )
+
+    assert {:error, :service_unavailable} =
+             Tokens.replace(map.id, user, token.id, 9_223_372_036_854_775_807)
+  end
+
+  test "map token foreign key has exactly one supporting index" do
+    result =
+      Repo.query!(
+        "SELECT indexdef FROM pg_indexes WHERE tablename = 'map_integration_tokens_v1' AND indexdef LIKE '%(map_id)%'"
+      )
+
+    assert [[definition]] = result.rows
+    assert definition =~ "USING btree (map_id)"
+  end
+
   test "concurrent replacements on independent DB connections have exactly one winner" do
     # Committed fixtures and independent connections exercise actual row locks,
     # not the single shared sandbox connection used by ordinary integration tests.
@@ -166,9 +239,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
         {:ok, _, new} = Enum.find(results, &match?({:ok, _, _}, &1))
         assert {:ok, _} = Tokens.authenticate(new)
       after
-        Ash.destroy!(map)
-        Ash.destroy!(owner)
-        Ash.destroy!(user)
+        WandererApp.Test.TrackedLocationsFixtures.cleanup([map, owner, user])
       end
     end)
   end

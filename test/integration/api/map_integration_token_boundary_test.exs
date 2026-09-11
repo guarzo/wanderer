@@ -26,6 +26,51 @@ defmodule WandererAppWeb.MapIntegrationTokenBoundaryTest do
     %{user: user, character: character, map: map, acl: acl}
   end
 
+  test "JSON API namespace denial emits the existing audit and auth telemetry without credentials",
+       %{user: user} do
+    id = {__MODULE__, :audit, self()}
+    parent = self()
+    events = [[:wanderer_app, :security_audit], [:wanderer_app, :json_api, :auth]]
+
+    :ok =
+      :telemetry.attach_many(
+        id,
+        events,
+        fn event, measurements, metadata, _ ->
+          if self() == parent, do: send(parent, {:auth_event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+    watch_queries()
+
+    previous_level = Logger.level()
+    Logger.configure(level: :info)
+    on_exit(fn -> Logger.configure(level: previous_level) end)
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :info], fn ->
+        integration_conn()
+        |> Plug.Test.init_test_session(user_id: user.id)
+        |> CheckJsonApiAuth.call([])
+        |> assert_forbidden()
+      end)
+
+    assert log =~ "Security audit: auth_failure"
+    refute log =~ @token
+
+    assert_receive {:auth_event, [:wanderer_app, :security_audit], %{count: 1},
+                    %{event_type: :auth_failure, user_id: nil}}
+
+    assert_receive {:auth_event, [:wanderer_app, :json_api, :auth],
+                    %{count: 1, duration: duration}, metadata}
+
+    assert duration >= 0
+    assert metadata == %{auth_type: "bearer_token", result: "failure"}
+    refute_receive :boundary_db_query, 0
+  end
+
   # Removing any auth plug's early namespace check must fail these without
   # relying on downstream controller validation or an existing credential row.
   for plug <- [CheckMapApiKey, CheckAclApiKey, CheckJsonApiAuth],

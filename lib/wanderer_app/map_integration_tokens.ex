@@ -33,8 +33,13 @@ defmodule WandererApp.MapIntegrationTokens do
 
   def list(map_id, user) do
     manage(map_id, user, fn map ->
-      {:ok, tokens} = MapIntegrationToken.by_map(map.id)
-      {:ok, Enum.map(Enum.sort_by(tokens, &{&1.inserted_at, &1.id}), &metadata/1)}
+      case MapIntegrationToken.by_map(map.id) do
+        {:ok, tokens} ->
+          {:ok, Enum.map(Enum.sort_by(tokens, &{&1.inserted_at, &1.id}), &metadata/1)}
+
+        {:error, _} ->
+          {:error, :service_unavailable}
+      end
     end)
   end
 
@@ -43,8 +48,11 @@ defmodule WandererApp.MapIntegrationTokens do
       manage(map_id, user, fn map ->
         with {:ok, token} <- current(map.id, id, generation) do
           {wire, digest} = credential(id)
-          {:ok, replaced} = MapIntegrationToken.replace(token, %{digest: digest})
-          {:ok, metadata(replaced), wire}
+
+          case MapIntegrationToken.replace(token, %{digest: digest}) do
+            {:ok, replaced} -> {:ok, metadata(replaced), wire}
+            {:error, _} -> {:error, :service_unavailable}
+          end
         end
       end)
     end
@@ -71,6 +79,22 @@ defmodule WandererApp.MapIntegrationTokens do
       {:error, :invalid_token} -> {:error, :invalid_token}
       {:error, _} -> {:error, :service_unavailable}
       _ -> {:error, :invalid_token}
+    end
+  end
+
+  def active_for_maps?([]), do: false
+
+  def active_for_maps?(map_ids) do
+    with :ok <- enabled(),
+         {:ok, [_]} <-
+           MapIntegrationToken
+           |> Ash.Query.filter(map_id in ^map_ids and is_nil(revoked_at) and scope == ^@scope)
+           |> Ash.Query.select([:id])
+           |> Ash.Query.limit(1)
+           |> Ash.read() do
+      true
+    else
+      _ -> false
     end
   end
 

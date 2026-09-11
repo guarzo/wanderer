@@ -77,10 +77,10 @@ defmodule WandererAppWeb.TrackedCharacterLocationsController do
          :ok <- request_bounds(conn, identifier),
          {:ok, wire} <- bearer(conn),
          {:ok, principal} <- Tokens.authenticate(wire),
+         :ok <- rate_limit(principal.id),
          {:ok, map} <- Locations.resolve_map(identifier),
          :ok <- bind_map(principal, map),
          :ok <- Locations.policy(map.id),
-         :ok <- rate_limit(principal.id),
          {:ok, records, observed_at} <- Locations.snapshot(map.id, principal, wire) do
       respond(conn, map.id, records, observed_at)
     else
