@@ -91,6 +91,7 @@ defmodule WandererAppWeb.Router do
   end
 
   pipeline :browser do
+    plug WandererAppWeb.Plugs.RejectIntegrationToken
     plug :accepts, ["html"]
     plug :fetch_session
     plug :fetch_live_flash
@@ -169,6 +170,7 @@ defmodule WandererAppWeb.Router do
   end
 
   pipeline :api do
+    plug WandererAppWeb.Plugs.RejectIntegrationToken
     plug WandererAppWeb.Plugs.ContentNegotiation, accepts: ["json"]
     plug :accepts, ["json"]
     plug WandererAppWeb.Plugs.CheckApiDisabled
@@ -183,6 +185,7 @@ defmodule WandererAppWeb.Router do
 
   # Versioned API pipeline with enhanced security and validation
   pipeline :api_versioned do
+    plug WandererAppWeb.Plugs.RejectIntegrationToken
     plug WandererAppWeb.Plugs.ContentNegotiation, accepts: ["json"]
     plug :accepts, ["json"]
     plug WandererAppWeb.Plugs.CheckApiDisabled
@@ -287,6 +290,11 @@ defmodule WandererAppWeb.Router do
     pipe_through [:api_sse]
 
     get "/events/stream", Api.EventsController, :stream
+  end
+
+  # Deliberately separate from ordinary API/session/owner authentication.
+  scope "/api/maps/:map_identifier", WandererAppWeb do
+    get "/tracked-character-locations", TrackedCharacterLocationsController, :index
   end
 
   #

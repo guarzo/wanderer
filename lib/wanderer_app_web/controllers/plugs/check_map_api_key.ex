@@ -4,6 +4,7 @@ defmodule WandererAppWeb.Plugs.CheckMapApiKey do
   import Plug.Conn
   alias Plug.Crypto
   alias WandererApp.Api.Map, as: ApiMap
+  alias WandererAppWeb.Plugs.RejectIntegrationToken
   alias WandererAppWeb.Schemas.ResponseSchemas, as: R
   require Logger
 
@@ -12,7 +13,8 @@ defmodule WandererAppWeb.Plugs.CheckMapApiKey do
 
   @impl true
   def call(conn, _opts) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
+    with false <- RejectIntegrationToken.integration_token?(conn),
+         ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          {:ok, map_id} <- fetch_map_id(conn),
          {:ok, map} <- ApiMap.by_id(map_id),
          true <-
@@ -24,6 +26,9 @@ defmodule WandererAppWeb.Plugs.CheckMapApiKey do
       |> assign(:map_id, map.id)
       |> assign(:current_character, owner_character)
     else
+      true ->
+        RejectIntegrationToken.reject(conn)
+
       [] ->
         Logger.warning("Missing or invalid 'Bearer' token")
         conn |> respond(401, "Missing or invalid 'Bearer' token") |> halt()

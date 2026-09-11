@@ -36,6 +36,7 @@ defmodule WandererApp.Api do
     resource WandererApp.Api.CorpWalletTransaction
     resource WandererApp.Api.License
     resource WandererApp.Api.MapPing
+    resource WandererApp.Api.MapIntegrationToken
     resource WandererApp.Api.MapInvite
     resource WandererApp.Api.MapWebhookSubscription
     resource WandererApp.Api.MapDiscordNotification
