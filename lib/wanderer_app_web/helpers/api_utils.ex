@@ -337,9 +337,10 @@ defmodule WandererAppWeb.Helpers.APIUtils do
     end
   end
 
-  defp pick_name(%{temporary_name: t, custom_name: c, name: n, solar_system_id: id} = _system) do
-    original = get_original_name(id)
+  defp pick_name(system), do: display_name(system, get_original_name(system.solar_system_id))
 
+  @doc "REST display precedence with a caller-supplied authoritative original name."
+  def display_name(%{temporary_name: t, custom_name: c, name: n}, original) do
     cond do
       t not in [nil, ""] -> t
       c not in [nil, ""] -> c

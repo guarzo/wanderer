@@ -159,6 +159,7 @@ defmodule WandererApp.Api.Map do
     end
 
     update :update do
+      change WandererApp.Api.Changes.RevokeMapIntegrationTokens
       primary? true
       require_atomic? false
 
@@ -202,6 +203,7 @@ defmodule WandererApp.Api.Map do
     end
 
     update :assign_owner do
+      change WandererApp.Api.Changes.RevokeMapIntegrationTokens
       accept [:owner_id]
       require_atomic? false
     end
@@ -233,6 +235,7 @@ defmodule WandererApp.Api.Map do
     end
 
     update :mark_as_deleted do
+      change WandererApp.Api.Changes.RevokeMapIntegrationTokens
       accept([])
       require_atomic? false
 

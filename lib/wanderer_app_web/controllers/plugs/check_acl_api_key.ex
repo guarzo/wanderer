@@ -7,10 +7,19 @@ defmodule WandererAppWeb.Plugs.CheckAclApiKey do
   import Plug.Conn
   alias WandererApp.Repo
   alias WandererApp.Api.AccessList
+  alias WandererAppWeb.Plugs.RejectIntegrationToken
 
   def init(opts), do: opts
 
   def call(conn, _opts) do
+    if RejectIntegrationToken.integration_token?(conn) do
+      RejectIntegrationToken.reject(conn)
+    else
+      authenticate(conn)
+    end
+  end
+
+  defp authenticate(conn) do
     header = get_req_header(conn, "authorization") |> List.first()
 
     case header do
