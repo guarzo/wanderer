@@ -239,8 +239,16 @@ defmodule WandererApp.Esi.ApiClient do
         opts
       )
 
-  def get_character_location(character_eve_id, opts \\ []),
-    do: get_character_auth_data(character_eve_id, "location", opts ++ @cache_opts)
+  def get_character_location(character_eve_id, opts \\ []) do
+    opts =
+      if opts[:confirm_location?] do
+        Keyword.merge(opts, cache: false, uncached_location?: true)
+      else
+        opts ++ @cache_opts
+      end
+
+    get_character_auth_data(character_eve_id, "location", opts)
+  end
 
   def get_character_online(character_eve_id, opts \\ []),
     do: get_character_auth_data(character_eve_id, "online", opts ++ @cache_opts)
@@ -373,7 +381,9 @@ defmodule WandererApp.Esi.ApiClient do
   defp with_refresh_token(opts), do: opts |> Keyword.merge(refresh_token?: true)
 
   defp do_get(path, api_opts, opts, pool \\ @general_pool) do
-    case Cachex.get(:api_cache, path) do
+    cached = if opts[:uncached_location?], do: {:ok, nil}, else: Cachex.get(:api_cache, path)
+
+    case cached do
       {:ok, cached_data} when not is_nil(cached_data) ->
         {:ok, cached_data}
 
@@ -395,13 +405,26 @@ defmodule WandererApp.Esi.ApiClient do
       )
       |> case do
         {:ok, %{status: 200, body: body, headers: headers}} ->
-          maybe_store_validators(path, body, headers, opts)
-          maybe_cache_response(path, body, headers, opts)
+          if opts[:uncached_location?] do
+            case body do
+              %{"solar_system_id" => id} when is_integer(id) and id > 0 ->
+                {:ok, body, DateTime.utc_now()}
 
-          {:ok, body}
+              _ ->
+                {:error, :invalid_location}
+            end
+          else
+            maybe_store_validators(path, body, headers, opts)
+            maybe_cache_response(path, body, headers, opts)
+            {:ok, body}
+          end
 
         {:ok, %{status: 304, headers: headers}} ->
-          handle_not_modified(path, headers, api_opts, opts, pool)
+          if opts[:uncached_location?] do
+            {:error, "Unexpected status: 304"}
+          else
+            handle_not_modified(path, headers, api_opts, opts, pool)
+          end
 
         {:ok, %{status: 504}} ->
           {:error, :timeout}

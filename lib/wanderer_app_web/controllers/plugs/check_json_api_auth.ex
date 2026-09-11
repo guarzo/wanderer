@@ -18,6 +18,7 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
   alias WandererApp.SecurityAudit
   alias WandererApp.Audit.RequestContext
   alias Ash.PlugHelpers
+  alias WandererAppWeb.Plugs.RejectIntegrationToken
 
   # Error messages for different failure reasons
   @error_messages %{
@@ -56,29 +57,13 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
         |> PlugHelpers.set_actor(actor)
         |> maybe_assign_map(map)
 
+      {:error, :token_scope_forbidden} ->
+        audit_auth_failure(conn, :token_scope_forbidden, start_time)
+        RejectIntegrationToken.reject(conn)
+
       {:error, reason} when is_atom(reason) ->
-        # Error handling with atom reasons
-        end_time = System.monotonic_time(:millisecond)
-        duration = end_time - start_time
-
-        # Get user-facing message from error messages map
         message = Map.get(@error_messages, reason, "Authentication failed")
-
-        # Log failed authentication with detailed internal reason
-        request_details = extract_request_details(conn)
-
-        SecurityAudit.log_auth_event(
-          :auth_failure,
-          nil,
-          Map.put(request_details, :failure_reason, reason)
-        )
-
-        # Emit failed authentication event
-        :telemetry.execute(
-          [:wanderer_app, :json_api, :auth],
-          %{count: 1, duration: duration},
-          %{auth_type: get_auth_type(conn), result: "failure"}
-        )
+        audit_auth_failure(conn, reason, start_time)
 
         conn
         |> put_status(:unauthorized)
@@ -88,10 +73,30 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
     end
   end
 
+  defp audit_auth_failure(conn, reason, start_time) do
+    duration = System.monotonic_time(:millisecond) - start_time
+
+    SecurityAudit.log_auth_event(
+      :auth_failure,
+      nil,
+      conn |> extract_request_details() |> Map.put(:failure_reason, reason)
+    )
+
+    :telemetry.execute(
+      [:wanderer_app, :json_api, :auth],
+      %{count: 1, duration: duration},
+      %{auth_type: get_auth_type(conn), result: "failure"}
+    )
+  end
+
   defp authenticate_request(conn) do
     # /api/v1 is token-only: no session auth (prevents cross-tenant access via
     # a logged-in user wrapped as ActorWithMap{map: nil}).
-    authenticate_bearer_token(conn)
+    if RejectIntegrationToken.integration_token?(conn) do
+      {:error, :token_scope_forbidden}
+    else
+      authenticate_bearer_token(conn)
+    end
   end
 
   defp authenticate_bearer_token(conn) do
