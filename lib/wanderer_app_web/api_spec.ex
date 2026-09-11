@@ -19,6 +19,11 @@ defmodule WandererAppWeb.ApiSpec do
       paths: Paths.from_router(Router),
       components: %Components{
         securitySchemes: %{
+          "mapIntegrationToken" => %SecurityScheme{
+            type: "http",
+            scheme: "bearer",
+            bearerFormat: "wmi_v1_<selector>_<secret>"
+          },
           "bearerAuth" => %SecurityScheme{
             type: "http",
             scheme: "bearer",
@@ -31,5 +36,6 @@ defmodule WandererAppWeb.ApiSpec do
       },
       security: [%{"bearerAuth" => []}]
     }
+    |> OpenApiSpex.resolve_schema_modules()
   end
 end

@@ -176,6 +176,8 @@ config :wanderer_app,
   corp_wallet: System.get_env("WANDERER_CORP_WALLET", ""),
   corp_wallet_eve_id: System.get_env("WANDERER_CORP_WALLET_EVE_ID", "-1"),
   public_api_disabled: public_api_disabled,
+  map_integrations_enabled:
+    get_var_from_path_or_env(config_dir, "WANDERER_MAP_INTEGRATIONS_ENABLED", "false") == "true",
   active_tracking_pool: System.get_env("WANDERER_ACTIVE_TRACKING_POOL", "default"),
   tracking_pool_max_size:
     System.get_env("WANDERER_TRACKING_POOL_MAX_SIZE", "300") |> String.to_integer(),
