@@ -15,6 +15,7 @@ defmodule WandererApp.Application do
       WandererAppWeb.Telemetry,
       WandererApp.Vault,
       WandererApp.Repo,
+      WandererApp.Character.LocationConfirmations,
       {Phoenix.PubSub, name: WandererApp.PubSub, adapter_name: Phoenix.PubSub.PG2},
       # Multiple Finch pools for different services to prevent connection pool exhaustion
       # ESI Character Tracking pool - high capacity for bulk character operations

@@ -22,6 +22,7 @@ defmodule WandererApp.Env do
   def legacy_characters_page_enabled?(), do: get_key(:legacy_characters_page_enabled, false)
   def intel_sharing_enabled?(), do: get_key(:intel_sharing_enabled, false)
   def public_api_disabled?(), do: get_key(:public_api_disabled, false)
+  def map_integrations_enabled?(), do: get_key(:map_integrations_enabled, false)
 
   @decorate cacheable(
               cache: WandererApp.Cache,
