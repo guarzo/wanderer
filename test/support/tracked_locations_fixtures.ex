@@ -1,0 +1,52 @@
+defmodule WandererApp.Test.TrackedLocationsFixtures do
+  @moduledoc false
+  import WandererAppWeb.Factory
+  alias WandererApp.Api
+  alias WandererApp.Character.LocationConfirmations, as: Store
+
+  def tracked_character(map, attrs \\ %{}) do
+    character = insert(:character, attrs)
+
+    {:ok, character} =
+      Api.Character.update(character, %{
+        access_token: "fixture-access-#{character.id}",
+        expires_at: DateTime.to_unix(DateTime.utc_now()) + 3600
+      })
+
+    insert(:map_character_settings, %{map_id: map.id, character_id: character.id, tracked: true})
+    character
+  end
+
+  def online(character, map) do
+    Cachex.put(
+      :character_state_cache,
+      character.id,
+      WandererApp.Character.Tracker.new(
+        character_id: character.id,
+        active_maps: [map.id],
+        track_location: true,
+        is_online: true
+      )
+    )
+
+    # A live process registered with the existing pool registry supplies local
+    # tracker-presence evidence without starting production pollers in tests.
+    Registry.register(:unique_tracker_pool_registry, {:locations_fixture, character.id}, [
+      character.id
+    ])
+
+    character
+  end
+
+  def confirm(character, id \\ 30_000_142, at \\ DateTime.utc_now()) do
+    {:ok, ticket} = Store.begin_request(character.id, character.access_token)
+    :ok = Store.confirm(ticket, id, at)
+    at
+  end
+
+  def static_system(id \\ 30_000_142, name \\ "Jita") do
+    Ash.create!(Api.MapSolarSystem, %{solar_system_id: id, solar_system_name: name},
+      action: :create
+    )
+  end
+end

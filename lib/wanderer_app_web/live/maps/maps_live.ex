@@ -71,6 +71,7 @@ defmodule WandererAppWeb.MapsLive do
     {:noreply,
      socket
      |> assign(:is_connected?, true)
+     |> assign(:revealed_integration_token, nil)
      |> apply_action(socket.assigns.live_action, params, url)}
   end
 
@@ -183,6 +184,9 @@ defmodule WandererAppWeb.MapsLive do
         |> assign(:map_slug, map_slug)
         |> assign(:map_id, map.id)
         |> assign(:public_api_key, map.public_api_key)
+        |> assign(:integration_tokens, [])
+        |> assign(:revealed_integration_token, nil)
+        |> load_integration_tokens()
         |> assign(:sse_enabled, map.sse_enabled)
         |> assign(:map, map)
         |> assign(
@@ -238,6 +242,50 @@ defmodule WandererAppWeb.MapsLive do
 
   defp settings_tab_available?(_tab, _assigns), do: false
 
+  defp load_integration_tokens(socket) do
+    if WandererApp.Env.map_integrations_enabled?() do
+      case WandererApp.MapIntegrationTokens.list(
+             socket.assigns.map_id,
+             socket.assigns.current_user
+           ) do
+        {:ok, tokens} -> assign(socket, :integration_tokens, tokens)
+        _ -> integration_token_error(socket)
+      end
+    else
+      assign(socket, :integration_tokens, [])
+    end
+  end
+
+  defp integration_token_result(socket, {:ok, token, plaintext}) do
+    socket = load_integration_tokens(socket)
+
+    if token in socket.assigns.integration_tokens do
+      revealed = %WandererApp.MapIntegrationTokens.Revealed{value: plaintext}
+      {:noreply, assign(socket, :revealed_integration_token, revealed)}
+    else
+      {:noreply, integration_token_error(socket)}
+    end
+  end
+
+  defp integration_token_result(socket, {:ok, _token}),
+    do:
+      {:noreply, socket |> assign(:revealed_integration_token, nil) |> load_integration_tokens()}
+
+  defp integration_token_result(socket, _), do: {:noreply, integration_token_error(socket)}
+
+  defp parse_integration_generation(value) when is_binary(value), do: Integer.parse(value)
+  defp parse_integration_generation(_), do: :error
+
+  defp integration_token_error(socket) do
+    socket
+    |> assign(:integration_tokens, [])
+    |> assign(:revealed_integration_token, nil)
+    |> put_flash(
+      :error,
+      "Unable to manage integration tokens. Check permission, name and current generation."
+    )
+  end
+
   defp allow_map_creation(),
     do: not WandererApp.Env.restrict_maps_creation?() || WandererApp.Cache.take("create_map_once")
 
@@ -258,6 +306,52 @@ defmodule WandererAppWeb.MapsLive do
 
     {:noreply, assign(socket, public_api_key: new_api_key)}
   end
+
+  def handle_event("create-integration-token", %{"name" => name}, socket) do
+    integration_token_result(
+      socket,
+      WandererApp.MapIntegrationTokens.create(
+        socket.assigns.map_id,
+        socket.assigns.current_user,
+        name
+      )
+    )
+  end
+
+  def handle_event(event, %{"id" => id, "generation" => generation}, socket)
+      when event in ["replace-integration-token", "revoke-integration-token"] do
+    result =
+      case parse_integration_generation(generation) do
+        {generation, ""} ->
+          if event == "replace-integration-token" do
+            WandererApp.MapIntegrationTokens.replace(
+              socket.assigns.map_id,
+              socket.assigns.current_user,
+              id,
+              generation
+            )
+          else
+            WandererApp.MapIntegrationTokens.revoke(
+              socket.assigns.map_id,
+              socket.assigns.current_user,
+              id,
+              generation
+            )
+          end
+
+        _ ->
+          {:error, :conflict}
+      end
+
+    integration_token_result(socket, result)
+  end
+
+  def handle_event("list-integration-tokens", _params, socket),
+    do:
+      {:noreply, socket |> assign(:revealed_integration_token, nil) |> load_integration_tokens()}
+
+  def handle_event("dismiss-integration-token", _params, socket),
+    do: {:noreply, assign(socket, :revealed_integration_token, nil)}
 
   def handle_event("toggle-sse", _params, socket) do
     new_sse_enabled = not socket.assigns.sse_enabled
@@ -427,7 +521,8 @@ defmodule WandererAppWeb.MapsLive do
   @impl true
   def handle_event("change_settings_tab", %{"tab" => tab}, socket) do
     if settings_tab_available?(tab, socket.assigns) do
-      {:noreply, socket |> assign(active_settings_tab: tab)}
+      socket = assign(socket, active_settings_tab: tab, revealed_integration_token: nil)
+      {:noreply, if(tab == "public_api", do: load_integration_tokens(socket), else: socket)}
     else
       # Unknown or feature-disabled tab: keep the current selection rather than
       # rendering a panel whose <li> was never shown.

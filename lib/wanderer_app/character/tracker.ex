@@ -545,12 +545,7 @@ defmodule WandererApp.Character.Tracker do
             {:error, :skipped}
 
           _ ->
-            # Monitor cache for potential evictions before ESI call
-
-            case WandererApp.Esi.get_character_location(eve_id,
-                   access_token: access_token,
-                   character_id: character_id
-                 ) do
+            case request_location(eve_id, character_id, access_token) do
               {:ok, location} when is_map(location) and not is_struct(location) ->
                 reset_location_error_count(character_id)
                 WandererApp.Cache.delete("character:#{character_id}:location_error_time")
@@ -727,6 +722,34 @@ defmodule WandererApp.Character.Tracker do
   end
 
   def update_location(_), do: {:error, :skipped}
+
+  defp request_location(eve_id, character_id, access_token) do
+    enabled? = WandererApp.Env.map_integrations_enabled?()
+    confirmations = WandererApp.Character.LocationConfirmations
+
+    # Capture the store lifetime, request order and grant before dispatch. A
+    # refresh inside ESI may conservatively require the next scheduled poll.
+    ticket =
+      if enabled? do
+        case confirmations.begin_request(character_id, access_token) do
+          {:ok, ticket} -> ticket
+          _ -> nil
+        end
+      end
+
+    case WandererApp.Esi.get_character_location(eve_id,
+           access_token: access_token,
+           character_id: character_id,
+           confirm_location?: enabled?
+         ) do
+      {:ok, location, observed_at} ->
+        confirmations.confirm(ticket, location["solar_system_id"], observed_at)
+        {:ok, location}
+
+      result ->
+        result
+    end
+  end
 
   def update_wallet(character_id) do
     character_id

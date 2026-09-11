@@ -18,6 +18,7 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
   alias WandererApp.SecurityAudit
   alias WandererApp.Audit.RequestContext
   alias Ash.PlugHelpers
+  alias WandererAppWeb.Plugs.RejectIntegrationToken
 
   # Error messages for different failure reasons
   @error_messages %{
@@ -81,6 +82,9 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
         |> assign(:current_user_role, get_user_role(user))
         |> PlugHelpers.set_actor(actor)
 
+      {:error, :token_scope_forbidden} ->
+        RejectIntegrationToken.reject(conn)
+
       {:error, reason} when is_atom(reason) ->
         # Error handling with atom reasons
         end_time = System.monotonic_time(:millisecond)
@@ -114,6 +118,14 @@ defmodule WandererAppWeb.Plugs.CheckJsonApiAuth do
   end
 
   defp authenticate_request(conn) do
+    if RejectIntegrationToken.integration_token?(conn) do
+      {:error, :token_scope_forbidden}
+    else
+      authenticate_session_or_token(conn)
+    end
+  end
+
+  defp authenticate_session_or_token(conn) do
     # Try session-based auth first (for web clients)
     case get_session(conn, :user_id) do
       nil ->
