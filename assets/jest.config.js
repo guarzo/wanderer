@@ -12,7 +12,7 @@ module.exports = {
   moduleDirectories: ['node_modules', 'js'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/js/$1',
-    '\.scss$': 'identity-obj-proxy', // Mock SCSS files
+    '\.scss$': '<rootDir>/js/test-support/styleMock.ts', // Mock SCSS files
   },
   transform: {
     '^.+\.(ts|tsx)$': 'ts-jest',

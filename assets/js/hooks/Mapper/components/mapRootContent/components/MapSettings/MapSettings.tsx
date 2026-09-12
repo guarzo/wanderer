@@ -22,6 +22,7 @@ import { ImportExport } from './components/ImportExport.tsx';
 import { ServerSettings } from './components/ServerSettings.tsx';
 import { AdminSettings } from './components/AdminSettings.tsx';
 import { useMapCheckPermissions } from '@/hooks/Mapper/mapRootProvider/hooks/api';
+import { LocationApiSettings } from './components/LocationApiSettings';
 
 export interface MapSettingsProps {
   visible: boolean;
@@ -71,7 +72,7 @@ export const MapSettingsComp = ({ visible, onHide }: MapSettingsProps) => {
   return (
     <Dialog
       header="Map user settings"
-      visible
+      visible={visible}
       draggable={false}
       className="w-[600px] h-[460px]"
       contentClassName="custom-scrollbar"
@@ -82,6 +83,7 @@ export const MapSettingsComp = ({ visible, onHide }: MapSettingsProps) => {
         <div className="flex flex-col gap-2 h-full">
           <TabView
             activeIndex={activeIndex}
+            renderActiveOnly
             className="vertical-tabs-container h-full"
             onTabChange={e => setActiveIndex(e.index)}
           >
@@ -116,6 +118,10 @@ export const MapSettingsComp = ({ visible, onHide }: MapSettingsProps) => {
 
             <TabPanel header="Import/Export" className="h-full" headerClassName={styles.verticalTabHeader}>
               <ImportExport />
+            </TabPanel>
+
+            <TabPanel header="Location API" className="h-full" headerClassName={styles.verticalTabHeader}>
+              {visible && <LocationApiSettings />}
             </TabPanel>
 
             <TabPanel header="Server Settings" className="h-full" headerClassName="color-warn">
