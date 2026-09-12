@@ -4,6 +4,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
   alias WandererApp.Api
   alias WandererApp.MapIntegrationTokens, as: Tokens
   alias WandererApp.Repo
+  alias WandererApp.Test.TrackedLocationsFixtures, as: Fixtures
 
   setup do
     user = insert(:user)
@@ -18,7 +19,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
     assert {:ok, %{available: true, enabled: false}} = Tokens.settings(map.id, user)
     assert {:ok, %{token: nil, enabled: false}} = Tokens.get(map.id, user)
     assert {:error, :disabled} = Tokens.generate(map.id, user)
-    {viewer, _, _} = viewer(map)
+    %{user: viewer} = Fixtures.viewer_access(map)
     assert {:error, :forbidden} = Tokens.set_enabled(map.id, viewer, true)
     assert {:ok, %{enabled: true}} = Tokens.set_enabled(map.id, user, true)
     assert {:ok, %{token: %{value: wire}}} = Tokens.generate(map.id, viewer)
@@ -90,7 +91,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
 
   test "isolates users and maps and enforces generation compare-and-swap", %{map: map, user: user} do
     enable(map, user)
-    {viewer, _, _} = viewer(map)
+    %{user: viewer} = Fixtures.viewer_access(map)
     {:ok, %{token: own}} = Tokens.generate(map.id, user)
     {:ok, %{token: other}} = Tokens.generate(map.id, viewer)
     refute own.value == other.value
@@ -127,7 +128,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
             {c.user, c.map, c.user}
 
           :other_user ->
-            {reader, _, _} = viewer(c.map)
+            %{user: reader} = Fixtures.viewer_access(c.map)
             {reader, c.map, c.user}
 
           :other_map ->
@@ -169,10 +170,45 @@ defmodule WandererApp.MapIntegrationTokensTest do
     assert {:ok, principal} = Tokens.authenticate(token.value)
     assert :ok = Tokens.authorize(principal)
     assert Tokens.active_for_maps?([map.id])
-    assert {:error, :service_unavailable} = Tokens.get(map.id, user)
-    assert {:error, :service_unavailable} = Tokens.generate(map.id, user)
+    id = token.id
+
+    assert {:error, {:unreadable, %{token: %{id: ^id, generation: 1}}}} =
+             Tokens.get(map.id, user)
+
+    assert {:error, {:unreadable, %{token: %{id: ^id, generation: 1}}}} =
+             Tokens.generate(map.id, user)
+
     assert Api.MapIntegrationToken.by_id!(token.id).generation == 1
     assert {:ok, _} = Tokens.authenticate(token.value)
+  end
+
+  test "an unreadable credential stays owner-recoverable without self-rotating", %{
+    map: map,
+    user: user
+  } do
+    enable(map, user)
+    {:ok, %{token: token}} = Tokens.generate(map.id, user)
+
+    Repo.query!("UPDATE map_integration_tokens_v1 SET encrypted_value = $1 WHERE id = $2", [
+      "broken-ciphertext",
+      Ecto.UUID.dump!(token.id)
+    ])
+
+    # The reply exposes metadata for a deliberate rotation, never the secret.
+    assert {:error, {:unreadable, details}} = Tokens.get(map.id, user)
+    assert details.token == %{id: token.id, generation: token.generation}
+    assert details.available and details.enabled
+    refute Map.has_key?(details.token, :value)
+
+    # Reads alone must not rotate: only the explicit command does.
+    assert Api.MapIntegrationToken.by_id!(token.id).generation == token.generation
+
+    assert {:ok, %{token: replaced}} =
+             Tokens.regenerate(map.id, user, details.token.id, details.token.generation)
+
+    assert replaced.generation == token.generation + 1
+    assert {:ok, _} = Tokens.authenticate(replaced.value)
+    assert {:error, :invalid_token} = Tokens.authenticate(token.value)
   end
 
   test "global disable is a kill switch not a rotation trigger", %{map: map, user: user} do
@@ -222,7 +258,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
         assert Enum.count(results, &(&1 == {:error, :conflict})) == 1
         assert {:error, :invalid_token} = Tokens.authenticate(token.value)
       after
-        WandererApp.Test.TrackedLocationsFixtures.cleanup([map, owner, user])
+        Fixtures.cleanup([map, owner, user])
       end
     end)
   end
@@ -258,7 +294,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
     user: user
   } do
     enable(map, user)
-    {viewer, _, _} = viewer(map)
+    %{user: viewer} = Fixtures.viewer_access(map)
     {:ok, %{token: own}} = Tokens.generate(map.id, user)
     {:ok, %{token: other}} = Tokens.generate(map.id, viewer)
     encrypted = Repo.get!(Api.MapIntegrationToken, other.id).encrypted_value
@@ -268,8 +304,8 @@ defmodule WandererApp.MapIntegrationTokensTest do
       Ecto.UUID.dump!(own.id)
     ])
 
-    assert {:error, :service_unavailable} = Tokens.get(map.id, user)
-    assert {:error, :service_unavailable} = Tokens.generate(map.id, user)
+    assert {:error, {:unreadable, _}} = Tokens.get(map.id, user)
+    assert {:error, {:unreadable, _}} = Tokens.generate(map.id, user)
     assert {:ok, _} = Tokens.authenticate(own.value)
     assert Api.MapIntegrationToken.by_id!(own.id).generation == 1
   end
@@ -297,29 +333,22 @@ defmodule WandererApp.MapIntegrationTokensTest do
     token
   end
 
+  # Both branches contend on the same map row's FOR UPDATE lock, so one task can
+  # wait for the other. Task.async_stream's 5s default would exit the caller and
+  # kill the test process; 30s with :kill_task turns a lock timeout into a
+  # readable failure instead.
   defp parallel(fun) do
     Task.async_stream(1..2, fn _ -> Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fun) end,
-      max_concurrency: 2
+      max_concurrency: 2,
+      timeout: 30_000,
+      on_timeout: :kill_task
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> Enum.map(fn
+      {:ok, result} -> result
+      {:exit, reason} -> flunk("parallel task failed: #{inspect(reason)}")
+    end)
   end
 
   defp enable(map, user),
     do: assert({:ok, %{enabled: true}} = Tokens.set_enabled(map.id, user, true))
-
-  defp viewer(map) do
-    user = insert(:user)
-    char = insert(:character, %{user_id: user.id})
-    acl = insert(:access_list, %{owner_id: map.owner_id})
-    insert(:map_access_list, %{map_id: map.id, access_list_id: acl.id})
-
-    member =
-      insert(:access_list_member, %{
-        access_list_id: acl.id,
-        eve_character_id: char.eve_id,
-        role: :viewer
-      })
-
-    {user, char, member}
-  end
 end

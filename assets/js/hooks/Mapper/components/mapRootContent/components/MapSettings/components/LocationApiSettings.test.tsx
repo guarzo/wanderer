@@ -125,6 +125,35 @@ it.each([
   expect(button('Retry').disabled).toBe(false);
 });
 
+it('keeps an unreadable credential owner-recoverable instead of stranding it on a failing read', async () => {
+  const unreadable = {
+    success: false,
+    code: 'unreadable',
+    error: 'Your stored token could not be read. Regenerate it to get a working token.',
+    available: true,
+    enabled: true,
+    token: { id: 'own-token', generation: 1 },
+  };
+  command.mockResolvedValueOnce(unreadable);
+  await render();
+
+  // No plaintext, but the metadata keeps the destructive controls usable.
+  expect(input().value).toBe('');
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  expect(button('Regenerate').disabled).toBe(false);
+  expect(button('Revoke').disabled).toBe(false);
+  expect(button('Copy').disabled).toBe(true);
+
+  command.mockResolvedValueOnce(reply({ id: 'own-token', generation: 2, value: 'fresh-secret' }));
+  await click('Regenerate');
+  await click('Confirm');
+  expect(command).toHaveBeenLastCalledWith({
+    type: 'regenerate_location_api_token',
+    data: { id: 'own-token', generation: 1 },
+  });
+  expect(input().value).toBe('fresh-secret');
+});
+
 it.each(['forbidden', 'disabled', 'service_unavailable'])(
   'clears plaintext on a %s error and supports retry',
   async code => {

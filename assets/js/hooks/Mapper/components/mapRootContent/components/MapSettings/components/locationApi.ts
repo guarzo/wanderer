@@ -1,10 +1,21 @@
 export type LocationApiSettings = { available: boolean; enabled: boolean };
 export type PersonalLocationApiToken = { id: string; generation: number; value: string };
+// An unreadable stored credential replies with metadata but no value, so its owner
+// can still regenerate or revoke it.
+export type UnreadableLocationApiToken = { id: string; generation: number; value?: undefined };
 type LocationApiError = { success: false; error: string; code: string };
+export type LocationApiUnreadable = LocationApiError & {
+  code: 'unreadable';
+  token: UnreadableLocationApiToken;
+} & LocationApiSettings;
 export type LocationApiSettingsReply = ({ success: true } & LocationApiSettings) | LocationApiError;
 export type LocationApiTokenReply =
   | ({ success: true; token: PersonalLocationApiToken | null } & LocationApiSettings)
+  | LocationApiUnreadable
   | LocationApiError;
+
+export const isUnreadable = (reply?: LocationApiTokenReply): reply is LocationApiUnreadable =>
+  !!reply && reply.success === false && reply.code === 'unreadable';
 
 export const locationApiError = (code?: string) => {
   switch (code) {
@@ -14,6 +25,8 @@ export const locationApiError = (code?: string) => {
       return 'The Location API is currently disabled.';
     case 'conflict':
       return 'Your token changed elsewhere. Retry to load the current token.';
+    case 'unreadable':
+      return 'Your stored token could not be read. Regenerate it to get a working token.';
     default:
       return 'Unable to complete the Location API request. Please retry.';
   }

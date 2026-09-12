@@ -8,6 +8,8 @@ import {
   LocationApiSettings as ApiSettings,
   LocationApiTokenReply,
   PersonalLocationApiToken,
+  UnreadableLocationApiToken,
+  isUnreadable,
   locationApiError,
   withLocationApiTimeout,
 } from './locationApi';
@@ -22,12 +24,15 @@ type Confirmation = { type: 'regenerate' | 'revoke'; target: HTMLElement };
 
 const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }) => {
   const inputId = useId();
-  const [token, setToken] = useState<PersonalLocationApiToken | null>(null);
+  const [token, setToken] = useState<PersonalLocationApiToken | UnreadableLocationApiToken | null>(null);
   const [settings, setSettings] = useState<ApiSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  // Explicit, rather than inferred from `error && token`, so a future error path
+  // that forgets to clear the token cannot silently re-enable the controls.
+  const [unreadable, setUnreadable] = useState(false);
   const requestId = useRef(0);
   const pending = useRef(false);
 
@@ -41,6 +46,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
       setSettings(null);
       setError(null);
       setNotice(null);
+      setUnreadable(false);
       setConfirmation(null);
       try {
         let response = await withLocationApiTimeout(outCommand<LocationApiTokenReply>({ type, data }));
@@ -55,6 +61,13 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
         if (!response?.success) {
           setNotice(null);
           setError(locationApiError(response?.code));
+          // An unreadable credential still exposes its metadata, so keep Regenerate
+          // and Revoke usable instead of stranding the user on a failing read.
+          if (isUnreadable(response)) {
+            setSettings({ available: response.available, enabled: response.enabled });
+            setToken(response.token);
+            setUnreadable(true);
+          }
           return;
         }
         setSettings({ available: response.available, enabled: response.enabled });
@@ -81,7 +94,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
   }, [request]);
 
   const copy = async () => {
-    if (!token || pending.current) return;
+    if (!token?.value || pending.current) return;
     pending.current = true;
     const id = ++requestId.current;
     setLoading(true);
@@ -93,6 +106,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
       if (id === requestId.current) {
         setToken(null);
         setSettings(null);
+        setUnreadable(false);
         setError('Unable to copy the token. Retry to reload it and try again.');
       }
     } finally {
@@ -110,8 +124,9 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
       { id: token.id, generation: token.generation },
     );
   };
-  const enabled = settings?.available && settings.enabled && !error;
+  const enabled = settings?.available && settings.enabled && (!error || unreadable);
   const disabled = loading || !!confirmation || !enabled;
+  const readable = !!token?.value;
 
   return (
     <div className="flex flex-col gap-3" aria-busy={loading}>
@@ -128,7 +143,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
           readOnly
           autoComplete="off"
           spellCheck={false}
-          placeholder={loading ? 'Loading…' : 'No personal token'}
+          placeholder={loading ? 'Loading…' : unreadable ? 'Token unavailable — regenerate it' : 'No personal token'}
           className="w-full text-sm"
         />
       </div>
@@ -150,7 +165,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
             onClick={() => request(OutCommand.generateLocationApiToken)}
           />
         )}
-        <WdButton label="Copy" icon="pi pi-copy" size="small" disabled={disabled || !token} onClick={copy} />
+        <WdButton label="Copy" icon="pi pi-copy" size="small" disabled={disabled || !readable} onClick={copy} />
         {token && (
           <WdButton
             label="Revoke"

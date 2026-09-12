@@ -169,7 +169,7 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
     map: map,
     owner: owner
   } do
-    {viewer, _} = reader(map)
+    %{user: viewer} = viewer_access(map)
     {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
     wire = token.value
 
@@ -392,7 +392,7 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
     Process.sleep(wait + 1)
     for _ <- 1..10, do: ExRated.check_rate({:tracked_locations_burst, token.id}, 1000, 10)
     assert_error(request(map.id, wire, [{"if-none-match", etag}]), 429, "rate_limited")
-    {viewer, _} = reader(map)
+    %{user: viewer} = viewer_access(map)
     {:ok, %{token: other}} = Tokens.generate(map.id, viewer)
     assert request(map.id, other.value).status == 200
   end
@@ -628,7 +628,7 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
     map: map,
     wire: owner_wire
   } do
-    {viewer, member} = reader(map)
+    %{user: viewer, member: member} = viewer_access(map)
     {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
     first = request(map.id, token.value)
     assert json_response(first, 200)["data"] == []
@@ -650,7 +650,7 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
 
   test "final reader authorization rejects access changed during an in-flight conditional snapshot",
        %{map: map} do
-    {viewer, member} = reader(map)
+    %{user: viewer, member: member} = viewer_access(map)
     {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
     first = request(map.id, token.value)
 
@@ -671,20 +671,36 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
   end
 
   test "reader data-service failures fail closed without revocation", %{map: map} do
-    {viewer, _} = reader(map)
+    %{user: viewer} = viewer_access(map)
     {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
     wire = token.value
 
-    WandererApp.Repo.query!(
-      "ALTER TABLE access_list_members_v1 RENAME COLUMN role TO unavailable_role"
-    )
+    without_column("access_list_members_v1", "role", fn ->
+      assert_error(request(map.id, wire), 503, "service_unavailable")
+    end)
 
-    assert_error(request(map.id, wire), 503, "service_unavailable")
     assert {:ok, _} = Tokens.authenticate(wire)
   end
 
+  # Sandbox ownership is shared node-wide, so any concurrently running process
+  # observes this DDL. Keep the window to the assertions that need it and restore
+  # the column explicitly instead of relying on the owner's rollback at test exit.
+  defp without_column(table, column, fun) do
+    WandererApp.Repo.query!(
+      "ALTER TABLE #{table} RENAME COLUMN #{column} TO unavailable_#{column}"
+    )
+
+    try do
+      fun.()
+    after
+      WandererApp.Repo.query!(
+        "ALTER TABLE #{table} RENAME COLUMN unavailable_#{column} TO #{column}"
+      )
+    end
+  end
+
   test "subject permission queries never run before authenticated quota", %{map: map} do
-    {viewer, _} = reader(map)
+    %{user: viewer} = viewer_access(map)
     {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
     for _ <- 1..60, do: ExRated.check_rate({:tracked_locations_minute, token.id}, 60_000, 60)
     parent = self()
@@ -703,22 +719,6 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
     on_exit(fn -> :telemetry.detach(handler) end)
     assert_error(request(map.id, token.value), 429, "rate_limited")
     refute_receive :subject_read, 0
-  end
-
-  defp reader(map) do
-    user = insert(:user)
-    char = insert(:character, %{user_id: user.id})
-    acl = insert(:access_list, %{owner_id: map.owner_id})
-    insert(:map_access_list, %{map_id: map.id, access_list_id: acl.id})
-
-    member =
-      insert(:access_list_member, %{
-        access_list_id: acl.id,
-        eve_character_id: char.eve_id,
-        role: :viewer
-      })
-
-    {user, member}
   end
 
   defp after_system_read(fun) do

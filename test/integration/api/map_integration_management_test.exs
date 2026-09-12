@@ -4,6 +4,7 @@ defmodule WandererAppWeb.MapIntegrationManagementTest do
   alias WandererApp.Api
   alias WandererApp.MapIntegrationTokens, as: Tokens
   alias WandererAppWeb.MapCoreEventHandler, as: Handler
+  alias WandererApp.Test.TrackedLocationsFixtures, as: Fixtures
 
   setup do
     user = insert(:user)
@@ -61,7 +62,7 @@ defmodule WandererAppWeb.MapIntegrationManagementTest do
   test "viewer can retrieve only their own token and forged admin state never authorizes toggles",
        c do
     {:ok, _} = Tokens.set_enabled(c.map.id, c.user, true)
-    {viewer, member} = viewer(c)
+    %{user: viewer, member: member} = Fixtures.viewer_access(c.map)
     stale = socket(c.map, viewer)
 
     assert %{success: false, code: "forbidden"} =
@@ -133,11 +134,19 @@ defmodule WandererAppWeb.MapIntegrationManagementTest do
       ["bad", Ecto.UUID.dump!(token.id)]
     )
 
-    assert %{success: false, code: "service_unavailable", error: error} =
+    assert %{success: false, code: "unreadable", error: error, token: metadata} =
              reply = event(c.socket, "get_location_api_token")
 
     assert is_binary(error)
+    # Metadata only: enough to regenerate or revoke, never enough to authenticate.
+    assert metadata == %{id: token.id, generation: token.generation}
     refute Jason.encode!(reply) =~ token.value
+
+    assert %{success: true, token: %{generation: 2}} =
+             event(c.socket, "regenerate_location_api_token", %{
+               "id" => metadata.id,
+               "generation" => metadata.generation
+             })
   end
 
   test "admin-only MapsLive retains legacy API controls and points to personal map user settings",
@@ -169,21 +178,5 @@ defmodule WandererAppWeb.MapIntegrationManagementTest do
   defp event(socket, name, data \\ nil) do
     assert {:reply, reply, ^socket} = Handler.handle_ui_event(name, data, socket)
     reply
-  end
-
-  defp viewer(c) do
-    user = insert(:user)
-    char = insert(:character, %{user_id: user.id})
-    acl = insert(:access_list, %{owner_id: c.owner.id})
-    insert(:map_access_list, %{map_id: c.map.id, access_list_id: acl.id})
-
-    member =
-      insert(:access_list_member, %{
-        access_list_id: acl.id,
-        eve_character_id: char.eve_id,
-        role: :viewer
-      })
-
-    {user, member}
   end
 end

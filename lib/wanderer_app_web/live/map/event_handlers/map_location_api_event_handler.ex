@@ -7,6 +7,7 @@ defmodule WandererAppWeb.MapLocationApiEventHandler do
     disabled: "The Location API is disabled.",
     conflict: "Your token changed. Reload it before trying again.",
     invalid_request: "Invalid Location API request.",
+    unreadable: "Your stored token could not be read. Regenerate it to get a working token.",
     service_unavailable: "The Location API is temporarily unavailable."
   }
 
@@ -50,6 +51,16 @@ defmodule WandererAppWeb.MapLocationApiEventHandler do
     do: result |> Map.put(:token, Map.from_struct(token)) |> Map.put(:success, true)
 
   defp reply({:ok, result}), do: Map.put(result, :success, true)
+
+  # Carries the row's non-secret metadata so the owner can still regenerate or
+  # revoke an unreadable credential. Never carries the value.
+  defp reply({:error, {:unreadable, details}}),
+    do:
+      Map.merge(details, %{
+        success: false,
+        error: Map.fetch!(@errors, :unreadable),
+        code: "unreadable"
+      })
 
   defp reply({:error, code}) do
     code = if Map.has_key?(@errors, code), do: code, else: :service_unavailable

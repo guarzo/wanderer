@@ -162,8 +162,9 @@ defmodule WandererAppWeb.TrackedLocationsPollingTest do
     assert :counters.get(counter, 1) == 20
     assert :counters.get(counter, 3) == 0
     # Fresh personal authorization adds two map/ACL/character reads to each
-    # request (27 queries/request measured, 8101 total). Allow bounded background
-    # noise, not unbounded permission work or a snapshot heartbeat.
+    # request (27 queries/request measured, 8101 total). The 9000 ceiling below
+    # leaves 899 queries of headroom: bounded background noise is tolerated, but
+    # not unbounded permission work or a snapshot heartbeat.
     assert :counters.get(counter, 2) <= 300 * 30
 
     IO.puts(

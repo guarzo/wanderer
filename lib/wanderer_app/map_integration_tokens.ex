@@ -1,6 +1,7 @@
 defmodule WandererApp.MapIntegrationTokens do
   @moduledoc "Personal read-only credentials, bound to a user and map's current access."
   require Ash.Query
+  require Logger
 
   alias WandererApp.Api
   alias WandererApp.Api.MapIntegrationToken
@@ -202,13 +203,25 @@ defmodule WandererApp.MapIntegrationTokens do
                _ -> {:error, :service_unavailable}
              end
            end) do
-        {:ok, result} -> normalize(result)
-        {:error, _} -> {:error, :service_unavailable}
+        {:ok, result} ->
+          normalize(result)
+
+        {:error, reason} ->
+          # Sanitized classification only: reasons can carry changeset/Vault payloads.
+          Logger.error(
+            "location_api_token_transaction_failed map_id=#{map_id} kind=#{classify(reason)}"
+          )
+
+          {:error, :service_unavailable}
       end
     end)
   end
 
   defp manage(_, _, _, _), do: {:error, :forbidden}
+
+  defp classify(%{__struct__: module}), do: inspect(module)
+  defp classify(reason) when is_atom(reason), do: inspect(reason)
+  defp classify(_), do: "unknown"
 
   defp map_access(map_id, user_id) do
     with {:ok, map} when not is_nil(map) <-
@@ -301,7 +314,17 @@ defmodule WandererApp.MapIntegrationTokens do
          value: value
        })}
     else
-      _ -> {:error, :service_unavailable}
+      _ ->
+        # Never rotate here: a Vault/key misconfiguration must not silently
+        # invalidate every stored credential. Return the row's non-secret
+        # metadata so the owner can deliberately regenerate or revoke instead.
+        Logger.warning(
+          "location_api_token_unreadable map_id=#{map.id} token_id=#{token.id} generation=#{token.generation}"
+        )
+
+        {:error,
+         {:unreadable,
+          Map.put(availability(map), :token, %{id: token.id, generation: token.generation})}}
     end
   end
 
@@ -334,6 +357,8 @@ defmodule WandererApp.MapIntegrationTokens do
   defp metadata(token), do: Map.take(token, @metadata)
   defp normalize({:ok, _} = result), do: result
 
+  defp normalize({:error, {:unreadable, _details}} = result), do: result
+
   defp normalize({:error, code})
        when code in [:forbidden, :disabled, :conflict, :service_unavailable],
        do: {:error, code}
@@ -343,8 +368,17 @@ defmodule WandererApp.MapIntegrationTokens do
   defp safely(fun) do
     fun.()
   rescue
-    _ -> {:error, :service_unavailable}
+    exception ->
+      # Only the exception module: Cloak.MissingCipher carries ciphertext in its struct.
+      # The stacktrace is safe and carries no payload, so keep it for correlation.
+      Logger.error("location_api_token_exception kind=#{inspect(exception.__struct__)}",
+        stacktrace: __STACKTRACE__
+      )
+
+      {:error, :service_unavailable}
   catch
-    :exit, _ -> {:error, :service_unavailable}
+    :exit, _ ->
+      Logger.error("location_api_token_exit")
+      {:error, :service_unavailable}
   end
 end

@@ -56,10 +56,15 @@ const render = async () => {
       </PrimeReactProvider>,
     );
   });
-  // Dialog's onShow fires after the real enter transition.
+  // Dialog's onShow fires after the real 300ms .p-dialog-enter-active transition.
+  // Poll for its observable effect instead of sleeping past it.
   await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 350));
+    const deadline = Date.now() + 2000;
+    while (!setUserRemoteSettings.mock.calls.length && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
   });
+  expect(setUserRemoteSettings).toHaveBeenCalled();
 };
 const tab = (name: string) =>
   Array.from(document.querySelectorAll('[role="tab"]')).find(el => el.textContent === name) as HTMLElement | undefined;
