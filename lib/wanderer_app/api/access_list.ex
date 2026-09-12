@@ -55,7 +55,13 @@ defmodule WandererApp.Api.AccessList do
       :owner_id
     ]
 
-    defaults [:create, :read, :destroy]
+    defaults [:create, :read]
+
+    destroy :destroy do
+      primary? true
+      require_atomic? false
+      change WandererApp.Api.Changes.RevokeMapIntegrationTokens
+    end
 
     read :available do
       prepare WandererApp.Api.Preparations.FilterAclsByRoles

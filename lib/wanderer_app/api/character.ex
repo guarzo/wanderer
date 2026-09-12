@@ -44,6 +44,10 @@ defmodule WandererApp.Api.Character do
     define(:update_description, action: :update_description)
   end
 
+  changes do
+    change WandererApp.Api.Changes.RevokeMapIntegrationTokens, on: [:create, :update, :destroy]
+  end
+
   actions do
     default_accept [
       :eve_id,
@@ -55,7 +59,12 @@ defmodule WandererApp.Api.Character do
       :tracking_pool
     ]
 
-    defaults [:create, :read, :destroy]
+    defaults [:create, :read]
+
+    destroy :destroy do
+      primary? true
+      require_atomic? false
+    end
 
     create :link do
       accept([:eve_id, :name, :user_id])

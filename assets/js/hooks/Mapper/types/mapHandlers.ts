@@ -325,6 +325,13 @@ export enum OutCommand {
   cancelPing = 'cancel_ping',
   startTracking = 'startTracking',
 
+  getLocationApiSettings = 'get_location_api_settings',
+  setLocationApiEnabled = 'set_location_api_enabled',
+  getLocationApiToken = 'get_location_api_token',
+  generateLocationApiToken = 'generate_location_api_token',
+  regenerateLocationApiToken = 'regenerate_location_api_token',
+  revokeLocationApiToken = 'revoke_location_api_token',
+
   getIntelSourceMaps = 'get_intel_source_maps',
   setIntelSourceMap = 'set_intel_source_map',
   syncIntel = 'sync_intel',

@@ -55,13 +55,22 @@ defmodule WandererApp.Api.MapAccessList do
     )
   end
 
+  changes do
+    change WandererApp.Api.Changes.RevokeMapIntegrationTokens, on: [:create, :update, :destroy]
+  end
+
   actions do
     default_accept [
       :map_id,
       :access_list_id
     ]
 
-    defaults [:create, :read, :destroy]
+    defaults [:create, :read]
+
+    destroy :destroy do
+      primary? true
+      require_atomic? false
+    end
 
     update :update do
       require_atomic? false
