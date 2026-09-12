@@ -148,7 +148,7 @@ defmodule WandererApp.Api.Changes.RevokeMapIntegrationTokens do
     changeset.action.name in [:update_acls, :assign_owner, :mark_as_deleted] or
       (changeset.action.name == :update and
          (Ash.Changeset.changing_attribute?(changeset, :owner_id) or
-            not is_nil(Ash.Changeset.get_argument(changeset, :acls))))
+            match?({:ok, _}, Ash.Changeset.fetch_argument(changeset, :acls))))
   end
 
   defp relevant?(%{resource: Api.AccessList, action_type: type}), do: type == :destroy

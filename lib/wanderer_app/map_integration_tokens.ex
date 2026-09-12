@@ -279,6 +279,8 @@ defmodule WandererApp.MapIntegrationTokens do
         _ -> {:error, :conflict}
       end
     else
+      # A normalized UUID is not an authorized record; Ash also accepts raw IDs for updates.
+      {:ok, _} -> {:error, :conflict}
       :error -> {:error, :conflict}
       error -> error
     end

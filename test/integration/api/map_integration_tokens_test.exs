@@ -117,6 +117,43 @@ defmodule WandererApp.MapIntegrationTokensTest do
     assert {:error, :conflict} = Tokens.revoke(second_map.id, user, fresh.id, 1)
   end
 
+  for operation <- [:regenerate, :revoke], target <- [:own, :other_user, :other_map] do
+    test "#{operation} rejects noncanonical #{target} IDs without changing credentials", c do
+      enable(c.map, c.user)
+
+      {caller, token_map, token_user} =
+        case unquote(target) do
+          :own ->
+            {c.user, c.map, c.user}
+
+          :other_user ->
+            {reader, _, _} = viewer(c.map)
+            {reader, c.map, c.user}
+
+          :other_map ->
+            other_map = insert(:map, %{owner_id: c.owner.id})
+            enable(other_map, c.user)
+            {c.user, other_map, c.user}
+        end
+
+      token = known_token(token_map, token_user)
+      stored = Repo.get!(Api.MapIntegrationToken, token.id)
+
+      for generation <- [token.generation, token.generation + 1] do
+        assert {:error, :conflict} =
+                 apply(Tokens, unquote(operation), [
+                   c.map.id,
+                   caller,
+                   String.upcase(token.id),
+                   generation
+                 ])
+
+        assert Repo.get!(Api.MapIntegrationToken, token.id) == stored
+        assert {:ok, %{token: ^token}} = Tokens.get(token_map.id, token_user)
+      end
+    end
+  end
+
   test "fails closed on partial retrieval without changing a usable digest", %{
     map: map,
     user: user
@@ -235,6 +272,29 @@ defmodule WandererApp.MapIntegrationTokensTest do
     assert {:error, :service_unavailable} = Tokens.generate(map.id, user)
     assert {:ok, _} = Tokens.authenticate(own.value)
     assert Api.MapIntegrationToken.by_id!(own.id).generation == 1
+  end
+
+  defp known_token(map, user) do
+    # A fixed selector guarantees casing differs; random UUIDs can contain only digits.
+    id = "abcdefab-cdef-4abc-8def-abcdefabcdef"
+    secret = Base.url_encode64(<<0::256>>, padding: false)
+    value = "wmi_v1_#{id}_#{secret}"
+
+    digest =
+      :crypto.hash(:sha256, ["wanderer:map-integration-token:v1", <<0>>, id, <<0>>, secret])
+
+    {:ok, encrypted} = WandererApp.Vault.encrypt(value)
+
+    Api.MapIntegrationToken.issue!(%{
+      id: id,
+      map_id: map.id,
+      user_id: user.id,
+      digest: digest,
+      encrypted_value: encrypted
+    })
+
+    {:ok, %{token: token}} = Tokens.get(map.id, user)
+    token
   end
 
   defp parallel(fun) do

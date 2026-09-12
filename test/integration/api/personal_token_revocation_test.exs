@@ -159,6 +159,34 @@ defmodule WandererApp.PersonalTokenRevocationTest do
     active(c.owner_token)
   end
 
+  for acls <- [nil, []], disabled <- [false, true] do
+    test "explicit ACL removal #{inspect(acls)} revokes offline holders (disabled=#{disabled})",
+         c do
+      {:ok, _} = Tokens.set_enabled(c.map.id, c.user, not unquote(disabled))
+      updated = Api.Map.update!(c.map, %{acls: unquote(acls)})
+
+      assert Ash.load!(updated, :acls).acls == []
+      assert Repo.get!(Api.MapIntegrationToken, c.token.id).revoked_at != nil
+      revoked(c.token)
+      active(c.owner_token)
+
+      Api.Map.update_acls!(updated, %{acls: [c.acl.id]})
+      revoked(c.token)
+      {:ok, _} = Tokens.set_enabled(c.map.id, c.user, true)
+      assert {:ok, %{token: owner_token}} = Tokens.get(c.map.id, c.user)
+      assert owner_token == c.owner_token
+      assert {:ok, %{token: replacement}} = Tokens.generate(c.map.id, c.reader)
+      refute replacement.id == c.token.id
+    end
+  end
+
+  test "omitting the ACL argument preserves membership and existing credentials", c do
+    updated = Api.Map.update!(c.map, %{description: "Description only"})
+    assert Enum.map(Ash.load!(updated, :acls).acls, & &1.id) == [c.acl.id]
+    active(c.token)
+    active(c.owner_token)
+  end
+
   test "owner transfer preserves eligible viewers and owners with remaining grants", c do
     grant(c.acl, c.owner)
     new_owner = insert(:character)
