@@ -33,6 +33,9 @@ defmodule WandererAppWeb.TrackedLocationsPollingTest do
     user = insert(:user)
     owner = insert(:character, %{user_id: user.id})
     map = insert(:map, %{owner_id: owner.id})
+    {:ok, _} = Tokens.set_enabled(map.id, user, true)
+    acl = insert(:access_list, %{owner_id: owner.id})
+    insert(:map_access_list, %{map_id: map.id, access_list_id: acl.id})
     static_system()
 
     characters =
@@ -49,9 +52,18 @@ defmodule WandererAppWeb.TrackedLocationsPollingTest do
 
     # Issue credentials before dispatch so these active maps need fresh evidence.
     clients =
-      for n <- 1..10 do
-        {:ok, _, wire} = Tokens.create(map.id, user, "Polling client #{n}")
-        %{wire: wire, etag: nil, data: nil, statuses: []}
+      for _ <- 1..10 do
+        reader = insert(:user)
+        character = insert(:character, %{user_id: reader.id})
+
+        insert(:access_list_member, %{
+          access_list_id: acl.id,
+          eve_character_id: character.eve_id,
+          role: :viewer
+        })
+
+        {:ok, %{token: token}} = Tokens.generate(map.id, reader)
+        %{wire: token.value, etag: nil, data: nil, statuses: []}
       end
 
     counter = :counters.new(3, [:write_concurrency])
@@ -149,8 +161,11 @@ defmodule WandererAppWeb.TrackedLocationsPollingTest do
     assert statuses[304] == 300 - statuses[200]
     assert :counters.get(counter, 1) == 20
     assert :counters.get(counter, 3) == 0
-    # Counter includes concurrent peers; bound total queries for the full batch.
-    assert :counters.get(counter, 2) <= 300 * 20
+    # Fresh personal authorization adds two map/ACL/character reads to each
+    # request (27 queries/request measured, 8101 total). The 9000 ceiling below
+    # leaves 899 queries of headroom: bounded background noise is tolerated, but
+    # not unbounded permission work or a snapshot heartbeat.
+    assert :counters.get(counter, 2) <= 300 * 30
 
     IO.puts(
       "POLLING_SMOKE clients=10 records=20 duration_ms=#{System.monotonic_time(:millisecond) - start} requests=300 statuses=#{inspect(statuses)} queries=#{:counters.get(counter, 2)} max_concurrent_query_delta=#{Enum.max(queries)} max_request_us=#{max_us} fixture_http=20 snapshot_http=0 writes=0"

@@ -45,7 +45,8 @@ defmodule WandererApp.TrackedCharacterLocations do
   def snapshot(map_id, principal, wire), do: assemble(map_id, principal, wire, 1)
 
   defp assemble(map_id, principal, wire, retries) do
-    with :ok <- policy(map_id),
+    with :ok <- Tokens.authorize(principal),
+         :ok <- policy(map_id),
          {:ok, capture} <- authorization_capture(map_id),
          {:ok, observations} <- Store.snapshot(),
          {:ok, local} <- tracker_capture(capture.characters),
@@ -54,6 +55,7 @@ defmodule WandererApp.TrackedCharacterLocations do
          {:ok, rechecked} <- authorization_capture(map_id),
          {:ok, current_local} <- tracker_capture(rechecked.characters),
          {:ok, current_token} <- Tokens.authenticate(wire),
+         :ok <- Tokens.authorize(current_token),
          :ok <- policy(map_id) do
       cond do
         current_token != principal ->
