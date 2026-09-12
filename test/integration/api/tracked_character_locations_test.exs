@@ -24,7 +24,9 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
     user = insert(:user)
     owner = insert(:character, %{user_id: user.id})
     map = insert(:map, %{owner_id: owner.id})
-    {:ok, token, wire} = Tokens.create(map.id, user, "Wingman")
+    {:ok, _} = Tokens.set_enabled(map.id, user, true)
+    {:ok, %{token: token}} = Tokens.generate(map.id, user)
+    wire = token.value
     %{map: map, user: user, owner: owner, token: token, wire: wire}
   end
 
@@ -165,9 +167,12 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
 
   test "excludes a userless map owner despite configured tracking and a live fresh location", %{
     map: map,
-    owner: owner,
-    wire: wire
+    owner: owner
   } do
+    {viewer, _} = reader(map)
+    {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
+    wire = token.value
+
     owner =
       Api.Character.update!(owner, %{
         access_token: "fixture-owner-access",
@@ -318,7 +323,8 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
     other = insert(:map)
     assert_error(request(other.id, wire), 403, "wrong_map")
     assert_error(request("missing-map", wire), 404, "map_not_found")
-    {:ok, token, new} = Tokens.replace(map.id, user, token.id, token.generation)
+    {:ok, %{token: token}} = Tokens.regenerate(map.id, user, token.id, token.generation)
+    new = token.value
     assert_error(request(map.id, wire), 401, "invalid_token")
     first = request(map.id, new)
     Tokens.revoke(map.id, user, token.id, token.generation)
@@ -373,19 +379,22 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
 
   test "burst limits count conditional requests and are isolated per issued token", %{
     map: map,
-    user: user,
     wire: wire,
     token: token
   } do
-    # ExRated uses fixed windows: begin just after its next second boundary.
-    {_, _, wait, _, _} = ExRated.inspect_bucket({:tracked_locations_burst, token.id}, 1000, 10)
-    Process.sleep(wait + 1)
     first = request(map.id, wire)
     etag = hd(get_resp_header(first, "etag"))
-    for _ <- 1..9, do: assert(request(map.id, wire, [{"if-none-match", etag}]).status == 304)
-    assert_error(request(map.id, wire), 429, "rate_limited")
-    {:ok, _, other} = Tokens.create(map.id, user, "Independent")
-    assert request(map.id, other).status == 200
+    assert request(map.id, wire, [{"if-none-match", etag}]).status == 304
+
+    # Fill the real burst bucket directly rather than assuming ten fresh ACL
+    # snapshots finish inside one second on a loaded test runner.
+    {_, _, wait, _, _} = ExRated.inspect_bucket({:tracked_locations_burst, token.id}, 1000, 10)
+    Process.sleep(wait + 1)
+    for _ <- 1..10, do: ExRated.check_rate({:tracked_locations_burst, token.id}, 1000, 10)
+    assert_error(request(map.id, wire, [{"if-none-match", etag}]), 429, "rate_limited")
+    {viewer, _} = reader(map)
+    {:ok, %{token: other}} = Tokens.generate(map.id, viewer)
+    assert request(map.id, other.value).status == 200
   end
 
   test "malformed identities and overflowing source names fail rather than truncate", %{
@@ -433,7 +442,8 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
   } do
     after_system_read(fn -> Tokens.revoke(map.id, user, token.id, 1) end)
     assert_error(request(map.id, wire), 401, "invalid_token")
-    {:ok, _, wire} = Tokens.create(map.id, user, "Churn")
+    {:ok, %{token: renewed}} = Tokens.generate(map.id, user)
+    wire = renewed.value
     char = tracked_character(map, %{user_id: user.id})
 
     after_system_read(fn ->
@@ -502,8 +512,12 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
 
     Api.MapCharacterSettings.update!(settings, %{tracked: false})
 
-    assert Ash.bulk_update!(result.records, :update, %{name: String.duplicate("界", 255)}).status ==
-             :success
+    # Oversized-source fixture, not an application permission mutation. Ordinary
+    # resource updates deliberately cannot use an atomic bulk bypass.
+    WandererApp.Repo.query!("UPDATE character_v1 SET name = $1 WHERE user_id = $2", [
+      String.duplicate("界", 255),
+      Ecto.UUID.dump!(user.id)
+    ])
 
     assert_error(request(map.id, wire), 503, "invalid_snapshot")
   end
@@ -608,6 +622,103 @@ defmodule WandererAppWeb.TrackedCharacterLocationsTest do
 
     assert Enum.sort(spec["components"]["schemas"]["TrackedCharacterLocation"]["required"]) ==
              Enum.sort(@keys)
+  end
+
+  test "reader access is checked after quota and before conditional data", %{
+    map: map,
+    wire: owner_wire
+  } do
+    {viewer, member} = reader(map)
+    {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
+    first = request(map.id, token.value)
+    assert json_response(first, 200)["data"] == []
+    # External DB mutation models a missed hook; request authorization must still
+    # deny and permanently revoke without mistaking this reader for the roster.
+    WandererApp.Repo.query!("UPDATE access_list_members_v1 SET role = 'blocked' WHERE id = $1", [
+      Ecto.UUID.dump!(member.id)
+    ])
+
+    assert_error(
+      request(map.id, token.value, [{"if-none-match", hd(get_resp_header(first, "etag"))}]),
+      403,
+      "forbidden"
+    )
+
+    assert {:error, :invalid_token} = Tokens.authenticate(token.value)
+    assert request(map.id, owner_wire).status == 200
+  end
+
+  test "final reader authorization rejects access changed during an in-flight conditional snapshot",
+       %{map: map} do
+    {viewer, member} = reader(map)
+    {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
+    first = request(map.id, token.value)
+
+    after_system_read(fn ->
+      WandererApp.Repo.query!(
+        "UPDATE access_list_members_v1 SET role = 'blocked' WHERE id = $1",
+        [Ecto.UUID.dump!(member.id)]
+      )
+    end)
+
+    assert_error(
+      request(map.id, token.value, [{"if-none-match", hd(get_resp_header(first, "etag"))}]),
+      403,
+      "forbidden"
+    )
+
+    assert {:error, :invalid_token} = Tokens.authenticate(token.value)
+  end
+
+  test "reader data-service failures fail closed without revocation", %{map: map} do
+    {viewer, _} = reader(map)
+    {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
+    wire = token.value
+
+    WandererApp.Repo.query!(
+      "ALTER TABLE access_list_members_v1 RENAME COLUMN role TO unavailable_role"
+    )
+
+    assert_error(request(map.id, wire), 503, "service_unavailable")
+    assert {:ok, _} = Tokens.authenticate(wire)
+  end
+
+  test "subject permission queries never run before authenticated quota", %{map: map} do
+    {viewer, _} = reader(map)
+    {:ok, %{token: token}} = Tokens.generate(map.id, viewer)
+    for _ <- 1..60, do: ExRated.check_rate({:tracked_locations_minute, token.id}, 60_000, 60)
+    parent = self()
+    handler = {__MODULE__, :subject_quota, parent}
+
+    :telemetry.attach(
+      handler,
+      [:wanderer_app, :repo, :query],
+      fn _, _, meta, _ ->
+        if self() == parent and String.contains?(meta.query, ~s(FROM "character_v1")),
+          do: send(parent, :subject_read)
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    assert_error(request(map.id, token.value), 429, "rate_limited")
+    refute_receive :subject_read, 0
+  end
+
+  defp reader(map) do
+    user = insert(:user)
+    char = insert(:character, %{user_id: user.id})
+    acl = insert(:access_list, %{owner_id: map.owner_id})
+    insert(:map_access_list, %{map_id: map.id, access_list_id: acl.id})
+
+    member =
+      insert(:access_list_member, %{
+        access_list_id: acl.id,
+        eve_character_id: char.eve_id,
+        role: :viewer
+      })
+
+    {user, member}
   end
 
   defp after_system_read(fun) do

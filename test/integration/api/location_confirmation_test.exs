@@ -37,7 +37,8 @@ defmodule WandererApp.LocationConfirmationTest do
       Cachex.del(:api_cache, "/characters/#{character.eve_id}/online")
     end)
 
-    {:ok, token, _} = WandererApp.MapIntegrationTokens.create(map.id, user, "Location fixture")
+    {:ok, _} = WandererApp.MapIntegrationTokens.set_enabled(map.id, user, true)
+    {:ok, %{token: token}} = WandererApp.MapIntegrationTokens.generate(map.id, user)
     %{character: character, state: state, map: map, user: user, token: token}
   end
 

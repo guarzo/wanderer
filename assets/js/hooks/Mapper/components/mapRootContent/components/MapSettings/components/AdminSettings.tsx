@@ -11,6 +11,7 @@ import fastDeepEqual from 'fast-deep-equal';
 import { useDetectSettingsChanged } from '@/hooks/Mapper/components/hooks';
 import { WdButton } from '@/hooks/Mapper/components/ui-kit';
 import { IntelSettings } from './IntelSettings.tsx';
+import { LocationApiAdminSettings } from './LocationApiAdminSettings';
 
 interface AdminSettingsProps {
   intelSharingEnabled?: boolean;
@@ -131,6 +132,9 @@ export const AdminSettings = ({ intelSharingEnabled = false }: AdminSettingsProp
         icon="pi pi-exclamation-triangle"
         accept={handleSync}
       />
+
+      <hr className="border-stone-700" />
+      <LocationApiAdminSettings />
 
       {intelSharingEnabled && (
         <>
