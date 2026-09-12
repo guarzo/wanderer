@@ -273,6 +273,18 @@ defmodule WandererAppWeb.MapCoreEventHandler do
   def handle_ui_event("import_map_data", _params, socket),
     do: {:reply, %{error: "You don't have permission to import map data"}, socket}
 
+  def handle_ui_event(event, data, socket)
+      when event in [
+             "get_location_api_settings",
+             "set_location_api_enabled",
+             "get_location_api_token",
+             "generate_location_api_token",
+             "regenerate_location_api_token",
+             "revoke_location_api_token"
+           ] do
+    WandererAppWeb.MapLocationApiEventHandler.handle(event, data, socket)
+  end
+
   def handle_ui_event(
         "get_user_settings",
         _,
