@@ -9,6 +9,7 @@ defmodule WandererAppWeb.TrackedCharacterLocationsController do
     invalid_token: {401, "Missing or invalid integration token"},
     scope_forbidden: {403, "Token scope is not permitted"},
     wrong_map: {403, "Token is not valid for this map"},
+    forbidden: {403, "Token owner no longer has map access"},
     disabled: {403, "Map integrations are disabled"},
     subscription_required: {403, "Active map subscription required"},
     map_not_found: {404, "Map not found"},

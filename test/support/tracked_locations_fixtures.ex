@@ -61,6 +61,22 @@ defmodule WandererApp.Test.TrackedLocationsFixtures do
     end
   end
 
+  def viewer_access(map) do
+    user = insert(:user)
+    character = insert(:character, %{user_id: user.id})
+    acl = insert(:access_list, %{owner_id: map.owner_id})
+    insert(:map_access_list, %{map_id: map.id, access_list_id: acl.id})
+
+    member =
+      insert(:access_list_member, %{
+        access_list_id: acl.id,
+        eve_character_id: character.eve_id,
+        role: :viewer
+      })
+
+    %{user: user, character: character, access_list: acl, member: member}
+  end
+
   def static_system(id \\ 30_000_142, name \\ "Jita") do
     Ash.create!(Api.MapSolarSystem, %{solar_system_id: id, solar_system_name: name},
       action: :create

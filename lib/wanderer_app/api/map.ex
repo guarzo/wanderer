@@ -83,6 +83,7 @@ defmodule WandererApp.Api.Map do
     define(:update_api_key, action: :update_api_key)
     define(:toggle_webhooks, action: :toggle_webhooks)
     define(:toggle_sse, action: :toggle_sse)
+    define(:set_location_api_enabled, action: :set_location_api_enabled)
 
     define(:by_id,
       get_by: [:id],
@@ -213,6 +214,7 @@ defmodule WandererApp.Api.Map do
     end
 
     update :update_acls do
+      change WandererApp.Api.Changes.RevokeMapIntegrationTokens
       require_atomic? false
 
       argument :acls, {:array, :uuid} do
@@ -225,6 +227,11 @@ defmodule WandererApp.Api.Map do
     update :assign_owner do
       change WandererApp.Api.Changes.RevokeMapIntegrationTokens
       accept [:owner_id]
+      require_atomic? false
+    end
+
+    update :set_location_api_enabled do
+      accept [:location_api_enabled]
       require_atomic? false
     end
 
@@ -459,6 +466,8 @@ defmodule WandererApp.Api.Map do
       allow_nil?(false)
       public?(true)
     end
+
+    attribute :location_api_enabled, :boolean, default: false, allow_nil?: false
 
     attribute :sse_enabled, :boolean do
       default(false)
