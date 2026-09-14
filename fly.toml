@@ -107,8 +107,9 @@ swap_size_mb = 512
   port = 4021
   path = '/metrics'
 
-# Sized for the fifteen Cachex tables and five Finch pools started in
-# lib/wanderer_app/application.ex. Revisit against observed RSS.
+# Performance CPU avoids the sustained burst-credit throttling observed during
+# the 2026-09-14 incident. Preserve the manually verified production sizing.
+# Memory is sized for the Cachex tables and Finch pools in application.ex.
 [[vm]]
-  size = 'shared-cpu-2x'
+  size = 'performance-1x'
   memory = '2gb'
