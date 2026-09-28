@@ -32,7 +32,7 @@ defmodule WandererApp.Api.MapIntegrationToken do
     defaults [:read]
 
     create :issue do
-      accept [:id, :map_id, :user_id, :digest, :encrypted_value]
+      accept [:id, :map_id, :user_id, :digest, :encrypted_value, :scope]
       validate present([:user_id, :encrypted_value])
     end
 
@@ -62,10 +62,13 @@ defmodule WandererApp.Api.MapIntegrationToken do
     # Retain historical names on invalidated map-only rows; new tokens have no name.
     attribute :name, :string, writable?: false
 
+    # Writable at creation only (issue accepts it); updates never touch scope.
+    # Existing tokens keep the read scope default; prime tokens opt in by
+    # explicitly issuing with the prime scope.
     attribute :scope, :string,
       allow_nil?: false,
       default: "tracked_character_locations:read",
-      writable?: false
+      writable?: true
 
     attribute :digest, :binary, allow_nil?: false, sensitive?: true
     # Nullable only for historical, revoked credentials. Issue/replace require a value.

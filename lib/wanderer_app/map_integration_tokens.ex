@@ -277,9 +277,18 @@ defmodule WandererApp.MapIntegrationTokens do
     end
   end
 
+  # Scope-aware: each scope has its own active credential for a user+map.
+  # Historical rows (created before scopes were per-credential) all carry the
+  # read scope, so the default preserves their semantics exactly.
   defp own_token(map_id, user_id) do
+    own_token(map_id, user_id, @scope)
+  end
+
+  defp own_token(map_id, user_id, scope) do
     MapIntegrationToken
-    |> Ash.Query.filter(map_id == ^map_id and user_id == ^user_id and is_nil(revoked_at))
+    |> Ash.Query.filter(
+      map_id == ^map_id and user_id == ^user_id and is_nil(revoked_at) and scope == ^scope
+    )
     |> Ash.read_one()
   end
 
