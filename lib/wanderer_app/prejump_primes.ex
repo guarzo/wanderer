@@ -24,7 +24,15 @@ defmodule WandererApp.PrejumpPrimes do
   @ttl_minutes 15
   # Deliberate (Q5): the bookmark `e` tag asserts "end of life"; the map UI
   # accepts the approximation. The issue suggested the 1h bucket; 4h was chosen.
-  @eol_time_status 4
+  # The constant is the connection `time_status` enum value for the 4-hour
+  # bucket (0=default, 1=1h, 2=4h, 3=4.5h, 4=16h...), pinned against
+  # ConnectionsImpl's buckets by the consume tests.
+  @eol_time_status 2
+  # Connection enum values (see ConnectionsImpl / the UI MassState enum).
+  @frigate_ship_size 0
+  @mass_status_half 1
+  @mass_status_critical 2
+
   @domain "wanderer:map-integration-token:v1"
   @prime_scope "prejump_prime:write"
   @max_name_bytes 255
@@ -225,6 +233,45 @@ defmodule WandererApp.PrejumpPrimes do
   end
 
   def stage(_, _, _), do: {:error, :invalid_request}
+
+  @doc """
+  Peeks at the active, unexpired prime for map+character+source WITHOUT
+  consuming it. The movement flow calls this before attempting the connection
+  (so a failed system/connection add never consumes the prime) and claims only
+  after the movement is known to have created a new connection.
+  """
+  def peek(map_id, eve_character_id, source_solar_system_id) do
+    safely(fn ->
+      case active_row(map_id, eve_character_id) do
+        %{source_solar_system_id: ^source_solar_system_id} = row ->
+          {:ok, to_prime(row)}
+
+        _ ->
+          {:error, :not_found}
+      end
+    end)
+  end
+
+  # Connection fields a consumed prime asserts: only non-nil values, so
+  # omitted flags leave the connection's own defaults in place.
+  def connection_flags(%{flags: flags} = _claimed) do
+    %{}
+    |> maybe_put(:ship_size_type, if(flags.frigate, do: @frigate_ship_size, else: nil))
+    |> maybe_put(
+      :mass_status,
+      cond do
+        flags.critical -> @mass_status_critical
+        flags.half_mass -> @mass_status_half
+        true -> nil
+      end
+    )
+    |> maybe_put(:time_status, if(flags.eol, do: @eol_time_status, else: nil))
+  end
+
+  def connection_flags(_), do: %{}
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   def lookup(map_id, eve_character_id) do
     safely(fn ->
