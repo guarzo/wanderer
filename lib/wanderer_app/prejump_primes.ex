@@ -37,9 +37,9 @@ defmodule WandererApp.PrejumpPrimes do
 
   # ---- Credential ----------------------------------------------------------
 
-  def generate_prime_token(map_id, %Api.User{id: user_id} = user) do
+  def generate_prime_token(map_id, %Api.User{id: user_id}) do
     safely(fn ->
-      with {:ok, %{enabled: true}} <- Tokens.set_enabled(map_id, user, true) do
+      with :ok <- policy(map_id) do
         case own_prime_token(map_id, user_id) do
           {:ok, current} when not is_nil(current) ->
             reveal(current)
@@ -142,8 +142,8 @@ defmodule WandererApp.PrejumpPrimes do
       with :ok <- validate_prime(prime),
            :ok <- authorize(principal),
            :ok <- policy(map_id) do
-        now = DateTime.utc_now()
-        expires_at = DateTime.add(now, @ttl_minutes * 60, :second)
+        # TTL is anchored to the DB clock (see the INSERT) so a skewed app
+        # host cannot stage primes that expire instantly or outlive the window.
         flags = prime.flags || %{}
 
         row = %{
@@ -157,8 +157,7 @@ defmodule WandererApp.PrejumpPrimes do
           flags_half_mass: !!flags[:half_mass],
           flags_critical: !!flags[:critical],
           flags_frigate: !!flags[:frigate],
-          consumed_at: nil,
-          expires_at: expires_at
+          consumed_at: nil
         }
 
         # Idempotency: replaying the same event_id on this map is a no-op
@@ -169,8 +168,13 @@ defmodule WandererApp.PrejumpPrimes do
           Repo.transaction(fn ->
             replayed? =
               Repo.query!(
-                "SELECT 1 FROM prejump_primes_v1 WHERE map_id = $1 AND event_id = $2 LIMIT 1",
-                [uuid(map_id), uuid(row.event_id)]
+                """
+                SELECT 1 FROM prejump_primes_v1
+                 WHERE map_id = $1 AND event_id = $2 AND eve_character_id = $3
+                   AND consumed_at IS NULL AND expires_at > now()
+                 LIMIT 1
+                """,
+                [uuid(map_id), uuid(row.event_id), row.eve_character_id]
               )
               |> Map.get(:num_rows) > 0
 
@@ -189,7 +193,8 @@ defmodule WandererApp.PrejumpPrimes do
                     (map_id, user_id, event_id, eve_character_id, source_solar_system_id,
                      system_name, flags_eol, flags_half_mass, flags_critical, flags_frigate,
                      consumed_at, expires_at, inserted_at, updated_at)
-                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11, now(), now())
+                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,
+                          now() + interval '1 minute' * $11, now(), now())
                   """,
                   [
                     uuid(row.map_id),
@@ -202,7 +207,7 @@ defmodule WandererApp.PrejumpPrimes do
                     row.flags_half_mass,
                     row.flags_critical,
                     row.flags_frigate,
-                    row.expires_at
+                    @ttl_minutes
                   ]
                 )
 
@@ -235,20 +240,18 @@ defmodule WandererApp.PrejumpPrimes do
   # never returned again (crash-safe: consumed_at set only on success here).
   def claim(map_id, eve_character_id, source_solar_system_id) do
     safely(fn ->
-      now = DateTime.utc_now()
-
       result =
         Repo.query!(
           """
           UPDATE prejump_primes_v1
-             SET consumed_at = $1, updated_at = now()
+             SET consumed_at = now(), updated_at = now()
            WHERE id = (
              SELECT id FROM prejump_primes_v1
-              WHERE map_id = $2
-                AND eve_character_id = $3
-                AND source_solar_system_id = $4
+              WHERE map_id = $1
+                AND eve_character_id = $2
+                AND source_solar_system_id = $3
                 AND consumed_at IS NULL
-                AND inserted_at > now() - interval '15 minutes'
+                AND expires_at > now()
               ORDER BY inserted_at DESC
               LIMIT 1
               FOR UPDATE SKIP LOCKED
@@ -256,7 +259,7 @@ defmodule WandererApp.PrejumpPrimes do
           RETURNING event_id, system_name,
                     flags_eol, flags_half_mass, flags_critical, flags_frigate
           """,
-          [now, uuid(map_id), eve_character_id, source_solar_system_id]
+          [uuid(map_id), eve_character_id, source_solar_system_id]
         )
 
       rows = if is_map(result), do: Map.get(result, :rows), else: []
@@ -290,7 +293,7 @@ defmodule WandererApp.PrejumpPrimes do
                flags_eol, flags_half_mass, flags_critical, flags_frigate
           FROM prejump_primes_v1
          WHERE map_id = $1 AND eve_character_id = $2
-           AND consumed_at IS NULL AND inserted_at > now() - interval '15 minutes'
+           AND consumed_at IS NULL AND expires_at > now()
          ORDER BY inserted_at DESC
          LIMIT 1
         """,

@@ -252,7 +252,7 @@ defmodule WandererApp.PrimesTestSupport do
     # Shifts the prime's inserted_at past the TTL so expiry logic is exercised
     # without sleeping. Implementation-specific; adjust when the store lands.
     WandererApp.Repo.query!(
-      "UPDATE prejump_primes_v1 SET inserted_at = inserted_at - interval '16 minutes' WHERE event_id = $1",
+      "UPDATE prejump_primes_v1 SET expires_at = now() - interval '1 second' WHERE event_id = $1",
       [Ecto.UUID.dump!(event_id)]
     )
   end

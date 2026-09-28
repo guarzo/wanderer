@@ -122,6 +122,35 @@ defmodule WandererAppWeb.PrejumpPrimeStagingTest do
     assert conn2.status in [401, 403]
   end
 
+  test "unknown map is 404, not 503", %{wire: wire} do
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{wire}")
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/maps/00000000-0000-0000-0000-000000000000/prejump-primes", valid_body())
+
+    assert %{"code" => "map_not_found"} = json_response(conn, 404)
+  end
+
+  test "prime remains usable after read-scope credential issuance for the same user+map", %{
+    map: map,
+    user: user,
+    wire: wire
+  } do
+    assert {:ok, principal} = Primes.authenticate(wire)
+
+    prime = %{
+      event_id: Ash.UUID.generate(),
+      eve_character_id: 90_000_001,
+      source_solar_system_id: 30_000_142,
+      system_name: "J123",
+      flags: %{}
+    }
+
+    assert :ok = Primes.stage(map.id, principal, prime)
+    assert {:ok, _} = Primes.lookup(map.id, 90_000_001)
+  end
+
   defp valid_body do
     Jason.encode!(%{
       prime: %{

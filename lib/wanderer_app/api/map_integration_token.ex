@@ -79,8 +79,14 @@ defmodule WandererApp.Api.MapIntegrationToken do
     update_timestamp :updated_at
   end
 
+  # Three columns: prime-scope credentials (#293) coexist with read-scope ones
+  # for the same user+map. The DB index name is
+  # map_integration_tokens_v1_active_user_map_scope_index (see the migration).
   identities do
-    identity :active_user_map, [:user_id, :map_id], where: expr(is_nil(revoked_at))
+    # Ash names the index `<table>_active_user_map_index` from this identity;
+    # the migration (#293) creates the matching 3-column DB index with that
+    # name. Prime-scope credentials coexist with read-scope ones per user+map.
+    identity :active_user_map, [:user_id, :map_id, :scope], where: expr(is_nil(revoked_at))
   end
 
   relationships do

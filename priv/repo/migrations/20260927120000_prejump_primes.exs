@@ -16,7 +16,7 @@ defmodule WandererApp.Repo.Migrations.PrejumpPrimes do
                    )
 
     create unique_index(:map_integration_tokens_v1, [:user_id, :map_id, :scope],
-             name: "map_integration_tokens_v1_active_user_map_scope_index",
+             name: "map_integration_tokens_v1_active_user_map_index",
              where: "(revoked_at IS NULL)"
            )
 
@@ -64,7 +64,7 @@ defmodule WandererApp.Repo.Migrations.PrejumpPrimes do
     drop_if_exists table(:prejump_primes_v1)
 
     drop_if_exists unique_index(:map_integration_tokens_v1, [:user_id, :map_id, :scope],
-                     name: "map_integration_tokens_v1_active_user_map_scope_index"
+                     name: "map_integration_tokens_v1_active_user_map_index"
                    )
 
     create unique_index(:map_integration_tokens_v1, [:user_id, :map_id],

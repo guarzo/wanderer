@@ -12,6 +12,7 @@ defmodule WandererAppWeb.PrejumpPrimeController do
     forbidden: {403, "Token owner no longer has map access"},
     disabled: {403, "Map integrations are disabled"},
     subscription_required: {403, "Active map subscription required"},
+    map_not_found: {404, "Map not found"},
     invalid_request: {400, "Invalid request or request limits exceeded"},
     not_acceptable: {406, "Unsupported media type or primes version"},
     service_unavailable: {503, "Primes temporarily unavailable"},

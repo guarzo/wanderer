@@ -12,7 +12,7 @@ defmodule WandererAppWeb.Schemas.PrejumpPrimeRequest do
       prime: %Schema{
         type: :object,
         additionalProperties: false,
-        required: [:event_id, :eve_character_id, :source_solar_system_id, :system_name, :flags],
+        required: [:event_id, :eve_character_id, :source_solar_system_id, :system_name],
         properties: %{
           event_id: %Schema{type: :string, format: :uuid, description: "Idempotency key"},
           eve_character_id: %Schema{
