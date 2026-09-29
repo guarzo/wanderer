@@ -15,14 +15,17 @@ import {
 } from './locationApi';
 
 type TokenCommand =
-  | OutCommand.getLocationApiToken
-  | OutCommand.generateLocationApiToken
-  | OutCommand.regenerateLocationApiToken
-  | OutCommand.revokeLocationApiToken;
+  | OutCommand.getPrimeApiToken
+  | OutCommand.generatePrimeApiToken
+  | OutCommand.regeneratePrimeApiToken
+  | OutCommand.revokePrimeApiToken;
 
 type Confirmation = { type: 'regenerate' | 'revoke'; target: HTMLElement };
 
-const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }) => {
+// Wingman sends this credential as `Authorization: Bearer <token>` when staging
+// bookmark primes via POST /api/maps/{map}/prejump-primes. It cannot read the
+// Location API, and the personal read token cannot stage primes.
+const PrimeTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }) => {
   const inputId = useId();
   const [token, setToken] = useState<PersonalLocationApiToken | UnreadableLocationApiToken | null>(null);
   const [settings, setSettings] = useState<ApiSettings | null>(null);
@@ -30,8 +33,6 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  // Explicit, rather than inferred from `error && token`, so a future error path
-  // that forgets to clear the token cannot silently re-enable the controls.
   const [unreadable, setUnreadable] = useState(false);
   const requestId = useRef(0);
   const pending = useRef(false);
@@ -53,7 +54,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
         if (id !== requestId.current) return;
         if (!response?.success && response?.code === 'conflict') {
           response = await withLocationApiTimeout(
-            outCommand<LocationApiTokenReply>({ type: OutCommand.getLocationApiToken, data: null }),
+            outCommand<LocationApiTokenReply>({ type: OutCommand.getPrimeApiToken, data: null }),
           );
           if (id !== requestId.current) return;
           setNotice('Your token changed elsewhere. The current token has been reloaded.');
@@ -61,8 +62,6 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
         if (!response?.success) {
           setNotice(null);
           setError(locationApiError(response?.code));
-          // An unreadable credential still exposes its metadata, so keep Regenerate
-          // and Revoke usable instead of stranding the user on a failing read.
           if (isUnreadable(response)) {
             setSettings({ available: response.available, enabled: response.enabled });
             setToken(response.token);
@@ -71,7 +70,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
           return;
         }
         setSettings({ available: response.available, enabled: response.enabled });
-        setToken(response.available && response.enabled ? response.token : null);
+        setToken(response.available ? response.token : null);
       } catch {
         if (id === requestId.current) setError(locationApiError());
       } finally {
@@ -85,7 +84,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
   );
 
   useEffect(() => {
-    request(OutCommand.getLocationApiToken);
+    request(OutCommand.getPrimeApiToken);
     const sequence = requestId;
     return () => {
       sequence.current++;
@@ -120,22 +119,23 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
   const confirm = () => {
     if (!token || !confirmation) return;
     request(
-      confirmation.type === 'regenerate' ? OutCommand.regenerateLocationApiToken : OutCommand.revokeLocationApiToken,
+      confirmation.type === 'regenerate' ? OutCommand.regeneratePrimeApiToken : OutCommand.revokePrimeApiToken,
       { id: token.id, generation: token.generation },
     );
   };
-  const enabled = settings?.available && settings.enabled && (!error || unreadable);
+  const enabled = settings?.available && (!error || unreadable);
   const disabled = loading || !!confirmation || !enabled;
   const readable = !!token?.value;
 
   return (
     <div className="flex flex-col gap-3" aria-busy={loading}>
       <span className="text-stone-500 text-[12px]">
-        Your location token provides read-only access to tracked character locations on this map. Keep it private.
+        Your bookmark token lets Wingman stage pre-jump system attributes for tracked characters on this map. Keep it
+        private.
       </span>
       <div className="flex flex-col gap-1">
         <label htmlFor={inputId} className="text-stone-300 text-[13px] font-semibold">
-          Location API token
+          Bookmark API token
         </label>
         <InputText
           id={inputId}
@@ -143,7 +143,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
           readOnly
           autoComplete="off"
           spellCheck={false}
-          placeholder={loading ? 'Loading…' : unreadable ? 'Token unavailable — regenerate it' : 'No personal token'}
+          placeholder={loading ? 'Loading…' : unreadable ? 'Token unavailable — regenerate it' : 'No bookmark prime token'}
           className="w-full text-sm"
         />
       </div>
@@ -162,7 +162,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
             size="small"
             disabled={disabled}
             loading={loading}
-            onClick={() => request(OutCommand.generateLocationApiToken)}
+            onClick={() => request(OutCommand.generatePrimeApiToken)}
           />
         )}
         <WdButton label="Copy" icon="pi pi-copy" size="small" disabled={disabled || !readable} onClick={copy} />
@@ -180,7 +180,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
             label="Retry"
             size="small"
             disabled={loading}
-            onClick={() => request(OutCommand.getLocationApiToken)}
+            onClick={() => request(OutCommand.getPrimeApiToken)}
           />
         )}
       </div>
@@ -191,12 +191,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
       )}
       {!error && settings && !settings.available && (
         <span role="status" className="text-stone-500 text-[12px]">
-          The Location API is currently unavailable.
-        </span>
-      )}
-      {!error && settings?.available && !settings.enabled && (
-        <span role="status" className="text-stone-500 text-[12px]">
-          A map administrator must enable the Location API for this map.
+          Map integrations are currently unavailable.
         </span>
       )}
       {notice && (
@@ -210,8 +205,8 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
         onHide={() => setConfirmation(null)}
         message={
           confirmation?.type === 'regenerate'
-            ? 'Regenerate your personal token? Applications using your current token will stop working.'
-            : 'Revoke your personal token? Applications using it will stop working.'
+            ? 'Regenerate your bookmark prime token? Applications using your current token will stop working.'
+            : 'Revoke your bookmark prime token? Applications using it will stop working.'
         }
         icon="pi pi-exclamation-triangle"
         acceptLabel="Confirm"
@@ -223,11 +218,10 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
   );
 };
 
-export const LocationApiSettings = () => {
+export const PrimeApiSettings = () => {
   const {
     outCommand,
     data: { map_slug },
   } = useMapRootState();
-  // Map identity is only a lifecycle key; the server derives the request's user and map.
-  return <PersonalTokenSettings key={map_slug} outCommand={outCommand} />;
+  return <PrimeTokenSettings key={map_slug} outCommand={outCommand} />;
 };

@@ -66,6 +66,10 @@ case System.argv() do
                "SELECT count(*) FROM pg_constraint WHERE conrelid = 'map_integration_tokens_v1'::regclass AND conname IN ('map_integration_tokens_v1_map_id_fkey', 'map_integration_tokens_v1_user_id_fkey', 'personal_credential')"
              ).rows
 
+    # The prime-token migration (#293) replaces the 2-column active index with
+    # a 3-column (user, map, scope) one; verify whichever exists. Pre-migration
+    # snapshots have the 2-column index; post-migration both names must be gone
+    # and the 3-column one present with the same partial predicate.
     assert [[index]] =
              Repo.query!(
                "SELECT indexdef FROM pg_indexes WHERE indexname = 'map_integration_tokens_v1_active_user_map_index'"
@@ -73,6 +77,8 @@ case System.argv() do
 
     assert index =~ "UNIQUE"
     assert index =~ "WHERE (revoked_at IS NULL)"
+    # Post-migration the index covers scope too (prime tokens coexist).
+    assert index =~ "scope"
 
     IO.puts(
       "UPGRADE_FIXTURE verified: rows/digests preserved, old credentials invalid, opt-in false, FKs/check/active uniqueness present"

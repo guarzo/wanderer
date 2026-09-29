@@ -23,6 +23,7 @@ import { ServerSettings } from './components/ServerSettings.tsx';
 import { AdminSettings } from './components/AdminSettings.tsx';
 import { useMapCheckPermissions } from '@/hooks/Mapper/mapRootProvider/hooks/api';
 import { LocationApiSettings } from './components/LocationApiSettings';
+import { PrimeApiSettings } from './components/PrimeApiSettings';
 
 export interface MapSettingsProps {
   visible: boolean;
@@ -122,6 +123,11 @@ export const MapSettingsComp = ({ visible, onHide }: MapSettingsProps) => {
 
             <TabPanel header="Location API" className="h-full" headerClassName={styles.verticalTabHeader}>
               {visible && <LocationApiSettings />}
+              {visible && (
+                <div className="mt-4 border-t border-stone-800 pt-3">
+                  <PrimeApiSettings />
+                </div>
+              )}
             </TabPanel>
 
             <TabPanel header="Server Settings" className="h-full" headerClassName="color-warn">
