@@ -131,7 +131,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
   return (
     <div className="flex flex-col gap-3" aria-busy={loading}>
       <span className="text-stone-500 text-[12px]">
-        Your personal token provides read-only access to tracked character locations on this map. Keep it private.
+        Your location token provides read-only access to tracked character locations on this map. Keep it private.
       </span>
       <div className="flex flex-col gap-1">
         <label htmlFor={inputId} className="text-stone-300 text-[13px] font-semibold">

@@ -130,8 +130,8 @@ const PrimeTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }) =
   return (
     <div className="flex flex-col gap-3" aria-busy={loading}>
       <span className="text-stone-500 text-[12px]">
-        Your bookmark prime token lets Wingman stage pre-jump primes for tracked characters on this map. Keep it
-        private; it cannot read the Location API.
+        Your bookmark token lets Wingman stage pre-jump system attributes for tracked characters on this map. Keep it
+        private.
       </span>
       <div className="flex flex-col gap-1">
         <label htmlFor={inputId} className="text-stone-300 text-[13px] font-semibold">
