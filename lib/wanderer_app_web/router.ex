@@ -194,6 +194,15 @@ defmodule WandererAppWeb.Router do
     plug WandererAppWeb.Plugs.ResponseSanitizer
   end
 
+  # Dedicated pre-jump prime staging pipeline: accepts ONLY prime-scope
+  # integration credentials (checked in the controller); ordinary map API keys
+  # are rejected here. Prime tokens remain rejected by every other pipeline via
+  # the existing namespace checks.
+  pipeline :api_prime do
+    plug WandererAppWeb.Plugs.CheckApiDisabled
+    plug WandererAppWeb.Plugs.RejectNonPrimeIntegrationToken
+  end
+
   pipeline :api_map do
     plug WandererAppWeb.Plugs.CheckMapApiKey
     plug WandererAppWeb.Plugs.CheckMapSubscription
@@ -295,6 +304,14 @@ defmodule WandererAppWeb.Router do
   # Deliberately separate from ordinary API/session/owner authentication.
   scope "/api/maps/:map_identifier", WandererAppWeb do
     get "/tracked-character-locations", TrackedCharacterLocationsController, :index
+  end
+
+  # Pre-jump prime staging (issue #281): dedicated pipeline; the controller
+  # authenticates the prime-scope credential itself.
+  scope "/api/maps/:map_identifier", WandererAppWeb do
+    pipe_through [:api_prime]
+
+    post "/prejump-primes", PrejumpPrimeController, :stage
   end
 
   #

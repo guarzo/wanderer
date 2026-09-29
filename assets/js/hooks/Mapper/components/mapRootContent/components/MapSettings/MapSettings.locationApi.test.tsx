@@ -93,6 +93,13 @@ beforeEach(() => {
           enabled: true,
           token: { id: 'own', generation: 1, value: 'private-token' },
         };
+      case 'get_prime_api_token':
+        return {
+          success: true,
+          available: true,
+          enabled: true,
+          token: { id: 'own-prime', generation: 1, value: 'private-prime-token' },
+        };
       case 'get_location_api_settings':
         return { success: true, available: true, enabled: false };
       default:
@@ -116,6 +123,17 @@ it('offers personal tokens to viewers without exposing the admin tab or fetching
   expect(input()?.value).toBe('private-token');
   expect(setUserRemoteSettings.mock.calls).toEqual([[{ bookmark_name_format: 'example' }]]);
   expect(command.mock.calls.map(([event]) => event.type)).not.toContain('update_user_settings');
+  expect(localStorage.length).toBe(0);
+});
+
+it('mounts the bookmark prime panel beside the personal token and loads it only when shown', async () => {
+  await render();
+  expect(command).not.toHaveBeenCalledWith({ type: 'get_prime_api_token', data: null });
+  await openTab('Location API');
+  expect(document.body.textContent).toContain('Bookmark API token');
+  const readonlyInputs = () => Array.from(document.querySelectorAll('input[readonly]')) as HTMLInputElement[];
+  expect(readonlyInputs().map(el => el.value)).toEqual(['private-token', 'private-prime-token']);
+  expect(command).toHaveBeenCalledWith({ type: 'get_prime_api_token', data: null });
   expect(localStorage.length).toBe(0);
 });
 

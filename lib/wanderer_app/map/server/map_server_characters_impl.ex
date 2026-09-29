@@ -18,6 +18,7 @@ defmodule WandererApp.Map.Server.CharactersImpl do
   require Logger
 
   alias WandererApp.Map.Server.{Impl, ConnectionsImpl, SystemsImpl}
+  alias WandererApp.PrejumpPrimes, as: Primes
 
   def cleanup_characters(map_id) do
     {:ok, invalidate_character_ids} =
@@ -951,6 +952,21 @@ defmodule WandererApp.Map.Server.CharactersImpl do
         "map.scope=#{inspect(map.scope)}, is_valid=#{is_valid}"
     )
 
+    # Resolve the prime BEFORE any system add: maybe_add_system below may
+    # create the destination system and put it into the live map state, and a
+    # peek/newness check that ran afterwards would see the just-added system
+    # and wrongly conclude the destination was already mapped (which skips the
+    # prime's name-apply for exactly the new systems it is meant to name).
+    # The peek is read-only, so peeking for docked characters is harmless.
+    eve_id = eve_character_eve_id(character_id)
+    prime = peek_prime(map_id, location, old_location, eve_id)
+
+    # A just-created system is new to the map; an already-mapped destination
+    # keeps the name its user set (flags still apply to the new connection).
+    destination_is_new? =
+      prime != nil and
+        is_nil(WandererApp.Map.find_system_by_location(map_id, location))
+
     case is_valid do
       true ->
         # Connection is valid (at least one system matches scopes)
@@ -978,28 +994,154 @@ defmodule WandererApp.Map.Server.CharactersImpl do
 
         # Add connection if character is in space
         if is_character_in_space?(location) do
-          case ConnectionsImpl.maybe_add_connection(
-                 map_id,
-                 location,
-                 old_location,
-                 character_id,
-                 false,
-                 nil
-               ) do
-            :ok ->
-              :ok
-
-            {:error, error} ->
-              Logger.error(
-                "[CharacterTracking] Failed to add connection for character #{character_id} on map #{map_id}: #{inspect(error)}"
-              )
-
-              :ok
-          end
+          maybe_consume_prime(map_id, character_id, location, old_location, prime,
+            destination_is_new?: destination_is_new?
+          )
         end
 
       _ ->
         :ok
+    end
+  end
+
+  # Pre-jump prime handoff (issue #281, ADR 0001 in FlyGD-Wingman): consume an
+  # active, matching prime when this movement creates a NEW connection.
+  #
+  # Eligibility: character (EVE ID) + map + expected source system must match,
+  # the character must be in space, and the connection must not already exist
+  # on the map (only a NEW connection consumes). A destination system that is
+  # already mapped still gets the prime's flags on its new connection, but
+  # never a second name.
+  #
+  # Crash-safety: peek first; the prime is claimed (marked consumed) only AFTER
+  # the connection create returned :ok. If the process dies between peek and
+  # claim, the retry sees the same prime again and re-applies identical data -
+  # a claimed-but-not-applied prime can never happen. A prime peeked while the
+  # connection already exists is refused (no flags into existing state) and
+  # simply expires.
+  # `prime` and `destination_is_new?` are resolved BEFORE the system add (see
+  # update_location) and passed in: peeking after maybe_add_system would see
+  # the just-created destination in the live map state and never apply the
+  # prime's name to a genuinely new system.
+  defp maybe_consume_prime(map_id, character_id, location, old_location, prime, opts) do
+    eve_id = eve_character_eve_id(character_id)
+    destination_is_new? = Keyword.fetch!(opts, :destination_is_new?) and prime != nil
+
+    case ConnectionsImpl.maybe_add_connection(
+           map_id,
+           location,
+           old_location,
+           character_id,
+           false,
+           prime_extra_info(prime)
+         ) do
+      :ok ->
+        # Claim only when the movement really created a connection: :ok is also
+        # returned when creation was skipped or the pair was already connected,
+        # and a prime must never be consumed (nor name/flag anything) for those.
+        if prime != nil and connection_created?(map_id, location, old_location) do
+          # A concurrent losing claimant gets :not_found and applies nothing.
+          case Primes.claim(map_id, eve_id, old_location.solar_system_id) do
+            {:ok, claimed} ->
+              if destination_is_new?, do: apply_prime_name(map_id, location, claimed)
+
+            _ ->
+              :ok
+          end
+        end
+
+        :ok
+
+      {:error, error} ->
+        Logger.error(
+          "[CharacterTracking] Failed to add connection for character #{character_id} on map #{map_id}: #{inspect(error)}"
+        )
+
+        :ok
+    end
+  end
+
+  # Peek only ever returns the prime when the movement would create a NEW
+  # connection: no active/unexpired/matching prime, an already-connected pair,
+  # or an unknown character all peek nil and the movement proceeds untouched.
+  defp peek_prime(map_id, location, old_location, eve_character_id)
+       when not is_nil(eve_character_id) do
+    source_solar_system_id = old_location.solar_system_id
+
+    case Primes.peek(map_id, eve_character_id, source_solar_system_id) do
+      {:ok, prime} ->
+        if connection_exists?(map_id, location.solar_system_id, source_solar_system_id) do
+          nil
+        else
+          prime
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp peek_prime(_map_id, _location, _old_location, _eve_character_id), do: nil
+
+  defp connection_exists?(map_id, solar_system_target, solar_system_source) do
+    case WandererApp.Map.find_connection(map_id, solar_system_source, solar_system_target) do
+      {:ok, nil} -> false
+      _ -> true
+    end
+  end
+
+  # Peek already refused a pre-connected pair, so a non-nil prime plus a
+  # post-movement connection means THIS movement created it (the two checks
+  # together exclude the docked/no-connection and already-connected paths,
+  # which both return :ok from maybe_add_connection without creating anything).
+  defp connection_created?(map_id, location, old_location) do
+    connection_exists?(map_id, location.solar_system_id, old_location.solar_system_id)
+  end
+
+  defp prime_extra_info(nil), do: nil
+
+  # String keys: maybe_add_connection reads extra_info with string keys
+  # (get_extra_info/3). Flags are applied at creation time, so the new
+  # connection is born with them - no second broadcast, no update window.
+  defp prime_extra_info(prime) do
+    connection_flags = Primes.connection_flags(prime)
+
+    # Only asserted flags cross: get_extra_info/3 uses Map.get/3, whose
+    # default only applies to MISSING keys - an explicit nil value would
+    # override the computed default instead of leaving the field at default.
+    extra =
+      for {key, value} <- connection_flags,
+          not is_nil(value),
+          into: %{},
+          do: {Atom.to_string(key), value}
+
+    # Marker consumed by tests/telemetry; never read by the connection path.
+    Map.put(extra, "prejump_prime_event_id", prime.event_id)
+  end
+
+  # Name only when the destination system itself is new: the peek gate ran
+  # before creation, and a just-created system is by definition new to the map.
+  defp apply_prime_name(map_id, location, claimed) do
+    if claimed.system_name not in [nil, ""] do
+      SystemsImpl.update_system_temporary_name(map_id, %{
+        solar_system_id: location.solar_system_id,
+        temporary_name: claimed.system_name
+      })
+    end
+
+    :ok
+  end
+
+  defp eve_character_eve_id(character_id) do
+    case WandererApp.Character.get_character(character_id) do
+      {:ok, %{eve_id: eve_id}} when not is_nil(eve_id) ->
+        case Integer.parse(eve_id) do
+          {int, ""} -> int
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 

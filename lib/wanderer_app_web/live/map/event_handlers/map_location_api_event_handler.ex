@@ -45,6 +45,26 @@ defmodule WandererAppWeb.MapLocationApiEventHandler do
        ),
        do: Tokens.revoke(map, user, id, generation)
 
+  # Bookmark prime token (prejump_prime:write scope for Wingman staging).
+  defp dispatch("get_prime_api_token", _, map, user), do: Tokens.get_prime(map, user)
+  defp dispatch("generate_prime_api_token", _, map, user), do: Tokens.generate_prime(map, user)
+
+  defp dispatch(
+         "regenerate_prime_api_token",
+         %{"id" => id, "generation" => generation},
+         map,
+         user
+       ),
+       do: Tokens.regenerate_prime(map, user, id, generation)
+
+  defp dispatch(
+         "revoke_prime_api_token",
+         %{"id" => id, "generation" => generation},
+         map,
+         user
+       ),
+       do: Tokens.revoke_prime(map, user, id, generation)
+
   defp dispatch(_, _, _, _), do: {:error, :invalid_request}
 
   defp reply({:ok, %{token: %Tokens.Revealed{} = token} = result}),

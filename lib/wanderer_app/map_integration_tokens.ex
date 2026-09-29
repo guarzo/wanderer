@@ -14,6 +14,7 @@ defmodule WandererApp.MapIntegrationTokens do
   end
 
   @scope "tracked_character_locations:read"
+  @prime_scope "prejump_prime:write"
   @domain "wanderer:map-integration-token:v1"
   @metadata [:id, :map_id, :user_id, :scope, :generation, :revoked_at]
 
@@ -88,6 +89,61 @@ defmodule WandererApp.MapIntegrationTokens do
       with {:ok, token} <- current(map.id, user_id, id, generation),
            {:ok, _} <- MapIntegrationToken.revoke(token) do
         reveal(map, nil)
+      end
+    end)
+  end
+
+  # ---- Bookmark prime token (prejump_prime:write) ---------------------------
+  # Same credential system and permission path as the read token, its own
+  # scope: it authorizes Wingman's POST /prejump-primes staging only, never
+  # the read API (and the read token is rejected by the prime endpoint).
+  # Unlike the read token, this one does not require the per-map Location API
+  # opt-in — only the instance-wide integrations flag and map access.
+
+  def get_prime(map_id, user) do
+    manage(map_id, user, :read, fn map, user_id ->
+      if available?() do
+        with {:ok, token} <- own_token(map.id, user_id, @prime_scope),
+             do: reveal_prime(map, token)
+      else
+        reveal_prime(map, nil)
+      end
+    end)
+  end
+
+  def generate_prime(map_id, user) do
+    manage(map_id, user, :read, fn map, user_id ->
+      with :ok <- available_bang(),
+           {:ok, current} <- own_token(map.id, user_id, @prime_scope) do
+        if current do
+          reveal_prime(map, current)
+        else
+          issue_prime(map, user_id)
+        end
+      end
+    end)
+  end
+
+  def regenerate_prime(map_id, user, id, generation) do
+    manage(map_id, user, :read, fn map, user_id ->
+      with :ok <- available_bang(),
+           {:ok, token} <- current(map.id, user_id, id, generation, @prime_scope) do
+        {wire, digest} = credential(id)
+
+        with {:ok, encrypted} <- WandererApp.Vault.encrypt(wire),
+             {:ok, replaced} <-
+               MapIntegrationToken.replace(token, %{digest: digest, encrypted_value: encrypted}) do
+          reveal_prime(map, replaced)
+        end
+      end
+    end)
+  end
+
+  def revoke_prime(map_id, user, id, generation) do
+    manage(map_id, user, :read, fn map, user_id ->
+      with {:ok, token} <- current(map.id, user_id, id, generation, @prime_scope),
+           {:ok, _} <- MapIntegrationToken.revoke(token) do
+        reveal_prime(map, nil)
       end
     end)
   end
@@ -277,16 +333,29 @@ defmodule WandererApp.MapIntegrationTokens do
     end
   end
 
+  # Scope-aware: each scope has its own active credential for a user+map.
+  # Historical rows (created before scopes were per-credential) all carry the
+  # read scope, so the default preserves their semantics exactly.
   defp own_token(map_id, user_id) do
+    own_token(map_id, user_id, @scope)
+  end
+
+  defp own_token(map_id, user_id, scope) do
     MapIntegrationToken
-    |> Ash.Query.filter(map_id == ^map_id and user_id == ^user_id and is_nil(revoked_at))
+    |> Ash.Query.filter(
+      map_id == ^map_id and user_id == ^user_id and is_nil(revoked_at) and scope == ^scope
+    )
     |> Ash.read_one()
   end
 
-  defp current(map_id, user_id, id, generation)
+  defp current(map_id, user_id, id, generation) do
+    current(map_id, user_id, id, generation, @scope)
+  end
+
+  defp current(map_id, user_id, id, generation, scope)
        when is_binary(id) and is_integer(generation) and generation > 0 do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, token} <- own_token(map_id, user_id) do
+         {:ok, token} <- own_token(map_id, user_id, scope) do
       case token do
         %{id: ^id, generation: ^generation} -> {:ok, token}
         _ -> {:error, :conflict}
@@ -299,7 +368,56 @@ defmodule WandererApp.MapIntegrationTokens do
     end
   end
 
-  defp current(_, _, _, _), do: {:error, :conflict}
+  defp current(_, _, _, _, _), do: {:error, :conflict}
+
+  defp available_bang do
+    if available?(), do: :ok, else: {:error, :disabled}
+  end
+
+  defp issue_prime(map, user_id) do
+    id = Ash.UUID.generate()
+    {wire, digest} = credential(id)
+
+    with {:ok, encrypted} <- WandererApp.Vault.encrypt(wire),
+         {:ok, token} <-
+           MapIntegrationToken.issue(%{
+             id: id,
+             map_id: map.id,
+             user_id: user_id,
+             scope: @prime_scope,
+             digest: digest,
+             encrypted_value: encrypted
+           }) do
+      reveal_prime(map, token)
+    end
+  end
+
+  defp reveal_prime(map, nil), do: {:ok, Map.put(availability(map), :token, nil)}
+
+  defp reveal_prime(map, token) do
+    with {:ok, value} <- WandererApp.Vault.decrypt(token.encrypted_value),
+         {:ok, id, secret} <- parse(value),
+         true <- id == token.id and Plug.Crypto.secure_compare(token.digest, digest(id, secret)) do
+      {:ok,
+       Map.put(availability(map), :token, %Revealed{
+         id: token.id,
+         generation: token.generation,
+         value: value
+       })}
+    else
+      _ ->
+        # Never rotate here: a Vault/key misconfiguration must not silently
+        # invalidate every stored credential. Return the row's non-secret
+        # metadata so the owner can deliberately regenerate or revoke instead.
+        Logger.warning(
+          "prime_token_unreadable map_id=#{map.id} token_id=#{token.id} generation=#{token.generation}"
+        )
+
+        {:error,
+         {:unreadable,
+          Map.put(availability(map), :token, %{id: token.id, generation: token.generation})}}
+    end
+  end
 
   defp reveal(map, nil), do: {:ok, Map.put(availability(map), :token, nil)}
 
