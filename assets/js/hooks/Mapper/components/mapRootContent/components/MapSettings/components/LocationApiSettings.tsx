@@ -135,7 +135,7 @@ const PersonalTokenSettings = ({ outCommand }: { outCommand: OutCommandHandler }
       </span>
       <div className="flex flex-col gap-1">
         <label htmlFor={inputId} className="text-stone-300 text-[13px] font-semibold">
-          Personal Location API token
+          Location API token
         </label>
         <InputText
           id={inputId}

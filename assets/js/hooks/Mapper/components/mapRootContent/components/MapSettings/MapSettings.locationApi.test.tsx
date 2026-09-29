@@ -130,7 +130,7 @@ it('mounts the bookmark prime panel beside the personal token and loads it only 
   await render();
   expect(command).not.toHaveBeenCalledWith({ type: 'get_prime_api_token', data: null });
   await openTab('Location API');
-  expect(document.body.textContent).toContain('Bookmark prime API token');
+  expect(document.body.textContent).toContain('Bookmark API token');
   const readonlyInputs = () => Array.from(document.querySelectorAll('input[readonly]')) as HTMLInputElement[];
   expect(readonlyInputs().map(el => el.value)).toEqual(['private-token', 'private-prime-token']);
   expect(command).toHaveBeenCalledWith({ type: 'get_prime_api_token', data: null });
