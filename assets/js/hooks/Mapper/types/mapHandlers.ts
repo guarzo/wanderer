@@ -332,6 +332,11 @@ export enum OutCommand {
   regenerateLocationApiToken = 'regenerate_location_api_token',
   revokeLocationApiToken = 'revoke_location_api_token',
 
+  getPrimeApiToken = 'get_prime_api_token',
+  generatePrimeApiToken = 'generate_prime_api_token',
+  regeneratePrimeApiToken = 'regenerate_prime_api_token',
+  revokePrimeApiToken = 'revoke_prime_api_token',
+
   getIntelSourceMaps = 'get_intel_source_maps',
   setIntelSourceMap = 'set_intel_source_map',
   syncIntel = 'sync_intel',

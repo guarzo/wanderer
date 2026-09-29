@@ -3,6 +3,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
 
   alias WandererApp.Api
   alias WandererApp.MapIntegrationTokens, as: Tokens
+  alias WandererApp.PrejumpPrimes, as: Primes
   alias WandererApp.Repo
   alias WandererApp.Test.TrackedLocationsFixtures, as: Fixtures
 
@@ -351,4 +352,85 @@ defmodule WandererApp.MapIntegrationTokensTest do
 
   defp enable(map, user),
     do: assert({:ok, %{enabled: true}} = Tokens.set_enabled(map.id, user, true))
+
+  # ---- Bookmark prime token (prejump_prime:write) ---------------------------
+
+  test "prime token lifecycle works without the per-map Location API opt-in", %{
+    map: map,
+    user: user
+  } do
+    assert {:ok, %{available: true, enabled: false}} = Tokens.settings(map.id, user)
+    assert {:ok, %{token: nil}} = Tokens.get_prime(map.id, user)
+    assert {:ok, %{token: token}} = Tokens.generate_prime(map.id, user)
+    assert token.value =~ ~r/^wmi_v1_[0-9a-f-]{36}_[A-Za-z0-9_-]{43}$/
+    assert token.generation == 1
+    assert {:ok, %{token: ^token}} = Tokens.get_prime(map.id, user)
+    assert {:ok, %{token: ^token}} = Tokens.generate_prime(map.id, user)
+
+    assert {:ok, %{scope: "prejump_prime:write", user_id: user_id}} =
+             Primes.authenticate(token.value)
+
+    assert user_id == user.id
+    refute inspect(token) =~ token.value
+    stored = Repo.get!(Api.MapIntegrationToken, token.id)
+    assert stored.scope == "prejump_prime:write"
+    assert byte_size(stored.digest) == 32
+    assert is_binary(stored.encrypted_value)
+  end
+
+  test "prime and read scopes are isolated credentials with exclusive surfaces", %{
+    map: map,
+    user: user
+  } do
+    enable(map, user)
+    {:ok, %{token: read}} = Tokens.generate(map.id, user)
+    {:ok, %{token: prime}} = Tokens.generate_prime(map.id, user)
+    refute read.value == prime.value
+    refute read.id == prime.id
+
+    # The prime credential cannot read locations; the read credential cannot stage primes.
+    assert {:error, :scope_forbidden} = Tokens.authenticate(prime.value)
+    assert {:error, :scope_forbidden} = Primes.authenticate(read.value)
+
+    # Scopes rotate and revoke independently; read credentials are untouched.
+    {:ok, %{token: rotated}} = Tokens.regenerate_prime(map.id, user, prime.id, 1)
+    assert rotated.generation == 2
+    assert {:error, :conflict} = Tokens.regenerate_prime(map.id, user, prime.id, 1)
+    assert {:error, :conflict} = Tokens.regenerate_prime(map.id, user, read.id, 1)
+    assert {:ok, %{token: ^rotated}} = Tokens.get_prime(map.id, user)
+    assert {:error, :conflict} = Tokens.revoke_prime(map.id, user, read.id, 1)
+    {:ok, %{token: nil}} = Tokens.revoke_prime(map.id, user, rotated.id, 2)
+    assert {:error, :invalid_token} = Primes.authenticate(rotated.value)
+    assert {:ok, %{token: ^read}} = Tokens.get(map.id, user)
+    assert {:ok, _} = Tokens.authenticate(read.value)
+
+    # Rotation via the read path must never touch the prime credential.
+    {:ok, %{token: prime}} = Tokens.generate_prime(map.id, user)
+    {:ok, %{token: read2}} = Tokens.regenerate(map.id, user, read.id, 1)
+    assert {:ok, %{token: ^prime}} = Tokens.get_prime(map.id, user)
+    assert read2.id == read.id
+  end
+
+  test "prime token issuance is a kill-switch target and survives a coexisting revoked read token",
+       %{
+         map: map,
+         user: user
+       } do
+    enable(map, user)
+    {:ok, %{token: read}} = Tokens.generate(map.id, user)
+    {:ok, %{token: prime}} = Tokens.generate_prime(map.id, user)
+    {:ok, %{token: nil}} = Tokens.revoke(map.id, user, read.id, 1)
+    assert {:ok, %{token: ^prime}} = Tokens.get_prime(map.id, user)
+
+    # Instance-level disable is a kill switch, not a rotation trigger (same
+    # semantics as the read token): no new issuance, stored token hidden but
+    # intact, and it re-appears when the flag is restored.
+    Application.put_env(:wanderer_app, :map_integrations_enabled, false)
+    assert {:error, :disabled} = Tokens.generate_prime(map.id, user)
+    Application.put_env(:wanderer_app, :map_integrations_enabled, true)
+    assert {:ok, %{token: ^prime}} = Tokens.get_prime(map.id, user)
+
+    {:ok, %{token: rotated}} = Tokens.regenerate_prime(map.id, user, prime.id, 1)
+    assert rotated.generation == 2
+  end
 end
