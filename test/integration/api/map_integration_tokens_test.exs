@@ -3,6 +3,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
 
   alias WandererApp.Api
   alias WandererApp.MapIntegrationTokens, as: Tokens
+  alias WandererApp.PrejumpPrimes, as: Primes
   alias WandererApp.Repo
   alias WandererApp.Test.TrackedLocationsFixtures, as: Fixtures
 
@@ -367,7 +368,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
     assert {:ok, %{token: ^token}} = Tokens.generate_prime(map.id, user)
 
     assert {:ok, %{scope: "prejump_prime:write", user_id: user_id}} =
-             Tokens.authenticate_prime(token.value)
+             Primes.authenticate(token.value)
 
     assert user_id == user.id
     refute inspect(token) =~ token.value
@@ -389,7 +390,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
 
     # The prime credential cannot read locations; the read credential cannot stage primes.
     assert {:error, :scope_forbidden} = Tokens.authenticate(prime.value)
-    assert {:error, :scope_forbidden} = Tokens.authenticate_prime(read.value)
+    assert {:error, :scope_forbidden} = Primes.authenticate(read.value)
 
     # Scopes rotate and revoke independently; read credentials are untouched.
     {:ok, %{token: rotated}} = Tokens.regenerate_prime(map.id, user, prime.id, 1)
@@ -399,7 +400,7 @@ defmodule WandererApp.MapIntegrationTokensTest do
     assert {:ok, %{token: ^rotated}} = Tokens.get_prime(map.id, user)
     assert {:error, :conflict} = Tokens.revoke_prime(map.id, user, read.id, 1)
     {:ok, %{token: nil}} = Tokens.revoke_prime(map.id, user, rotated.id, 2)
-    assert {:error, :invalid_token} = Tokens.authenticate_prime(rotated.value)
+    assert {:error, :invalid_token} = Primes.authenticate(rotated.value)
     assert {:ok, %{token: ^read}} = Tokens.get(map.id, user)
     assert {:ok, _} = Tokens.authenticate(read.value)
 
@@ -421,10 +422,12 @@ defmodule WandererApp.MapIntegrationTokensTest do
     {:ok, %{token: nil}} = Tokens.revoke(map.id, user, read.id, 1)
     assert {:ok, %{token: ^prime}} = Tokens.get_prime(map.id, user)
 
-    # Instance-level disable revokes the prime credential too, like the read one.
+    # Instance-level disable is a kill switch, not a rotation trigger (same
+    # semantics as the read token): no new issuance, stored token hidden but
+    # intact, and it re-appears when the flag is restored.
     Application.put_env(:wanderer_app, :map_integrations_enabled, false)
     assert {:error, :disabled} = Tokens.generate_prime(map.id, user)
-    Application.delete_env(:wanderer_app, :map_integrations_enabled)
+    Application.put_env(:wanderer_app, :map_integrations_enabled, true)
     assert {:ok, %{token: ^prime}} = Tokens.get_prime(map.id, user)
 
     {:ok, %{token: rotated}} = Tokens.regenerate_prime(map.id, user, prime.id, 1)
