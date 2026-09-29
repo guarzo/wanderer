@@ -952,6 +952,21 @@ defmodule WandererApp.Map.Server.CharactersImpl do
         "map.scope=#{inspect(map.scope)}, is_valid=#{is_valid}"
     )
 
+    # Resolve the prime BEFORE any system add: maybe_add_system below may
+    # create the destination system and put it into the live map state, and a
+    # peek/newness check that ran afterwards would see the just-added system
+    # and wrongly conclude the destination was already mapped (which skips the
+    # prime's name-apply for exactly the new systems it is meant to name).
+    # The peek is read-only, so peeking for docked characters is harmless.
+    eve_id = eve_character_eve_id(character_id)
+    prime = peek_prime(map_id, location, old_location, eve_id)
+
+    # A just-created system is new to the map; an already-mapped destination
+    # keeps the name its user set (flags still apply to the new connection).
+    destination_is_new? =
+      prime != nil and
+        is_nil(WandererApp.Map.find_system_by_location(map_id, location))
+
     case is_valid do
       true ->
         # Connection is valid (at least one system matches scopes)
@@ -979,7 +994,9 @@ defmodule WandererApp.Map.Server.CharactersImpl do
 
         # Add connection if character is in space
         if is_character_in_space?(location) do
-          maybe_consume_prime(map_id, character_id, location, old_location)
+          maybe_consume_prime(map_id, character_id, location, old_location, prime,
+            destination_is_new?: destination_is_new?
+          )
         end
 
       _ ->
@@ -1002,15 +1019,13 @@ defmodule WandererApp.Map.Server.CharactersImpl do
   # a claimed-but-not-applied prime can never happen. A prime peeked while the
   # connection already exists is refused (no flags into existing state) and
   # simply expires.
-  defp maybe_consume_prime(map_id, character_id, location, old_location) do
+  # `prime` and `destination_is_new?` are resolved BEFORE the system add (see
+  # update_location) and passed in: peeking after maybe_add_system would see
+  # the just-created destination in the live map state and never apply the
+  # prime's name to a genuinely new system.
+  defp maybe_consume_prime(map_id, character_id, location, old_location, prime, opts) do
     eve_id = eve_character_eve_id(character_id)
-    prime = peek_prime(map_id, location, old_location, eve_id)
-
-    # A just-created system is new to the map; an already-mapped destination
-    # keeps the name its user set (flags still apply to the new connection).
-    destination_is_new? =
-      prime != nil and
-        is_nil(WandererApp.Map.find_system_by_location(map_id, location))
+    destination_is_new? = Keyword.fetch!(opts, :destination_is_new?) and prime != nil
 
     case ConnectionsImpl.maybe_add_connection(
            map_id,
