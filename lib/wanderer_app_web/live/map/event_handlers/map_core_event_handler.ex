@@ -280,7 +280,11 @@ defmodule WandererAppWeb.MapCoreEventHandler do
              "get_location_api_token",
              "generate_location_api_token",
              "regenerate_location_api_token",
-             "revoke_location_api_token"
+             "revoke_location_api_token",
+             "get_prime_api_token",
+             "generate_prime_api_token",
+             "regenerate_prime_api_token",
+             "revoke_prime_api_token"
            ] do
     WandererAppWeb.MapLocationApiEventHandler.handle(event, data, socket)
   end

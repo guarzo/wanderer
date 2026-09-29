@@ -200,6 +200,10 @@
         {
           "type": "atom",
           "value": "map_id"
+        },
+        {
+          "type": "atom",
+          "value": "scope"
         }
       ],
       "name": "active_user_map",
