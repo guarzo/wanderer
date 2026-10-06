@@ -710,6 +710,10 @@ export const STATUS_CLASSES: Record<number, string> = {
   [STATUSES.dangerous]: 'eve-system-status-dangerous',
 };
 
+// Recognition scanner hulls: Buzzard, Cheetah, Helios, Anathema, Pacifier.
+// Type IDs verified against the SDE (everef.net / zkillboard).
+export const SCANNER_SHIP_TYPE_IDS = new Set([11192, 11182, 11172, 11188, 44993]);
+
 export const TYPE_NAMES_ORDER = [ConnectionType.wormhole, ConnectionType.gate, ConnectionType.bridge, ConnectionType.loop];
 
 export const TYPE_NAMES = {
