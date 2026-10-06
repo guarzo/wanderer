@@ -8,6 +8,7 @@ import { useDoubleClick } from '@/hooks/Mapper/hooks/useDoubleClick';
 import { Regions, REGIONS_MAP, SPACE_TO_CLASS } from '@/hooks/Mapper/constants';
 import { isWormholeSpace } from '@/hooks/Mapper/components/map/helpers/isWormholeSpace';
 import { getSystemClassStyles } from '@/hooks/Mapper/components/map/helpers';
+import { SCANNER_SHIP_TYPE_IDS } from '@/hooks/Mapper/components/map/constants';
 import { sortWHClasses } from '@/hooks/Mapper/helpers';
 import { CharacterTypeRaw, OutCommand, PingType, SystemSignature, WormholeDataRaw } from '@/hooks/Mapper/types';
 import { useUnsplashedSignatures } from './useUnsplashedSignatures';
@@ -57,6 +58,7 @@ export interface SolarSystemNodeVars {
   systemHighlighted: string | undefined;
   hasIntelSource: boolean;
   isRallyRoute: boolean;
+  hasScanner: boolean;
 }
 
 export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarSystemNodeVars => {
@@ -148,6 +150,11 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     [charactersInSystem, userCharacters],
   );
 
+  const hasScanner = useMemo(
+    () => charactersInSystem.some(c => c.ship != null && SCANNER_SHIP_TYPE_IDS.has(c.ship.ship_type_id)),
+    [charactersInSystem],
+  );
+
   const dbClick = useDoubleClick(() => {
     outCommand({
       type: OutCommand.openSettings,
@@ -231,5 +238,6 @@ export const useSolarSystemNode = (props: NodeProps<MapSolarSystemType>): SolarS
     systemHighlighted,
     hasIntelSource: !!mapOptions?.intel_source_map_id,
     isRallyRoute,
+    hasScanner,
   };
 };
