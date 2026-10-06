@@ -23,6 +23,18 @@
   }
 }
 
+@keyframes pulse-scanner-node {
+  0% {
+    box-shadow: 0 0 6px rgba(168, 85, 247, 0.5), inset 0 0 6px rgba(168, 85, 247, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.9), inset 0 0 12px rgba(168, 85, 247, 0.35);
+  }
+  100% {
+    box-shadow: 0 0 6px rgba(168, 85, 247, 0.5), inset 0 0 6px rgba(168, 85, 247, 0.2);
+  }
+}
+
 .RootCustomNode {
   display: flex;
   width: var(--rf-node-width, 130px);
@@ -182,6 +194,13 @@
 
   &.eve-system-status-target {
     background-image: linear-gradient(275deg, var(--eve-solar-system-status-target), transparent);
+  }
+
+  // An online tracked character is flying a recognition scanner hull here.
+  // Declared last so the purple border wins over .selected and status borders.
+  &.scanner {
+    border: 2px solid #a855f7;
+    animation: pulse-scanner-node 2s ease-in-out infinite;
   }
 }
 
