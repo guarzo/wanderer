@@ -111,6 +111,19 @@ describe('autoPlaceSpawnedSystems', () => {
     expect(placements.get('2')).toEqual({ x: 714, y: 204 });
   });
 
+  it('does not take the spot of an unmoved batch-mate', () => {
+    const parent = node('100', 476, 153);
+    const spawned = spawnOf(parent.position, 180, 75, '1');
+    // A manually positioned system arriving in the same batch already sits in
+    // the children column; it does not match the ring pattern, so it stays.
+    const manual = { id: '2', position: { x: 714, y: 153 } };
+
+    const placements = autoPlaceSpawnedSystems([spawned, manual], [parent], { snap: ZOO_SNAP });
+
+    expect(placements.has('2')).toBe(false);
+    expect(placements.get('1')).toEqual({ x: 714, y: 204 });
+  });
+
   it('snaps children of off-grid parents to the absolute theme grid', () => {
     // A system dragged before snapping was enforced can sit off-lattice; its
     // spawns still land on the shared grid.

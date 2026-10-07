@@ -70,6 +70,10 @@ interface Rect {
   bottom: number;
 }
 
+// Never intersects anything: stands in for a reservation that is temporarily
+// up for grabs (the owning system is searching for a new slot).
+const EMPTY_RECT: Rect = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+
 const isDivisible = (value: number, step: number) =>
   Math.abs(value / step - Math.round(value / step)) < EPSILON;
 
@@ -228,13 +232,29 @@ export function autoPlaceSpawnedSystems(
 
   const sorted = [...systems].sort((a, b) => Number(a.id) - Number(b.id));
 
+  // Reserve every incoming system's position up front so a spawn never takes
+  // the spot of a batch-mate that will not move (no parent found); each
+  // reservation is swapped for the system's final position as it is placed.
+  const reservations = new Map<string, number>(
+    sorted.map((system, index) => [`${system.id}`, nodes.length + index]),
+  );
+  for (const system of sorted) {
+    occupied.push(nodeRect(system.position));
+  }
+
   for (const system of sorted) {
     const parent = findSpawnParent(system, [...nodes, ...placed]);
+    const reservedIndex = reservations.get(`${system.id}`);
 
     if (!parent) {
-      occupied.push(nodeRect(system.position));
       placed.push(system);
       continue;
+    }
+
+    // The system is free to leave its own reserved spot, so take it out of the
+    // collision set while searching; the final position takes its place below.
+    if (reservedIndex !== undefined) {
+      occupied[reservedIndex] = EMPTY_RECT;
     }
 
     const slot = computeSpawnSlot(parent, occupied, options);
@@ -247,7 +267,10 @@ export function autoPlaceSpawnedSystems(
       placements.set(`${system.id}`, position);
     }
 
-    occupied.push(nodeRect(position));
+    if (reservedIndex !== undefined) {
+      occupied[reservedIndex] = nodeRect(position);
+    }
+
     placed.push({ ...system, position });
   }
 
