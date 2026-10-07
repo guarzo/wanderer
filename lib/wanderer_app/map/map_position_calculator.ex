@@ -39,15 +39,17 @@ defmodule WandererApp.Map.PositionCalculator do
     prime_name = normalize_name(Keyword.get(opts, :prime_name))
     systems = Keyword.get(opts, :systems, [])
 
-    {:ok,
-     compute_slot(
-       px,
-       py,
-       layout,
-       prime_name,
-       systems,
-       fn {x, y} -> position_free?(x, y, rtree_name) end
-     )}
+    {x, y} =
+      compute_slot(
+        px,
+        py,
+        layout,
+        prime_name,
+        systems,
+        fn {x, y} -> position_free?(x, y, rtree_name) end
+      )
+
+    %{x: x, y: y}
   end
 
   # Pure slot search so the grid/ordering/collision rules are unit-testable
