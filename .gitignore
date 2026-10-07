@@ -1,3 +1,4 @@
+
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
@@ -68,3 +69,6 @@ erl_crash.dump
 *.njsproj
 *.sln
 *.sw?
+.pi
+.env-prod
+
