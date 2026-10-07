@@ -187,19 +187,19 @@ defmodule WandererApp.Map.PositionCalculator do
   #                    continue downward
   defp around(center, max, :symmetric),
     do:
-      Enum.concat(
+      Enum.concat([
         [center],
         Enum.map(1..max, &(&1 + center)),
         Enum.map(1..max, &(center - &1))
-      )
+      ])
 
   defp around(center, max, :insert_before),
     do:
-      Enum.concat(
+      Enum.concat([
         [center, center - 1],
         Enum.map(1..max, &(&1 + center)),
         Enum.map(2..max, &(center - &1))
-      )
+      ])
 
   defp normalize_name(nil), do: nil
 
