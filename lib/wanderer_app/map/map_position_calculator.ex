@@ -19,10 +19,13 @@ defmodule WandererApp.Map.PositionCalculator do
   @grid_x 238
   @grid_y 51
   # "Limited" sticky stacking: a lane spills into the next one after roughly
-  # 2*@max_secondary_steps + 1 placements, and the search spans 2*@max_primary_steps
-  # lanes before giving up (keeping the raw parent-relative position).
+  # 2*@max_secondary_steps + 1 placements, and the ordered search spans
+  # 2*@max_primary_steps lanes. If every one of those is occupied, the scan
+  # widens to @max_fallback_lanes lanes before the snapped anchor is used as
+  # the last resort (a system must not be dropped over placement).
   @max_secondary_steps 5
   @max_primary_steps 6
+  @max_fallback_lane 25
 
   def get_system_bounding_rect(%{position_x: x, position_y: y} = _system) do
     [{x, x + @node_w}, {y, y + @node_h}]
@@ -72,7 +75,7 @@ defmodule WandererApp.Map.PositionCalculator do
       target_secondary_index(prime_name, anchor_x, anchor_y, x_step, y_step, vertical?, systems)
 
     secondary_offsets = around(target, @max_secondary_steps, mode)
-    primary_offsets = outward(@max_primary_steps)
+    primary_offsets = Enum.concat(outward(@max_primary_steps), fallback_lanes())
 
     Enum.find_value(primary_offsets, fn primary ->
       {base_x, base_y} =
@@ -94,6 +97,9 @@ defmodule WandererApp.Map.PositionCalculator do
       end)
     end)
     |> case do
+      # Unreachable unless the neighborhood is pathological (every lane within
+      # @max_fallback_lanes fully stacked); the snapped anchor is the least
+      # surprising last resort - a system must not be dropped over placement.
       nil -> {anchor_x, anchor_y}
       slot -> slot
     end
@@ -181,6 +187,10 @@ defmodule WandererApp.Map.PositionCalculator do
   # lanes behind the parent only last.
   defp outward(max),
     do: Enum.concat(Enum.map(1..max, & &1), Enum.map(1..max, &(-&1)))
+
+  # Lanes beyond the ordered fan-out, scanned before giving up.
+  defp fallback_lanes,
+    do: Enum.concat(Enum.to_list(7..@max_fallback_lane), Enum.to_list(-@max_fallback_lane..-7//1))
 
   # Offsets along the stacking axis, relative to the preferred row. Rows below
   # come first (chains read downward), the rows above backfill after.

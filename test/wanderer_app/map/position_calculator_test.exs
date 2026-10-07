@@ -70,7 +70,22 @@ defmodule WandererApp.Map.PositionCalculatorTest do
       assert x == 476 + @grid_x
     end
 
-    test "keeps the snapped parent position when everything nearby is taken" do
+    test "keeps the snapped parent position only after the widened fallback scan" do
+      parent = {476, 153}
+
+      # Wall off every lane the ordered search and the widened fallback may
+      # try (1..6 in each direction, then 7..25), all rows.
+      taken =
+        for lane <- Enum.concat(1..6, 7..25),
+            sign <- [1, -1],
+            row <- -5..5 do
+          {476 + sign * lane * @grid_x, 153 + row * @grid_y}
+        end
+
+      assert slot(parent, [], nil, "left_to_right", taken) == {476, 153}
+    end
+
+    test "finds a slot in the widened fallback lanes when the ordered ones are full" do
       parent = {476, 153}
 
       taken =
@@ -80,7 +95,7 @@ defmodule WandererApp.Map.PositionCalculatorTest do
           {476 + sign * lane * @grid_x, 153 + row * @grid_y}
         end
 
-      assert slot(parent, [], nil, "left_to_right", taken) == {476, 153}
+      assert slot(parent, [], nil, "left_to_right", taken) == {476 + 7 * @grid_x, 153}
     end
 
     test "places below the parent for top-to-bottom maps" do
