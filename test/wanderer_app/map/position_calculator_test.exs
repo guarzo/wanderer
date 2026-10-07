@@ -245,10 +245,11 @@ defmodule WandererApp.Map.PositionCalculatorTest do
     end
 
     test "a dragged sibling indexes to its snapped row, not its raw offset" do
-      # alpha sits 30px above the parent row (between grid rows); its snapped
-      # row is -1, so a later name appends on the parent row (0) instead of
-      # colliding with alpha's raw-offset index (also 0).
-      systems = [child_system(@lane_x, 153 - 30, "alpha", 11)]
+      # alpha sits 49px above the parent row (between grid rows, and clear of
+      # the parent-row slot's padded collision rectangle); its snapped row is
+      # -1, so a later name appends on the parent row (0) instead of colliding
+      # with alpha's raw-offset index (also 0).
+      systems = [child_system(@lane_x, 153 - 49, "alpha", 11)]
 
       assert slot({476, 153}, systems, "zulu", "left_to_right", [], [11]) ==
                {@lane_x, 153}
