@@ -614,7 +614,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     end
   end
 
-  def maybe_add_system(_map_id, _location, _old_location, _map_opts, _scopes), do: :ok
+  def maybe_add_system(_map_id, _location, _old_location, _map_opts, _scopes, _opts), do: :ok
 
   defp do_add_system_from_location(map_id, location, old_location, map_opts, opts) do
     prime_name = Keyword.get(opts, :prime_name)
