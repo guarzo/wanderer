@@ -634,17 +634,29 @@ defmodule WandererApp.Map.Server.SystemsImpl do
         rtree_name = "rtree_#{map_id}"
 
         # The live map feeds the placement's sibling ordering (prime names
-        # in the children lane read alphabetically).
-        systems =
+        # among the parent's own children read alphabetically). The
+        # parent>child relationship is the connection each child was created
+        # through - cousins under another parent in the same column must not
+        # influence the slot.
+        map =
           map_id
           |> WandererApp.Map.get_map!()
+
+        systems =
+          map
           |> Map.get(:systems, %{})
+          |> Map.values()
+
+        connections =
+          map
+          |> Map.get(:connections, %{})
           |> Map.values()
 
         {:ok, position} =
           calc_new_system_position(map_id, old_location, rtree_name, map_opts,
             prime_name: prime_name,
-            systems: systems
+            systems: systems,
+            connections: connections
           )
 
         case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(

@@ -37,10 +37,11 @@ defmodule WandererApp.Map.PositionCalculator do
     get_new_system_position(%{position_x: 0, position_y: 0}, rtree_name, opts)
   end
 
-  def get_new_system_position(%{position_x: px, position_y: py} = _parent, rtree_name, opts) do
+  def get_new_system_position(%{position_x: px, position_y: py} = parent, rtree_name, opts) do
     layout = Keyword.get(opts, :layout, "left_to_right")
     prime_name = normalize_name(Keyword.get(opts, :prime_name))
     systems = Keyword.get(opts, :systems, [])
+    connections = Keyword.get(opts, :connections, [])
 
     {x, y} =
       compute_slot(
@@ -49,22 +50,46 @@ defmodule WandererApp.Map.PositionCalculator do
         layout,
         prime_name,
         systems,
+        child_ids(parent, connections),
         fn {x, y} -> position_free?(x, y, rtree_name) end
       )
 
     %{x: x, y: y}
   end
 
+  # The parent>child relationship is the connection established when each child
+  # spawned from this parent. Only those children may shape the sibling
+  # ordering - systems that merely share the parent's column (children of a
+  # different parent in the same chain column) must not.
+  defp child_ids(%{solar_system_id: parent_id}, connections) when not is_nil(parent_id) do
+    connections
+    |> Enum.flat_map(fn connection ->
+      source = Map.get(connection, :solar_system_source)
+      target = Map.get(connection, :solar_system_target)
+
+      cond do
+        source == parent_id -> [target]
+        target == parent_id -> [source]
+        true -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp child_ids(_parent, _connections), do: MapSet.new()
+
   # Pure slot search so the grid/ordering/collision rules are unit-testable
   # without an rtree: `available?` receives a candidate {x, y} and answers
-  # whether a system may be placed there.
+  # whether a system may be placed there. `child_ids` is the set of
+  # solar_system_ids connected to the parent (its children).
   #
   # Children live in the lane adjacent to the parent (per layout direction),
   # stacking tightly along the other axis. With a prime name, the preferred
-  # stacking position keeps named siblings in alphabetical order; without one,
-  # stacking starts at the parent row. Lanes fan outward only when the adjacent
-  # ones are crowded; the snapped parent anchor is the last-resort fallback.
-  def compute_slot(parent_x, parent_y, layout, prime_name, systems, available?) do
+  # stacking position keeps the parent's named children in alphabetical order;
+  # without one, stacking starts at the parent row. Lanes fan outward only when
+  # the adjacent ones are crowded; the snapped parent anchor is the last-resort
+  # fallback.
+  def compute_slot(parent_x, parent_y, layout, prime_name, systems, child_ids, available?) do
     vertical? = layout == "top_to_bottom"
     x_step = step(@grid_x, @node_w, @gap_x)
     y_step = step(@grid_y, @node_h, @gap_y)
@@ -72,7 +97,16 @@ defmodule WandererApp.Map.PositionCalculator do
     anchor_y = snap(parent_y, @grid_y)
 
     {target, mode} =
-      target_secondary_index(prime_name, anchor_x, anchor_y, x_step, y_step, vertical?, systems)
+      target_secondary_index(
+        prime_name,
+        anchor_x,
+        anchor_y,
+        x_step,
+        y_step,
+        vertical?,
+        systems,
+        child_ids
+      )
 
     secondary_offsets = around(target, @max_secondary_steps, mode)
     primary_offsets = Enum.concat(outward(@max_primary_steps), fallback_lanes())
@@ -105,17 +139,36 @@ defmodule WandererApp.Map.PositionCalculator do
     end
   end
 
-  # Where along the stacking axis the prime-named system belongs so that named
-  # siblings in the children lane read alphabetically. Systems without a name
-  # start at the parent row.
-  defp target_secondary_index(nil, _anchor_x, _anchor_y, _x_step, _y_step, _vertical?, _systems),
-    do: {0, :symmetric}
+  # Where along the stacking axis the prime-named system belongs so that the
+  # parent's named children in the children lane read alphabetically. Systems
+  # without a name start at the parent row.
+  defp target_secondary_index(
+         nil,
+         _anchor_x,
+         _anchor_y,
+         _x_step,
+         _y_step,
+         _vertical?,
+         _systems,
+         _child_ids
+       ),
+       do: {0, :symmetric}
 
-  defp target_secondary_index(prime_name, anchor_x, anchor_y, x_step, y_step, vertical?, systems) do
+  defp target_secondary_index(
+         prime_name,
+         anchor_x,
+         anchor_y,
+         x_step,
+         y_step,
+         vertical?,
+         systems,
+         child_ids
+       ) do
     named =
       systems
       |> Enum.filter(fn system ->
         normalize_name(Map.get(system, :temporary_name)) != nil and
+          MapSet.member?(child_ids, Map.get(system, :solar_system_id)) and
           in_children_lane?(system, anchor_x, anchor_y, x_step, y_step, vertical?)
       end)
       |> Enum.map(fn system ->

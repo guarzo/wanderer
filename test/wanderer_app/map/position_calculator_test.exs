@@ -8,10 +8,26 @@ defmodule WandererApp.Map.PositionCalculatorTest do
   @grid_x 238
   @grid_y 51
 
-  defp slot(parent, systems \\ [], prime_name \\ nil, layout \\ "left_to_right", taken \\ []) do
+  # `child_ids` is the set of solar_system_ids connected to the parent (its
+  # children). Defaults to "every system on the map", the lane-mate assumption
+  # the ordering tests below are written against; the sibling-scoping tests
+  # pass an explicit set.
+  defp slot(
+         parent,
+         systems \\ [],
+         prime_name \\ nil,
+         layout \\ "left_to_right",
+         taken \\ [],
+         child_ids \\ nil
+       ) do
     # In production the rtree knows every placed system, so systems block their
     # own cell in addition to any extra occupied cells the test passes in.
     system_cells = Enum.map(systems, fn s -> {s.position_x, s.position_y} end)
+
+    child_ids =
+      if child_ids == nil,
+        do: MapSet.new(Enum.map(systems, &Map.get(&1, :solar_system_id))),
+        else: MapSet.new(child_ids)
 
     PositionCalculator.compute_slot(
       parent_x(parent),
@@ -19,6 +35,7 @@ defmodule WandererApp.Map.PositionCalculatorTest do
       layout,
       prime_name,
       systems,
+      child_ids,
       fn {x, y} -> {x, y} not in taken and {x, y} not in system_cells end
     )
   end
@@ -26,8 +43,12 @@ defmodule WandererApp.Map.PositionCalculatorTest do
   defp parent_x(parent), do: elem(parent, 0)
   defp parent_y(parent), do: elem(parent, 1)
 
-  defp system(x, y, temporary_name \\ nil) do
+  defp system(x, y, temporary_name) do
     %{position_x: x, position_y: y, temporary_name: temporary_name}
+  end
+
+  defp child_system(x, y, temporary_name, solar_system_id) do
+    Map.merge(system(x, y, temporary_name), %{solar_system_id: solar_system_id})
   end
 
   describe "grid placement" do
@@ -176,6 +197,51 @@ defmodule WandererApp.Map.PositionCalculatorTest do
       ]
 
       assert slot(parent, systems, "alpha", "top_to_bottom") == {476, lane_y}
+    end
+  end
+
+  describe "sibling scoping" do
+    # The branch roots 1 and 2 (at x=476, 2 eight rows below 1) share a column,
+    # so their children lanes coincide; only connections tell them apart.
+    @two {476, 153 + 8 * @grid_y}
+    @lane_x 476 + @grid_x
+
+    test "cousins in the shared column do not augment the placement" do
+      # 1's named children occupy the shared children lane; 2 has none yet.
+      systems = [
+        child_system(@lane_x, 153, "11", 11),
+        child_system(@lane_x, 153 + @grid_y, "12", 12)
+      ]
+
+      # 21 must branch horizontally from its own parent 2, not slot in below
+      # the cousins (which the name rule alone would have it do).
+      assert slot(@two, systems, "21", "left_to_right", [], []) ==
+               {@lane_x, 153 + 8 * @grid_y}
+    end
+
+    test "inserts above its own alphabetically-later sibling, cousins ignored" do
+      # 2A jumped first and sits on 2's parent row; 21 arrives later and, by
+      # the temp-name rule, becomes 2A's sibling one row above it.
+      systems = [
+        child_system(@lane_x, 153, "11", 11),
+        child_system(@lane_x, 153 + @grid_y, "12", 12),
+        child_system(@lane_x, 153 + 8 * @grid_y, "2A", 22)
+      ]
+
+      assert slot(@two, systems, "21", "left_to_right", [], [22]) ==
+               {@lane_x, 153 + 7 * @grid_y}
+    end
+
+    test "appends below its own alphabetically-earlier sibling, cousins ignored" do
+      # 21 jumped first and sits on 2's parent row; 2A belongs below it.
+      systems = [
+        child_system(@lane_x, 153, "11", 11),
+        child_system(@lane_x, 153 + @grid_y, "12", 12),
+        child_system(@lane_x, 153 + 8 * @grid_y, "21", 21)
+      ]
+
+      assert slot(@two, systems, "2A", "left_to_right", [], [21]) ==
+               {@lane_x, 153 + 9 * @grid_y}
     end
   end
 end
