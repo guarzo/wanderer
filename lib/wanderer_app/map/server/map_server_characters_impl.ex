@@ -971,7 +971,18 @@ defmodule WandererApp.Map.Server.CharactersImpl do
       true ->
         # Connection is valid (at least one system matches scopes)
         # Add systems that match the map's scopes - individual system filtering by maybe_add_system
-        case SystemsImpl.maybe_add_system(map_id, location, old_location, map_opts, scopes) do
+        # The peeked prime's name rides along with the spawn so the system is
+        # created (and broadcast) with it already set - apply_prime_name at
+        # consume time then only re-asserts the same value.
+        prime_name =
+          case prime do
+            %{system_name: name} when name not in [nil, ""] -> name
+            _ -> nil
+          end
+
+        case SystemsImpl.maybe_add_system(map_id, location, old_location, map_opts, scopes,
+               prime_name: prime_name
+             ) do
           :ok ->
             :ok
 
