@@ -6,10 +6,10 @@ on:
   push:
     branches: [guarzo/zoo, main, develop]
 
+# Read-only on purpose: fork PRs get a read-only token anyway, so the PR comment
+# is posted by the privileged pr-comment.yml workflow, not from here.
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 # A newer push to the same ref makes the in-flight run irrelevant.
 concurrency:
@@ -31,7 +31,7 @@ jobs:
     name: Setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: erlef/setup-beam@v1
         with:
@@ -41,7 +41,7 @@ jobs:
       # The OTP/Elixir versions are part of the key: a _build compiled by a
       # different OTP is not reusable, and the old `Linux-mix-` restore-key
       # could match another workflow's OTP 27 cache.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: deps-cache
         with:
           path: |
@@ -84,14 +84,14 @@ jobs:
       MIX_TEST_PARTITION: ${{ matrix.partition }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         id: deps-cache
         with:
           path: |
@@ -121,6 +121,63 @@ jobs:
       - name: Run tests
         run: mix test --partitions ${{ env.PARTITIONS }}
 
+  # Integration tests are excluded from the default `mix test` run by
+  # test/test_helper.exs, so the sharded `tests` job never runs them. A hard
+  # gate: a red integration run blocks the merge.
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: setup
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wanderer_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - uses: actions/cache/restore@v6
+        id: deps-cache
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
+
+      # setup seeds this cache, but a restore can still miss (eviction, a failed
+      # save, a concurrent lockfile change). Without this the job dies on a
+      # confusing "module is not available" instead of just rebuilding.
+      - name: Install dependencies (cache miss)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          mix deps.get
+          mix deps.compile
+
+      - name: Setup database
+        run: |
+          mix ecto.create
+          mix ecto.migrate
+
+      # --only, not --include: --include would run the whole suite on top of
+      # the tagged tests, duplicating the sharded `tests` job.
+      - name: Run integration tests
+        run: mix test --only integration
+
   # Two migration files defining the same module is not a compile error: the
   # later definition replaces the earlier one, so a migration silently never
   # runs and the schema drift only surfaces much later. That happened once
@@ -131,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check for duplicate migration module names
         run: |
@@ -156,14 +213,14 @@ jobs:
       credo: ${{ steps.credo.outputs.total_issues }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         id: deps-cache
         with:
           path: |
@@ -221,7 +278,7 @@ jobs:
 
       - name: Upload static analysis output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: static-analysis
           path: |
@@ -242,14 +299,14 @@ jobs:
       warnings: ${{ steps.dialyzer.outputs.warnings }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         id: deps-cache
         with:
           path: |
@@ -268,7 +325,7 @@ jobs:
 
       # restore-keys lets a mix.lock change reuse the previous PLT and update it
       # incrementally, instead of paying the ~6m full rebuild on every bump.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: priv/plts
           key: plt-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
@@ -292,7 +349,7 @@ jobs:
 
       - name: Upload Dialyzer output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dialyzer
           path: dialyzer_output.txt
@@ -323,14 +380,14 @@ jobs:
           - 5432:5432
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         id: deps-cache
         with:
           path: |
@@ -370,75 +427,95 @@ jobs:
   gate:
     name: Test Suite
     runs-on: ubuntu-latest
-    needs: [tests, static, migrations]
+    needs: [tests, integration, static, migrations]
     if: always()
 
     steps:
       - name: Verify required jobs succeeded
         run: |
-          echo "tests:      ${{ needs.tests.result }}"
-          echo "static:     ${{ needs.static.result }}"
-          echo "migrations: ${{ needs.migrations.result }}"
+          echo "tests:       ${{ needs.tests.result }}"
+          echo "integration: ${{ needs.integration.result }}"
+          echo "static:      ${{ needs.static.result }}"
+          echo "migrations:  ${{ needs.migrations.result }}"
           if [ "${{ needs.tests.result }}" != "success" ] || \
+             [ "${{ needs.integration.result }}" != "success" ] || \
              [ "${{ needs.static.result }}" != "success" ] || \
              [ "${{ needs.migrations.result }}" != "success" ]; then
             echo "::error::Required jobs did not pass"
             exit 1
           fi
 
+  # Fork PRs get a read-only GITHUB_TOKEN, so this workflow cannot post the
+  # comment itself. It renders the body and uploads it as the `pr-comment`
+  # artifact; the privileged pr-comment.yml (workflow_run) posts it. That
+  # workflow matches on this file's `name:`, so keep the two in step.
   comment:
     name: PR comment
     runs-on: ubuntu-latest
-    needs: [tests, static, dialyzer]
+    needs: [tests, integration, static, dialyzer]
     if: always() && github.event_name == 'pull_request'
 
     steps:
-      # Fork PRs get a read-only GITHUB_TOKEN, so commenting 403s there. This
-      # job is purely informational and never gates a merge, so degrade quietly
-      # rather than painting the run red.
-      - name: Find existing comment
-        id: find_comment
-        continue-on-error: true
-        uses: peter-evans/find-comment@v3
+      - name: Render PR comment body
+        env:
+          TESTS: ${{ needs.tests.result == 'success' && '✅ Passed' || '❌ Failed' }}
+          INTEGRATION: ${{ needs.integration.result == 'success' && '✅ Passed' || '❌ Failed' }}
+          STATIC: ${{ needs.static.result == 'success' && '✅ Passed' || '❌ Failed' }}
+          WARNINGS: ${{ needs.static.outputs.warnings || 'n/a' }}
+          CREDO: ${{ needs.static.outputs.credo || 'n/a' }}
+          DIALYZER: ${{ needs.dialyzer.outputs.warnings || 'n/a' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p pr-comment
+          # Validate the PR number so the trusted workflow can trust this file.
+          case "$PR_NUMBER" in
+            ''|*[!0-9]*) echo "Refusing to emit non-numeric PR number" >&2; exit 1 ;;
+          esac
+          printf '%s\n' "$PR_NUMBER" > pr-comment/pr-number
+
+          # Values are interpolated by the shell from env, never by Actions
+          # expression substitution, so tool output cannot inject workflow syntax.
+          cat > pr-comment/body.md <<EOF
+          ## 🧪 Test Results Summary
+
+          | Category | Result | Gates merge? |
+          |----------|--------|--------------|
+          | 🧪 **Tests** (${PARTITIONS} shards) | ${TESTS} | ✅ yes |
+          | 🔗 **Integration tests** | ${INTEGRATION} | ✅ yes |
+          | 📝 **Formatting** / **Compile** / **Ash codegen** | ${STATIC} | ✅ yes |
+          | ⚠️ **Compile warnings** | ${WARNINGS} | advisory |
+          | 🎯 **Credo** | ${CREDO} issues | advisory |
+          | 🔍 **Dialyzer** | ${DIALYZER} warnings | advisory |
+
+          Full output for the advisory checks is attached to this run as
+          build artifacts. Coverage runs on pushes to the default branch,
+          not on PRs.
+
+          <details>
+          <summary>🔧 Reproduce locally</summary>
+
+          \`\`\`bash
+          mix format
+          mix test
+          mix test --only integration
+          mix credo --strict
+          mix dialyzer
+          \`\`\`
+
+          </details>
+
+          ---
+
+          🤖 *Auto-generated by GitHub Actions*
+          EOF
+
+          # Mirror to the run summary so the report is visible even if the
+          # follow-up commenting workflow is unavailable.
+          cat pr-comment/body.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload PR comment body
+        uses: actions/upload-artifact@v7
         with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: '## 🧪 Test Results Summary'
-
-      - name: Create or update comment
-        continue-on-error: true
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          comment-id: ${{ steps.find_comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          edit-mode: replace
-          body: |
-            ## 🧪 Test Results Summary
-
-            | Category | Result | Gates merge? |
-            |----------|--------|--------------|
-            | 🧪 **Tests** (${{ env.PARTITIONS }} shards) | ${{ needs.tests.result == 'success' && '✅ Passed' || '❌ Failed' }} | ✅ yes |
-            | 📝 **Formatting** / **Compile** | ${{ needs.static.result == 'success' && '✅ Passed' || '❌ Failed' }} | ✅ yes |
-            | ⚠️ **Compile warnings** | ${{ needs.static.outputs.warnings || 'n/a' }} | advisory |
-            | 🎯 **Credo** | ${{ needs.static.outputs.credo || 'n/a' }} issues | advisory |
-            | 🔍 **Dialyzer** | ${{ needs.dialyzer.outputs.warnings || 'n/a' }} warnings | advisory |
-
-            Full output for the advisory checks is attached to this run as
-            build artifacts. Coverage runs on pushes to the default branch,
-            not on PRs.
-
-            <details>
-            <summary>🔧 Reproduce locally</summary>
-
-            ```bash
-            mix format
-            mix test
-            mix credo --strict
-            mix dialyzer
-            ```
-
-            </details>
-
-            ---
-
-            🤖 *Auto-generated by GitHub Actions*
+          name: pr-comment
+          path: pr-comment/
+          retention-days: 1
