@@ -58,20 +58,18 @@ defmodule WandererApp.Map.PositionCalculator do
   end
 
   # The parent>child relationship is the connection established when each child
-  # spawned from this parent. Only those children may shape the sibling
-  # ordering - systems that merely share the parent's column (children of a
-  # different parent in the same chain column) must not.
+  # spawned from this parent - the jump boundary stores the system jumped from
+  # as solar_system_source and the new system as solar_system_target, so only
+  # outgoing connections are children. Incoming ones (the parent's own
+  # upstream) and systems that merely share the parent's column must not shape
+  # the sibling ordering.
   defp child_ids(%{solar_system_id: parent_id}, connections) when not is_nil(parent_id) do
     connections
     |> Enum.flat_map(fn connection ->
       source = Map.get(connection, :solar_system_source)
       target = Map.get(connection, :solar_system_target)
 
-      cond do
-        source == parent_id -> [target]
-        target == parent_id -> [source]
-        true -> []
-      end
+      if source == parent_id, do: [target], else: []
     end)
     |> MapSet.new()
   end
@@ -206,11 +204,15 @@ defmodule WandererApp.Map.PositionCalculator do
     end
   end
 
+  # Snap before indexing so the row/column matches the one in_children_lane?
+  # approved (a dragged sibling can sit between grid rows); the subtraction is
+  # then an exact multiple of the step, which also keeps div/2's truncation
+  # toward zero harmless for rows above the anchor.
   defp secondary_index(system, anchor_x, anchor_y, x_step, y_step, vertical?) do
     if vertical? do
-      div(round(Map.get(system, :position_x) - anchor_x), x_step)
+      div(snap(Map.get(system, :position_x), @grid_x) - anchor_x, x_step)
     else
-      div(round(Map.get(system, :position_y) - anchor_y), y_step)
+      div(snap(Map.get(system, :position_y), @grid_y) - anchor_y, y_step)
     end
   end
 

@@ -679,7 +679,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               # prime purposes (the peek saw no visible system) - re-assert
               # the primed name after the cleanup wiped it, so the add
               # broadcast below carries it like a fresh create does.
-              |> apply_prime_name_on_readd(prime_name)
+              |> maybe_apply_prime_name(prime_name)
 
             @ddrt.insert(
               {existing_system.solar_system_id,
@@ -744,7 +744,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                     # first add_system broadcast is complete - clients render
                     # the system with its name in one step (apply_prime_name
                     # re-asserts the same value after the claim, as before).
-                    system = apply_prime_name_at_create(system, prime_name)
+                    system = maybe_apply_prime_name(system, prime_name)
 
                     # System was either created or updated - both cases are success
                     @ddrt.insert(
@@ -1150,22 +1150,13 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   end
 
   # The upsert action does not accept temporary_name, so a primed name is
-  # written immediately after creation - before the add_system broadcast below
-  # fires - letting clients render the system with its name in one step.
-  defp apply_prime_name_at_create(system, nil), do: system
+  # written immediately after creation - before the add_system broadcast fires
+  # - letting clients render the system with its name in one step. The same
+  # re-assertion covers a primed jump re-adding a hidden system, whose stale
+  # temporary name the cleanup chain above has just wiped.
+  defp maybe_apply_prime_name(system, nil), do: system
 
-  defp apply_prime_name_at_create(system, prime_name) do
-    case WandererApp.MapSystemRepo.update_temporary_name(system, %{temporary_name: prime_name}) do
-      {:ok, updated} -> updated
-      _ -> system
-    end
-  end
-
-  # Re-added hidden systems get their stale temporary name wiped by the
-  # cleanup chain above; a primed jump re-asserts the new name in its place.
-  defp apply_prime_name_on_readd(system, nil), do: system
-
-  defp apply_prime_name_on_readd(system, prime_name) do
+  defp maybe_apply_prime_name(system, prime_name) do
     case WandererApp.MapSystemRepo.update_temporary_name(system, %{temporary_name: prime_name}) do
       {:ok, updated} -> updated
       _ -> system
