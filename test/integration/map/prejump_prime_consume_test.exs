@@ -59,6 +59,8 @@ defmodule WandererApp.Map.PrejumpPrimeConsumeTest do
 
     # Prime staging/consuming requires map integrations to be enabled
     # (same switch the staging tests set) and an active subscription policy.
+    original_integrations = Application.get_env(:wanderer_app, :map_integrations_enabled)
+    original_public_api_disabled = Application.get_env(:wanderer_app, :public_api_disabled)
     Application.put_env(:wanderer_app, :map_integrations_enabled, true)
     Application.put_env(:wanderer_app, :public_api_disabled, false)
 
@@ -67,13 +69,18 @@ defmodule WandererApp.Map.PrejumpPrimeConsumeTest do
     {:ok, _} = WandererApp.MapIntegrationTokens.set_enabled(map.id, user, true)
 
     on_exit(fn ->
-      Application.delete_env(:wanderer_app, :map_integrations_enabled)
-      Application.delete_env(:wanderer_app, :public_api_disabled)
+      # Restore rather than delete: deleting leaves later tests reading nil for
+      # keys runtime.exs always sets (`not nil` crashes the settings tabs).
+      restore_env(:map_integrations_enabled, original_integrations)
+      restore_env(:public_api_disabled, original_public_api_disabled)
       cleanup_test_data(map.id)
     end)
 
     {:ok, user: user, character: character, map: map}
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:wanderer_app, key)
+  defp restore_env(key, value), do: Application.put_env(:wanderer_app, key, value)
 
   defp stage_prime(map, character, overrides) do
     base = %{
@@ -153,8 +160,12 @@ defmodule WandererApp.Map.PrejumpPrimeConsumeTest do
       ensure_map_started(map.id)
       track_character_on_map(map.id, character.id)
 
-      # The destination is already mapped before the primed jump.
-      create_map_system(map.id, %{solar_system_id: @system_amarr, name: "Amarr"})
+      # The destination is already mapped before the primed jump. The factory
+      # only writes the DB row, and the map server is already running, so the
+      # system must also be put into live map state: that is what the newness
+      # check reads, and where a genuinely mapped system lives.
+      system = create_map_system(map.id, %{solar_system_id: @system_amarr, name: "Amarr"})
+      :ok = WandererApp.Map.add_system(map.id, system)
 
       set_character_location(character.id, @system_hek)
       CharactersImpl.update_characters(map.id)
