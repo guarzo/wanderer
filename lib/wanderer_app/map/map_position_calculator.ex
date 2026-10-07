@@ -182,11 +182,11 @@ defmodule WandererApp.Map.PositionCalculator do
   defp outward(max),
     do: Enum.concat(Enum.map(1..max, & &1), Enum.map(1..max, &(-&1)))
 
-  # Offsets along the stacking axis, relative to the preferred row.
-  #   :symmetric     - parent/target row first, expanding both ways
-  #   :insert_before - the row in front of the target gets first shot (keeps an
-  #                    alphabetically-earlier name ahead of its sibling), then
-  #                    continue downward
+  # Offsets along the stacking axis, relative to the preferred row. Rows below
+  # come first (chains read downward), the rows above backfill after.
+  #   :insert_before - when a primed name must land in front of the next named
+  #                    sibling, the row directly above gets first shot before
+  #                    continuing downward
   defp around(center, max, :symmetric),
     do:
       Enum.concat([

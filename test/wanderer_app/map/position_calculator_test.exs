@@ -44,7 +44,7 @@ defmodule WandererApp.Map.PositionCalculatorTest do
       parent = {476, 153}
       taken = [{lane_x, 153}, {lane_x, 153 + @grid_y}]
 
-      assert slot(parent, [], nil, "left_to_right", taken) == {lane_x, 153 - @grid_y}
+      assert slot(parent, [], nil, "left_to_right", taken) == {lane_x, 153 + 2 * @grid_y}
     end
 
     test "fans out to the next lane when the adjacent one is full" do
@@ -137,9 +137,9 @@ defmodule WandererApp.Map.PositionCalculatorTest do
         system(lane_x, 153 + @grid_y, "")
       ]
 
-      # Symmetric expansion from the parent row: both rows below are taken by
-      # the unnamed systems, so the first free row is one above the parent.
-      assert slot(parent, systems, "alpha") == {lane_x, 153 - @grid_y}
+      # Rows below the parent are taken by the unnamed systems, so the first
+      # free row is two below.
+      assert slot(parent, systems, "alpha") == {lane_x, 153 + 2 * @grid_y}
     end
 
     test "with no named siblings the parent row is preferred" do

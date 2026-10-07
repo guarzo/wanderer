@@ -561,7 +561,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     end)
   end
 
-  def maybe_add_system(map_id, location, old_location, map_opts, scopes, opts \\ [])
+  def maybe_add_system(map_id, location, old_location, map_opts, scopes \\ nil, opts \\ [])
 
   def maybe_add_system(map_id, location, old_location, map_opts, scopes, opts)
       when not is_nil(location) do
@@ -713,23 +713,22 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               {:ok, solar_system_info} ->
                 # Use upsert instead of create - handles race conditions gracefully
                 # visible: true ensures previously-deleted systems become visible again
-                # The prime name rides on the created system so the very first
-                # add_system broadcast is complete - clients render it without
-                # an update round-trip (apply_prime_name re-asserts the same
-                # value after the claim, gated as before).
-                WandererApp.MapSystemRepo.upsert(
-                  %{
-                    map_id: map_id,
-                    solar_system_id: location.solar_system_id,
-                    name: solar_system_info.solar_system_name,
-                    position_x: position.x,
-                    position_y: position.y,
-                    visible: true
-                  }
-                  |> maybe_put_prime_name(prime_name)
-                )
+                WandererApp.MapSystemRepo.upsert(%{
+                  map_id: map_id,
+                  solar_system_id: location.solar_system_id,
+                  name: solar_system_info.solar_system_name,
+                  position_x: position.x,
+                  position_y: position.y,
+                  visible: true
+                })
                 |> case do
                   {:ok, system} ->
+                    # The prime name rides on the created system so the very
+                    # first add_system broadcast is complete - clients render
+                    # the system with its name in one step (apply_prime_name
+                    # re-asserts the same value after the claim, as before).
+                    system = apply_prime_name_at_create(system, prime_name)
+
                     # System was either created or updated - both cases are success
                     @ddrt.insert(
                       {system.solar_system_id,
@@ -1133,8 +1132,17 @@ defmodule WandererApp.Map.Server.SystemsImpl do
      )}
   end
 
-  defp maybe_put_prime_name(attrs, nil), do: attrs
-  defp maybe_put_prime_name(attrs, prime_name), do: Map.put(attrs, :temporary_name, prime_name)
+  # The upsert action does not accept temporary_name, so a primed name is
+  # written immediately after creation - before the add_system broadcast below
+  # fires - letting clients render the system with its name in one step.
+  defp apply_prime_name_at_create(system, nil), do: system
+
+  defp apply_prime_name_at_create(system, prime_name) do
+    case WandererApp.MapSystemRepo.update_temporary_name(system, %{temporary_name: prime_name}) do
+      {:ok, updated} -> updated
+      _ -> system
+    end
+  end
 
   defp update_system(
          map_id,
