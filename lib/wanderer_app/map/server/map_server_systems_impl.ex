@@ -629,23 +629,23 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       }
     )
 
-      case WandererApp.Map.check_location(map_id, location) do
-        {:ok, location} ->
-          rtree_name = "rtree_#{map_id}"
+    case WandererApp.Map.check_location(map_id, location) do
+      {:ok, location} ->
+        rtree_name = "rtree_#{map_id}"
 
-          # The live map feeds the placement's sibling ordering (prime names
-          # in the children lane read alphabetically).
-          systems =
-            map_id
-            |> WandererApp.Map.get_map!()
-            |> Map.get(:systems, %{})
-            |> Map.values()
+        # The live map feeds the placement's sibling ordering (prime names
+        # in the children lane read alphabetically).
+        systems =
+          map_id
+          |> WandererApp.Map.get_map!()
+          |> Map.get(:systems, %{})
+          |> Map.values()
 
-          {:ok, position} =
-            calc_new_system_position(map_id, old_location, rtree_name, map_opts,
-              prime_name: prime_name,
-              systems: systems
-            )
+        {:ok, position} =
+          calc_new_system_position(map_id, old_location, rtree_name, map_opts,
+            prime_name: prime_name,
+            systems: systems
+          )
 
         case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
                map_id,

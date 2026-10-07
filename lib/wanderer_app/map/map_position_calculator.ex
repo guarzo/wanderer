@@ -178,7 +178,7 @@ defmodule WandererApp.Map.PositionCalculator do
   # Adjacent lane first, then farther along the reading direction, mirroring
   # lanes behind the parent only last.
   defp outward(max),
-    do: Enum.concat(Enum.map(1..max, & &1), Enum.map(1..max, &-&1))
+    do: Enum.concat(Enum.map(1..max, & &1), Enum.map(1..max, &(-&1)))
 
   # Offsets along the stacking axis, relative to the preferred row.
   #   :symmetric     - parent/target row first, expanding both ways
