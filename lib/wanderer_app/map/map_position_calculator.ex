@@ -4,65 +4,162 @@ defmodule WandererApp.Map.PositionCalculator do
 
   @ddrt Application.compile_env(:wanderer_app, :ddrt)
 
-  # Node height
-  @h 34
-  # Node weight
-  @w 130
-  # Nodes margin
-  @m_x 50
-  @m_y 41
-
-  @start_x 0
-  @start_y 0
+  # Nominal rendered system node (convertSystem2Node / --rf-node-* defaults).
+  @node_w 130
+  @node_h 34
+  # Spacing the server always kept between nodes (the old ring margins).
+  @gap_x 50
+  @gap_y 17
+  # Extra breathing room required between node rectangles.
+  @padding 4
+  # Canonical shared placement grid: the Faoble (zoo) theme snap grid, which is
+  # the app's default theme. Positions are shared map state, so the server has
+  # to commit to one theme-independent grid; users on other themes still get
+  # their own theme's drag snapping on top of these positions.
+  @grid_x 238
+  @grid_y 51
+  # "Limited" sticky stacking: a lane spills into the next one after roughly
+  # 2*@max_secondary_steps + 1 placements, and the search spans 2*@max_primary_steps
+  # lanes before giving up (keeping the raw parent-relative position).
+  @max_secondary_steps 5
+  @max_primary_steps 6
 
   def get_system_bounding_rect(%{position_x: x, position_y: y} = _system) do
-    [{x, x + @w}, {y, y + @h}]
+    [{x, x + @node_w}, {y, y + @node_h}]
   end
 
   def get_system_bounding_rect(_system), do: [{0, 0}, {0, 0}]
 
   def get_new_system_position(nil, rtree_name, opts) do
-    {:ok, {x, y}} = rtree_name |> check_system_available_positions(@start_x, @start_y, 1, opts)
-    %{x: x, y: y}
+    get_new_system_position(%{position_x: 0, position_y: 0}, rtree_name, opts)
   end
 
-  def get_new_system_position(
-        %{position_x: start_x, position_y: start_y} = _old_system,
-        rtree_name,
-        opts
-      ) do
-    {:ok, {x, y}} = rtree_name |> check_system_available_positions(start_x, start_y, 1, opts)
+  def get_new_system_position(%{position_x: px, position_y: py} = _parent, rtree_name, opts) do
+    layout = Keyword.get(opts, :layout, "left_to_right")
+    prime_name = normalize_name(Keyword.get(opts, :prime_name))
+    systems = Keyword.get(opts, :systems, [])
 
-    %{x: x, y: y}
+    {:ok,
+     compute_slot(
+       px,
+       py,
+       layout,
+       prime_name,
+       systems,
+       fn {x, y} -> position_free?(x, y, rtree_name) end
+     )}
   end
 
-  defp check_system_available_positions(_rtree_name, _start_x, _start_y, 100, _opts),
-    do: {:ok, {@start_x, @start_y}}
+  # Pure slot search so the grid/ordering/collision rules are unit-testable
+  # without an rtree: `available?` receives a candidate {x, y} and answers
+  # whether a system may be placed there.
+  #
+  # Children live in the lane adjacent to the parent (per layout direction),
+  # stacking tightly along the other axis. With a prime name, the preferred
+  # stacking position keeps named siblings in alphabetical order; without one,
+  # stacking starts at the parent row. Lanes fan outward only when the adjacent
+  # ones are crowded; the snapped parent anchor is the last-resort fallback.
+  def compute_slot(parent_x, parent_y, layout, prime_name, systems, available?) do
+    vertical? = layout == "top_to_bottom"
+    x_step = step(@grid_x, @node_w, @gap_x)
+    y_step = step(@grid_y, @node_h, @gap_y)
+    anchor_x = snap(parent_x, @grid_x)
+    anchor_y = snap(parent_y, @grid_y)
 
-  defp check_system_available_positions(rtree_name, start_x, start_y, level, opts) do
-    possible_positions = get_available_positions(level, start_x, start_y, opts)
+    {target, mode} =
+      target_secondary_index(prime_name, anchor_x, anchor_y, x_step, y_step, vertical?, systems)
 
-    case get_available_position(possible_positions, rtree_name) do
-      {:ok, nil} ->
-        rtree_name |> check_system_available_positions(start_x, start_y, level + 1, opts)
+    secondary_offsets = around(target, @max_secondary_steps, mode)
+    primary_offsets = outward(@max_primary_steps)
 
-      {:ok, position} ->
-        {:ok, position}
+    Enum.find_value(primary_offsets, fn primary ->
+      {base_x, base_y} =
+        if vertical? do
+          {anchor_x, anchor_y + primary * y_step}
+        else
+          {anchor_x + primary * x_step, anchor_y}
+        end
+
+      Enum.find_value(secondary_offsets, fn secondary ->
+        candidate =
+          if vertical? do
+            {base_x + secondary * x_step, base_y}
+          else
+            {base_x, base_y + secondary * y_step}
+          end
+
+        if available?.(candidate), do: candidate, else: nil
+      end)
+    end)
+    |> case do
+      nil -> {anchor_x, anchor_y}
+      slot -> slot
     end
   end
 
-  defp get_available_position([], _rtree_name), do: {:ok, nil}
+  # Where along the stacking axis the prime-named system belongs so that named
+  # siblings in the children lane read alphabetically. Systems without a name
+  # start at the parent row.
+  defp target_secondary_index(nil, _anchor_x, _anchor_y, _x_step, _y_step, _vertical?, _systems),
+    do: {0, :symmetric}
 
-  defp get_available_position([position | rest], rtree_name) do
-    if is_available_position(position, rtree_name) do
-      {:ok, position}
+  defp target_secondary_index(prime_name, anchor_x, anchor_y, x_step, y_step, vertical?, systems) do
+    named =
+      systems
+      |> Enum.filter(fn system ->
+        normalize_name(Map.get(system, :temporary_name)) != nil and
+          in_children_lane?(system, anchor_x, anchor_y, x_step, y_step, vertical?)
+      end)
+      |> Enum.map(fn system ->
+        {secondary_index(system, anchor_x, anchor_y, x_step, y_step, vertical?),
+         normalize_name(Map.get(system, :temporary_name))}
+      end)
+      |> Enum.sort_by(fn {index, name} -> {String.downcase(name), index} end)
+
+    case Enum.find_index(named, fn {_index, name} ->
+           String.downcase(name) > String.downcase(prime_name)
+         end) do
+      nil ->
+        # Alphabetically last: one row past the final named sibling, or the
+        # parent row when the lane has no named systems yet. Nothing to cut in
+        # front of, so plain symmetric expansion applies.
+        case List.last(named) do
+          nil -> {0, :symmetric}
+          {index, _name} -> {index + 1, :symmetric}
+        end
+
+      index ->
+        # The target row holds the first name sorting after ours: try the row
+        # right in front of it, then continue downward so the system lands as
+        # close as possible to its alphabetical position.
+        {target_index, _name} = Enum.at(named, index)
+        {target_index, :insert_before}
+    end
+  end
+
+  defp in_children_lane?(system, anchor_x, anchor_y, x_step, y_step, vertical?) do
+    if vertical? do
+      snap(Map.get(system, :position_y), @grid_y) == anchor_y + y_step
     else
-      get_available_position(rest, rtree_name)
+      snap(Map.get(system, :position_x), @grid_x) == anchor_x + x_step
     end
   end
 
-  defp is_available_position({x, y} = _position, rtree_name) do
-    case @ddrt.query(get_system_bounding_rect(%{position_x: x, position_y: y}), rtree_name) do
+  defp secondary_index(system, anchor_x, anchor_y, x_step, y_step, vertical?) do
+    if vertical? do
+      div(round(Map.get(system, :position_x) - anchor_x), x_step)
+    else
+      div(round(Map.get(system, :position_y) - anchor_y), y_step)
+    end
+  end
+
+  defp position_free?(x, y, rtree_name) do
+    rect = [
+      {x - @padding, x + @node_w + @padding},
+      {y - @padding, y + @node_h + @padding}
+    ]
+
+    case @ddrt.query(rect, rtree_name) do
       {:ok, []} ->
         true
 
@@ -74,49 +171,42 @@ defmodule WandererApp.Map.PositionCalculator do
     end
   end
 
-  def get_available_positions(level, x, y, opts),
-    do: adjusted_coordinates(1 + level * 2, x, y, opts)
+  defp snap(value, grid), do: round(value / grid) * grid
 
-  defp edge_coordinates(n, _opts) when n > 1 do
-    min = -div(n, 2)
-    max = div(n, 2)
-    # Top edge
-    top_edge = for x <- min..max, do: {x, min}
-    # Right edge
-    right_edge = for y <- min..max, do: {max, y}
-    # Bottom edge
-    bottom_edge = for x <- max..min, do: {x, max}
-    # Left edge
-    left_edge = for y <- max..min, do: {min, y}
+  defp step(grid, node, gap), do: grid * max(1, ceil((node + gap) / grid))
 
-    # Combine all edges in clockwise order
-    (right_edge ++ bottom_edge ++ left_edge ++ top_edge)
-    |> Enum.uniq()
-  end
+  # Adjacent lane first, then farther along the reading direction, mirroring
+  # lanes behind the parent only last.
+  defp outward(max),
+    do: Enum.concat(Enum.map(1..max, & &1), Enum.map(1..max, &-&1))
 
-  defp sorted_edge_coordinates(n, opts) when n > 1 do
-    coordinates = edge_coordinates(n, opts)
-    start_index = get_start_index(n, opts[:layout])
+  # Offsets along the stacking axis, relative to the preferred row.
+  #   :symmetric     - parent/target row first, expanding both ways
+  #   :insert_before - the row in front of the target gets first shot (keeps an
+  #                    alphabetically-earlier name ahead of its sibling), then
+  #                    continue downward
+  defp around(center, max, :symmetric),
+    do:
+      Enum.concat(
+        [center],
+        Enum.map(1..max, &(&1 + center)),
+        Enum.map(1..max, &(center - &1))
+      )
 
-    Enum.slice(coordinates, start_index, length(coordinates) - start_index) ++
-      Enum.slice(coordinates, 0, start_index)
-  end
+  defp around(center, max, :insert_before),
+    do:
+      Enum.concat(
+        [center, center - 1],
+        Enum.map(1..max, &(&1 + center)),
+        Enum.map(2..max, &(center - &1))
+      )
 
-  defp get_start_index(n, "left_to_right"), do: div(n, 2)
+  defp normalize_name(nil), do: nil
 
-  defp get_start_index(n, "top_to_bottom"), do: div(n, 2) + n - 1
-
-  # Default to left_to_right when layout is nil
-  defp get_start_index(n, nil), do: div(n, 2)
-
-  defp adjusted_coordinates(n, start_x, start_y, opts) when n > 1 do
-    sorted_coords = sorted_edge_coordinates(n, opts)
-
-    Enum.map(sorted_coords, fn {x, y} ->
-      {
-        start_x + x * (@w + @m_x),
-        start_y + y * (@h + @m_y)
-      }
-    end)
+  defp normalize_name(name) do
+    case String.trim(name) do
+      "" -> nil
+      trimmed -> trimmed
+    end
   end
 end

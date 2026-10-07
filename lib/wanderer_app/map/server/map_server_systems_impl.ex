@@ -561,9 +561,9 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     end)
   end
 
-  def maybe_add_system(map_id, location, old_location, map_opts, scopes \\ nil)
+  def maybe_add_system(map_id, location, old_location, map_opts, scopes, opts \\ [])
 
-  def maybe_add_system(map_id, location, old_location, map_opts, scopes)
+  def maybe_add_system(map_id, location, old_location, map_opts, scopes, opts)
       when not is_nil(location) do
     alias WandererApp.Map.Server.ConnectionsImpl
 
@@ -607,7 +607,7 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       end
 
     if should_add do
-      do_add_system_from_location(map_id, location, old_location, map_opts)
+      do_add_system_from_location(map_id, location, old_location, map_opts, opts)
     else
       # System filtered out by scope settings - this is expected behavior
       :ok
@@ -616,7 +616,9 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
   def maybe_add_system(_map_id, _location, _old_location, _map_opts, _scopes), do: :ok
 
-  defp do_add_system_from_location(map_id, location, old_location, map_opts) do
+  defp do_add_system_from_location(map_id, location, old_location, map_opts, opts) do
+    prime_name = Keyword.get(opts, :prime_name)
+
     :telemetry.execute(
       [:wanderer_app, :map, :system_addition, :start],
       %{system_time: System.system_time()},
@@ -627,11 +629,23 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       }
     )
 
-    case WandererApp.Map.check_location(map_id, location) do
-      {:ok, location} ->
-        rtree_name = "rtree_#{map_id}"
+      case WandererApp.Map.check_location(map_id, location) do
+        {:ok, location} ->
+          rtree_name = "rtree_#{map_id}"
 
-        {:ok, position} = calc_new_system_position(map_id, old_location, rtree_name, map_opts)
+          # The live map feeds the placement's sibling ordering (prime names
+          # in the children lane read alphabetically).
+          systems =
+            map_id
+            |> WandererApp.Map.get_map!()
+            |> Map.get(:systems, %{})
+            |> Map.values()
+
+          {:ok, position} =
+            calc_new_system_position(map_id, old_location, rtree_name, map_opts,
+              prime_name: prime_name,
+              systems: systems
+            )
 
         case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(
                map_id,
@@ -699,14 +713,21 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               {:ok, solar_system_info} ->
                 # Use upsert instead of create - handles race conditions gracefully
                 # visible: true ensures previously-deleted systems become visible again
-                WandererApp.MapSystemRepo.upsert(%{
-                  map_id: map_id,
-                  solar_system_id: location.solar_system_id,
-                  name: solar_system_info.solar_system_name,
-                  position_x: position.x,
-                  position_y: position.y,
-                  visible: true
-                })
+                # The prime name rides on the created system so the very first
+                # add_system broadcast is complete - clients render it without
+                # an update round-trip (apply_prime_name re-asserts the same
+                # value after the claim, gated as before).
+                WandererApp.MapSystemRepo.upsert(
+                  %{
+                    map_id: map_id,
+                    solar_system_id: location.solar_system_id,
+                    name: solar_system_info.solar_system_name,
+                    position_x: position.x,
+                    position_y: position.y,
+                    visible: true
+                  }
+                  |> maybe_put_prime_name(prime_name)
+                )
                 |> case do
                   {:ok, system} ->
                     # System was either created or updated - both cases are success
@@ -1102,12 +1123,18 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   defp maybe_update_temporary_name(system, _temporary_name),
     do: system
 
-  defp calc_new_system_position(map_id, old_location, rtree_name, opts),
-    do:
-      {:ok,
-       map_id
-       |> WandererApp.Map.find_system_by_location(old_location)
-       |> WandererApp.Map.PositionCalculator.get_new_system_position(rtree_name, opts)}
+  defp calc_new_system_position(map_id, old_location, rtree_name, opts, extra_opts \\ []) do
+    {:ok,
+     map_id
+     |> WandererApp.Map.find_system_by_location(old_location)
+     |> WandererApp.Map.PositionCalculator.get_new_system_position(
+       rtree_name,
+       Keyword.merge(opts, extra_opts)
+     )}
+  end
+
+  defp maybe_put_prime_name(attrs, nil), do: attrs
+  defp maybe_put_prime_name(attrs, prime_name), do: Map.put(attrs, :temporary_name, prime_name)
 
   defp update_system(
          map_id,
