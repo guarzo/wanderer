@@ -663,6 +663,11 @@ defmodule WandererApp.Map.Server.SystemsImpl do
               |> WandererApp.MapSystemRepo.cleanup_tags!()
               |> WandererApp.MapSystemRepo.cleanup_temporary_name!()
               |> WandererApp.MapSystemRepo.cleanup_linked_sig_eve_id!()
+              # A hidden system re-added by a jump is "new" to the map for
+              # prime purposes (the peek saw no visible system) - re-assert
+              # the primed name after the cleanup wiped it, so the add
+              # broadcast below carries it like a fresh create does.
+              |> apply_prime_name_on_readd(prime_name)
 
             @ddrt.insert(
               {existing_system.solar_system_id,
@@ -1138,6 +1143,17 @@ defmodule WandererApp.Map.Server.SystemsImpl do
   defp apply_prime_name_at_create(system, nil), do: system
 
   defp apply_prime_name_at_create(system, prime_name) do
+    case WandererApp.MapSystemRepo.update_temporary_name(system, %{temporary_name: prime_name}) do
+      {:ok, updated} -> updated
+      _ -> system
+    end
+  end
+
+  # Re-added hidden systems get their stale temporary name wiped by the
+  # cleanup chain above; a primed jump re-asserts the new name in its place.
+  defp apply_prime_name_on_readd(system, nil), do: system
+
+  defp apply_prime_name_on_readd(system, prime_name) do
     case WandererApp.MapSystemRepo.update_temporary_name(system, %{temporary_name: prime_name}) do
       {:ok, updated} -> updated
       _ -> system
