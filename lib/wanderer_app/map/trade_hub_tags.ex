@@ -48,7 +48,8 @@ defmodule WandererApp.Map.TradeHubTags do
              %{},
              false
            ),
-         {:ok, tag} <- pick_tag(routes) do      WandererApp.Map.Server.update_system_tag(map_id, %{
+         {:ok, tag} <- pick_tag(routes) do
+      WandererApp.Map.Server.update_system_tag(map_id, %{
         solar_system_id: solar_system_id,
         tag: tag
       })

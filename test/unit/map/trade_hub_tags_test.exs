@@ -73,10 +73,10 @@ defmodule WandererApp.Map.TradeHubTagsTest do
       %{
         origin: 1,
         destination: 30_002_659,
-        systems: [2, 3, 4, 5, 6, 7, 8, 9, 30_002_659],
+        systems: [2, 3, 4, 5, 6, 7, 8, 30_002_659],
         success: true
       },
-      %{origin: 1, destination: jita, systems: [2, 3, 4, 5, 6, 7, 8, 9, jita], success: true}
+      %{origin: 1, destination: jita, systems: [2, 3, 4, 5, 6, 7, 8, jita], success: true}
     ]
 
     assert {:ok, "8-J"} = TradeHubTags.pick_tag(routes)
@@ -90,7 +90,7 @@ defmodule WandererApp.Map.TradeHubTagsTest do
       %{
         origin: 1,
         destination: jita,
-        systems: Enum.to_list(2..(1 + too_far)) ++ [jita],
+        systems: Enum.to_list(2..too_far) ++ [jita],
         success: true
       }
     ]
@@ -106,7 +106,7 @@ defmodule WandererApp.Map.TradeHubTagsTest do
       %{
         origin: 1,
         destination: jita,
-        systems: Enum.to_list(2..(1 + at_cap)) ++ [jita],
+        systems: Enum.to_list(2..at_cap) ++ [jita],
         success: true
       }
     ]
