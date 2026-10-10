@@ -1,7 +1,7 @@
 defmodule WandererApp.Map.TradeHubTags do
   @moduledoc """
   Auto-tags highsec systems with their gate-jump distance to the nearest major
-  trade hub, as `<jumps><letter>` (e.g. `"5-J"`), per
+  trade hub, as `<jumps>-<letter>` (e.g. `"5-J"`), per
   github.com/elboaf/wanderer#3.
 
   Rules:
@@ -10,12 +10,12 @@ defmodule WandererApp.Map.TradeHubTags do
     `WandererApp.Map.RouteAlert.Evaluator.highsec_threshold/0`).
   - Closest hub wins; ties break Jita > Dodixie > Amarr > Hek > Rens.
   - More than `@max_jumps` (10) from every hub leaves the tag untouched. So
-    does an existing (e.g. manually-set) tag: we only populate, never
+    does an existing (e.g. manually-set) label: we only populate, never
     overwrite.
   - Transient failures (ESI rate-limit storms, solver outages, cache misses)
     are retried with backoff, so a system added during a storm eventually gets
-    its tag without anyone noticing the storm. Deterministic non-results (lowsec,
-    out of range, manual tag) are terminal and never retried.
+    its tag without anyone noticing the storm. Deterministic non-results
+    (lowsec, out of range, manual label) are terminal and never retried.
   """
 
   require Logger
@@ -35,7 +35,7 @@ defmodule WandererApp.Map.TradeHubTags do
   # Transient failures (ESI rate-limit storms, solver outages) are retried with
   # backoff: three attempts, ~5s then ~30s apart. Long enough to ride out a
   # typical rate-limit window, short enough that the tag still lands while the
-  # user is looking at the map. Terminal outcomes (:skip, lowsec, manual tag)
+  # user is looking at the map. Terminal outcomes (:skip, lowsec, manual label)
   # are never retried — they'd fail identically forever.
   @retry_backoffs_ms [5_000, 30_000]
 
@@ -50,7 +50,7 @@ defmodule WandererApp.Map.TradeHubTags do
   Computes and writes the tag for `solar_system_id` on `map_id`. Fire-and-forget:
   transient failures are retried with backoff, deterministic non-results are
   terminal, and the tag is written only when the system is highsec, within
-  `max_jumps` of some hub, and its tag is empty.
+  `max_jumps` of some hub, and its label is empty.
   """
   def maybe_tag_system(map_id, solar_system_id) do
     case compute_tag(map_id, solar_system_id) do
@@ -182,55 +182,12 @@ defmodule WandererApp.Map.TradeHubTags do
 
     :ok
   end
-        case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
-          {:ok, system} -> system.labels
-          _ -> nil
-        end
-
-      # The distance lives in `labels.customLabel` — the same slot the map
-      # client's System settings "Tag" field edits (`LabelsManager`), rendered
-      # as trailing text after the system name on the zoo node. Merge into the
-      # existing label JSON so user labels survive; don't touch the `tag`
-      # attribute (that's the Occupied badge).
-      merged_labels =
-        case labels do
-          labels when is_binary(labels) and labels != "" ->
-            case Jason.decode(labels) do
-              {:ok, %{} = map} -> map |> Map.put("customLabel", tag) |> Jason.encode!()
-              _ -> Jason.encode!(%{customLabel: tag, labels: String.split(labels, ",")})
-            end
-
-          _ ->
-            Jason.encode!(%{customLabel: tag, labels: []})
-        end
-
-      WandererApp.Map.Server.update_system_labels(map_id, %{
-        solar_system_id: solar_system_id,
-        labels: merged_labels
-      })
-
-      :ok
-    else
-      false ->
-        :ok
-
-      :skip ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "[TradeHubTags] Skipping tag for system #{solar_system_id} on map #{map_id}: #{inspect(reason)}"
-        )
-
-        :ok
-    end
-  end
 
   @doc """
   Pure tag selection over normalized `Routes.find/5` route maps
   (`%{destination, systems, success}` — `systems` excludes the origin).
 
-  Returns `{:ok, "<jumps><letter>"}` for the closest successful hub, `:skip`
+  Returns `{:ok, "<jumps>-<letter>"}` for the closest successful hub, `:skip`
   when nothing qualifies (no successful route, or every distance above
   `max_jumps`). Ties among equal jump counts follow the `@trade_hubs` order.
   """
