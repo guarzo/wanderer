@@ -49,9 +49,32 @@ defmodule WandererApp.Map.TradeHubTags do
              false
            ),
          {:ok, tag} <- pick_tag(routes) do
-      WandererApp.Map.Server.update_system_tag(map_id, %{
+      labels =
+        case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
+          {:ok, system} -> system.labels
+          _ -> nil
+        end
+
+      # The distance lives in `labels.customLabel` — the same slot the map
+      # client's System settings "Tag" field edits (`LabelsManager`), rendered
+      # as trailing text after the system name on the zoo node. Merge into the
+      # existing label JSON so user labels survive; don't touch the `tag`
+      # attribute (that's the Occupied badge).
+      merged_labels =
+        case labels do
+          labels when is_binary(labels) and labels != "" ->
+            case Jason.decode(labels) do
+              {:ok, %{} = map} -> map |> Map.put("customLabel", tag) |> Jason.encode!()
+              _ -> Jason.encode!(%{customLabel: tag, labels: String.split(labels, ",")})
+            end
+
+          _ ->
+            Jason.encode!(%{customLabel: tag, labels: []})
+        end
+
+      WandererApp.Map.Server.update_system_labels(map_id, %{
         solar_system_id: solar_system_id,
-        tag: tag
+        labels: merged_labels
       })
 
       :ok

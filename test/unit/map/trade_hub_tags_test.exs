@@ -132,7 +132,7 @@ defmodule WandererApp.Map.TradeHubTagsTest do
     stub_static_info(origin, "0.9")
     stub_route(origin, jita, 5)
 
-    # Tag write goes through the map server; with no live map the update
+    # Label write goes through the map server; with no live map the update
     # degrades to logged no-ops, so just assert the computation completes.
     assert :ok = TradeHubTags.maybe_tag_system("00000000-0000-0000-0000-000000000000", origin)
   end
