@@ -157,36 +157,51 @@ defmodule WandererApp.Map.TradeHubTags do
 
   defp classify({:error, reason}, kind), do: {:error, :transient, {kind, reason}}
 
+  # Persistence boundary: the tag write is a compare-and-set inside a
+  # transaction with a `FOR UPDATE` row lock — the stored labels are re-read
+  # and the tag written only if there is still no non-empty `customLabel`
+  # (see `MapSystemRepo.tag_trade_hub_distance/3`). The `:keep` check at the
+  # start of the flow can't protect this write on its own: a user label saved
+  # after the initial read, while route solving runs, would otherwise be
+  # clobbered here.
   defp write_label(map_id, solar_system_id, tag) do
-    labels =
-      case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
-        {:ok, system} -> system.labels
-        _ -> nil
-      end
+    case WandererApp.MapSystemRepo.tag_trade_hub_distance(map_id, solar_system_id, tag) do
+      {:ok, {updated_system, :written}} ->
+        # Mirror the map-server label-update path: the map state cache holds
+        # a copy of each system's labels and connected clients learn about
+        # label changes via `:update_system` — push both after the CAS write.
+        WandererApp.Map.update_system_by_solar_system_id(map_id, %{
+          solar_system_id: solar_system_id,
+          labels: updated_system.labels
+        })
 
-    # The distance lives in `labels.customLabel` — the same slot the map
-    # client's System settings "Tag" field edits (`LabelsManager`), rendered
-    # as trailing text after the system name on the zoo node. Merge into the
-    # existing label JSON so user labels survive; don't touch the `tag`
-    # attribute (that's the Occupied badge).
-    merged_labels =
-      case labels do
-        labels when is_binary(labels) and labels != "" ->
-          case Jason.decode(labels) do
-            {:ok, %{} = map} -> map |> Map.put("customLabel", tag) |> Jason.encode!()
-            _ -> Jason.encode!(%{customLabel: tag, labels: String.split(labels, ",")})
-          end
+        WandererApp.Map.Server.Impl.broadcast!(
+          map_id,
+          :update_system,
+          updated_system
+        )
 
-        _ ->
-          Jason.encode!(%{customLabel: tag, labels: []})
-      end
+        :ok
 
-    WandererApp.Map.Server.update_system_labels(map_id, %{
-      solar_system_id: solar_system_id,
-      labels: merged_labels
-    })
+      {:ok, :kept} ->
+        Logger.info(
+          "[TradeHubTags] Keeping existing label on system #{solar_system_id} on map #{map_id}"
+        )
 
-    :ok
+        :ok
+
+      {:error, :not_found} ->
+        # System deleted while tagging was in flight — nothing to do.
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "[TradeHubTags] Failed to store tag on system #{solar_system_id} on map #{map_id}: " <>
+            inspect(reason)
+        )
+
+        :ok
+    end
   end
 
   @doc """

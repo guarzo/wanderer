@@ -223,4 +223,128 @@ defmodule WandererApp.Map.TradeHubTagsTest do
 
     assert :ok = TradeHubTags.maybe_tag_system("00000000-0000-0000-0000-000000000000", origin)
   end
+
+  # --- tag_trade_hub_distance (compare-and-set persistence boundary) ---
+
+  test "writes the tag when no custom label exists, preserving other label data" do
+    map = insert(:map)
+    system_id = unique_system_id()
+
+    insert(:map_system, %{
+      map_id: map.id,
+      solar_system_id: system_id,
+      labels: Jason.encode!(%{"labels" => ["foo"], "name" => "mine"})
+    })
+
+    assert {:ok, {%{} = _updated, :written}} =
+             WandererApp.MapSystemRepo.tag_trade_hub_distance(map.id, system_id, "5-J")
+
+    {:ok, system} = WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map.id, system_id)
+
+    assert %{"customLabel" => "5-J", "labels" => ["foo"], "name" => "mine"} =
+             Jason.decode!(system.labels)
+  end
+
+  test "a custom label present at write time is kept — tag not written" do
+    map = insert(:map)
+    system_id = unique_system_id()
+
+    insert(:map_system, %{
+      map_id: map.id,
+      solar_system_id: system_id,
+      labels: Jason.encode!(%{"customLabel" => "user label", "labels" => ["foo"]})
+    })
+
+    assert {:ok, :kept} =
+             WandererApp.MapSystemRepo.tag_trade_hub_distance(map.id, system_id, "5-J")
+
+    {:ok, system} = WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map.id, system_id)
+
+    assert %{"customLabel" => "user label", "labels" => ["foo"]} = Jason.decode!(system.labels)
+  end
+
+  test "missing system row is not found" do
+    map = insert(:map)
+
+    assert {:error, :not_found} =
+             WandererApp.MapSystemRepo.tag_trade_hub_distance(map.id, unique_system_id(), "5-J")
+  end
+
+  test "non-JSON legacy labels are upgraded, keeping the label list" do
+    map = insert(:map)
+    system_id = unique_system_id()
+
+    insert(:map_system, %{
+      map_id: map.id,
+      solar_system_id: system_id,
+      labels: "foo,bar"
+    })
+
+    assert {:ok, {_updated, :written}} =
+             WandererApp.MapSystemRepo.tag_trade_hub_distance(map.id, system_id, "3-A")
+
+    {:ok, system} = WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map.id, system_id)
+
+    assert %{"customLabel" => "3-A", "labels" => ["foo", "bar"]} = Jason.decode!(system.labels)
+  end
+
+  test "empty customLabel string is overwritten by the tag" do
+    map = insert(:map)
+    system_id = unique_system_id()
+
+    insert(:map_system, %{
+      map_id: map.id,
+      solar_system_id: system_id,
+      labels: Jason.encode!(%{"customLabel" => "", "labels" => []})
+    })
+
+    assert {:ok, {_updated, :written}} =
+             WandererApp.MapSystemRepo.tag_trade_hub_distance(map.id, system_id, "7-H")
+
+    {:ok, system} = WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map.id, system_id)
+
+    assert %{"customLabel" => "7-H", "labels" => []} = Jason.decode!(system.labels)
+  end
+
+  test "maybe_tag_system keeps a label set between the initial read and the write" do
+    map = insert(:map)
+    origin = unique_system_id()
+    jita = WandererApp.Map.RouteAlert.Evaluator.jita_system_id()
+
+    stub_static_info(origin, "0.9")
+
+    # The route stub writes a user customLabel before returning the route
+    # result — simulating a label saved while the tagger was between its
+    # eligibility read and the persistence boundary.
+    stub(WandererApp.Esi.Mock, :get_routes_custom, fn _hubs, _origin, _params ->
+      # A user label lands after the tagger's eligibility read but before the
+      # persistence write — written here through the raw Repo so the sandbox
+      # transaction and Ash's upsert can't race it away.
+      import Ecto.Query
+
+      from(s in "map_system_v1", where: s.solar_system_id == ^origin)
+      |> WandererApp.Repo.update_all(
+        set: [labels: Jason.encode!(%{"customLabel" => "user label"})]
+      )
+
+      {:ok,
+       [
+         %{
+           "origin" => origin,
+           "destination" => jita,
+           "systems" => for(_ <- 1..5, do: unique_system_id()) ++ [jita],
+           "success" => true
+         }
+       ]}
+    end)
+
+    stub(WandererApp.Esi.Mock, :get_routes_eve, fn _hubs, _origin, _params, _opts -> {:ok, []} end)
+
+    insert(:map_system, %{map_id: map.id, solar_system_id: origin})
+
+    assert :ok = TradeHubTags.maybe_tag_system(map.id, origin)
+
+    {:ok, system} = WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map.id, origin)
+    assert %{"customLabel" => "user label"} = Jason.decode!(system.labels)
+  end
 end
