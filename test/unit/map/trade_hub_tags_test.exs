@@ -146,7 +146,7 @@ defmodule WandererApp.Map.TradeHubTagsTest do
     assert :ok = TradeHubTags.maybe_tag_system("00000000-0000-0000-0000-000000000000", origin)
   end
 
-  test "solver outage is swallowed" do
+  test "solver outage is retried, then gives up" do
     origin = unique_system_id()
     stub_static_info(origin, "0.9")
 
@@ -157,6 +157,62 @@ defmodule WandererApp.Map.TradeHubTagsTest do
     stub(WandererApp.Esi.Mock, :get_routes_eve, fn _hubs, _origin, _params, _opts ->
       {:error, :esi_unreachable}
     end)
+
+    # Fast-forward the backoff sleeps and count attempts: initial + 2 retries.
+    parent = self()
+    Application.put_env(:wanderer_app, :trade_hub_tags_sleep_fn, fn ms ->
+      send(parent, {:backoff, ms})
+    end)
+
+    on_exit(fn -> Application.delete_env(:wanderer_app, :trade_hub_tags_sleep_fn) end)
+
+    assert :ok = TradeHubTags.maybe_tag_system("00000000-0000-0000-0000-000000000000", origin)
+
+    assert_receive {:backoff, 5_000}
+    assert_receive {:backoff, 30_000}
+  end
+
+  test "transient failure recovers on retry" do
+    origin = unique_system_id()
+    stub_static_info(origin, "0.9")
+    jita = WandererApp.Map.RouteAlert.Evaluator.jita_system_id()
+
+    # Fail the first custom-route call, succeed on the retry.
+    expect(WandererApp.Esi.Mock, :get_routes_custom, fn _hubs, _origin, _params ->
+      {:error, :rate_limited}
+    end)
+
+    expect(WandererApp.Esi.Mock, :get_routes_custom, fn _hubs, _origin, _params ->
+      {:ok,
+       [
+         %{
+           "origin" => origin,
+           "destination" => jita,
+           "systems" => [unique_system_id(), unique_system_id(), unique_system_id(), unique_system_id(), jita],
+           "success" => true
+         }
+       ]}
+    end)
+
+    stub(WandererApp.Esi.Mock, :get_routes_eve, fn _hubs, _origin, _params, _opts -> {:ok, []} end)
+
+    Application.put_env(:wanderer_app, :trade_hub_tags_sleep_fn, fn _ms -> :ok end)
+    on_exit(fn -> Application.delete_env(:wanderer_app, :trade_hub_tags_sleep_fn) end)
+
+    assert :ok = TradeHubTags.maybe_tag_system("00000000-0000-0000-0000-000000000000", origin)
+  end
+
+  test "lowsec is terminal — no retries scheduled" do
+    origin = unique_system_id()
+    stub_static_info(origin, "0.3")
+
+    expect(WandererApp.Esi.Mock, :get_routes_custom, 0, fn _, _, _ -> flunk("must not route") end)
+
+    Application.put_env(:wanderer_app, :trade_hub_tags_sleep_fn, fn _ms ->
+      flunk("terminal outcomes must not retry")
+    end)
+
+    on_exit(fn -> Application.delete_env(:wanderer_app, :trade_hub_tags_sleep_fn) end)
 
     assert :ok = TradeHubTags.maybe_tag_system("00000000-0000-0000-0000-000000000000", origin)
   end
