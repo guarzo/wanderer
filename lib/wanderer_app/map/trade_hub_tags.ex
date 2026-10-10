@@ -117,10 +117,10 @@ defmodule WandererApp.Map.TradeHubTags do
              security_value >= WandererApp.Map.RouteAlert.Evaluator.highsec_threshold(),
              :not_highsec
            ),
+         # `find_strict/5`, not `find/5`: plain `find/5` swallows solver
+         # errors into `{:ok, %{routes: []}}`, which we'd misread as "no hub
+         # in range" and give up instead of retrying through the storm.
          {:ok, %{routes: routes}} <-
-           # `find_strict/5`, not `find/5`: plain `find/5` swallows solver
-           # errors into `{:ok, %{routes: []}}`, which we'd misread as "no hub
-           # in range" and give up instead of retrying through the storm.
            WandererApp.Map.Routes.find_strict(
              map_id,
              Enum.map(@trade_hubs, fn {id, _letter} -> Integer.to_string(id) end),
