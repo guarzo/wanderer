@@ -188,7 +188,13 @@ defmodule WandererApp.Map.TradeHubTagsTest do
          %{
            "origin" => origin,
            "destination" => jita,
-           "systems" => [unique_system_id(), unique_system_id(), unique_system_id(), unique_system_id(), jita],
+           "systems" => [
+             unique_system_id(),
+             unique_system_id(),
+             unique_system_id(),
+             unique_system_id(),
+             jita
+           ],
            "success" => true
          }
        ]}
