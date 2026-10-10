@@ -44,7 +44,8 @@ defmodule WandererApp.Map.TradeHubTags do
 
   # Test seam: tests swap this to skip the real backoff sleeps. Not
   # Application env — the retry cadence is a code constant, not operator config.
-  defp sleep_fn, do: Application.get_env(:wanderer_app, :trade_hub_tags_sleep_fn, &Process.sleep/1)
+  defp sleep_fn,
+    do: Application.get_env(:wanderer_app, :trade_hub_tags_sleep_fn, &Process.sleep/1)
 
   @doc """
   Computes and writes the tag for `solar_system_id` on `map_id`. Fire-and-forget:
