@@ -160,6 +160,7 @@ defmodule WandererApp.Map.TradeHubTagsTest do
 
     # Fast-forward the backoff sleeps and count attempts: initial + 2 retries.
     parent = self()
+
     Application.put_env(:wanderer_app, :trade_hub_tags_sleep_fn, fn ms ->
       send(parent, {:backoff, ms})
     end)
