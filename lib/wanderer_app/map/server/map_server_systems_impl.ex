@@ -722,6 +722,12 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
             maybe_sync_intel_from_source(map_id, updated_system)
 
+            # Issue #3 parity with do_add_system: a jump re-adding a hidden
+            # system (or repositioning an existing one) must tag too, not just
+            # manual adds. Safe on the re-added path: maybe_tag_system skips
+            # anything with an existing label and non-highsec systems.
+            maybe_auto_tag_with_trade_hub_distance(map_id, updated_system)
+
             :ok
 
           _ ->
@@ -783,6 +789,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                     )
 
                     maybe_sync_intel_from_source(map_id, system)
+
+                    maybe_auto_tag_with_trade_hub_distance(map_id, system)
 
                     :ok
 
