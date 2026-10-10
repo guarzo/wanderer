@@ -80,8 +80,15 @@ defmodule WandererApp.Map.TradeHubTagsTest do
   test "more than max_jumps from every hub skips" do
     jita = WandererApp.Map.RouteAlert.Evaluator.jita_system_id()
 
+    too_far = TradeHubTags.max_jumps() + 1
+
     routes = [
-      %{origin: 1, destination: jita, systems: Enum.to_list(2..(1 + TradeHubTags.max_jumps() + 1)) ++ [jita], success: true}
+      %{
+        origin: 1,
+        destination: jita,
+        systems: Enum.to_list(2..(1 + too_far)) ++ [jita],
+        success: true
+      }
     ]
 
     assert :skip = TradeHubTags.pick_tag(routes)
@@ -90,8 +97,15 @@ defmodule WandererApp.Map.TradeHubTagsTest do
   test "exactly max_jumps still tags" do
     jita = WandererApp.Map.RouteAlert.Evaluator.jita_system_id()
 
+    at_cap = TradeHubTags.max_jumps()
+
     routes = [
-      %{origin: 1, destination: jita, systems: Enum.to_list(2..(1 + TradeHubTags.max_jumps())) ++ [jita], success: true}
+      %{
+        origin: 1,
+        destination: jita,
+        systems: Enum.to_list(2..(1 + at_cap)) ++ [jita],
+        success: true
+      }
     ]
 
     assert {:ok, "10-J"} = TradeHubTags.pick_tag(routes)
