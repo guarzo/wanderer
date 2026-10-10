@@ -152,12 +152,29 @@ defmodule WandererApp.MapSystemRepo do
     # `ActorWithMap` in the context — without it the preparation filters
     # everything out. Passing it here scopes the locked read to the same map,
     # preserving the resource's security posture for this internal call.
+    # The selected columns are everything `map_ui_system/2` needs to build a
+    # client update: the written record is broadcast on `:update_system`, and
+    # broadcasting a projection with `NotLoaded` fields would replace live
+    # system data on connected clients with placeholders.
     actor = %WandererApp.Api.ActorWithMap{user: nil, map: %{id: map_id}}
 
     WandererApp.Api.MapSystem
     |> Ash.Query.for_read(:read, %{}, actor: actor, authorize?: false)
     |> Ash.Query.filter(map_id == ^map_id and solar_system_id == ^solar_system_id)
-    |> Ash.Query.select([:labels])
+    |> Ash.Query.select([
+      :labels,
+      :name,
+      :temporary_name,
+      :description,
+      :status,
+      :locked,
+      :visible,
+      :position_x,
+      :position_y,
+      :tag,
+      :linked_sig_eve_id,
+      :custom_name
+    ])
     |> Ash.Query.lock("FOR UPDATE")
     |> Ash.read_one()
     |> case do
@@ -175,13 +192,17 @@ defmodule WandererApp.MapSystemRepo do
         {:ok, :kept}
 
       _ ->
-        updated_system =
-          system
-          |> WandererApp.Api.MapSystem.update_labels!(%{labels: merge_tag(system.labels, tag)},
-            authorize?: false
-          )
-
-        {:ok, {updated_system, :written}}
+        # Non-bang on purpose: a raising update inside `Ash.transaction/3`
+        # would bypass this function's `{:error, reason}` contract and kill
+        # the tagging worker instead of being logged by the caller.
+        case WandererApp.Api.MapSystem.update_labels(
+               system,
+               %{labels: merge_tag(system.labels, tag)},
+               authorize?: false
+             ) do
+          {:ok, updated_system} -> {:ok, {updated_system, :written}}
+          {:error, reason} -> Ash.DataLayer.rollback(WandererApp.Api.MapSystem, reason)
+        end
     end
   end
 
