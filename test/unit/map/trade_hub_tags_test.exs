@@ -70,7 +70,12 @@ defmodule WandererApp.Map.TradeHubTagsTest do
     jita = WandererApp.Map.RouteAlert.Evaluator.jita_system_id()
 
     routes = [
-      %{origin: 1, destination: 30_002_659, systems: [2, 3, 4, 5, 6, 7, 8, 9, 30_002_659], success: true},
+      %{
+        origin: 1,
+        destination: 30_002_659,
+        systems: [2, 3, 4, 5, 6, 7, 8, 9, 30_002_659],
+        success: true
+      },
       %{origin: 1, destination: jita, systems: [2, 3, 4, 5, 6, 7, 8, 9, jita], success: true}
     ]
 
