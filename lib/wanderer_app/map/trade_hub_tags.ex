@@ -118,7 +118,10 @@ defmodule WandererApp.Map.TradeHubTags do
              :not_highsec
            ),
          {:ok, %{routes: routes}} <-
-           WandererApp.Map.Routes.find(
+           # `find_strict/5`, not `find/5`: plain `find/5` swallows solver
+           # errors into `{:ok, %{routes: []}}`, which we'd misread as "no hub
+           # in range" and give up instead of retrying through the storm.
+           WandererApp.Map.Routes.find_strict(
              map_id,
              Enum.map(@trade_hubs, fn {id, _letter} -> Integer.to_string(id) end),
              Integer.to_string(solar_system_id),
