@@ -95,7 +95,7 @@ defmodule WandererApp.Map.TradeHubTags do
         :skip
 
       _ ->
-        hub_index = Map.new(Enum.with_index(@trade_hubs))
+        hub_index = Map.new(@trade_hubs |> Enum.with_index(fn {id, _letter}, i -> {id, i} end))
 
         %{destination: destination, systems: systems} =
           Enum.min_by(successful, fn %{destination: destination, systems: systems} ->
