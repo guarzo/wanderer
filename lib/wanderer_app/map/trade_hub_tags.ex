@@ -113,9 +113,10 @@ defmodule WandererApp.Map.TradeHubTags do
     with {:ok, %{security: security}} <- system_info(solar_system_id) |> classify(:system_info),
          {:ok, security_value} <- parse_security(security) |> classify(:invalid_security),
          true <-
-           security_value >=
-             WandererApp.Map.RouteAlert.Evaluator.highsec_threshold()
-             |> classify(:not_highsec),
+           classify(
+             security_value >= WandererApp.Map.RouteAlert.Evaluator.highsec_threshold(),
+             :not_highsec
+           ),
          {:ok, %{routes: routes}} <-
            WandererApp.Map.Routes.find(
              map_id,
