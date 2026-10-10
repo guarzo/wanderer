@@ -1264,9 +1264,9 @@ defmodule WandererApp.Map.Server.SystemsImpl do
     :ok
   end
 
-  # Issue #3: tag highsec systems with gate-jump distance to the nearest trade
-  # hub. Route solving can take seconds (ESI fallback path), so run off the map
-  # server process — never inline in `do_add_system`.
+  # Tag highsec systems with gate-jump distance to the nearest trade hub.
+  # Route solving can take seconds (ESI fallback path), so run off the map
+  # server process - never inline in the add paths.
   defp maybe_auto_tag_with_trade_hub_distance(map_id, system) do
     Task.Supervisor.start_child(WandererApp.TaskSupervisor, fn ->
       WandererApp.Map.TradeHubTags.maybe_tag_system(map_id, system.solar_system_id)
