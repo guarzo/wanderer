@@ -48,8 +48,7 @@ defmodule WandererApp.Map.TradeHubTags do
              %{},
              false
            ),
-         {:ok, tag} <- pick_tag(routes) do
-      WandererApp.Map.Server.update_system_tag(map_id, %{
+         {:ok, tag} <- pick_tag(routes) do      WandererApp.Map.Server.update_system_tag(map_id, %{
         solar_system_id: solar_system_id,
         tag: tag
       })
@@ -57,6 +56,9 @@ defmodule WandererApp.Map.TradeHubTags do
       :ok
     else
       false ->
+        :ok
+
+      :skip ->
         :ok
 
       {:error, reason} ->
@@ -102,7 +104,7 @@ defmodule WandererApp.Map.TradeHubTags do
         jumps = length(systems)
 
         if jumps <= @max_jumps do
-          {:ok, "#{jumps}#{hub_letter(destination)}"}
+          {:ok, "#{jumps}-#{hub_letter(destination)}"}
         else
           :skip
         end

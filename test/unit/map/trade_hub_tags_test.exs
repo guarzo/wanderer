@@ -3,7 +3,6 @@ defmodule WandererApp.Map.TradeHubTagsTest do
 
   import Mox
 
-  alias WandererApp.Map.Routes
   alias WandererApp.Map.TradeHubTags
 
   setup :set_mox_from_context
@@ -22,10 +21,6 @@ defmodule WandererApp.Map.TradeHubTagsTest do
 
     :ok
   end
-
-  # `avoid_wormholes: true` skips the MapConnection read and the Thera chain
-  # fetch, so tests exercise the ESI seam without map connections in the DB.
-  @routes_settings %{avoid_wormholes: true}
 
   defp stub_static_info(system_id, security) do
     Cachex.put(:system_static_info_cache, system_id, %{
@@ -51,6 +46,11 @@ defmodule WandererApp.Map.TradeHubTagsTest do
          }
        ]}
     end)
+
+    # `find/5` falls back to `get_routes_eve/4` when the custom route errors;
+    # the custom stub above always succeeds, but stub the fallback to `[]` so
+    # an unexpected fallback can't crash with Mox.UnexpectedCallError.
+    stub(WandererApp.Esi.Mock, :get_routes_eve, fn _hubs, _origin, _params, _opts -> {:ok, []} end)
   end
 
   # --- pick_tag (pure selection over normalized route maps) ---
@@ -84,7 +84,6 @@ defmodule WandererApp.Map.TradeHubTagsTest do
 
   test "more than max_jumps from every hub skips" do
     jita = WandererApp.Map.RouteAlert.Evaluator.jita_system_id()
-
     too_far = TradeHubTags.max_jumps() + 1
 
     routes = [
@@ -101,7 +100,6 @@ defmodule WandererApp.Map.TradeHubTagsTest do
 
   test "exactly max_jumps still tags" do
     jita = WandererApp.Map.RouteAlert.Evaluator.jita_system_id()
-
     at_cap = TradeHubTags.max_jumps()
 
     routes = [
@@ -154,6 +152,10 @@ defmodule WandererApp.Map.TradeHubTagsTest do
 
     stub(WandererApp.Esi.Mock, :get_routes_custom, fn _hubs, _origin, _params ->
       {:error, :solver_unreachable}
+    end)
+
+    stub(WandererApp.Esi.Mock, :get_routes_eve, fn _hubs, _origin, _params, _opts ->
+      {:error, :esi_unreachable}
     end)
 
     assert :ok = TradeHubTags.maybe_tag_system("00000000-0000-0000-0000-000000000000", origin)
