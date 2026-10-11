@@ -1015,6 +1015,11 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     end
   end
 
+  # Acknowledged prime-name apply (issue #4): the write must land or be seen
+  # to fail - never dropped silently. Idempotent write + bounded backoff.
+  @prime_name_apply_attempts 5
+  @prime_name_apply_backoff_ms 500
+
   # Pre-jump prime handoff (issue #281, ADR 0001 in FlyGD-Wingman): consume an
   # active, matching prime when this movement creates a NEW connection.
   #
@@ -1051,14 +1056,9 @@ defmodule WandererApp.Map.Server.CharactersImpl do
         # returned when creation was skipped or the pair was already connected,
         # and a prime must never be consumed (nor name/flag anything) for those.
         if prime != nil and connection_created?(map_id, location, old_location) do
-          # A concurrent losing claimant gets :not_found and applies nothing.
-          case Primes.claim(map_id, eve_id, old_location.solar_system_id) do
-            {:ok, claimed} ->
-              if destination_is_new?, do: apply_prime_name(map_id, location, claimed)
-
-            _ ->
-              :ok
-          end
+          claim_prime(map_id, eve_id, old_location.solar_system_id, location, prime,
+            destination_is_new?: destination_is_new?
+          )
         end
 
         :ok
@@ -1130,17 +1130,85 @@ defmodule WandererApp.Map.Server.CharactersImpl do
     Map.put(extra, "prejump_prime_event_id", prime.event_id)
   end
 
-  # Name only when the destination system itself is new: the peek gate ran
-  # before creation, and a just-created system is by definition new to the map.
+  # The claim itself must never fail the connection flow; a losing concurrent
+  # claimant gets :not_found and applies nothing.
+  defp claim_prime(map_id, eve_id, source_solar_system_id, location, _prime, opts) do
+    destination_is_new? = Keyword.fetch!(opts, :destination_is_new?)
+
+    case Primes.claim(map_id, eve_id, source_solar_system_id) do
+      {:ok, claimed} ->
+        if destination_is_new?, do: apply_prime_name(map_id, location, claimed)
+
+      _ ->
+        :ok
+    end
+  end
+
+  # Applies a consumed prime's name to the (new) destination system's
+  # temporary_name.
+  #
+  # This is the ACKNOWLEDGED step (issue #4): the prime is ALREADY consumed when
+  # this runs, so a lost write means a permanently lost name - there is no later
+  # code that would retry it. The ack is a read-back verification (not just the
+  # call's return value): `update_system/4` logs-and-continues on internal
+  # errors while still returning :ok, so only a stored name that MATCHES the
+  # prime counts as applied. The write is idempotent (same solar_system_id,
+  # same value), so retrying is safe. Every attempt is logged; a final failure
+  # logs an error - a blank temp name must never again be silent.
   defp apply_prime_name(map_id, location, claimed) do
     if claimed.system_name not in [nil, ""] do
-      SystemsImpl.update_system_temporary_name(map_id, %{
+      update = %{
         solar_system_id: location.solar_system_id,
         temporary_name: claimed.system_name
-      })
+      }
+
+      apply_prime_name_with_retry(map_id, update, @prime_name_apply_attempts)
     end
 
     :ok
+  end
+
+  defp apply_prime_name_with_retry(map_id, update, attempts_left) do
+    SystemsImpl.update_system_temporary_name(map_id, update)
+
+    if prime_name_stored?(map_id, update.solar_system_id, update.temporary_name) do
+      :ok
+    else
+      Logger.warning(
+        "[PrimeNaming] temporary_name not confirmed " <>
+          "(#{attempts_left - 1} retries left), retrying: " <>
+          "map=#{map_id}, solar_system_id=#{update.solar_system_id}, " <>
+          "expected=#{inspect(update.temporary_name)}"
+      )
+
+      if attempts_left > 1 do
+        Process.sleep(@prime_name_apply_backoff_ms)
+        apply_prime_name_with_retry(map_id, update, attempts_left - 1)
+      else
+        :telemetry.execute(
+          [:wanderer_app, :map, :prime_name_apply, :failed],
+          %{attempts: @prime_name_apply_attempts},
+          %{map_id: map_id, solar_system_id: update.solar_system_id}
+        )
+
+        Logger.error(
+          "[PrimeNaming] Primed temporary_name NOT stored after all retries - " <>
+            "the name is LOST (prime already consumed). " <>
+            "map=#{map_id}, solar_system_id=#{update.solar_system_id}, " <>
+            "expected=#{inspect(update.temporary_name)}. " <>
+            "This is the blank-temp-name symptom of issue #4."
+        )
+
+        :ok
+      end
+    end
+  end
+
+  defp prime_name_stored?(map_id, solar_system_id, expected_name) do
+    case WandererApp.MapSystemRepo.get_by_map_and_solar_system_id(map_id, solar_system_id) do
+      {:ok, %{temporary_name: stored}} when not is_nil(stored) -> stored == expected_name
+      _ -> false
+    end
   end
 
   defp eve_character_eve_id(character_id) do
