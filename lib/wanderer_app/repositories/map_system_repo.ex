@@ -104,6 +104,132 @@ defmodule WandererApp.MapSystemRepo do
     })
   end
 
+  @doc """
+  Compare-and-set a trade-hub distance tag into `labels.customLabel`.
+
+  Runs inside a transaction with a `FOR UPDATE` row lock on the map system:
+  the stored labels are re-read *at the persistence boundary* and the tag is
+  written only when there is still no non-empty `customLabel`. A user label
+  saved between the tagger's earlier read and this write therefore wins —
+  we populate, never overwrite (issue #3 rule: manual labels are terminal).
+
+  Returns:
+
+  - `{:ok, {updated_system, :written}}` — the row had no custom label and the
+    tag was merged in (other label data preserved, `tag` attribute untouched);
+    the updated system record is returned so callers can refresh caches and
+    broadcast.
+  - `{:ok, :kept}` — a non-empty custom label already exists; nothing changed.
+  - `{:error, :not_found}` — the system row is gone (deleted mid-flight);
+    nothing to tag.
+
+  Any unexpected persistence error is returned as `{:error, reason}`.
+  """
+  @spec tag_trade_hub_distance(String.t() | integer(), integer(), String.t()) ::
+          {:ok, {WandererApp.Api.MapSystem.t(), :written}}
+          | {:ok, :kept}
+          | {:error, :not_found}
+          | {:error, term()}
+  def tag_trade_hub_distance(map_id, solar_system_id, tag) do
+    Ash.transaction(WandererApp.Api.MapSystem, fn ->
+      with {:ok, system} <- locked_system(map_id, solar_system_id) do
+        maybe_write_tag(system, tag)
+      else
+        {:error, :not_found} = skip -> skip
+        {:error, reason} -> Ash.DataLayer.rollback(WandererApp.Api.MapSystem, reason)
+      end
+    end)
+    |> case do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp locked_system(map_id, solar_system_id) do
+    require Ash.Query
+
+    # `read :read` has a `FilterSystemsByActorMap` preparation keyed on an
+    # `ActorWithMap` in the context — without it the preparation filters
+    # everything out. Passing it here scopes the locked read to the same map,
+    # preserving the resource's security posture for this internal call.
+    # The selected columns are everything `map_ui_system/2` needs to build a
+    # client update: the written record is broadcast on `:update_system`, and
+    # broadcasting a projection with `NotLoaded` fields would replace live
+    # system data on connected clients with placeholders.
+    actor = %WandererApp.Api.ActorWithMap{user: nil, map: %{id: map_id}}
+
+    WandererApp.Api.MapSystem
+    |> Ash.Query.for_read(:read, %{}, actor: actor, authorize?: false)
+    |> Ash.Query.filter(map_id == ^map_id and solar_system_id == ^solar_system_id)
+    |> Ash.Query.select([
+      :solar_system_id,
+      :labels,
+      :name,
+      :temporary_name,
+      :description,
+      :status,
+      :locked,
+      :visible,
+      :position_x,
+      :position_y,
+      :tag,
+      :linked_sig_eve_id,
+      :custom_name
+    ])
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read_one()
+    |> case do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, system} -> {:ok, system}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The row is locked, so the check-then-write below is atomic against any
+  # other writer of `labels` (map client LabelManager edits included).
+  defp maybe_write_tag(system, tag) do
+    case custom_label(system.labels) do
+      label when is_binary(label) and label != "" ->
+        {:ok, :kept}
+
+      _ ->
+        # Non-bang on purpose: a raising update inside `Ash.transaction/3`
+        # would bypass this function's `{:error, reason}` contract and kill
+        # the tagging worker instead of being logged by the caller.
+        case WandererApp.Api.MapSystem.update_labels(
+               system,
+               %{labels: merge_tag(system.labels, tag)},
+               authorize?: false
+             ) do
+          {:ok, updated_system} -> {:ok, {updated_system, :written}}
+          {:error, reason} -> Ash.DataLayer.rollback(WandererApp.Api.MapSystem, reason)
+        end
+    end
+  end
+
+  defp custom_label(labels) when is_binary(labels) and labels != "" do
+    case Jason.decode(labels) do
+      {:ok, %{"customLabel" => custom_label}} -> custom_label
+      _ -> nil
+    end
+  end
+
+  defp custom_label(_labels), do: nil
+
+  # Same merge rules as before the CAS rewrite: the distance lives in
+  # `labels.customLabel` — the slot the map client's System settings "Tag"
+  # field edits (LabelsManager), rendered as trailing text after the system
+  # name. Merge into the existing label JSON so user labels survive; don't
+  # touch the `tag` attribute (that's the Occupied badge).
+  defp merge_tag(labels, tag) when is_binary(labels) and labels != "" do
+    case Jason.decode(labels) do
+      {:ok, %{} = map} -> map |> Map.put("customLabel", tag) |> Jason.encode!()
+      _ -> Jason.encode!(%{customLabel: tag, labels: String.split(labels, ",")})
+    end
+  end
+
+  defp merge_tag(_labels, tag), do: Jason.encode!(%{customLabel: tag, labels: []})
+
   def get_filtered_labels(labels, true) when is_binary(labels) do
     labels
     |> Jason.decode!()

@@ -722,6 +722,12 @@ defmodule WandererApp.Map.Server.SystemsImpl do
 
             maybe_sync_intel_from_source(map_id, updated_system)
 
+            # Issue #3 parity with do_add_system: a jump re-adding a hidden
+            # system (or repositioning an existing one) must tag too, not just
+            # manual adds. Safe on the re-added path: maybe_tag_system skips
+            # anything with an existing label and non-highsec systems.
+            maybe_auto_tag_with_trade_hub_distance(map_id, updated_system)
+
             :ok
 
           _ ->
@@ -783,6 +789,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
                     )
 
                     maybe_sync_intel_from_source(map_id, system)
+
+                    maybe_auto_tag_with_trade_hub_distance(map_id, system)
 
                     :ok
 
@@ -987,6 +995,8 @@ defmodule WandererApp.Map.Server.SystemsImpl do
           track_add_system(map_id, user_id, character_id, system.solar_system_id)
 
           maybe_sync_intel_from_source(map_id, system)
+
+          maybe_auto_tag_with_trade_hub_distance(map_id, system)
 
           :ok
 
@@ -1250,6 +1260,17 @@ defmodule WandererApp.Map.Server.SystemsImpl do
       position_x: updated_system.position_x,
       position_y: updated_system.position_y
     })
+
+    :ok
+  end
+
+  # Issue #3: tag highsec systems with gate-jump distance to the nearest trade
+  # hub. Route solving can take seconds (ESI fallback path), so run off the map
+  # server process — never inline in `do_add_system`.
+  defp maybe_auto_tag_with_trade_hub_distance(map_id, system) do
+    Task.Supervisor.start_child(WandererApp.TaskSupervisor, fn ->
+      WandererApp.Map.TradeHubTags.maybe_tag_system(map_id, system.solar_system_id)
+    end)
 
     :ok
   end
