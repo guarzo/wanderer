@@ -162,6 +162,7 @@ defmodule WandererApp.MapSystemRepo do
     |> Ash.Query.for_read(:read, %{}, actor: actor, authorize?: false)
     |> Ash.Query.filter(map_id == ^map_id and solar_system_id == ^solar_system_id)
     |> Ash.Query.select([
+      :solar_system_id,
       :labels,
       :name,
       :temporary_name,
