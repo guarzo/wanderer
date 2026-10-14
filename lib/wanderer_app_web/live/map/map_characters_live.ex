@@ -155,11 +155,12 @@ defmodule WandererAppWeb.MapCharactersLive do
         saved_flags = Map.new(settings, &{&1.character_id, &1.tracked == true})
 
         selected_characters = select_characters(view, settings, present_characters)
+        characters_by_id = load_character_records(map_id, selected_characters)
 
         map_characters =
           Enum.flat_map(selected_characters, fn presence ->
-            case WandererApp.Character.get_character(presence.character_id) do
-              {:ok, character} when not is_nil(character) ->
+            case Map.fetch(characters_by_id, presence.character_id) do
+              {:ok, character} ->
                 # Saved preferences take precedence over stale presence metadata after untracking.
                 tracked = Map.get(saved_flags, presence.character_id, presence.tracked == true)
 
@@ -201,6 +202,41 @@ defmodule WandererAppWeb.MapCharactersLive do
           characters_load_error: true,
           characters_incomplete: false
         )
+    end
+  end
+
+  defp load_character_records(_map_id, []), do: %{}
+
+  defp load_character_records(map_id, selected_characters) do
+    character_ids = selected_characters |> Enum.map(& &1.character_id) |> Enum.uniq()
+
+    {cached_characters, missing_ids} =
+      Enum.reduce(character_ids, {%{}, []}, fn character_id, {cached, missing} ->
+        case Cachex.get(:character_cache, character_id) do
+          {:ok, character} when not is_nil(character) ->
+            {Map.put(cached, character_id, character), missing}
+
+          _ ->
+            {cached, [character_id | missing]}
+        end
+      end)
+
+    case missing_ids do
+      [] ->
+        cached_characters
+
+      _ ->
+        case WandererApp.Api.Character.read(query: [filter: [id: [in: missing_ids]]]) do
+          {:ok, characters} ->
+            Enum.reduce(characters, cached_characters, fn character, loaded ->
+              Cachex.put(:character_cache, character.id, character)
+              Map.put(loaded, character.id, character)
+            end)
+
+          {:error, reason} ->
+            Logger.error("Unable to load character records for map #{map_id}: #{inspect(reason)}")
+            cached_characters
+        end
     end
   end
 

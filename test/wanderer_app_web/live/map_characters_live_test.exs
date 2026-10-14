@@ -91,17 +91,75 @@ defmodule WandererAppWeb.MapCharactersLiveTest do
   end
 
   test "does not truncate tracked rosters above twenty entries", ctx do
-    for _ <- 1..23, do: member(ctx.map, ctx.user, true)
+    extras = Enum.map(1..23, fn _ -> member(ctx.map, ctx.user, true) end)
     {:ok, view, _} = live(ctx.conn, ~p"/#{ctx.map.slug}/characters")
     change_view(view, "tracked")
 
+    for character <- [ctx.present, ctx.absent | extras] do
+      Cachex.del(:character_cache, character.id)
+    end
+
+    reads =
+      count_character_reads(fn ->
+        send(view.pid, :refresh_tracking_data)
+        render(view)
+      end)
+
+    assert reads == 1
+
+    assert count_character_reads(fn ->
+             send(view.pid, :refresh_tracking_data)
+             render(view)
+           end) == 0
+
     assert has_element?(view, "#character-view-heading", "All tracked characters (25)")
+    assert has_element?(view, "#map-character-#{ctx.present.id} time", "2026-10-14T12:00:00Z")
+    assert has_element?(view, "#map-character-#{ctx.absent.id}", "No active session")
+    refute row?(view, ctx.viewer)
 
     assert view
            |> render()
            |> Floki.parse_fragment!()
            |> Floki.find("li[id^='map-character-']")
            |> length() == 25
+  end
+
+  test "batch loads uncached active sessions without dropping viewers or presence metadata",
+       ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/#{ctx.map.slug}/characters")
+    Cachex.del(:character_cache, ctx.present.id)
+    Cachex.del(:character_cache, ctx.viewer.id)
+
+    reads =
+      count_character_reads(fn ->
+        send(view.pid, :refresh_tracking_data)
+        render(view)
+      end)
+
+    assert reads == 1
+    assert has_element?(view, "#map-character-#{ctx.present.id}", ctx.present.name)
+    assert has_element?(view, "#map-character-#{ctx.viewer.id}", ctx.viewer.name)
+    assert has_element?(view, "#map-character-#{ctx.viewer.id}", "Viewer (not tracked)")
+    assert has_element?(view, "#map-character-#{ctx.present.id} time", "2026-10-14T12:00:00Z")
+    refute row?(view, ctx.absent)
+  end
+
+  test "preserves cached character data while batch loading missing records", ctx do
+    {:ok, view, _} = live(ctx.conn, ~p"/#{ctx.map.slug}/characters")
+    change_view(view, "tracked")
+    {:ok, _} = Character.get_character(ctx.present.id)
+    Character.update_character(ctx.present.id, %{name: "Cached pilot name"})
+    Cachex.del(:character_cache, ctx.absent.id)
+
+    reads =
+      count_character_reads(fn ->
+        send(view.pid, :refresh_tracking_data)
+        render(view)
+      end)
+
+    assert reads == 1
+    assert has_element?(view, "#map-character-#{ctx.present.id}", "Cached pilot name")
+    assert has_element?(view, "#map-character-#{ctx.absent.id}", ctx.absent.name)
   end
 
   test "keeps the selected view while refreshing saved tracking preferences", ctx do
@@ -165,7 +223,7 @@ defmodule WandererAppWeb.MapCharactersLiveTest do
         MapCharacterSettingsRepo.untrack(%{map_id: ctx.map.id, character_id: character.id})
     end
 
-    change_view(view, "tracked")
+    assert count_character_reads(fn -> change_view(view, "tracked") end) == 0
 
     assert has_element?(
              view,
@@ -416,6 +474,31 @@ defmodule WandererAppWeb.MapCharactersLiveTest do
         assert socket.assigns.character_view == :tracked
         refute_receive {:runtime_stop, _, _}
       end)
+    end
+  end
+
+  defp count_character_reads(fun) do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+    handler_id = {__MODULE__, :character_reads, System.unique_integer([:positive])}
+
+    :telemetry.attach(
+      handler_id,
+      [:wanderer_app, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if metadata[:source] == "character_v1" and
+             String.starts_with?(metadata[:query] || "", "SELECT") do
+          Agent.update(counter, &(&1 + 1))
+        end
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+      Agent.get(counter, & &1)
+    after
+      :telemetry.detach(handler_id)
+      Agent.stop(counter)
     end
   end
 
