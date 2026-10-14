@@ -341,7 +341,7 @@ defmodule WandererAppWeb.MapCharactersLiveTest do
       |> element("#map-character-#{ctx.present.id} button[phx-click='untrack']")
       |> render_click()
 
-      assert_receive {:runtime_stop, _reason, {:ok, %{tracked: false}}}
+      assert_receive {:runtime_stop, :user_untracked, {:ok, %{tracked: false}}}
       assert selected?(view, "tracked")
       refute row?(view, ctx.present)
       change_view(view, "active")
