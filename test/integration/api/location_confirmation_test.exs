@@ -163,6 +163,43 @@ defmodule WandererApp.LocationConfirmationTest do
     refute Map.has_key?(entries, char.id)
   end
 
+  test "fresh location rejects 304 even when ordinary requests stored validators", %{
+    character: char
+  } do
+    path = "/characters/#{char.eve_id}/location"
+    validators_key = {:esi_validators, path}
+    opts = [character_id: char.id, access_token: char.access_token]
+    on_exit(fn -> Cachex.del(:api_cache, validators_key) end)
+
+    Req.default_options(
+      plug: fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.put_resp_header("etag", "cached-location")
+        |> Plug.Conn.send_resp(200, ~s({"solar_system_id":30000142}))
+      end
+    )
+
+    assert {:ok, %{"solar_system_id" => 30_000_142}} =
+             ApiClient.get_character_location(char.eve_id, opts)
+
+    assert {:ok, %{etag: "cached-location"}} = Cachex.get(:api_cache, validators_key)
+
+    Req.default_options(
+      plug: fn conn ->
+        assert Plug.Conn.get_req_header(conn, "if-none-match") == []
+        assert Plug.Conn.get_req_header(conn, "if-modified-since") == []
+        Plug.Conn.send_resp(conn, 304, "")
+      end
+    )
+
+    assert {:error, "Unexpected status: 304"} =
+             ApiClient.get_character_location(
+               char.eve_id,
+               Keyword.put(opts, :confirm_location?, true)
+             )
+  end
+
   test "304, invalid bodies, HTTP failures and offline tracking never confirm", %{
     character: char,
     state: state
