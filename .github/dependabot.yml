@@ -1,0 +1,103 @@
+# All updates need a person to merge; no auto-merge workflow is configured.
+# Groups cover minor/patch version updates only, not majors or security updates.
+# Specific groups precede the catch-all because Dependabot uses the first match.
+version: 2
+
+updates:
+  - package-ecosystem: mix
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      frontend-runtime:
+        patterns:
+          - phoenix
+          - phoenix_html
+          - phoenix_live_view
+          - live_select
+        update-types: [minor, patch]
+      ash:
+        patterns:
+          - "ash*"
+          - simple_sat
+        update-types: [minor, patch]
+      runtime-sensitive:
+        patterns:
+          - postgrex
+          - ueberauth
+          - req
+          - nostrum
+          - site_encrypt
+          - error_tracker
+          - cloak
+          - retry
+          - phoenix_live_dashboard
+          - heroicons
+          - finch
+          - gettext
+          - dns_cluster
+          - plug_content_security_policy
+          - debounce_and_throttle
+          - merkle_map
+          - fresh
+          - qex
+          - live_view_events
+          - makeup_elixir
+          - version_tasks
+          - tailwind
+          - dart_sass
+        update-types: [minor, patch]
+      # Keep proposed fixes visible; each bump needs the private-handler shim rechecked.
+      socket-client:
+        patterns:
+          - phoenix_gen_socket_client
+        update-types: [minor, patch]
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/assets"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+        update-types: [minor, patch]
+      runtime-sensitive:
+        patterns:
+          - primereact
+          - "@formkit/auto-animate"
+          - "@rollup/*"
+        update-types: [minor, patch]
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types: [minor, patch]
