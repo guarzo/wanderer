@@ -1818,6 +1818,43 @@ defmodule WandererAppWeb.MapNotificationsTest do
       assert_in_kills_card(view, "Could not remove that system.")
     end
 
+    test "an out-of-range or non-scalar excluded system is refused, not stored", %{
+      view: view
+    } do
+      for bad <- ["0", "-5", "9223372036854775808", %{"a" => "1"}, ["1"]] do
+        view
+        |> with_target("#map-notifications")
+        |> render_submit("add-excluded", %{"excluded" => %{"excluded_system" => bad}})
+
+        assert_in_kills_card(view, "Pick a system from the list.")
+      end
+
+      for bad <- ["0", "9223372036854775808", %{"a" => "1"}] do
+        view
+        |> with_target("#map-notifications")
+        |> render_click("remove-excluded", %{"system_id" => bad})
+
+        assert_in_kills_card(view, "Could not remove that system.")
+      end
+    end
+
+    test "a live_select_change for an unknown picker id is ignored", %{view: view} do
+      insert_jita()
+
+      view
+      |> with_target("#map-notifications")
+      |> render_change("live_select_change", %{
+        "id" => "some_other_live_select",
+        "text" => "Jita",
+        "field" => "x"
+      })
+
+      # No crash, and no system options leaked into the component's state.
+      assert Process.alive?(view.pid)
+
+      refute render(view) =~ "Jita (The Forge)"
+    end
+
     test "an unparseable focus corporation", %{view: view} do
       view
       |> with_target("#map-notifications")

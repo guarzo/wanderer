@@ -78,6 +78,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   alias WandererApp.ExternalEvents.Discord.Mentions
 
   @excluded_select_id "excluded_system_live_select_component"
+  # Excluded systems are stored in a PostgreSQL bigint[] and matched against
+  # integer system ids, so anything outside 1..bigint max must be refused here
+  # rather than surfacing as a storage error.
+  @max_postgres_bigint 9_223_372_036_854_775_807
   @focus_corp_select_id "focus_corp_live_select_component"
   @home_system_select_id "home_system_live_select_component"
   @min_search_length 2
@@ -593,10 +597,10 @@ defmodule WandererAppWeb.MapNotificationsComponent do
     handle_mention_user_search(socket, :rally, text)
   end
 
-  def handle_event("live_select_change", %{"id" => id, "text" => text}, socket) do
+  def handle_event("live_select_change", %{"id" => @excluded_select_id, "text" => text}, socket) do
     {options, system_search_error} = search_systems(text)
 
-    send_update(LiveSelect.Component, id: id, options: options)
+    send_update(LiveSelect.Component, id: @excluded_select_id, options: options)
 
     {:noreply,
      socket
@@ -604,9 +608,15 @@ defmodule WandererAppWeb.MapNotificationsComponent do
      |> assign(:system_search_error, system_search_error)}
   end
 
+  # The event is client-supplied, so an unrecognised picker id must not be
+  # echoed into `send_update(LiveSelect.Component, id: id, ...)`: that would let
+  # a crafted payload push system options into ANY live_select on the page.
+  # Every picker this component owns has its own clause above.
+  def handle_event("live_select_change", _params, socket), do: {:noreply, socket}
+
   def handle_event("add-excluded", %{"excluded" => %{"excluded_system" => raw}}, socket) do
     with %{} = rec <- socket.assigns.notification,
-         {id, ""} <- Integer.parse(to_string(raw)) do
+         {:ok, id} <- parse_system_id(raw) do
       update_excluded(socket, rec, Enum.uniq([id | rec.excluded_systems]))
     else
       _ -> {:noreply, put_message(socket, :error, "Pick a system from the list.")}
@@ -618,7 +628,7 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # missing record or a non-numeric id is survivable.
   def handle_event("remove-excluded", %{"system_id" => raw}, socket) do
     with %{} = rec <- socket.assigns.notification,
-         {id, ""} <- Integer.parse(to_string(raw)) do
+         {:ok, id} <- parse_system_id(raw) do
       update_excluded(socket, rec, Enum.reject(rec.excluded_systems, &(&1 == id)))
     else
       _ -> {:noreply, put_message(socket, :error, "Could not remove that system.")}
@@ -803,6 +813,22 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # one.
   defp route_destination_ready?(nil), do: false
   defp route_destination_ready?(%{enabled?: enabled?}), do: enabled?
+
+  # `raw` is client-supplied: `to_string/1` raises Protocol.UndefinedError on a
+  # map or list, and a raise inside `with` is not caught by `else`, so a crafted
+  # payload would take the LiveView down. Only integers and well-formed digit
+  # strings inside 1..bigint max are accepted.
+  defp parse_system_id(id) when is_integer(id) and id > 0 and id <= @max_postgres_bigint,
+    do: {:ok, id}
+
+  defp parse_system_id(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {id, ""} -> parse_system_id(id)
+      _ -> :error
+    end
+  end
+
+  defp parse_system_id(_raw), do: :error
 
   defp parse_role("character"), do: :character
   defp parse_role(:character), do: :character
