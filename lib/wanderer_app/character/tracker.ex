@@ -213,7 +213,10 @@ defmodule WandererApp.Character.Tracker do
       |> WandererApp.Character.get_character_state!()
       |> update_online()
 
-  def update_online(%{track_online: true, character_id: character_id, is_online: is_online}) do
+  def update_online(
+        %{track_online: true, character_id: character_id, is_online: is_online} =
+          character_state
+      ) do
     case WandererApp.Character.get_character(character_id) do
       {:ok, %{eve_id: eve_id, access_token: access_token, tracking_pool: tracking_pool}}
       when not is_nil(access_token) ->
@@ -297,12 +300,6 @@ defmodule WandererApp.Character.Tracker do
                       reraise error, __STACKTRACE__
                   end
 
-                  # The state write above rewrites track_location on every online
-                  # transition, and did so with no telemetry at all:
-                  # maybe_stop_tracking/2 has :location_flag_cleared and
-                  # maybe_start_location_tracking/2 has :location_flag_repaired,
-                  # but this path had nothing.
-                  #
                   # An online=false transition pauses location updates until EVE
                   # reports the character online again. For a real logout that is
                   # correct behaviour, not a defect — update_location/1's clause
@@ -320,7 +317,7 @@ defmodule WandererApp.Character.Tracker do
                     %{
                       character_id: character_id,
                       online: online.online,
-                      has_active_maps: Map.get(character_state, :active_maps, []) != []
+                      has_active_maps: active_map_ids(character_state) != []
                     }
                   )
                 end
@@ -631,7 +628,12 @@ defmodule WandererApp.Character.Tracker do
             {:error, :skipped}
 
           _ ->
-            case request_location(eve_id, character_id, access_token, active_map_ids(character_state)) do
+            case request_location(
+                   eve_id,
+                   character_id,
+                   access_token,
+                   active_map_ids(character_state)
+                 ) do
               {:ok, location} when is_map(location) and not is_struct(location) ->
                 reset_location_error_count(character_id)
                 WandererApp.Cache.delete("character:#{character_id}:location_error_time")

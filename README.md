@@ -54,9 +54,11 @@ destination is disabled the kills for that role are dropped — they are never
 rerouted to the other channel.
 
 Requires `WANDERER_WEBHOOKS_ENABLED=true`. When it is false the delivery workers
-are not running and "Send test message" reports that notifications are disabled
-on this server. `WANDERER_DISCORD_POOL_SIZE` (default `10`) sizes the isolated
-Finch connection pool used for Discord delivery.
+are not running and the map settings dialog hides the Notifications tab.
+`WANDERER_FINCH_DISCORD_POOL_SIZE` (default `10`; the older
+`WANDERER_DISCORD_POOL_SIZE` is still read when it is unset) and
+`WANDERER_FINCH_DISCORD_POOL_COUNT` (default `1`) size the isolated Finch
+connection pool used for Discord delivery.
 `WANDERER_DISCORD_MAX_KILLMAIL_AGE_SECONDS` (default `3600`) drops killmails
 older than the given age, so an upstream replay does not post stale kills.
 The dedup marks that stop a killmail being posted twice are held in memory, so a

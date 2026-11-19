@@ -34,9 +34,6 @@ defmodule WandererApp.Metrics.PromExPluginTest do
 
   # Every metric whose whole purpose is diagnosing lost tracking.
   @tracking_metrics [
-    [:wanderer_app, :character, :tracking, :location_flag_cleared, :count],
-    [:wanderer_app, :character, :tracking, :location_flag_repaired, :count],
-    [:wanderer_app, :character, :tracking, :location_skipped_while_active, :count],
     [:wanderer_app, :character, :tracking, :stopped, :count],
     [:wanderer_app, :character, :tracking, :permission_revoked, :count],
     [:wanderer_app, :character, :tracking, :online_transition, :count],
@@ -80,33 +77,6 @@ defmodule WandererApp.Metrics.PromExPluginTest do
                  "omitted #{inspect(missing)}; the Prometheus reporter would silently drop " <>
                  "every event for this metric"
       end
-    end
-  end
-
-  describe "location tracking defect counters" do
-    test "carry character_id so a counter can be traced to a pilot" do
-      for event <- [
-            :location_flag_cleared,
-            :location_flag_repaired,
-            :location_skipped_while_active
-          ] do
-        metric = find!([:wanderer_app, :character, :tracking, event, :count])
-
-        assert :character_id in metric.tags,
-               "#{event} dropped its character_id tag; it can no longer name the affected pilot"
-      end
-    end
-
-    test "tag_values actually propagates character_id from event metadata" do
-      metric = find!([:wanderer_app, :character, :tracking, :location_flag_repaired, :count])
-
-      assert %{character_id: "char-1"} = metric.tag_values.(%{character_id: "char-1"})
-    end
-
-    test "tag_values does not crash on metadata missing character_id" do
-      metric = find!([:wanderer_app, :character, :tracking, :location_flag_cleared, :count])
-
-      assert %{character_id: "unknown"} = metric.tag_values.(%{})
     end
   end
 

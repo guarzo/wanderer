@@ -13,6 +13,8 @@ import { TooltipPosition, WdImageSize, WdImgButton } from '@/hooks/Mapper/compon
 import { CustomSystemSettingsDialogProps } from './helpers';
 import { useCustomSystemSettings } from './hooks/useCustomSystemSettings';
 import { isWormholeSpace } from '../../../map/helpers/isWormholeSpace';
+import { useMapRootState } from '@/hooks/Mapper/mapRootProvider';
+import { SYSTEM_CUSTOM_LABEL_MAX_LENGTH } from '@/hooks/Mapper/constants/system.ts';
 
 const CHECKBOX_ITEMS = [
   { code: 'B', label: 'Blobber' },
@@ -30,6 +32,9 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
   setVisible,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const {
+    data: { systemCustomLabelMaxLength },
+  } = useMapRootState();
 
   const {
     system,
@@ -187,7 +192,7 @@ export const CustomSystemSettingsDialog: React.FC<CustomSystemSettingsDialogProp
                     id="label"
                     autoComplete="off"
                     value={label}
-                    maxLength={5}
+                    maxLength={systemCustomLabelMaxLength ?? SYSTEM_CUSTOM_LABEL_MAX_LENGTH}
                     onChange={e => setLabel(e.target.value.toUpperCase())}
                   />
                 </IconField>

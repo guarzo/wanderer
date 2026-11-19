@@ -396,6 +396,7 @@ defmodule WandererApp.Api.Map do
     WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(map_id)
     result
   end
+
   # Generate a unique slug from map name
   defp generate_unique_slug(name) do
     base_slug =

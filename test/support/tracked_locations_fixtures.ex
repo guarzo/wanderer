@@ -23,8 +23,7 @@ defmodule WandererApp.Test.TrackedLocationsFixtures do
       character.id,
       WandererApp.Character.Tracker.new(
         character_id: character.id,
-        active_maps: [map.id],
-        track_location: true,
+        consumers: %{{:map, map.id} => :fast},
         is_online: true
       )
     )

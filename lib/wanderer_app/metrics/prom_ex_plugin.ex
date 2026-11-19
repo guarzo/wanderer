@@ -17,27 +17,10 @@ defmodule WandererApp.Metrics.PromExPlugin do
   @map_subscription_cancel_event [:wanderer_app, :map, :subscription, :cancel]
   @map_subscription_expired_event [:wanderer_app, :map, :subscription, :expired]
 
-  # Location-tracking defect instrumentation. These three counters are read
-  # together to validate the maybe_start_location_tracking/2 fix:
-  #
-  #   cleared  - the (is_online: true, track_location: false) pair was created
-  #   repaired - a character who WOULD have frozen was restored by the fix
-  #   skipped  - a character is frozen right now; must stay at zero post-fix
-  #
-  # repaired > 0 with skipped == 0 confirms both the mechanism and the fix.
-  # skipped > 0 means a route to the frozen state the fix does not cover.
-  @location_flag_cleared_event [:wanderer_app, :character, :tracking, :location_flag_cleared]
-  @location_flag_repaired_event [:wanderer_app, :character, :tracking, :location_flag_repaired]
-  @location_skipped_while_active_event [
-    :wanderer_app,
-    :character,
-    :tracking,
-    :location_skipped_while_active
-  ]
-
-  # Tracking-lifecycle instrumentation. The three location_flag counters above
-  # only cover the flag defect fixed in #146; these cover the neighbouring paths
-  # that could stop a character updating on the map.
+  # Tracking-lifecycle instrumentation: the paths that could stop a character
+  # updating on the map. (The three location_flag counters that went with the
+  # #146 fix were removed when upstream's consumer-based tracker made that
+  # frozen state unreachable.)
   #
   # The first three were already being emitted at their call sites with no
   # handler attached anywhere, so nothing was reaching Prometheus. The fourth,
@@ -51,11 +34,10 @@ defmodule WandererApp.Metrics.PromExPlugin do
   #                        A sum, not a counter: one event carries a whole batch
   #   token_refresh_failed - ESI refresh failed. Only the invalid_grant variety
   #                        wipes a token, and only 3 within the 2h counter TTL
-  #   online_transition  - update_online/1 rewrote track_location because EVE
-  #                        online status flipped. A genuine logout lands here
-  #                        too and is NOT a defect (see update_location/1's
-  #                        comment); this counter exists to show the rate and
-  #                        catch spurious offline reports, not to be alerted on
+  #   online_transition  - EVE online status flipped for a character. A
+  #                        genuine logout lands here too and is NOT a defect;
+  #                        this counter exists to show the rate and catch
+  #                        spurious offline reports, not to be alerted on
   @tracking_stopped_event [:wanderer_app, :character, :tracking, :stopped]
   @tracking_permission_revoked_event [
     :wanderer_app,
@@ -130,7 +112,6 @@ defmodule WandererApp.Metrics.PromExPlugin do
       # for the life of the VM. Revisit if the character count grows by orders
       # of magnitude. online_transition in particular fires on every EVE login
       # and logout, so unlike the defect counters it is not rare.
-      location_tracking_defect_metrics(),
       tracking_lifecycle_metrics()
     ]
 
@@ -146,40 +127,6 @@ defmodule WandererApp.Metrics.PromExPlugin do
     else
       base_metrics ++ advanced_metrics
     end
-  end
-
-  defp location_tracking_defect_metrics do
-    Event.build(
-      :wanderer_app_location_tracking_defect_metrics,
-      [
-        counter(
-          @location_flag_cleared_event ++ [:count],
-          event_name: @location_flag_cleared_event,
-          description:
-            "Times location tracking was cleared while the character was still online in EVE",
-          tags: [:character_id],
-          tag_values: &get_character_tag_values/1
-        ),
-        counter(
-          @location_flag_repaired_event ++ [:count],
-          event_name: @location_flag_repaired_event,
-          description:
-            "Times an online character's location tracking was restored on map re-entry, " <>
-              "each of which would previously have frozen on the map",
-          tags: [:character_id],
-          tag_values: &get_character_tag_values/1
-        ),
-        counter(
-          @location_skipped_while_active_event ++ [:count],
-          event_name: @location_skipped_while_active_event,
-          description:
-            "Character-minutes during which an online, map-active character had location " <>
-              "tracking disabled; expected to be zero",
-          tags: [:character_id],
-          tag_values: &get_character_tag_values/1
-        )
-      ]
-    )
   end
 
   defp user_event_metrics do
@@ -411,8 +358,8 @@ defmodule WandererApp.Metrics.PromExPlugin do
           @tracking_online_transition_event ++ [:count],
           event_name: @tracking_online_transition_event,
           description:
-            "Times EVE online status flipped for a character, rewriting track_location. " <>
-              "online=false with active maps is a silent pause in location updates",
+            "Times EVE online status flipped for a character. " <>
+              "online=false with active maps pauses location updates",
           tags: [:character_id, :online, :has_active_maps],
           tag_values: &get_online_transition_tag_values/1
         ),
@@ -451,10 +398,6 @@ defmodule WandererApp.Metrics.PromExPlugin do
       character_id: Map.get(metadata, :character_id, "unknown"),
       source: Map.get(metadata, :source, "unknown")
     }
-  end
-
-  defp get_character_tag_values(metadata) do
-    %{character_id: Map.get(metadata, :character_id, "unknown")}
   end
 
   defp get_tracking_stopped_tag_values(metadata) do

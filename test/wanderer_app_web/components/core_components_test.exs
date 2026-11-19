@@ -81,6 +81,39 @@ defmodule WandererAppWeb.CoreComponentsTest do
     end
   end
 
+  # Upstream's styling attrs. They apply only when no `variant` is set, so
+  # upstream call sites render exactly as upstream intends.
+  describe "button/1 outlined/severity" do
+    test "outlined={false} drops the outline modifier" do
+      class = class_of(button(%{outlined: false, inner_block: slot("Save")}))
+
+      assert class == "phx-submit-loading:opacity-75 p-button p-component p-button-sm"
+    end
+
+    test "severity maps to PrimeReact's warning and danger modifiers" do
+      assert class_of(button(%{severity: "error", inner_block: slot("Reset")})) =~
+               "p-button-danger"
+
+      assert class_of(button(%{severity: "warning", inner_block: slot("Hmm")})) =~
+               "p-button-warning"
+    end
+
+    test "an explicit variant wins over outlined and severity" do
+      class =
+        class_of(
+          button(%{
+            variant: :primary,
+            outlined: true,
+            severity: "error",
+            inner_block: slot("Save")
+          })
+        )
+
+      refute class =~ "p-button-outlined"
+      refute class =~ "p-button-danger"
+    end
+  end
+
   describe "button/1 passthrough" do
     test "keeps type, data and global attributes" do
       html =

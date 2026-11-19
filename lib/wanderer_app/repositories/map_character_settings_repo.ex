@@ -141,7 +141,8 @@ defmodule WandererApp.MapCharacterSettingsRepo do
   @untrack_sources %{
     WandererApp.Character.TrackingUtils => :ui_toggle,
     WandererApp.Map.Server.CharactersImpl => :acl_sweep,
-    WandererAppWeb.CharactersLive => :character_deleted
+    WandererAppWeb.CharactersLive => :character_deleted,
+    WandererAppWeb.PageCharactersLive => :character_deleted
   }
 
   defp report_untrack(map_id, character_id) do

@@ -161,7 +161,12 @@ defmodule WandererApp.TrackedCharacterLocations do
           for {:entry, id, _, _, state} <- states,
               MapSet.member?(ids, id),
               into: %{},
-              do: {id, Map.take(state, [:is_online, :track_location, :active_maps])}
+              do:
+                {id,
+                 %{
+                   is_online: Map.get(state, :is_online),
+                   map_ids: WandererApp.Character.Tracker.active_map_ids(state)
+                 }}
 
         pools =
           if Process.whereis(:unique_tracker_pool_registry) do
@@ -264,8 +269,7 @@ defmodule WandererApp.TrackedCharacterLocations do
     eligible =
       entry != nil and entry.fingerprint == char.fingerprint and char.fingerprint != nil and
         is_integer(char.expires_at) and char.expires_at > DateTime.to_unix(now) and
-        state[:is_online] == true and state[:track_location] == true and
-        map_id in (state[:active_maps] || []) and
+        state[:is_online] == true and map_id in (state[:map_ids] || []) and
         MapSet.member?(local.live_ids, char.id) and Store.fresh?(entry.observed_at, now)
 
     if eligible do

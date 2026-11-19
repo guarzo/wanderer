@@ -181,7 +181,8 @@ the rest of the application. If you run a large instance with many maps sending
 notifications, you can size that pool:
 
 ```bash
-export WANDERER_DISCORD_POOL_SIZE="10"   # default
+export WANDERER_FINCH_DISCORD_POOL_SIZE="10"   # default
+export WANDERER_FINCH_DISCORD_POOL_COUNT="1"   # default
 ```
 
 ## Known limits

@@ -21,8 +21,7 @@ defmodule WandererApp.LocationConfirmationTest do
     state =
       Tracker.new(
         character_id: character.id,
-        active_maps: [map.id],
-        track_location: true,
+        consumers: %{{:map, map.id} => :fast},
         is_online: true
       )
 
@@ -156,7 +155,11 @@ defmodule WandererApp.LocationConfirmationTest do
 
     assert :ok =
              Tracker.update_location(
-               Tracker.new(character_id: char.id, track_location: true, is_online: true)
+               Tracker.new(
+                 character_id: char.id,
+                 consumers: %{{:characters_page, self()} => :fast},
+                 is_online: true
+               )
              )
 
     assert {:ok, %{entries: entries}} = Store.snapshot()
@@ -258,7 +261,7 @@ defmodule WandererApp.LocationConfirmationTest do
             state
 
           :inactive_map ->
-            %{state | active_maps: [Ash.UUID.generate()]}
+            %{state | consumers: %{{:map, Ash.UUID.generate()} => :fast}}
 
           :disabled ->
             Application.put_env(:wanderer_app, :map_integrations_enabled, false)
@@ -270,7 +273,11 @@ defmodule WandererApp.LocationConfirmationTest do
         end
 
       # Deliberately different cached state: eligibility must use this dispatch's state.
-      Cachex.put(:character_state_cache, char.id, %{state | active_maps: [map.id]})
+      Cachex.put(:character_state_cache, char.id, %{
+        state
+        | consumers: %{{:map, map.id} => :fast}
+      })
+
       path = "/characters/#{char.eve_id}/location"
       Cachex.put(:api_cache, path, %{"solar_system_id" => 30_000_142})
 
@@ -296,7 +303,14 @@ defmodule WandererApp.LocationConfirmationTest do
     })
 
     Req.default_options(plug: fn _ -> flunk("empty maps must stay cached") end)
-    assert :ok = Tracker.update_location(%{state | active_maps: []})
+    # Polled for the characters page only: no map consumer, so no map can
+    # grant a confirmation.
+    assert :ok =
+             Tracker.update_location(%{
+               state
+               | consumers: %{{:characters_page, self()} => :fast}
+             })
+
     refute Map.has_key?(:sys.get_state(Store).requests, char.id)
   end
 
