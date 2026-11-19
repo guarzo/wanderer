@@ -191,6 +191,10 @@ defmodule WandererApp.PersonalTokenRevocationTest do
     grant(c.acl, c.owner)
     new_owner = insert(:character)
     Api.Map.assign_owner!(c.map, %{owner_id: new_owner.id})
+    # Owning an ACL attached to the map is itself an admin grant (upstream
+    # Permissions.check_characters_access/2), so hand the ACL over too: the
+    # former owner's only remaining access is then the viewer grant below.
+    Api.AccessList.update!(c.acl, %{owner_id: new_owner.id})
     active(c.token)
     active(c.owner_token)
 

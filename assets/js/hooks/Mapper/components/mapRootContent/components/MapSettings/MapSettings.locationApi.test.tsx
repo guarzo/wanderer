@@ -25,6 +25,7 @@ jest.mock('./constants.ts', () => ({
   SYSTEMS_CHECKBOXES_PROPS: [],
 }));
 jest.mock('./components/CommonSettings', () => ({ CommonSettings: () => null }));
+jest.mock('./components/NotificationSettings.tsx', () => ({ NotificationSettings: () => null }));
 jest.mock('./components/WidgetsSettings', () => ({ WidgetsSettings: () => null }));
 jest.mock('./components/BookmarksSettings', () => ({ BookmarksSettings: () => null }));
 jest.mock('./components/ImportExport', () => ({ ImportExport: () => null }));
