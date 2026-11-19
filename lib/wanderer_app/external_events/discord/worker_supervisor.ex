@@ -21,6 +21,9 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
 
   @registry WandererApp.ExternalEvents.Discord.Registry
   @dyn_sup WandererApp.ExternalEvents.Discord.DynamicSupervisor
+  # Bounds the fallback stop below so a worker wedged on a slow DB call cannot
+  # block the caller indefinitely.
+  @stop_timeout_ms 5_000
 
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -105,7 +108,18 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
     # The supervisor enforces the child's shutdown timeout and removes its
     # spec, so even a busy worker is killed without a transient restart.
     # GenServer.stop/3 merely times out, leaving such a worker alive.
-    DynamicSupervisor.terminate_child(@dyn_sup, pid)
+    case DynamicSupervisor.terminate_child(@dyn_sup, pid) do
+      :ok -> :ok
+      {:error, :not_found} -> stop_unsupervised(pid)
+    end
+  catch
+    :exit, _ -> :ok
+  end
+
+  # A worker started outside the dynamic supervisor (only tests do this) has no
+  # supervisor to enforce a shutdown, so fall back to a bounded graceful stop.
+  defp stop_unsupervised(pid) do
+    GenServer.stop(pid, :normal, @stop_timeout_ms)
   catch
     :exit, _ -> :ok
   end

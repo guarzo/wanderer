@@ -64,6 +64,7 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   alias WandererApp.ExternalEvents.Discord.WorkerSupervisor
 
+  @config_topic "discord_notifications:config"
   @cache :discord_notification_cache
   @dedup_cache :discord_dedup_cache
   # Comfortably longer than any plausible upstream replay window, matching the
@@ -98,7 +99,11 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true
-  def init(_opts), do: {:ok, %{}}
+  def init(_opts) do
+    # Cache invalidations are published cluster-wide (see invalidate_cache/2).
+    Phoenix.PubSub.subscribe(WandererApp.PubSub, @config_topic)
+    {:ok, %{}}
+  end
 
   @doc """
   Entry point called by `MapEventRelay` for every external event.
@@ -209,13 +214,57 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
 
   A plain function, not a GenServer call: it is invoked from Ash
   after_transaction hooks that may run before this process exists.
+
+  The write may happen on a different node from the one running the map's
+  dispatcher and delivery workers. The cache is cleared locally before
+  returning, and the invalidation is published over PubSub so every other node
+  evicts too.
+
+  `stop_workers` additionally stops the map's per-webhook delivery workers, which
+  a deleted map needs and an ordinary config edit does not (a worker reloads its
+  webhook before every send). It is either:
+
+    * `true` - resolve the map's current webhook ids from the database, or
+    * a list of webhook ids - for a caller that had to capture them before a
+      cascade removed the rows (a hard map destroy).
+
+  The ids are resolved once, on the writing node, and travel in the broadcast, so
+  other nodes need no database read to stop their workers.
   """
-  def invalidate_cache(map_id) do
-    Cachex.del(@cache, map_id)
+  def invalidate_cache(map_id, stop_workers \\ false) do
+    worker_ids = resolve_worker_ids(map_id, stop_workers)
+    clear_local_config(map_id, worker_ids)
+
+    Phoenix.PubSub.broadcast(
+      WandererApp.PubSub,
+      @config_topic,
+      {:discord_notification_config_changed, map_id, worker_ids, node()}
+    )
+
     :ok
   rescue
-    # The cache is not started in every context (e.g. unit tests); a missing
-    # cache must not fail the write that triggered the invalidation.
+    # Neither the cache nor PubSub is guaranteed up in every context (e.g. unit
+    # tests); a missing one must not fail the write that triggered this.
+    _ -> :ok
+  end
+
+  defp resolve_worker_ids(_map_id, false), do: []
+  defp resolve_worker_ids(_map_id, ids) when is_list(ids), do: ids
+
+  defp resolve_worker_ids(map_id, true) do
+    case MapDiscordNotification.by_map(map_id) do
+      {:ok, %{webhooks: webhooks}} when is_list(webhooks) -> Enum.map(webhooks, & &1.id)
+      _ -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp clear_local_config(map_id, worker_ids) do
+    Cachex.del(@cache, map_id)
+    Enum.each(worker_ids, &WorkerSupervisor.stop_worker/1)
+    :ok
+  rescue
     _ -> :ok
   end
 
@@ -226,6 +275,17 @@ defmodule WandererApp.ExternalEvents.DiscordDispatcher do
   end
 
   @impl true
+  # The writing node already cleared itself synchronously; only other nodes act.
+  def handle_info({:discord_notification_config_changed, _map_id, _ids, origin}, state)
+      when origin == node() do
+    {:noreply, state}
+  end
+
+  def handle_info({:discord_notification_config_changed, map_id, worker_ids, _origin}, state) do
+    clear_local_config(map_id, worker_ids)
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     Logger.debug(fn -> "[Discord] dispatcher received unexpected message: #{inspect(msg)}" end)
     {:noreply, state}

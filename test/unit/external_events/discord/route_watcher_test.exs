@@ -10,6 +10,18 @@ defmodule WandererApp.ExternalEvents.Discord.RouteWatcherTest do
   @route_url "https://discord.com/api/webhooks/2/route"
 
   setup do
+    # Alerts are posted by the delivery worker, which re-checks the global
+    # webhooks kill switch on every attempt; config/test.exs ships it off.
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.put(original, :webhooks_enabled, true)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
     HttpStub.start()
     HttpStub.reset()
 

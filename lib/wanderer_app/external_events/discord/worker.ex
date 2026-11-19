@@ -297,7 +297,7 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
         # Reload every time: the URL may have been replaced or the webhook
         # deleted since this event was queued. This reload is the one that
         # matters — nothing is sent against a stale record.
-        case MapDiscordWebhook.by_id(state.webhook_id) do
+        case MapDiscordWebhook.for_delivery(state.webhook_id) do
           {:ok, webhook} ->
             cond do
               not webhook.enabled? ->
@@ -467,7 +467,7 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   end
 
   defp record_outcome(webhook_id, outcome) do
-    case MapDiscordWebhook.by_id(webhook_id) do
+    case MapDiscordWebhook.for_delivery(webhook_id) do
       {:ok, webhook} -> apply_outcome(webhook, outcome)
       _ -> :ok
     end

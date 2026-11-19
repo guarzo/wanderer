@@ -126,6 +126,11 @@ defmodule WandererApp.Api.Map do
       primary? true
       require_atomic? false
 
+      # The webhook ids must be captured BEFORE the delete: the notification and
+      # webhook rows go away through FK cascades inside the DELETE statement, so
+      # by the time any after hook runs there is nothing left to look up.
+      change before_action(&__MODULE__.stash_discord_webhook_ids/2)
+
       # `after_transaction`, not `after_action`: an after_action hook fires
       # while the DELETE is still uncommitted, so a rollback would leave the
       # watcher stopped and the cache evicted for a map that still exists.
@@ -376,6 +381,17 @@ defmodule WandererApp.Api.Map do
   end
 
   @doc false
+  def stash_discord_webhook_ids(changeset, _context) do
+    ids =
+      case WandererApp.Api.MapDiscordNotification.by_map(changeset.data.id) do
+        {:ok, %{webhooks: webhooks}} when is_list(webhooks) -> Enum.map(webhooks, & &1.id)
+        _ -> []
+      end
+
+    Ash.Changeset.put_context(changeset, :discord_webhook_ids, ids)
+  end
+
+  @doc false
   def after_destroy(_changeset, {:error, _} = result, _context), do: result
 
   # Wired to both the hard `:destroy` action and the soft-delete
@@ -393,7 +409,19 @@ defmodule WandererApp.Api.Map do
     # (RouteWatcherSupervisor.stop_watcher/1 does both, and the eviction is
     # deliberately outside its running?/0 guard).
     WandererApp.ExternalEvents.Discord.RouteWatcherSupervisor.stop_watcher(map_id)
-    WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(map_id)
+    #
+    # A soft-deleted map keeps its notification rows, so the dispatcher resolves
+    # the webhook ids itself (`true`); a hard destroy has already lost them to the
+    # FK cascade, so the ids stashed before the delete are passed instead. Either
+    # way the deleted map's per-webhook delivery workers are stopped (on every
+    # node), not just its cached config evicted.
+    stop_workers =
+      case Map.get(changeset.context, :discord_webhook_ids) do
+        ids when is_list(ids) -> ids
+        _ -> true
+      end
+
+    WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(map_id, stop_workers)
     result
   end
 

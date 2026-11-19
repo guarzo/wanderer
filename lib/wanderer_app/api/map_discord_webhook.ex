@@ -56,6 +56,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     define(:update, action: :update)
     define(:destroy, action: :destroy)
     define(:by_id, get_by: [:id], action: :read)
+    define(:for_delivery, get_by: [:id], action: :for_delivery)
     define(:by_notification, action: :by_notification, args: [:notification_id])
     define(:set_enabled, action: :set_enabled)
     # `exclude_inputs`: AshCloak turns `webhook_url` into an argument of every
@@ -142,6 +143,14 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       require_atomic? false
 
       change after_transaction(&__MODULE__.after_destroy/3)
+    end
+
+    # Soft deletion keeps the configuration rows. A late enqueue must not
+    # recreate a worker and resume delivery after the map's destroy hook ran, so
+    # the delivery read path (not the settings UI, which uses `by_id`) skips
+    # webhooks whose map is deleted.
+    read :for_delivery do
+      filter expr(notification.map.deleted == false)
     end
 
     read :by_notification do
