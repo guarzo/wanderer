@@ -9,6 +9,18 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerTest do
   @character_url "https://discord.com/api/webhooks/456/tok-char"
 
   setup do
+    # The worker re-checks the global kill switch on every attempt, and
+    # config/test.exs ships it off.
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.put(original, :webhooks_enabled, true)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
     HttpStub.start()
     HttpStub.reset()
 
@@ -537,6 +549,248 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerTest do
 
       assert [{_url, body}] = wait_for_requests(1)
       refute Map.has_key?(body, "allowed_mentions")
+    end
+  end
+
+  # Adapted from upstream 38b773e9's per-map worker tests: the fork keys workers
+  # by webhook id, so "another map's worker" becomes "another webhook's worker".
+  describe "rate limits and hardening (upstream 38b773e9)" do
+    test "honors numeric retry_after in Discord's JSON body", %{system: w} do
+      HttpStub.set_responses([{:ok, 429, [], ~s({"retry_after":20.0,"global":false})}])
+      WorkerSupervisor.deliver(w.id, [message()])
+
+      reloaded =
+        await_condition(fn ->
+          rec = reload(w.id)
+          if rec.consecutive_failures == 1, do: {:ok, rec}, else: :retry
+        end)
+
+      assert reloaded.last_error =~ "429"
+      assert reloaded.last_error =~ "20000ms"
+      assert length(HttpStub.requests()) == 1
+    end
+
+    test "a global 429 delays another webhook's worker without sending early", %{
+      notification: n,
+      system: w
+    } do
+      other = character_webhook(n)
+      parent = self()
+
+      probe = fn url, _ ->
+        send(parent, {:network, url, System.monotonic_time(:millisecond)})
+        {:ok, 204, []}
+      end
+
+      HttpStub.set_responses([
+        fn _, _ ->
+          send(parent, {:limited_at, System.monotonic_time(:millisecond)})
+          {:ok, 429, [{"retry-after", "0.6"}, {"X-RateLimit-Global", "true"}], ""}
+        end,
+        probe,
+        probe
+      ])
+
+      WorkerSupervisor.deliver(w.id, [message()])
+      assert_receive {:limited_at, limited_at}, 1_000
+
+      await_condition(fn ->
+        if is_integer(sync(w.id).retry_at), do: {:ok, :limited}, else: :retry
+      end)
+
+      WorkerSupervisor.deliver(other.id, [message()])
+      sync(other.id)
+      refute_receive {:network, _, _}, 100
+      assert_receive {:network, @character_url, posted_at}, 1_500
+      assert posted_at - limited_at >= 600
+    end
+
+    test "a long global cooldown is shared and never sent early", %{notification: n, system: w} do
+      other = character_webhook(n)
+
+      HttpStub.set_responses([
+        {:ok, 429, [{"retry-after", "20"}, {"x-ratelimit-global", "true"}],
+         ~s({"retry_after":20.0,"global":true})}
+      ])
+
+      WorkerSupervisor.deliver(w.id, [message()])
+
+      await_condition(fn ->
+        if is_integer(sync(w.id).retry_at), do: {:ok, :limited}, else: :retry
+      end)
+
+      WorkerSupervisor.deliver(other.id, [message()])
+      sync(other.id)
+      Process.sleep(100)
+      assert length(HttpStub.requests()) == 1
+    end
+
+    test "a webhook-only cooldown stays local to its webhook", %{notification: n, system: w} do
+      HttpStub.set_responses([
+        {:ok, 429, [{"retry-after", "20"}, {"x-ratelimit-scope", "shared"}],
+         ~s({"retry_after":20.0,"global":false})}
+      ])
+
+      WorkerSupervisor.deliver(w.id, [message()])
+
+      await_condition(fn ->
+        if is_integer(sync(w.id).retry_at), do: {:ok, :limited}, else: :retry
+      end)
+
+      other = character_webhook(n)
+      WorkerSupervisor.deliver(other.id, [message()])
+      assert length(wait_for_requests(2)) == 2
+    end
+
+    test "honors a long 429 cooldown for the next queued event", %{system: w} do
+      HttpStub.set_responses([{:ok, 429, [{"retry-after", "20"}]}])
+      WorkerSupervisor.deliver(w.id, [message()])
+
+      await_condition(fn ->
+        rec = reload(w.id)
+        if rec.consecutive_failures == 1, do: {:ok, rec}, else: :retry
+      end)
+
+      WorkerSupervisor.deliver(w.id, [message()])
+      sync(w.id)
+      Process.sleep(100)
+      assert length(HttpStub.requests()) == 1
+    end
+
+    test "retries a linked request task crash once without crashing the worker", %{system: w} do
+      HttpStub.set_responses([fn _, _ -> Process.exit(self(), :kill) end, {:ok, 204, []}])
+      WorkerSupervisor.deliver(w.id, [message()])
+      wait_for_requests(1)
+      [{pid, _}] = Registry.lookup(WorkerSupervisor.registry(), w.id)
+
+      await_condition(fn ->
+        if reload(w.id).last_delivery_at, do: {:ok, :delivered}, else: :retry
+      end)
+
+      assert Process.alive?(pid)
+      assert length(HttpStub.requests()) == 2
+      assert reload(w.id).consecutive_failures == 0
+    end
+
+    test "stop_worker removes a busy worker and cancels its request task", %{system: w} do
+      parent = self()
+
+      HttpStub.set_responses([
+        fn _, _ ->
+          send(parent, {:pending_request, self()})
+
+          receive do
+            :release ->
+              send(parent, :late_effect)
+              {:ok, 204, []}
+          end
+        end
+      ])
+
+      WorkerSupervisor.deliver(w.id, [message()])
+      assert_receive {:pending_request, task}, 1_000
+      task_ref = Process.monitor(task)
+      on_exit(fn -> if Process.alive?(task), do: Process.exit(task, :kill) end)
+
+      [{pid, _}] = Registry.lookup(WorkerSupervisor.registry(), w.id)
+
+      # Model a blocked DB call: this also blocks system messages, so
+      # GenServer.stop alone would time out without killing the worker.
+      Task.start(fn ->
+        try do
+          :sys.replace_state(pid, fn state ->
+            send(parent, :worker_blocked)
+
+            receive do
+              :release -> state
+            end
+          end)
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      assert_receive :worker_blocked
+      on_exit(fn -> send(pid, :release) end)
+      assert :ok = WorkerSupervisor.stop_worker(w.id)
+      refute Process.alive?(pid)
+      assert_receive {:DOWN, ^task_ref, :process, ^task, _}, 1_000
+      send(task, :release)
+      refute_receive :late_effect
+
+      assert [] ==
+               DynamicSupervisor.which_children(
+                 WandererApp.ExternalEvents.Discord.DynamicSupervisor
+               )
+    end
+
+    test "stops retrying when the global webhook switch turns off", %{system: w} do
+      HttpStub.set_responses([{:ok, 429, [{"retry-after", "0.05"}]}])
+      WorkerSupervisor.deliver(w.id, [message()])
+      wait_for_requests(1)
+      original = Application.get_env(:wanderer_app, :external_events, [])
+
+      Application.put_env(
+        :wanderer_app,
+        :external_events,
+        Keyword.put(original, :webhooks_enabled, false)
+      )
+
+      await_condition(fn ->
+        if sync(w.id).current == nil, do: {:ok, :idle}, else: :retry
+      end)
+
+      assert length(HttpStub.requests()) == 1
+      assert reload(w.id).last_delivery_at == nil
+      assert reload(w.id).consecutive_failures == 0
+    end
+
+    test "redacts credential-bearing transport errors and exceptions", %{system: w} do
+      secret = "synthetic-webhook-token"
+      url = "https://discord.com/api/webhooks/123/#{secret}"
+      {:ok, _} = MapDiscordWebhook.update(reload(w.id), %{webhook_url: url})
+
+      for response <- [
+            {:error, %RuntimeError{message: "request failed for #{url}"}},
+            fn _, _ -> raise "request failed for #{url}" end
+          ] do
+        HttpStub.set_responses(
+          List.duplicate({:ok, 429, [{"retry-after", "0.05"}]}, 4) ++ [response]
+        )
+
+        previous = reload(w.id).consecutive_failures
+
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            WorkerSupervisor.deliver(w.id, [message()])
+
+            await_condition(fn ->
+              rec = reload(w.id)
+              if rec.consecutive_failures > previous, do: {:ok, rec}, else: :retry
+            end)
+          end)
+
+        refute log =~ secret
+        refute reload(w.id).last_error =~ secret
+        assert reload(w.id).last_error =~ "connection error"
+      end
+    end
+
+    test "does not retry an encode failure, but counts it", %{system: w} do
+      HttpStub.set_responses([{:error, {:encode_failed, :bad_term}}])
+
+      WorkerSupervisor.deliver(w.id, [message()])
+      wait_for_requests(1)
+
+      reloaded =
+        await_condition(fn ->
+          rec = reload(w.id)
+          if rec.consecutive_failures == 1, do: {:ok, rec}, else: :retry
+        end)
+
+      assert length(HttpStub.requests()) == 1
+      assert reloaded.enabled? == true
+      assert reloaded.last_error =~ "invalid payload"
     end
   end
 end

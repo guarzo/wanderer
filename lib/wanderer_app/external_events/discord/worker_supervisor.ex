@@ -21,9 +21,6 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
 
   @registry WandererApp.ExternalEvents.Discord.Registry
   @dyn_sup WandererApp.ExternalEvents.Discord.DynamicSupervisor
-  # Bounded so a worker wedged on a slow DB call cannot block the destroy that
-  # is stopping it. The exit is caught either way; the worker is brought down.
-  @stop_timeout_ms 5_000
 
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -31,6 +28,9 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
   def init(_opts) do
     children = [
       {Registry, keys: :unique, name: @registry},
+      # Supervised state outlives individual request tasks and webhook workers:
+      # the node-global 429 cooldown is shared by all of them (see HttpClient).
+      {Cachex, name: :discord_rate_limit_cache},
       {Task.Supervisor, name: WandererApp.ExternalEvents.Discord.TaskSupervisor},
       {DynamicSupervisor, name: @dyn_sup, strategy: :one_for_one}
     ]
@@ -102,10 +102,11 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerSupervisor do
   end
 
   defp try_stop(pid) do
-    GenServer.stop(pid, :normal, @stop_timeout_ms)
+    # The supervisor enforces the child's shutdown timeout and removes its
+    # spec, so even a busy worker is killed without a transient restart.
+    # GenServer.stop/3 merely times out, leaving such a worker alive.
+    DynamicSupervisor.terminate_child(@dyn_sup, pid)
   catch
-    # Already gone, or did not terminate within the timeout — in the latter case
-    # GenServer.stop/3 has already killed it. Either way there is no worker left.
     :exit, _ -> :ok
   end
 
