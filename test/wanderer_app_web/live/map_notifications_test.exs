@@ -2295,28 +2295,32 @@ defmodule WandererAppWeb.MapNotificationsTest do
       assert settled(view) =~ "Last error: 404 Not Found"
     end
 
-    test "a rejected stale outcome announces nothing", %{view: view, hook: hook} do
-      Phoenix.PubSub.subscribe(WandererApp.PubSub, MapDiscordNotification.status_topic(hook.id))
-
+    test "a rejected stale outcome announces nothing", %{view: view, hook: hook, rec: rec} do
       {:ok, _} =
         MapDiscordWebhook.update(hook, %{
           webhook_url: "https://discord.com/api/webhooks/777/replacement"
         })
 
+      Phoenix.PubSub.subscribe(
+        WandererApp.PubSub,
+        MapDiscordNotification.status_topic(rec.map_id)
+      )
+
       assert {:error, _} = MapDiscordWebhook.record_failure(hook, "old endpoint")
+      # after_transaction runs inside the call, so a broadcast would already be here.
+      refute_received %{event: :discord_notification_status}
       refute settled(view) =~ "Last error: old endpoint"
     end
 
-    test "a status broadcast for another map is ignored", %{view: view, rec: rec} do
-      other = Factory.insert(:map, %{})
+    test "an auto-disable unticks an open row's Enabled box", %{view: view, hook: hook} do
+      edit_row(view, :system)
+      checked = "#webhook-form-system input[type='checkbox'][name='webhook[enabled]'][checked]"
+      assert has_element?(view, checked)
 
-      Phoenix.PubSub.broadcast(
-        WandererApp.PubSub,
-        MapDiscordNotification.status_topic(rec.map_id),
-        %{event: :discord_notification_status, map_id: other.id}
-      )
+      {:ok, _} = MapDiscordWebhook.disable(hook, "404 Not Found")
+      _ = settled(view)
 
-      refute settled(view) =~ "Last error:"
+      refute has_element?(view, checked)
     end
 
     test "a refresh leaves an open edit form open", %{view: view, hook: hook} do

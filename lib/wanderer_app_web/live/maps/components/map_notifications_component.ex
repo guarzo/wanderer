@@ -172,14 +172,18 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   # and open sections are left alone: reloading the whole record here would
   # discard whatever the operator has typed since the tab was opened.
   #
-  # A message for a different map (one still in flight across a map switch) is
-  # ignored: the component must not adopt state it was not showing.
-  def update(%{refresh_status: true} = assigns, socket) do
-    same_map? = Map.get(assigns, :map_id, socket.assigns[:map_id]) == socket.assigns[:map_id]
-
+  # The one exception is a row's Enabled checkbox when the worker changed
+  # `enabled?` underneath it: left stale, the next Save of that row would
+  # silently turn a webhook Discord deleted back on. Its typed URL is kept.
+  def update(%{refresh_status: true}, socket) do
     case socket.assigns[:notification] do
-      %{} = notification when same_map? ->
-        {:ok, assign(socket, :webhooks, load_webhooks(notification))}
+      %{} = notification ->
+        webhooks = load_webhooks(notification)
+
+        {:ok,
+         socket
+         |> assign(:webhook_forms, sync_enabled(socket.assigns, webhooks))
+         |> assign(:webhooks, webhooks)}
 
       _ ->
         {:ok, socket}
@@ -1394,6 +1398,21 @@ defmodule WandererAppWeb.MapNotificationsComponent do
       _ -> options
     end
   end
+
+  # Used by the refresh_status update/2 clause above.
+  defp sync_enabled(%{webhook_forms: forms, webhooks: old}, webhooks) when is_map(forms) do
+    Enum.reduce(@roles, forms, fn role, acc ->
+      case {Map.get(old || %{}, role), Map.get(webhooks, role), Map.get(acc, role)} do
+        {%{enabled?: was}, %{enabled?: now}, %{params: params}} when was != now ->
+          Map.put(acc, role, to_form(Map.put(params, "enabled", now), as: :webhook))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp sync_enabled(assigns, webhooks), do: assigns[:webhook_forms] || webhook_forms(webhooks)
 
   defp webhook_forms(webhooks) do
     Map.new(@roles, fn role ->
