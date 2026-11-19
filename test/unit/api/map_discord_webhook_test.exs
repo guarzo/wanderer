@@ -550,4 +550,101 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
     refute duplicated_regex,
            "ValidateMentionTargets must delegate to Mentions.valid_target?/1, not carry its own regex"
   end
+
+  describe "webhook URL hardening (upstream 4060601f)" do
+    test "rejects URLs URI.new/1 or the path pattern refuse", %{notification: notification} do
+      for url <- [
+            "https://discord.com:8443/api/webhooks/123/tok",
+            "https://user:pw@discord.com/api/webhooks/123/tok",
+            "https://discord.com/api/webhooks/abc/tok",
+            "https://discord.com/api/webhooks/123/tok\nx",
+            "https://discord.com/api/webhooks/123/" <> String.duplicate("a", 2000)
+          ] do
+        assert {:error, _} =
+                 MapDiscordWebhook.create(%{
+                   notification_id: notification.id,
+                   role: :character,
+                   webhook_url: url
+                 }),
+               "expected rejection for #{String.slice(url, 0, 60)}"
+      end
+    end
+
+    test "accepts a trailing slash, numeric version and query string", %{
+      notification: notification
+    } do
+      assert {:ok, _} =
+               MapDiscordWebhook.create(%{
+                 notification_id: notification.id,
+                 role: :character,
+                 webhook_url: "https://discord.com/api/v10/webhooks/123/tok/?thread_id=9"
+               })
+    end
+
+    test "an explicit nil or blank URL is rejected on create", %{notification: notification} do
+      for url <- [nil, "", "   "] do
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 MapDiscordWebhook.create(%{
+                   notification_id: notification.id,
+                   role: :character,
+                   webhook_url: url
+                 })
+
+        assert Enum.any?(errors, &(Map.get(&1, :field) == :webhook_url))
+      end
+    end
+
+    test "an explicit nil or blank URL is rejected on update but an omitted one is fine", %{
+      notification: notification
+    } do
+      {:ok, hook} =
+        MapDiscordWebhook.create(%{
+          notification_id: notification.id,
+          role: :character,
+          webhook_url: valid_url()
+        })
+
+      for url <- [nil, ""] do
+        assert {:error, _} = MapDiscordWebhook.update(hook, %{webhook_url: url})
+      end
+
+      assert {:ok, %{enabled?: false}} = MapDiscordWebhook.update(hook, %{enabled?: false})
+      assert {:ok, reloaded} = MapDiscordWebhook.by_id(hook.id)
+      assert reloaded.webhook_url == valid_url()
+    end
+
+    test "an overlong URL error does not retain the plaintext", %{notification: notification} do
+      url = "https://discord.com/api/webhooks/123/" <> String.duplicate("s3cr3t", 400)
+
+      assert {:error, error} =
+               MapDiscordWebhook.create(%{
+                 notification_id: notification.id,
+                 role: :character,
+                 webhook_url: url
+               })
+
+      refute inspect(error, limit: :infinity, printable_limit: :infinity) =~ "s3cr3t"
+    end
+  end
+
+  describe "excluded_systems bounds (upstream 4060601f)" do
+    test "rejects zero, negative and beyond-bigint ids", %{map: map} do
+      other = Factory.insert(:map, %{})
+
+      for bad <- [0, -1, 9_223_372_036_854_775_808] do
+        assert {:error, _} =
+                 MapDiscordNotification.create(%{
+                   map_id: other.id,
+                   excluded_systems: [30_000_142, bad]
+                 })
+      end
+
+      {:ok, rec} = MapDiscordNotification.by_map(map.id)
+
+      assert {:error, _} = MapDiscordNotification.update(rec, %{excluded_systems: [0]})
+
+      assert {:ok, %{excluded_systems: [9_223_372_036_854_775_807]}} =
+               MapDiscordNotification.update(rec, %{excluded_systems: [9_223_372_036_854_775_807]})
+    end
+  end
 end

@@ -11,6 +11,10 @@ defmodule WandererApp.Api.MapDiscordNotification do
     domain: WandererApp.Api,
     data_layer: AshPostgres.DataLayer
 
+  # Exclusions reach both integer-based dispatch filters and a PostgreSQL
+  # bigint[] column. Reject invalid IDs before they become storage errors.
+  @max_postgres_bigint 9_223_372_036_854_775_807
+
   postgres do
     repo(WandererApp.Repo)
     table("map_discord_notifications_v1")
@@ -159,6 +163,7 @@ defmodule WandererApp.Api.MapDiscordNotification do
     attribute :excluded_systems, {:array, :integer} do
       default []
       allow_nil? false
+      constraints items: [min: 1, max: @max_postgres_bigint]
     end
 
     attribute :focus_corp_ids, {:array, :integer} do

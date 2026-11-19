@@ -33,6 +33,9 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   # upstream can never fail the write that caches it.
   @max_channel_label_length 128
 
+  # Keep the form predicate consistent with the URL attribute's length limit.
+  @max_webhook_url_length 2000
+
   postgres do
     repo(WandererApp.Repo)
     table("map_discord_webhooks_v1")
@@ -242,6 +245,24 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     end
   end
 
+  changes do
+    # AshCloak's generated argument does not inherit sensitive?. Cast failures
+    # (for example max_length) therefore retain the credential in error.value,
+    # which callers may log even though Ash redacts the enclosing changeset.
+    change fn changeset, _context ->
+      errors =
+        Enum.map(changeset.errors, fn
+          %Ash.Error.Changes.InvalidArgument{field: :webhook_url} = error ->
+            %{error | value: Ash.Helpers.redact(error.value)}
+
+          error ->
+            error
+        end)
+
+      %{changeset | errors: errors}
+    end
+  end
+
   attributes do
     uuid_primary_key :id
 
@@ -253,7 +274,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     attribute :webhook_url, :string do
       allow_nil? false
       sensitive? true
-      constraints max_length: 2000
+      constraints max_length: @max_webhook_url_length
     end
 
     attribute :enabled?, :boolean, default: true, allow_nil?: false
@@ -331,11 +352,26 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   Exposed so the LiveView form can validate before submitting.
   """
   def valid_webhook_url?(url) when is_binary(url) do
-    case URI.parse(url) do
-      %URI{scheme: "https", host: host, path: path} when is_binary(host) and is_binary(path) ->
-        # Hostnames are case-insensitive and `URI.parse/1` returns the host
-        # exactly as typed, so a pasted "https://Discord.com/..." would
-        # otherwise be rejected as not-a-Discord-URL.
+    trimmed = String.trim(url)
+
+    # Control characters are rejected rather than stripped: URI.parse/1 keeps
+    # them inside the path, so ".../api/webhooks/1/abc\ndef" would clear the
+    # segment checks and reach Finch as a request URL. Surrounding whitespace is
+    # tolerated because Ash's :string type trims before the value is stored.
+    String.length(trimmed) <= @max_webhook_url_length and
+      not String.match?(trimmed, ~r/[[:cntrl:]]/u) and parsed_webhook_url?(trimmed)
+  end
+
+  def valid_webhook_url?(_), do: false
+
+  defp parsed_webhook_url?(url) do
+    # URI.parse/1 accepts malformed ports; URI.new/1 rejects invalid request
+    # URLs before a saved credential can reach the HTTP client.
+    case URI.new(url) do
+      {:ok, %URI{scheme: "https", host: host, port: 443, userinfo: nil, path: path}}
+      when is_binary(host) and is_binary(path) ->
+        # Hostnames are case-insensitive and URI.new/1 keeps the host as typed,
+        # so a pasted "https://Discord.com/..." must still match the allowlist.
         String.downcase(host) in @discord_hosts and valid_webhook_path?(path)
 
       _ ->
@@ -343,19 +379,10 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     end
   end
 
-  def valid_webhook_url?(_), do: false
-
   defp valid_webhook_path?(path) do
-    case String.split(path, "/", trim: true) do
-      ["api", "webhooks", id, token] ->
-        id != "" and token != ""
-
-      ["api", version, "webhooks", id, token] ->
-        String.starts_with?(version, "v") and id != "" and token != ""
-
-      _ ->
-        false
-    end
+    # Numeric API-version variants and an optional trailing slash are allowed;
+    # query parameters (for example thread_id) are not part of the path.
+    String.match?(path, ~r{\A/api/(?:v[0-9]+/)?webhooks/[0-9]+/[^/]+/?\z})
   end
 
   defmodule ValidateWebhookUrl do
@@ -366,14 +393,23 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     def validate(changeset, _opts, _context) do
       # AshCloak rewrites the encrypted field into a changeset *argument* (the
       # stored attribute is `encrypted_webhook_url`, and `webhook_url` becomes a
-      # calculation). Reading only the attribute yields `%Ash.NotLoaded{}` — not
-      # nil — which fails every validity check and rejects even valid URLs.
-      # Read the argument first so the value being written is what gets checked.
-      case Ash.Changeset.get_argument_or_attribute(changeset, :webhook_url) do
-        nil ->
+      # calculation), so the argument is what carries the value being written.
+      #
+      # Distinguish an omitted update from an explicit nil/blank value: only the
+      # former is a status-only write. Encrypting nil still produces non-null
+      # ciphertext, so a nil that slipped through would bypass the column's
+      # NOT NULL and store an undeliverable credential.
+      case Ash.Changeset.fetch_argument(changeset, :webhook_url) do
+        :error when changeset.action_type == :update ->
           :ok
 
-        url ->
+        argument ->
+          url =
+            case argument do
+              {:ok, value} -> value
+              :error -> nil
+            end
+
           if WandererApp.Api.MapDiscordWebhook.valid_webhook_url?(url) do
             :ok
           else
