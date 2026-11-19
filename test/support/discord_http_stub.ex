@@ -28,7 +28,10 @@ defmodule WandererApp.ExternalEvents.Discord.HttpStub do
 
   defp new_state, do: %{responses: [], by_url: %{}, requests: [], gets: %{}}
 
-  @doc "Queues responses for ANY url, consumed in order. Each is {:ok, status, headers} or {:error, term}."
+  @doc """
+  Queues responses for ANY url, consumed in order. Each is `{:ok, status, headers}`,
+  `{:ok, 429, headers, body}`, `{:error, term}`, or a 2-arity `fn url, body -> response end`.
+  """
   def set_responses(responses), do: Agent.update(@agent, &%{&1 | responses: responses})
 
   @doc """
@@ -65,6 +68,15 @@ defmodule WandererApp.ExternalEvents.Discord.HttpStub do
 
   @impl true
   def post(url, body) do
+    response = take_response(url, body)
+
+    # A scripted function lets a test hold a request in flight (park inside the
+    # fun until the test releases it) so it can change state mid-delivery. It
+    # runs in the caller, not the Agent, so parking cannot block other requests.
+    if is_function(response, 2), do: response.(url, body), else: response
+  end
+
+  defp take_response(url, body) do
     Agent.get_and_update(@agent, fn state ->
       state = %{state | requests: [{url, body} | state.requests]}
 

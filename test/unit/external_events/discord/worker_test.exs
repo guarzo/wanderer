@@ -136,6 +136,36 @@ defmodule WandererApp.ExternalEvents.Discord.WorkerTest do
     assert url == "https://discord.com/api/webhooks/999/newtok"
   end
 
+  test "an outcome for a replaced url never lands on the replacement", %{system: w} do
+    parent = self()
+
+    HttpStub.set_responses([
+      fn _url, _body ->
+        send(parent, {:in_flight, self()})
+
+        receive do
+          :release -> {:ok, 403, []}
+        end
+      end
+    ])
+
+    WorkerSupervisor.deliver(w.id, [message()])
+    assert_receive {:in_flight, request_pid}, 2_000
+
+    replacement = "https://discord.com/api/webhooks/777/replacement-tok"
+    {:ok, _} = MapDiscordWebhook.update(reload(w.id), %{webhook_url: replacement})
+
+    # The 403 is for the OLD endpoint; it must not count against the new one.
+    send(request_pid, :release)
+    sync(w.id)
+
+    after_outcome = reload(w.id)
+    assert after_outcome.webhook_url == replacement
+    assert after_outcome.consecutive_failures == 0
+    assert after_outcome.last_error == nil
+    assert after_outcome.enabled?
+  end
+
   test "drops the event when the webhook was deleted while queued", %{system: w} do
     id = w.id
     :ok = MapDiscordWebhook.destroy(w)

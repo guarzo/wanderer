@@ -647,4 +647,91 @@ defmodule WandererApp.Api.MapDiscordWebhookTest do
                MapDiscordNotification.update(rec, %{excluded_systems: [9_223_372_036_854_775_807]})
     end
   end
+
+  describe "stale delivery outcomes (upstream 4060601f)" do
+    setup %{notification: notification} do
+      {:ok, hook} =
+        MapDiscordWebhook.create(%{
+          notification_id: notification.id,
+          role: :character,
+          webhook_url: valid_url()
+        })
+
+      %{hook: hook}
+    end
+
+    test "replacing the URL resets the failure run", %{hook: hook} do
+      Enum.reduce(1..3, hook, fn _, acc ->
+        {:ok, updated} = MapDiscordWebhook.record_failure(acc, "boom")
+        updated
+      end)
+
+      {:ok, current} = MapDiscordWebhook.by_id(hook.id)
+      assert current.consecutive_failures == 3
+
+      {:ok, replaced} =
+        MapDiscordWebhook.update(current, %{
+          webhook_url: "https://discord.com/api/webhooks/456/REPLACEMENT_TOKEN"
+        })
+
+      assert replaced.consecutive_failures == 0
+      assert replaced.last_error == nil
+      assert replaced.last_error_at == nil
+
+      # A status-only update leaves the run alone.
+      {:ok, failed} = MapDiscordWebhook.record_failure(replaced, "again")
+      {:ok, toggled} = MapDiscordWebhook.update(failed, %{enabled?: true})
+      assert toggled.consecutive_failures == 1
+    end
+
+    for action <- [:record_success, :record_failure, :disable] do
+      test "#{action} rejects an in-flight outcome after URL replacement", %{hook: old} do
+        {:ok, current} =
+          MapDiscordWebhook.update(old, %{
+            webhook_url: "https://discord.com/api/webhooks/456/REPLACEMENT_TOKEN"
+          })
+
+        {:ok, _} = MapDiscordWebhook.record_failure(current, "new endpoint failure")
+        {:ok, before_outcome} = MapDiscordWebhook.by_id(old.id)
+
+        args =
+          if unquote(action) == :record_success, do: [old], else: [old, "old endpoint failure"]
+
+        assert {:error, %Ash.Error.Invalid{errors: errors} = error} =
+                 apply(MapDiscordWebhook, unquote(action), args)
+
+        assert Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+        refute inspect(error) =~ "abcdefTOKEN"
+        refute inspect(error) =~ "REPLACEMENT_TOKEN"
+
+        {:ok, after_outcome} = MapDiscordWebhook.by_id(old.id)
+
+        fields = [
+          :enabled?,
+          :consecutive_failures,
+          :last_error,
+          :last_error_at,
+          :last_delivery_at,
+          :updated_at,
+          :encrypted_webhook_url
+        ]
+
+        assert Map.take(after_outcome, fields) == Map.take(before_outcome, fields)
+        assert after_outcome.consecutive_failures == 1
+      end
+    end
+
+    test "record_failure disables against the committed counter, not a stale copy", %{
+      hook: stale
+    } do
+      Enum.reduce(1..9, stale, fn _, acc ->
+        {:ok, updated} = MapDiscordWebhook.record_failure(acc, "boom")
+        updated
+      end)
+
+      {:ok, updated} = MapDiscordWebhook.record_failure(stale, "tenth")
+      assert updated.consecutive_failures == 10
+      assert updated.enabled? == false
+    end
+  end
 end

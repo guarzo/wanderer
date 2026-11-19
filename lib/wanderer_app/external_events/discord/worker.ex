@@ -218,6 +218,10 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
           # Most recently loaded record, reused for the status write so
           # finishing an event does not re-query what we just read.
           webhook: nil,
+          # Ciphertext of the URL this event's chunks have been sent to. The
+          # status write is filtered on it (see `MapDiscordWebhook`), so an
+          # outcome for a replaced URL can never land on its replacement.
+          sent_cipher: nil,
           deadline: System.monotonic_time(:millisecond) + state.event_deadline_ms
         }
 
@@ -244,13 +248,27 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
         # matters — nothing is sent against a stale record.
         case MapDiscordWebhook.by_id(state.webhook_id) do
           {:ok, webhook} ->
-            state = put_current(state, %{current | webhook: webhook})
+            cond do
+              not webhook.enabled? ->
+                # Disabled while queued — drop the event silently, no status write.
+                drop_current(put_current(state, %{current | webhook: webhook}))
 
-            if webhook.enabled? do
-              do_post(state, webhook)
-            else
-              # Disabled while queued — drop the event silently, no status write.
-              drop_current(state)
+              url_replaced_mid_event?(current, webhook) ->
+                # Earlier chunks went to the previous URL. Their outcome belongs
+                # to that endpoint, not the replacement, and the rest of the
+                # event was queued for the old destination: drop it, no write.
+                Logger.debug("[Discord.Worker] webhook URL replaced mid-event, dropping event")
+                drop_current(state)
+
+              true ->
+                state =
+                  put_current(state, %{
+                    current
+                    | webhook: webhook,
+                      sent_cipher: webhook.encrypted_webhook_url
+                  })
+
+                do_post(state, webhook)
             end
 
           _ ->
@@ -259,6 +277,11 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
         end
     end
   end
+
+  defp url_replaced_mid_event?(%{sent_cipher: nil}, _webhook), do: false
+
+  defp url_replaced_mid_event?(%{sent_cipher: sent}, webhook),
+    do: sent != webhook.encrypted_webhook_url
 
   # Runs the request in a monitored Task so the worker never blocks on the
   # socket. The HTTP client can take up to its 15s receive timeout; blocking
@@ -357,9 +380,11 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   # -- event completion -----------------------------------------------------
 
   # Reuses the record `attempt/1` loaded moments ago rather than re-querying.
-  # The reload that matters for correctness is the one *before the send*; this
-  # is only the status write, and `record_failure` re-reads the counter inside
-  # the resource action anyway, so a slightly stale copy here cannot corrupt it.
+  # That record is exactly what was sent to, which is the point: the resource
+  # filters every outcome write on its encrypted URL, so if the user replaced
+  # the URL in the meantime the write is rejected instead of landing on the
+  # replacement. `record_failure` increments atomically in SQL, so a slightly
+  # stale copy cannot corrupt the counter either.
   # Falls back to a query when no record was loaded (e.g. the deadline expired
   # before the first attempt).
   defp finish(%{current: current} = state, outcome) do
@@ -379,25 +404,37 @@ defmodule WandererApp.ExternalEvents.Discord.Worker do
   end
 
   defp apply_outcome(webhook, :ok) do
-    case MapDiscordWebhook.record_success(webhook) do
-      {:ok, _} -> :ok
-      {:error, reason} -> Logger.warning("[Discord] record_success failed: #{inspect(reason)}")
-    end
+    webhook |> MapDiscordWebhook.record_success() |> log_outcome_write(:record_success)
   end
 
   defp apply_outcome(webhook, {:error, reason, :disable}) do
-    case MapDiscordWebhook.disable(webhook, to_string(reason)) do
-      {:ok, _} -> :ok
-      {:error, err} -> Logger.warning("[Discord] disable failed: #{inspect(err)}")
-    end
+    webhook |> MapDiscordWebhook.disable(to_string(reason)) |> log_outcome_write(:disable)
   end
 
   defp apply_outcome(webhook, {:error, reason, :count}) do
     # record_failure disables at @max_consecutive_failures on the resource side.
-    case MapDiscordWebhook.record_failure(webhook, to_string(reason)) do
-      {:ok, _} -> :ok
-      {:error, err} -> Logger.warning("[Discord] record_failure failed: #{inspect(err)}")
+    webhook
+    |> MapDiscordWebhook.record_failure(to_string(reason))
+    |> log_outcome_write(:record_failure)
+  end
+
+  defp log_outcome_write({:ok, _}, _action), do: :ok
+
+  defp log_outcome_write({:error, %Ash.Error.Invalid{errors: errors} = error}, action) do
+    # A StaleRecord means the URL was replaced after we sent: the outcome
+    # describes the old endpoint and is deliberately discarded.
+    if Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
+      Logger.debug("[Discord] #{action} discarded: webhook URL was replaced during delivery")
+    else
+      Logger.warning("[Discord] #{action} failed: #{inspect(error)}")
     end
+
+    :ok
+  end
+
+  defp log_outcome_write({:error, error}, action) do
+    Logger.warning("[Discord] #{action} failed: #{inspect(error)}")
+    :ok
   end
 
   # -- timing helpers -------------------------------------------------------

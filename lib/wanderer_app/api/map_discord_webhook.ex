@@ -58,9 +58,17 @@ defmodule WandererApp.Api.MapDiscordWebhook do
     define(:by_id, get_by: [:id], action: :read)
     define(:by_notification, action: :by_notification, args: [:notification_id])
     define(:set_enabled, action: :set_enabled)
-    define(:record_success, action: :record_success)
-    define(:record_failure, action: :record_failure, args: [:error])
-    define(:disable, action: :disable, args: [:error])
+    # `exclude_inputs`: AshCloak turns `webhook_url` into an argument of every
+    # action, and a delivery outcome must never be able to rewrite the URL.
+    define(:record_success, action: :record_success, exclude_inputs: [:webhook_url])
+
+    define(:record_failure,
+      action: :record_failure,
+      args: [:error],
+      exclude_inputs: [:webhook_url]
+    )
+
+    define(:disable, action: :disable, args: [:error], exclude_inputs: [:webhook_url])
     define(:cache_channel_info, action: :cache_channel_info)
   end
 
@@ -94,6 +102,26 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       accept [:webhook_url, :enabled?, :mention_targets]
       validate {__MODULE__.ValidateWebhookUrl, []}
       validate {__MODULE__.ValidateMentionTargets, []}
+
+      # A replaced URL is a different endpoint, so the previous one's failure
+      # run must not follow it: a destination sitting at 9 consecutive failures
+      # would otherwise be disabled by the first hiccup against the new webhook,
+      # and would keep displaying the old endpoint's error. AshCloak rewrites the
+      # encrypted field into an argument, so this reads the argument; status-only
+      # updates leave it absent and are untouched.
+      change fn changeset, _ctx ->
+        case Ash.Changeset.get_argument(changeset, :webhook_url) do
+          url when is_binary(url) ->
+            changeset
+            |> Ash.Changeset.change_attribute(:consecutive_failures, 0)
+            |> Ash.Changeset.change_attribute(:last_error, nil)
+            |> Ash.Changeset.change_attribute(:last_error_at, nil)
+
+          _ ->
+            changeset
+        end
+      end
+
       change after_transaction(&__MODULE__.invalidate_cache/3)
     end
 
@@ -180,44 +208,43 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       end
     end
 
-    # Increments the counter from the value re-read inside the change rather
-    # than from a possibly-stale in-memory copy, and disables this destination
-    # once the run reaches @max_consecutive_failures.
+    # Increments the counter and disables this destination once the run reaches
+    # @max_consecutive_failures.
     #
-    # This read-then-write is NOT atomic across nodes: two concurrent deliveries
-    # on separate nodes could each read N and write N+1, losing an increment.
-    # That is safe under the single-delivery-node assumption documented in the
-    # spec (one worker per webhook, one node), and the failure mode is benign — a
-    # webhook disables slightly later than it should. If the app is ever
-    # clustered, replace this with an atomic SQL increment.
+    # Both writes are atomic SQL expressions, so the increment is a single
+    # UPDATE with no preceding read: concurrent deliveries (including on other
+    # nodes) cannot lose an increment, and the threshold is evaluated against the
+    # row's committed value rather than a possibly-stale in-memory copy.
+    #
+    # `require_atomic? false` remains because :last_error is set from an
+    # argument in a regular change; the two counter writes are atomic regardless.
     update :record_failure do
       require_atomic? false
       accept []
       argument :error, :string, allow_nil?: false
 
+      change atomic_update(:consecutive_failures, expr(consecutive_failures + 1))
+
+      # Evaluated in SQL as a CASE over the pre-update value, so it agrees with
+      # the increment above even if another delivery commits in between.
+      change atomic_update(
+               :enabled?,
+               expr(
+                 if consecutive_failures + 1 >= ^@max_consecutive_failures do
+                   false
+                 else
+                   enabled?
+                 end
+               )
+             )
+
       change fn changeset, _ctx ->
-        current =
-          case Ash.get(__MODULE__, changeset.data.id) do
-            {:ok, fresh} -> fresh.consecutive_failures || 0
-            _ -> Ash.Changeset.get_data(changeset, :consecutive_failures) || 0
-          end
-
-        next = current + 1
-
-        changeset =
-          changeset
-          |> Ash.Changeset.change_attribute(:consecutive_failures, next)
-          |> Ash.Changeset.change_attribute(
-            :last_error,
-            changeset |> Ash.Changeset.get_argument(:error) |> String.slice(0, @max_error_length)
-          )
-          |> Ash.Changeset.change_attribute(:last_error_at, DateTime.utc_now())
-
-        if next >= @max_consecutive_failures do
-          Ash.Changeset.change_attribute(changeset, :enabled?, false)
-        else
-          changeset
-        end
+        changeset
+        |> Ash.Changeset.change_attribute(
+          :last_error,
+          changeset |> Ash.Changeset.get_argument(:error) |> String.slice(0, @max_error_length)
+        )
+        |> Ash.Changeset.change_attribute(:last_error_at, DateTime.utc_now())
       end
 
       change after_transaction(&__MODULE__.invalidate_cache/3)
@@ -246,6 +273,21 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   end
 
   changes do
+    # Ciphertext is stable across status writes but changes whenever the URL is
+    # replaced. Match it in the SQL UPDATE so an in-flight outcome for the old
+    # endpoint cannot affect the replacement (it fails with a StaleRecord error
+    # instead). Unlike updated_at locking, this still permits concurrent failure
+    # increments for the same endpoint.
+    change fn changeset, _context ->
+      if changeset.action.name in [:record_success, :record_failure, :disable] do
+        Ash.Changeset.filter(changeset,
+          encrypted_webhook_url: changeset.data.encrypted_webhook_url
+        )
+      else
+        changeset
+      end
+    end
+
     # AshCloak's generated argument does not inherit sensitive?. Cast failures
     # (for example max_length) therefore retain the credential in error.value,
     # which callers may log even though Ash redacts the enclosing changeset.
