@@ -178,6 +178,8 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       change set_attribute(:consecutive_failures, 0)
       change set_attribute(:last_error, nil)
       change set_attribute(:last_error_at, nil)
+
+      change after_transaction(&__MODULE__.broadcast_status/3)
     end
 
     # Writes back what `ChannelInfo` resolved from Discord, so the settings tab
@@ -257,6 +259,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       end
 
       change after_transaction(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.broadcast_status/3)
     end
 
     # Immediate disable, used only for a 404 (webhook deleted upstream, will
@@ -278,6 +281,7 @@ defmodule WandererApp.Api.MapDiscordWebhook do
       end
 
       change after_transaction(&__MODULE__.invalidate_cache/3)
+      change after_transaction(&__MODULE__.broadcast_status/3)
     end
   end
 
@@ -514,6 +518,31 @@ defmodule WandererApp.Api.MapDiscordWebhook do
   end
 
   def invalidate_cache(_changeset, other, _context), do: other
+
+  # Pushes a delivery outcome to anyone watching the map's settings tab.
+  #
+  # after_transaction for the same reason as `invalidate_cache/3`: a subscriber
+  # that reacts to an after_action broadcast re-reads the row before the commit
+  # and renders the old status. Only wired to the three outcome actions - and
+  # only a committed write reaches here, so a rejected stale outcome (which
+  # returns an error) never announces a change that did not happen.
+  @doc false
+  def broadcast_status(_changeset, {:ok, record} = result, _context) do
+    case Ash.get(WandererApp.Api.MapDiscordNotification, record.notification_id) do
+      {:ok, notification} ->
+        WandererApp.Api.MapDiscordNotification.broadcast_status(notification.map_id)
+
+      _ ->
+        :ok
+    end
+
+    result
+  rescue
+    # A failed push must not fail the outcome write that already committed.
+    _ -> {:ok, record}
+  end
+
+  def broadcast_status(_changeset, other, _context), do: other
 
   @doc false
   def after_destroy(_changeset, {:ok, record}, _context) do

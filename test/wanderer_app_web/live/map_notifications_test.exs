@@ -13,6 +13,20 @@ defmodule WandererAppWeb.MapNotificationsTest do
   alias WandererAppWeb.Factory
 
   setup %{conn: conn} do
+    # `config/test.exs` ships `webhooks_enabled: false`, and the Notifications
+    # tab (and the live status subscription) only exist when that server-wide
+    # flag is on, so without this every test here would be asserting against a
+    # tab that does not exist. Same shape as upstream's version of this file.
+    original = Application.get_env(:wanderer_app, :external_events, [])
+
+    Application.put_env(
+      :wanderer_app,
+      :external_events,
+      Keyword.put(original, :webhooks_enabled, true)
+    )
+
+    on_exit(fn -> Application.put_env(:wanderer_app, :external_events, original) end)
+
     # `Api.Map.owner_id` points at a CHARACTER, not a user, and
     # `Factory.create_map/1` passes `owner_id` straight through. Passing a user
     # id here would fail the foreign key.
@@ -594,8 +608,11 @@ defmodule WandererAppWeb.MapNotificationsTest do
     # name rather than requiring the user to know id 30000142. The region
     # suffix is produced only by this component's option formatter.
     assert render(view) =~ "Jita (The Forge)"
-    # And assert we did NOT get the parent's ACL options instead.
-    refute render(view) =~ "access list"
+    # And assert we did NOT get the parent's ACL options instead. Scoped to the
+    # picker: the maps list behind the dialog legitimately renders "No access
+    # lists" on its cards, so a page-wide match says nothing about the dropdown.
+    refute view |> element("#excluded_system_live_select_component") |> render() =~
+             "access list"
   end
 
   test "excluded systems can be added and removed", %{conn: conn, map: map} do
@@ -2181,6 +2198,98 @@ defmodule WandererAppWeb.MapNotificationsTest do
 
       assert has_element?(view, "#rally-mentions", "Rally-Guild-FC")
       refute has_element?(view, "#rally-mentions", "Route-Guild-Officer")
+    end
+  end
+
+  # Delivery outcomes are written by the worker with no LiveView involved; the
+  # settings page learns of them through the map's status topic (upstream
+  # 38b773e9's live status push, mapped onto per-webhook rows).
+  describe "live delivery status" do
+    setup %{conn: conn, map: map} do
+      rec = notification_with_webhooks(map, [:system])
+      view = open_notifications(conn, map)
+      %{view: view, rec: rec, hook: system_webhook(rec)}
+    end
+
+    defp settled(view) do
+      # Messages are delivered asynchronously: wait for the LiveView to drain
+      # its mailbox, then for the component's send_update to land.
+      _ = :sys.get_state(view.pid)
+      render(view)
+    end
+
+    defp subscribers(topic) do
+      WandererApp.PubSub |> Registry.lookup(topic) |> Enum.map(&elem(&1, 0))
+    end
+
+    test "status_topic/1 is per map", %{rec: rec} do
+      assert MapDiscordNotification.status_topic(rec.map_id) ==
+               "discord_notification_status:#{rec.map_id}"
+    end
+
+    test "settings page subscribes to the map's status topic", %{view: view, rec: rec} do
+      assert view.pid in subscribers(MapDiscordNotification.status_topic(rec.map_id))
+    end
+
+    # `Last delivered:` only renders inside the open edit form, so a success is
+    # observed here as the failure banner it clears.
+    test "record_success clears a shown error without remounting", %{view: view, hook: hook} do
+      {:ok, failed} = MapDiscordWebhook.record_failure(hook, "502 Bad Gateway")
+      assert settled(view) =~ "Last error: 502 Bad Gateway"
+
+      {:ok, _} = MapDiscordWebhook.record_success(failed)
+
+      refute settled(view) =~ "Last error:"
+    end
+
+    test "record_failure surfaces the error and failure count", %{view: view, hook: hook} do
+      refute render(view) =~ "Last error:"
+
+      {:ok, _} = MapDiscordWebhook.record_failure(hook, "502 Bad Gateway")
+
+      html = settled(view)
+      assert html =~ "Last error: 502 Bad Gateway"
+      assert html =~ "(1 consecutive failures)"
+    end
+
+    test "disable surfaces the error that turned the destination off", %{view: view, hook: hook} do
+      {:ok, _} = MapDiscordWebhook.disable(hook, "404 Not Found")
+
+      assert settled(view) =~ "Last error: 404 Not Found"
+    end
+
+    test "a rejected stale outcome announces nothing", %{view: view, hook: hook} do
+      Phoenix.PubSub.subscribe(WandererApp.PubSub, MapDiscordNotification.status_topic(hook.id))
+
+      {:ok, _} =
+        MapDiscordWebhook.update(hook, %{
+          webhook_url: "https://discord.com/api/webhooks/777/replacement"
+        })
+
+      assert {:error, _} = MapDiscordWebhook.record_failure(hook, "old endpoint")
+      refute settled(view) =~ "Last error: old endpoint"
+    end
+
+    test "a status broadcast for another map is ignored", %{view: view, rec: rec} do
+      other = Factory.insert(:map, %{})
+
+      Phoenix.PubSub.broadcast(
+        WandererApp.PubSub,
+        MapDiscordNotification.status_topic(rec.map_id),
+        %{event: :discord_notification_status, map_id: other.id}
+      )
+
+      refute settled(view) =~ "Last error:"
+    end
+
+    test "a refresh leaves an open edit form open", %{view: view, hook: hook} do
+      edit_row(view, :system)
+      assert has_element?(view, "#webhook-form-system")
+
+      {:ok, _} = MapDiscordWebhook.record_failure(hook, "502 Bad Gateway")
+
+      assert settled(view) =~ "Last error: 502 Bad Gateway"
+      assert has_element?(view, "#webhook-form-system")
     end
   end
 end

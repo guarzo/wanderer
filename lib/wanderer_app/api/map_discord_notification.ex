@@ -225,6 +225,31 @@ defmodule WandererApp.Api.MapDiscordNotification do
   #
   # On rollback there is nothing to invalidate: the error result passes through
   # untouched so a failed write cannot evict a still-correct cache entry.
+  @doc """
+  PubSub topic carrying delivery-status changes for a map's Discord destinations.
+
+  Delivery outcomes are written by a webhook's delivery worker, out of band from
+  whoever is looking at the settings tab, so the tab has no other way to learn
+  that a destination has started failing - or has been auto-disabled after a
+  run of consecutive failures. `MapDiscordWebhook` publishes here after every
+  outcome write.
+  """
+  def status_topic(map_id), do: "discord_notification_status:#{map_id}"
+
+  @doc """
+  Publishes a delivery-status change for `map_id` on `status_topic/1`.
+
+  Payload is a plain serialisable map; it deliberately carries no webhook data,
+  only enough for a subscriber to know which map to refresh.
+  """
+  def broadcast_status(map_id) do
+    Phoenix.PubSub.broadcast(
+      WandererApp.PubSub,
+      status_topic(map_id),
+      %{event: :discord_notification_status, map_id: map_id}
+    )
+  end
+
   @doc false
   def invalidate_cache(_changeset, {:ok, record}, _context) do
     WandererApp.ExternalEvents.DiscordDispatcher.invalidate_cache(record.map_id)

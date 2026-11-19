@@ -161,6 +161,27 @@ defmodule WandererAppWeb.MapNotificationsComponent do
   @system_search_error "System search is unavailable right now. Try again in a moment."
 
   @impl true
+  # A delivery outcome landed (pushed by `MapsLive` from the status topic). Only
+  # the destinations' health is reloaded - `last_delivery_at`, `last_error`,
+  # `consecutive_failures` and `enabled?` - so a webhook the worker auto-disabled
+  # shows as such without the operator reopening the tab. The forms, dirty flag
+  # and open sections are left alone: reloading the whole record here would
+  # discard whatever the operator has typed since the tab was opened.
+  #
+  # A message for a different map (one still in flight across a map switch) is
+  # ignored: the component must not adopt state it was not showing.
+  def update(%{refresh_status: true} = assigns, socket) do
+    same_map? = Map.get(assigns, :map_id, socket.assigns[:map_id]) == socket.assigns[:map_id]
+
+    case socket.assigns[:notification] do
+      %{} = notification when same_map? ->
+        {:ok, assign(socket, :webhooks, load_webhooks(notification))}
+
+      _ ->
+        {:ok, socket}
+    end
+  end
+
   def update(%{channel_info_refreshed: true}, socket) do
     # A background channel-identity refresh landed and the cache is now warm.
     # Only the hints are recomputed: the refresh wrote cached identity and
